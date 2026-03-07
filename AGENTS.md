@@ -21,6 +21,10 @@ Use this file as a table of contents, not as an encyclopedia.
   `/Users/maxtheyse/dev/valu-mobile` on branch `newsend3`.
 - Centralize repeated user-facing content definitions instead of duplicating them across screens.
 - For shared help topics, FAQs, and copy blocks used in more than one screen, create a shared helper in `src/lib` and consume it from all screens.
+- Keep changes small and focused when possible.
+- Keep public interfaces stable unless there is a clear reason to change them.
+- Document assumptions near the code that depends on them.
+- Review changes with a focus on regressions.
 
 ## Primary maps
 

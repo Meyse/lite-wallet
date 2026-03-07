@@ -18,6 +18,7 @@ This file applies to frontend work under `src/`.
 - Prefer shared utilities under `src/lib` (for example, `src/lib/utils/*`) that
   accept `i18n.t(...)` and return localized content, then compose per-screen
   variations in one place.
+- Keep error messages actionable.
 
 ## Start points by task
 

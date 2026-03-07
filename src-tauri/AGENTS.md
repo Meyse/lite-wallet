@@ -10,6 +10,13 @@ This file applies to backend work under `src-tauri/`.
 - Keep preflight records session-scoped, single-use, and clear-on-lock.
 - Do not log secret material (seed, WIF, private keys, raw signing payloads).
 - Expose safe, user-facing errors through typed `WalletError` mapping.
+- Validate inputs at boundaries.
+- Fail early on invalid state.
+- Favor deterministic code paths for critical logic.
+- Keep error messages actionable.
+- Keep logs concise, structured, and relevant.
+- Avoid broad catch-all exception handling unless necessary.
+- Add tests for high-risk paths and edge cases.
 
 ## Start points by task
 
