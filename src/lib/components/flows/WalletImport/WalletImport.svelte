@@ -20,9 +20,9 @@
 
   const TOTAL_STEPS = 4;
 
-  /* eslint-disable prefer-const */
+   
   let { initialMethod = 'seed24', onGoHome = () => {} }: WalletImportProps = $props();
-  /* eslint-enable prefer-const */
+   
   const selectedMethod = $derived(initialMethod === 'text' ? 'text' : 'seed24');
 
   let currentStep = $state(1);

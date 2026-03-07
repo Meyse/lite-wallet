@@ -14,9 +14,7 @@
     onSelectMode?: typeof defaultHandler;
   };
 
-  /* eslint-disable prefer-const */
   let { isOpen = $bindable(false), onSelectMode = defaultHandler }: VerusIdGuardSheetProps = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
 
@@ -38,12 +36,12 @@
   <div class="space-y-3">
     <button
       type="button"
-      class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-[#D4313E]/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-[#D4313E]/[0.14]"
+      class="selection-card-button selection-card-button--revoke"
       onclick={() => handleSelect('revoke')}
     >
       <div class="flex items-start gap-3">
         <ShieldXIcon
-          class="mt-0.5 h-7 w-7 shrink-0 text-[#D4313E] opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+          class="selection-card-icon selection-card-icon--lg selection-card-icon--revoke"
           absoluteStrokeWidth
           stroke-linecap="butt"
           aria-hidden="true"
@@ -57,12 +55,12 @@
 
     <button
       type="button"
-      class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-[#4AA658]/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-[#4AA658]/[0.14]"
+      class="selection-card-button selection-card-button--recover"
       onclick={() => handleSelect('recover')}
     >
       <div class="flex items-start gap-3">
         <ShieldCheckIcon
-          class="mt-0.5 h-7 w-7 shrink-0 text-[#4AA658] opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+          class="selection-card-icon selection-card-icon--lg selection-card-icon--recover"
           absoluteStrokeWidth
           stroke-linecap="butt"
           aria-hidden="true"

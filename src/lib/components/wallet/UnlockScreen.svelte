@@ -205,7 +205,7 @@
 </script>
 
 <main class="bg-background relative flex min-h-screen overflow-hidden">
-  <div class="absolute inset-0 bg-[#fbfbfb] dark:bg-[#111111]"></div>
+  <div class="bg-app-canvas absolute inset-0"></div>
   <div
     class="absolute top-0 right-0 left-0 z-20 h-11"
     data-tauri-drag-region
@@ -371,12 +371,12 @@
     <div class="space-y-3">
       <button
         type="button"
-        class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+        class="selection-card-button selection-card-button--neutral"
         onclick={handleStartNewWalletFlow}
       >
         <div class="flex items-start gap-3">
           <CirclePlusIcon
-            class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+            class="selection-card-icon"
             absoluteStrokeWidth
             stroke-linecap="butt"
             aria-hidden="true"
@@ -392,12 +392,12 @@
 
       <button
         type="button"
-        class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+        class="selection-card-button selection-card-button--neutral"
         onclick={handleShowImportMethods}
       >
         <div class="flex items-start gap-3">
           <DownloadIcon
-            class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+            class="selection-card-icon"
             absoluteStrokeWidth
             stroke-linecap="butt"
             aria-hidden="true"

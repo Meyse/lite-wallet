@@ -14,7 +14,7 @@
     iconClass?: string;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     ref = $bindable(null),
     value = $bindable(''),
@@ -24,7 +24,7 @@
     class: className = '',
     ...restProps
   }: SearchInputProps = $props();
-  /* eslint-enable prefer-const */
+   
 </script>
 
 <div class={cn('relative', className)}>

@@ -175,7 +175,7 @@ async function main() {
 
   const stats = await validateCatalog(catalogPath, metaPath);
 
-  console.log(
+  console.info(
     `check:verus-coins passed (${stats.totalCoins} coins, ${stats.directLogoHits} direct logo hits, ${stats.generatedIcons} generated fallbacks).`
   );
 }

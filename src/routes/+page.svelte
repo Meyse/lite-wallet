@@ -76,7 +76,7 @@
 
 {#if loading || (wallets.length > 0 && unlocked)}
   <main class="bg-background flex min-h-screen flex-col items-center justify-center">
-    <div class="bg-[#fbfbfb] dark:bg-[#111111] absolute inset-0"></div>
+    <div class="bg-app-canvas absolute inset-0"></div>
     <div class="text-muted-foreground relative z-10">{i18n.t('common.loading')}</div>
   </main>
 {:else if wallets.length === 0}

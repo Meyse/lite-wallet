@@ -44,7 +44,6 @@
   }
 
   // `activeSection` is bindable, so this props object must be mutable.
-  /* eslint-disable prefer-const */
   let {
     activeSection = $bindable('overview' as SectionId),
     walletData,
@@ -56,7 +55,6 @@
     onSelectOverview?: () => void;
     onSelectSettings?: () => void;
   } = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
   const colorHex = $derived(getWalletColorHex(walletData.color));
@@ -69,9 +67,9 @@
     { id: 'address-book', title: i18n.t('wallet.sidebar.addressBook'), icon: BookUserIcon }
   ]);
   const menuButtonClass =
-    'h-8 rounded-md px-2 text-[13px] dark:text-[14px] hover:bg-[#E0E0E0] hover:text-sidebar-accent-foreground data-[state=open]:hover:bg-[#E0E0E0] active:bg-[#D8D8D8] active:text-sidebar-accent-foreground data-[active=true]:bg-[#E5E5E5] data-[active=true]:text-sidebar-accent-foreground data-[active=true]:hover:bg-[#E5E5E5] data-[state=open]:hover:text-sidebar-accent-foreground dark:hover:bg-[#36373B] dark:data-[state=open]:hover:bg-[#36373B] dark:active:bg-[#323338] dark:data-[active=true]:bg-[#303136] dark:data-[active=true]:hover:bg-[#303136]';
+    'h-8 rounded-md px-2 text-[13px] dark:text-[14px] hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-item-hover active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active data-[active=true]:text-sidebar-accent-foreground data-[active=true]:hover:bg-sidebar-item-active data-[state=open]:hover:text-sidebar-accent-foreground';
   const footerButtonClass =
-    'text-sidebar-foreground/65 ring-sidebar-ring cursor-pointer hover:bg-[#E0E0E0] hover:text-sidebar-accent-foreground active:bg-[#D8D8D8] active:text-sidebar-accent-foreground focus-visible:ring-2 flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] dark:text-[14px] font-normal outline-hidden transition-colors dark:hover:bg-[#36373B] dark:active:bg-[#323338]';
+    'text-sidebar-foreground/65 ring-sidebar-ring cursor-pointer hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground focus-visible:ring-2 flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] dark:text-[14px] font-normal outline-hidden transition-colors';
 
   function isMenuItemActive(itemId: MenuItem['id']): boolean {
     if (itemId === 'overview') {
@@ -108,7 +106,7 @@
   }
 </script>
 
-<Sidebar.Root class="[--sidebar:#EDEDED] dark:[--sidebar:#28282B]">
+<Sidebar.Root class="[--sidebar:var(--sidebar-surface)]">
   <Sidebar.Header class="px-3 pt-11 pb-1">
     <div class="flex items-center gap-2 px-2 py-1.5">
       <div

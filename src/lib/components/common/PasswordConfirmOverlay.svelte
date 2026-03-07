@@ -21,7 +21,7 @@
     onCancel?: () => void;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     isOpen = $bindable(false),
     password = $bindable(''),
@@ -34,7 +34,7 @@
     onConfirm = () => {},
     onCancel = () => {}
   }: PasswordConfirmOverlayProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const resolvedConfirmLabel = $derived(confirmLabel || i18n.t('wallet.settings.recovery.revealConfirm'));

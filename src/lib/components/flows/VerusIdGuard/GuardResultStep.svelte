@@ -1,7 +1,7 @@
 <script lang="ts">
   import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-  import { Button } from '$lib/components/ui/button';
+  import { CopyActionButton, type CopyActionState } from '$lib/components/ui/copy-action-button';
   import { i18nStore } from '$lib/i18n';
   import type { GuardFlowMode } from './types';
   import type { GuardSendResult } from '$lib/types/wallet.js';
@@ -10,21 +10,21 @@
     mode: GuardFlowMode;
     sendResult: GuardSendResult | null;
     errorMessage?: string;
-    copyFeedback?: string;
+    copyStatus?: CopyActionState | 'idle';
     onCopyTxid?: () => void;
   };
 
   const defaultHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let {
     mode,
     sendResult,
     errorMessage = '',
-    copyFeedback = '',
+    copyStatus = 'idle',
     onCopyTxid = defaultHandler
   }: GuardResultStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const hasSuccess = $derived(!!sendResult && !errorMessage);
@@ -66,12 +66,15 @@
     <div class="bg-muted/20 border-border/70 space-y-2 rounded-xl border p-4 text-left">
       <p class="text-muted-foreground text-xs">{i18n.t('guard.flow.result.txidLabel')}</p>
       <p class="identifier-text text-sm break-all text-foreground">{sendResult.txid}</p>
-      <div class="flex items-center gap-2 pt-1">
-        <Button variant="outline" size="sm" onclick={onCopyTxid}>
-          {i18n.t('guard.flow.result.copyTxid')}
-        </Button>
-        <p class="text-muted-foreground text-xs" aria-live="polite">{copyFeedback}</p>
-      </div>
+      <CopyActionButton
+        state={copyStatus}
+        variant="outline"
+        size="sm"
+        onclick={onCopyTxid}
+        label={i18n.t('guard.flow.result.copyTxid')}
+        copiedLabel={i18n.t('guard.flow.result.copySuccess')}
+        failedLabel={i18n.t('guard.flow.result.copyFailed')}
+      />
     </div>
   {/if}
 

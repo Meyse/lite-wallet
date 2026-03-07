@@ -30,9 +30,10 @@ This directory is the repository knowledge system of record.
 - Identity guard signed-out UX spec:
   [`./product-specs/identity-guard-signed-out-flow.md`](./product-specs/identity-guard-signed-out-flow.md)
 - UI component matrix: [`./ui-component-matrix.md`](./ui-component-matrix.md)
-- Wallet activation source-of-truth:
-  wallet-scoped active assets are persisted per account + network and drive
-  both Add Asset state and chain scope availability.
+- UI style governance: [`./ui-style-governance.md`](./ui-style-governance.md)
+- Wallet activation source-of-truth: wallet-scoped active assets are persisted
+  per account + network and drive both Add Asset state and chain scope
+  availability.
 
 ## Ownership and freshness
 

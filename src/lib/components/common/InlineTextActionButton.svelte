@@ -7,7 +7,7 @@
     children?: Snippet;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     class: className = '',
     type = 'button',
@@ -15,7 +15,7 @@
     children,
     ...restProps
   }: InlineTextActionButtonProps = $props();
-  /* eslint-enable prefer-const */
+   
 </script>
 
 <button

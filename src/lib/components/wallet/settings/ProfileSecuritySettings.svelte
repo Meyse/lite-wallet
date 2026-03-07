@@ -17,7 +17,7 @@
     onBack(): void;
     autoLockMinutes: AutoLockMinutes;
     autoLockOptions: readonly AutoLockMinutes[];
-    // eslint-disable-next-line no-unused-vars
+     
     onSetAutoLockMinutes: (minutes: AutoLockMinutes) => void;
     onOpenRecovery(): void;
   };

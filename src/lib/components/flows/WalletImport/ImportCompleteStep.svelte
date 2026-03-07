@@ -9,9 +9,9 @@
     openError?: string;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { method = 'seed24', isOpening = false, openError = '' }: ImportCompleteStepProps = $props();
-  /* eslint-enable prefer-const */
+   
   const i18n = $derived($i18nStore);
 </script>
 

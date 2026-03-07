@@ -17,14 +17,12 @@
     onBack?: (() => void) | null;
   };
 
-  /* eslint-disable prefer-const */
   let {
     title = '',
     showHeader = true,
     onSelect = defaultOnSelect,
     onBack = null
   }: ImportMethodListProps = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
   const resolvedTitle = $derived(title || i18n.t('unlock.importMethods.title'));
@@ -51,12 +49,12 @@
   <div class="{showHeader ? 'mt-5' : ''} space-y-3">
     <button
       type="button"
-      class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+      class="selection-card-button selection-card-button--neutral"
       onclick={() => onSelect('seed24')}
     >
       <div class="flex items-start gap-3">
         <BookOpenIcon
-          class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+          class="selection-card-icon"
           absoluteStrokeWidth
           stroke-linecap="butt"
           aria-hidden="true"
@@ -72,12 +70,12 @@
 
     <button
       type="button"
-      class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+      class="selection-card-button selection-card-button--neutral"
       onclick={() => onSelect('text')}
     >
       <div class="flex items-start gap-3">
         <SquarePenIcon
-          class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+          class="selection-card-icon"
           absoluteStrokeWidth
           stroke-linecap="butt"
           aria-hidden="true"

@@ -4,16 +4,15 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import CheckIcon from '@lucide/svelte/icons/check';
   import CheckCircle2Icon from '@lucide/svelte/icons/check-circle-2';
   import BookUserIcon from '@lucide/svelte/icons/book-user';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import InfoIcon from '@lucide/svelte/icons/info';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import UserRoundIcon from '@lucide/svelte/icons/user-round';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import * as Card from '$lib/components/ui/card';
@@ -36,6 +35,7 @@
   import { settingsStore } from '$lib/stores/settings.js';
   import { transactionStore } from '$lib/stores/transactions.js';
   import { addressBookStore, upsertAddressBookContact } from '$lib/stores/addressBook.js';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { formatFiatAmount, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
   import * as addressBookService from '$lib/services/addressBookService.js';
   import {
@@ -159,9 +159,9 @@
   const VETH_SYSTEM_ID = 'i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X';
   const MAX_TRANSFER_AMOUNT_FRACTION_DIGITS = 8;
 
-  /* eslint-disable prefer-const */
+   
   let { entryIntent, entryContext = null, onClose = defaultClose }: TransferWizardProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const coins = $derived($coinsStore);
@@ -275,8 +275,8 @@
   let saveRecipientError = $state('');
   let savingRecipient = $state(false);
   let savedRecipientOnSuccess = $state(false);
-  let copiedSuccessField = $state<'recipient' | 'txid' | null>(null);
-  let copiedSuccessFieldTimer: ReturnType<typeof setTimeout> | null = null;
+  const copiedSuccessFieldState = new TimedValueState<'recipient' | 'txid'>();
+  const copiedSuccessField = $derived(copiedSuccessFieldState.current);
 
   const selectedCoin = $derived(selectedCoinOption?.coin ?? null);
 
@@ -1868,10 +1868,7 @@
       disposed = true;
       clearInterval(tickInterval);
       if (unlistenTxSendProgress) unlistenTxSendProgress();
-      if (copiedSuccessFieldTimer) {
-        clearTimeout(copiedSuccessFieldTimer);
-        copiedSuccessFieldTimer = null;
-      }
+      copiedSuccessFieldState.destroy();
     };
   });
 
@@ -1935,32 +1932,11 @@
   }
 
   async function copySuccessFieldValue(value: string, field: 'recipient' | 'txid') {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-
-    const clipboard = globalThis.navigator?.clipboard;
-    if (!clipboard) {
-      copiedSuccessField = null;
+    if (await writeClipboardText(value)) {
+      copiedSuccessFieldState.set(field, 1800);
       return;
     }
-
-    try {
-      await clipboard.writeText(trimmed);
-      copiedSuccessField = field;
-      if (copiedSuccessFieldTimer) {
-        clearTimeout(copiedSuccessFieldTimer);
-      }
-      copiedSuccessFieldTimer = setTimeout(() => {
-        copiedSuccessField = null;
-        copiedSuccessFieldTimer = null;
-      }, 1800);
-    } catch {
-      copiedSuccessField = null;
-      if (copiedSuccessFieldTimer) {
-        clearTimeout(copiedSuccessFieldTimer);
-        copiedSuccessFieldTimer = null;
-      }
-    }
+    copiedSuccessFieldState.clear();
   }
 
   function mapAddressBookError(error: unknown): string {
@@ -3969,19 +3945,16 @@
                           <p class="identifier-text truncate text-[13px] font-medium">{successRecipientAddress}</p>
                         {/if}
                       </div>
-                      <button
-                        type="button"
-                        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+                      <CopyButton
+                        copied={copiedSuccessField === 'recipient'}
+                        size="xs"
+                        class="mt-0.5"
+                        iconClass="size-3"
+                        copiedIconClass="size-3 text-emerald-600 dark:text-emerald-400"
                         onclick={() => copySuccessFieldValue(successRecipientFullAddress, 'recipient')}
                         title={i18n.t('wallet.receive.copy')}
                         aria-label={i18n.t('wallet.receive.copy')}
-                      >
-                        {#if copiedSuccessField === 'recipient'}
-                          <CheckIcon class="size-3 text-emerald-600 dark:text-emerald-400" />
-                        {:else}
-                          <CopyIcon class="size-3" />
-                        {/if}
-                      </button>
+                      />
                     </div>
                   </dd>
                 </div>
@@ -3990,19 +3963,16 @@
                   <dd class="min-w-0 flex-1">
                     <div class="flex items-start justify-end gap-1.5">
                       <p class="identifier-text min-w-0 text-right text-[11px] leading-5 break-all">{successTxid}</p>
-                      <button
-                        type="button"
-                        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+                      <CopyButton
+                        copied={copiedSuccessField === 'txid'}
+                        size="xs"
+                        class="mt-0.5"
+                        iconClass="size-3"
+                        copiedIconClass="size-3 text-emerald-600 dark:text-emerald-400"
                         onclick={() => copySuccessFieldValue(successTxid, 'txid')}
                         title={i18n.t('wallet.receive.copy')}
                         aria-label={i18n.t('wallet.receive.copy')}
-                      >
-                        {#if copiedSuccessField === 'txid'}
-                          <CheckIcon class="size-3 text-emerald-600 dark:text-emerald-400" />
-                        {:else}
-                          <CopyIcon class="size-3" />
-                        {/if}
-                      </button>
+                      />
                     </div>
                   </dd>
                 </div>

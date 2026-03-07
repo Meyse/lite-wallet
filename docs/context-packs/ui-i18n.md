@@ -22,6 +22,7 @@ Read this before changing user-facing copy or wallet UI structure.
 - `src/lib/components/wallet/UnlockScreen.svelte`
 - `src/lib/components/wallet/WalletLayout.svelte`
 - `src/lib/components/wallet/sections/*`
+- `docs/ui-style-governance.md`
 
 ## Verification checklist
 

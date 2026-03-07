@@ -3,7 +3,7 @@
  * No tx hex or signing data in context; preflight_id only for send.
  */
 
-import { setup, assign, fromPromise } from 'xstate';
+import { assign, fromPromise, setup } from 'xstate';
 import * as txService from '$lib/services/txService.js';
 import type { PreflightParams, PreflightResult, SendResult } from '$lib/types/wallet.js';
 
@@ -19,11 +19,17 @@ type TxEvent =
   | { type: 'CONFIRM' }
   | { type: 'RESET' };
 
-const preflightActor = fromPromise(async ({ input }: { input: PreflightParams }) => {
+const preflightActor = fromPromise(async ({ input }: { input: PreflightParams | null }) => {
+  if (!input) {
+    throw new Error('Missing preflight params');
+  }
   return txService.preflightSend(input);
 });
 
-const sendActor = fromPromise(async ({ input }: { input: { preflightId: string } }) => {
+const sendActor = fromPromise(async ({ input }: { input: { preflightId: string } | null }) => {
+  if (!input?.preflightId) {
+    throw new Error('Missing preflight id');
+  }
   return txService.sendTransaction({ preflightId: input.preflightId });
 });
 
@@ -60,7 +66,7 @@ export const txMachine = setup({
     preflighting: {
       invoke: {
         src: 'preflight',
-        input: ({ context }) => context.params!,
+        input: ({ context }) => context.params,
         onDone: {
           target: 'confirming',
           actions: assign({ preflightResult: ({ event }) => event.output })
@@ -82,7 +88,8 @@ export const txMachine = setup({
     sending: {
       invoke: {
         src: 'send',
-        input: ({ context }) => ({ preflightId: context.preflightResult!.preflightId }),
+        input: ({ context }) =>
+          context.preflightResult ? { preflightId: context.preflightResult.preflightId } : null,
         onDone: {
           target: 'success',
           actions: assign({ sendResult: ({ event }) => event.output })

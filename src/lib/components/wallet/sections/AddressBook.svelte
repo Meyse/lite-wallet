@@ -1,18 +1,18 @@
 <script lang="ts">
   import BookUserIcon from '@lucide/svelte/icons/book-user';
-  import CheckIcon from '@lucide/svelte/icons/check';
   import CirclePlusIcon from '@lucide/svelte/icons/circle-plus';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { addressBookStore, removeAddressBookContact, upsertAddressBookContact } from '$lib/stores/addressBook';
   import * as addressBookService from '$lib/services/addressBookService';
   import type { AddressBookContact, AddressEndpointKind } from '$lib/types/addressBook';
@@ -44,7 +44,8 @@
 
   let showDeleteDialog = $state(false);
   let deleting = $state(false);
-  let copiedEndpointId = $state<string | null>(null);
+  const copiedEndpointState = new TimedValueState<string>();
+  const copiedEndpointId = $derived(copiedEndpointState.current);
 
   const ETH_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
   const ZS_MAINNET_ADDRESS_PATTERN = /^zs[0-9a-z]{60,140}$/i;
@@ -321,15 +322,11 @@
   }
 
   async function copyAddress(address: string, endpointId: string) {
-    try {
-      await globalThis.navigator.clipboard.writeText(address);
-      copiedEndpointId = endpointId;
-      setTimeout(() => {
-        if (copiedEndpointId === endpointId) copiedEndpointId = null;
-      }, 1800);
-    } catch {
-      copiedEndpointId = null;
+    if (await writeClipboardText(address)) {
+      copiedEndpointState.set(endpointId, 1800);
+      return;
     }
+    copiedEndpointState.clear();
   }
 </script>
 
@@ -504,19 +501,14 @@
                     {endpointBadgeLabel(endpoint.kind)}
                   </span>
                   <p class="identifier-text min-w-0 flex-1 break-all text-sm leading-6">{endpoint.address}</p>
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-3 pl-1 h-8 w-8 shrink-0 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
+                  <CopyButton
+                    copied={copiedEndpointId === endpoint.id}
+                    size="sm"
+                    class="-mr-3 pl-1"
                     onclick={() => copyAddress(endpoint.address, endpoint.id)}
                     title={i18n.t('wallet.receive.copy')}
                     aria-label={i18n.t('wallet.receive.copy')}
-                  >
-                    {#if copiedEndpointId === endpoint.id}
-                      <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-400" />
-                    {:else}
-                      <CopyIcon class="size-4" />
-                    {/if}
-                  </button>
+                  />
                 </div>
               </div>
             {/each}

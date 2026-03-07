@@ -14,9 +14,9 @@
 
   const defaultCloseHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let { entryContext = null, onClose = defaultCloseHandler }: ConversionsProps = $props();
-  /* eslint-enable prefer-const */
+   
 </script>
 
 <TransferWizard entryIntent="convert" {entryContext} {onClose} />

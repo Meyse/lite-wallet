@@ -264,7 +264,6 @@
       <VerifyStep
         seedPhrase={seedPhrase}
         verificationIndices={verificationIndices}
-        onVerified={nextStep}
         onSetupVerification={(indices: number[]) => {
           verificationIndices = indices;
         }}

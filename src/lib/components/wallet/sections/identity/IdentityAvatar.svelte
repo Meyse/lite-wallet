@@ -1,26 +1,11 @@
 <script lang="ts">
+  import { pickIdentityAvatarGradient } from '$lib/styles/identityAvatarGradients';
+
   type IdentityAvatarProps = {
     seed: string;
     label: string;
     class?: string;
   };
-
-  const gradients = [
-    ['#2563EB', '#0891B2'],
-    ['#2563EB', '#4F46E5'],
-    ['#0F766E', '#2563EB'],
-    ['#1D4ED8', '#0E7490'],
-    ['#0EA5E9', '#1D4ED8'],
-    ['#1E3A8A', '#0284C7']
-  ] as const;
-
-  function hashSeed(value: string): number {
-    let hash = 0;
-    for (const char of value.trim().toLowerCase()) {
-      hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    }
-    return hash;
-  }
 
   function deriveInitials(value: string): string {
     const normalized = value.replace(/@/g, '').trim();
@@ -34,11 +19,9 @@
     return normalized.slice(0, 2).toUpperCase();
   }
 
-  /* eslint-disable prefer-const */
   let { seed, label, class: className = '' }: IdentityAvatarProps = $props();
-  /* eslint-enable prefer-const */
 
-  const gradient = $derived(gradients[hashSeed(seed) % gradients.length]);
+  const gradient = $derived(pickIdentityAvatarGradient(seed));
   const initials = $derived(deriveInitials(label));
 </script>
 

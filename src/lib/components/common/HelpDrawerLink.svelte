@@ -25,7 +25,7 @@
     topics: Array<HelpTopic>;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     linkText,
     title,
@@ -37,7 +37,7 @@
     content: HelpContent;
     class?: string;
   } = $props();
-  /* eslint-enable prefer-const */
+   
 
   let isOpen = $state(false);
 </script>

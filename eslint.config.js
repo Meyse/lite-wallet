@@ -44,30 +44,6 @@ export default [
     },
   },
 
-  // Svelte files
-  {
-    files: ['**/*.svelte'],
-    languageOptions: {
-      parser: svelteParser,
-      parserOptions: {
-        parser: tsparser,
-        project: './tsconfig.json',
-        extraFileExtensions: ['.svelte'],
-      },
-    },
-    plugins: {
-      svelte,
-      '@typescript-eslint': tseslint,
-    },
-    rules: {
-      ...svelte.configs.recommended.rules,
-      'svelte/no-unused-svelte-ignore': 'error',
-      'svelte/no-useless-mustaches': 'warn',
-      // Allow let for Svelte props (they are reactive assignments)
-      'prefer-const': 'off',
-    },
-  },
-
   // All JavaScript/TypeScript files
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx,svelte}'],
@@ -89,6 +65,15 @@ export default [
         // Tauri globals
         __TAURI__: 'readonly',
         __TAURI_METADATA__: 'readonly',
+
+        // Svelte 5 rune globals used in .svelte.ts helpers
+        $state: 'readonly',
+        $derived: 'readonly',
+        $effect: 'readonly',
+        $props: 'readonly',
+        $bindable: 'readonly',
+        $inspect: 'readonly',
+        $host: 'readonly',
       },
     },
     rules: {
@@ -124,6 +109,52 @@ export default [
           ignoreDeclarationSort: true,
         },
       ],
+    },
+  },
+
+  // Feature code should consume local wrappers, not Bits UI primitives directly.
+  {
+    files: ['src/**/*.{ts,svelte}'],
+    ignores: ['src/lib/components/ui/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'bits-ui',
+              message:
+                'Import Bits UI primitives only inside src/lib/components/ui. Feature code should use local wrappers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Svelte files
+  {
+    files: ['**/*.svelte'],
+    languageOptions: {
+      parser: svelteParser,
+      parserOptions: {
+        parser: tsparser,
+        project: './tsconfig.json',
+        extraFileExtensions: ['.svelte'],
+      },
+    },
+    plugins: {
+      svelte,
+      '@typescript-eslint': tseslint,
+    },
+    rules: {
+      ...svelte.configs.recommended.rules,
+      // Core no-unused-vars does not understand Svelte 5 runes and snippets.
+      'no-unused-vars': 'off',
+      // Allow let for Svelte props because they can participate in bindings and runes.
+      'prefer-const': 'off',
+      'svelte/no-unused-svelte-ignore': 'error',
+      'svelte/no-useless-mustaches': 'warn',
     },
   },
 

@@ -23,13 +23,13 @@
     allowManualLinkEntry?: boolean;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     isOpen = $bindable(false),
     onLinkedChange = noop,
     allowManualLinkEntry = false
   }: LinkIdentitySheetProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
 

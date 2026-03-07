@@ -7,6 +7,8 @@
   import { onMount } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { Button } from '$lib/components/ui/button';
+  import { Label } from '$lib/components/ui/label';
+  import { Textarea } from '$lib/components/ui/textarea';
   import { i18nStore } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService';
   import type { WalletNetwork } from '$lib/types/wallet';
@@ -191,15 +193,15 @@
             </Button>
 
             <div class="space-y-2 rounded-lg p-3">
-              <label for="private-seed-import" class="text-sm font-medium">
+              <Label for="private-seed-import">
                 {i18n.t('wallet.settings.privateVerus.importLabel')}
-              </label>
-              <textarea
+              </Label>
+              <Textarea
                 id="private-seed-import"
-                class="bg-background ring-offset-background focus-visible:ring-ring min-h-[90px] w-full rounded-md px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2"
+                variant="surface"
                 placeholder={i18n.t('wallet.settings.privateVerus.importPlaceholder')}
                 bind:value={importText}
-              ></textarea>
+              ></Textarea>
               <Button
                 variant="secondary"
                 class="justify-start"

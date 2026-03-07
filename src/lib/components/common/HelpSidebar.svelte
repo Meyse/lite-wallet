@@ -30,7 +30,7 @@
     topics: Array<HelpTopic>;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     isOpen = $bindable(false),
     title,
@@ -40,7 +40,7 @@
     title: string;
     content: HelpContent;
   } = $props();
-  /* eslint-enable prefer-const */
+   
 
   const topics = $derived(content.topics);
   const i18n = $derived($i18nStore);

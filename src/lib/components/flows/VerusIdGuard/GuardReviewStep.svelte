@@ -7,9 +7,9 @@
     context: GuardReviewContext;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { context }: GuardReviewStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const actionLabel = $derived(

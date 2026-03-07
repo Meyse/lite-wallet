@@ -16,9 +16,9 @@
     onLink?: typeof noop;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { identity, busy = false, onLink = noop }: LinkIdentityRowProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const displayName = $derived(formatIdentityDisplayName(identity));

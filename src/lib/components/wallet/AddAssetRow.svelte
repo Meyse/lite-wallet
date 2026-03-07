@@ -15,9 +15,9 @@
     onAction?: typeof noop;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { entry, busy = false, onAction = noop }: AddAssetRowProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
 

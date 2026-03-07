@@ -25,7 +25,6 @@
 
   const defaultCloseHandler = () => {};
 
-  /* eslint-disable prefer-const */
   let {
     currentStep,
     totalSteps,
@@ -40,7 +39,6 @@
     footer,
     footerAside
   }: StepperWithAsideLayoutProps = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
   let showMobileAside = $state(false);
@@ -139,7 +137,7 @@
     </div>
 
     {#if showAside && aside}
-      <aside class="hidden min-h-0 overflow-y-auto border-l border-border/70 bg-[#EDEDED] px-3 py-4 dark:bg-[#28282B] md:block">
+      <aside class="bg-sidebar-surface hidden min-h-0 overflow-y-auto border-l border-border/70 px-3 py-4 md:block">
         {@render aside?.()}
       </aside>
     {/if}
@@ -163,7 +161,7 @@
 
         {#if showAside && aside}
           <div
-            class="hidden border-l border-border/70 bg-[#EDEDED] px-3 py-3 dark:bg-[#28282B] md:flex md:items-center"
+            class="bg-sidebar-surface hidden border-l border-border/70 px-3 py-3 md:flex md:items-center"
           >
             {@render footerAside?.()}
           </div>

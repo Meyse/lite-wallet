@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-02-12
+last_reviewed: 2026-03-07
 ---
 
 # shadcn-svelte UI Component Matrix
@@ -38,7 +38,7 @@ repository.
 | Alert                  | High     | Persistent warnings        | Not started | Frontend |
 | Alert Dialog           | High     | Destructive confirmations  | Not started | Frontend |
 | Select                 | High     | Coin/chain selection       | Not started | Frontend |
-| Form + Label           | High     | Send/Import flows          | In progress | Frontend |
+| Form + Label           | High     | Send/Import flows          | Done        | Frontend |
 | Sheet                  | High     | Request/detail panels      | Done        | Frontend |
 | Skeleton               | High     | Loading states             | Available   | Frontend |
 | Dropdown Menu          | High     | Settings/actions           | Done        | Frontend |
@@ -52,7 +52,7 @@ repository.
 | Pagination             | Medium   | Long transaction history   | Not started | Frontend |
 | Hover Card             | Medium   | Rich hover previews        | Not started | Frontend |
 | Toggle / Toggle Group  | Medium   | View modes and filters     | Not started | Frontend |
-| Textarea               | Medium   | Seed phrase import         | Not started | Frontend |
+| Textarea               | Medium   | Seed phrase import         | Done        | Frontend |
 | Context Menu           | Medium   | Power-user actions         | Not started | Frontend |
 | Popover                | Medium   | Quick actions and filters  | Not started | Frontend |
 | Progress               | Medium   | Sync and multi-step flows  | Not started | Frontend |
@@ -71,7 +71,7 @@ repository.
 Run these to add the next highest-value missing primitives:
 
 ```bash
-yarn dlx shadcn-svelte@latest add tabs scroll-area alert alert-dialog select label textarea switch radio-group
+yarn dlx shadcn-svelte@latest add tabs scroll-area alert alert-dialog select switch radio-group
 yarn dlx shadcn-svelte@latest add breadcrumb command table pagination popover progress toggle toggle-group
 ```
 
@@ -79,6 +79,4 @@ yarn dlx shadcn-svelte@latest add breadcrumb command table pagination popover pr
 
 - `src/routes/+layout.svelte`: add global `Toaster` provider.
 - `src/lib/components/wallet/sections/Receive.svelte`: migrate copy feedback to
-  toast and replace raw field markup with UI primitives.
-- `src/lib/components/ui/label/*`: add `Label` primitive for consistent form
-  labeling.
+  toast and finish migrating field markup onto existing UI primitives.

@@ -3,7 +3,7 @@
  * No secrets in context. Uses walletService for unlock/lock.
  */
 
-import { setup, assign, fromPromise } from 'xstate';
+import { assign, fromPromise, setup } from 'xstate';
 import * as walletService from '$lib/services/walletService.js';
 
 interface WalletContext {

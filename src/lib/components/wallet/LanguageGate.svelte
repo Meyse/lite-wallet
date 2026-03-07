@@ -14,7 +14,7 @@
 </script>
 
 <main class="bg-background relative flex min-h-screen overflow-hidden">
-  <div class="absolute inset-0 bg-[#fbfbfb] dark:bg-[#111111]"></div>
+  <div class="bg-app-canvas absolute inset-0"></div>
   <div class="absolute top-0 right-0 left-0 z-20 h-11" data-tauri-drag-region aria-hidden="true"></div>
 
   <div class="relative z-10 flex min-h-screen w-full">

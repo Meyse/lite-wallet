@@ -22,9 +22,9 @@
   import LinkedIdentityCard from './identity/LinkedIdentityCard.svelte';
   import LinkedIdentityRow from './identity/LinkedIdentityRow.svelte';
 
-  /* eslint-disable prefer-const */
+   
   let { walletNetwork = 'mainnet' }: { walletNetwork?: 'mainnet' | 'testnet' } = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
 

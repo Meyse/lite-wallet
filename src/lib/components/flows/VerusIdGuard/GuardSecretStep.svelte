@@ -11,17 +11,17 @@
     seedPhraseInput: string;
     textImportInput: string;
     busy?: boolean;
-    // eslint-disable-next-line no-unused-vars
+     
     onSecretModeChange?: (value: GuardSecretInputMode) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onSeedPhraseInputChange?: (value: string) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onSeedPhraseNormalizedChange?: (value: string) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onSeedPhraseValidityChange?: (valid: boolean) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onTextImportInputChange?: (value: string) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onTextImportValidityChange?: (valid: boolean) => void;
   };
 
@@ -35,7 +35,7 @@
     void value;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     mode,
     secretMode,
@@ -49,7 +49,7 @@
     onTextImportInputChange = defaultStringHandler,
     onTextImportValidityChange = defaultBooleanHandler
   }: GuardSecretStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const actionLabel = $derived(

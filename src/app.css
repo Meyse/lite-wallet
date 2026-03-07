@@ -76,7 +76,7 @@
   --card-foreground: oklch(0.141 0.005 285.823);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: #3165D4;
+  --primary: #3165d4;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
@@ -101,6 +101,16 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.84 0.005 286.26);
   --sidebar-ring: oklch(0.705 0.015 286.067);
+  --app-canvas: #fbfbfb;
+  --sidebar-surface: #ededed;
+  --sidebar-item-hover: #e0e0e0;
+  --sidebar-item-pressed: #d8d8d8;
+  --sidebar-item-active: #e5e5e5;
+  --guard-revoke: #d4313e;
+  --guard-recover: #4aa658;
+  --brand-discord: #5865f2;
+  --brand-discord-foreground: #4752c4;
+  --brand-discord-foreground-hover: #3f49b7;
 }
 
 .dark {
@@ -110,7 +120,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.21 0.006 285.885);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: #3165D4;
+  --primary: #3165d4;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
@@ -135,11 +145,22 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 13%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
+  --app-canvas: #111111;
+  --sidebar-surface: #28282b;
+  --sidebar-item-hover: #36373b;
+  --sidebar-item-pressed: #323338;
+  --sidebar-item-active: #303136;
+  --guard-revoke: #d4313e;
+  --guard-recover: #4aa658;
+  --brand-discord: #5865f2;
+  --brand-discord-foreground: #7b86f8;
+  --brand-discord-foreground-hover: #a0a8ff;
 }
 
 @theme inline {
-  --font-sans: 'Google Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-sans:
+    'Google Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Segoe UI Symbol', 'Noto Color Emoji';
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -175,6 +196,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-app-canvas: var(--app-canvas);
+  --color-sidebar-surface: var(--sidebar-surface);
+  --color-sidebar-item-hover: var(--sidebar-item-hover);
+  --color-sidebar-item-pressed: var(--sidebar-item-pressed);
+  --color-sidebar-item-active: var(--sidebar-item-active);
+  --color-guard-revoke: var(--guard-revoke);
+  --color-guard-recover: var(--guard-recover);
+  --color-brand-discord: var(--brand-discord);
+  --color-brand-discord-foreground: var(--brand-discord-foreground);
+  --color-brand-discord-foreground-hover: var(--brand-discord-foreground-hover);
 }
 
 @layer base {
@@ -202,6 +233,61 @@
   .identifier-text {
     @apply font-mono;
     font-variant-ligatures: none;
+  }
+
+  .overview-scroll-shadow {
+    box-shadow: 0 10px 22px -18px rgba(0, 0, 0, 0.72);
+  }
+
+  .coin-icon-surface--private-muted {
+    filter: grayscale(1) saturate(0.05);
+    opacity: 0.72;
+    -webkit-mask-image: linear-gradient(
+      145deg,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.62) 46%,
+      rgba(0, 0, 0, 0.1) 78%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: linear-gradient(
+      145deg,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.62) 46%,
+      rgba(0, 0, 0, 0.1) 78%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+
+  .selection-card-button {
+    @apply group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55;
+  }
+
+  .selection-card-button--neutral {
+    @apply hover:bg-muted/65 dark:hover:bg-muted/65;
+  }
+
+  .selection-card-button--revoke {
+    @apply hover:bg-guard-revoke/6 dark:hover:bg-guard-revoke/14;
+  }
+
+  .selection-card-button--recover {
+    @apply hover:bg-guard-recover/6 dark:hover:bg-guard-recover/14;
+  }
+
+  .selection-card-icon {
+    @apply mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100;
+  }
+
+  .selection-card-icon--lg {
+    @apply h-7 w-7;
+  }
+
+  .selection-card-icon--revoke {
+    @apply text-guard-revoke;
+  }
+
+  .selection-card-icon--recover {
+    @apply text-guard-recover;
   }
 
   .guard-dock-button {

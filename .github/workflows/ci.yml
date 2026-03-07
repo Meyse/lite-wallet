@@ -48,6 +48,8 @@ jobs:
         run: yarn install --immutable
 
       - name: Lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: yarn lint
 
       - name: Type check

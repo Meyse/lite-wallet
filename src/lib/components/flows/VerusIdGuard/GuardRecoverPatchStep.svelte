@@ -15,13 +15,13 @@
     void next;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     draft,
     busy = false,
     onDraftChange = defaultHandler
   }: GuardRecoverPatchStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
 

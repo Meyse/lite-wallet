@@ -24,7 +24,7 @@
 
   const defaultCloseHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let {
     currentStep,
     totalSteps,
@@ -40,7 +40,7 @@
     footer,
     footerAside
   }: WalletTransferStepperShellProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const asideSnippet = $derived(aside);

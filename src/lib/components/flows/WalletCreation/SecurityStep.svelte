@@ -7,6 +7,7 @@
 
 <script lang="ts">
   import { Checkbox } from '$lib/components/ui/checkbox';
+  import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
 
   let {
@@ -46,19 +47,19 @@
     </ul>
   </div>
 
-  <label
+  <Label
     for="security-acceptance-main"
-    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3"
+    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
   >
     <Checkbox id="security-acceptance-main" bind:checked={securityAccepted} class="mt-0.5" />
     <span class="text-sm leading-5 text-foreground">
       {i18n.t('walletCreation.step3.checkbox')}
     </span>
-  </label>
+  </Label>
 
-  <label
+  <Label
     for="security-private-verus"
-    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3"
+    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
   >
     <Checkbox id="security-private-verus" bind:checked={setupPrivateVerus} class="mt-0.5" />
     <div class="space-y-1">
@@ -69,5 +70,5 @@
         {i18n.t('walletCreation.security.privateVerusHint')}
       </p>
     </div>
-  </label>
+  </Label>
 </div>

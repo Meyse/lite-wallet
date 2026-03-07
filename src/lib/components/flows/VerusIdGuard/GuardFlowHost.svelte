@@ -4,6 +4,7 @@
   import { Spinner } from '$lib/components/ui/spinner';
   import StepperLayout from '$lib/components/shared/StepperLayout.svelte';
   import { i18nStore } from '$lib/i18n';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import {
     beginGuardSession,
     endGuardSession,
@@ -26,10 +27,10 @@
   import type {
     GuardFlowErrorCode,
     GuardFlowMode,
-    GuardSecretInputMode,
     GuardFlowStep,
     GuardRecoverDraft,
-    GuardReviewContext
+    GuardReviewContext,
+    GuardSecretInputMode
   } from './types';
 
   const MAINNET_SYSTEM_ID = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
@@ -43,9 +44,9 @@
 
   const defaultHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let { mode, defaultNetwork = 'mainnet', onClose = defaultHandler }: GuardFlowHostProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   let step = $state<GuardFlowStep>('secret');
   let secretMode = $state<GuardSecretInputMode>('pastePhrase');
@@ -64,15 +65,14 @@
   let busy = $state(false);
   let targetLookupBusy = $state(false);
   let targetErrorShakeNonce = $state(0);
-  let copyFeedback = $state('');
+  const copyFeedbackState = new TimedValueState<'copied' | 'failed'>();
+  const copyStatus = $derived(copyFeedbackState.current ?? 'idle');
   let recoverDraft = $state<GuardRecoverDraft>({
     primaryAddress: '',
     recoveryAuthority: '',
     revocationAuthority: '',
     privateAddress: ''
   });
-
-  let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   const i18n = $derived($i18nStore);
 
@@ -192,11 +192,7 @@
   }
 
   function clearCopyFeedback() {
-    copyFeedback = '';
-    if (copyFeedbackTimer) {
-      clearTimeout(copyFeedbackTimer);
-      copyFeedbackTimer = null;
-    }
+    copyFeedbackState.clear();
   }
 
   function handleSecretModeChange(value: GuardSecretInputMode) {
@@ -472,26 +468,10 @@
   async function handleCopyTxid() {
     if (!sendResult?.txid) return;
 
-    const clipboard = globalThis.navigator?.clipboard;
-    if (!clipboard) {
-      copyFeedback = i18n.t('guard.flow.result.copyFailed');
-      return;
-    }
-
-    try {
-      await clipboard.writeText(sendResult.txid);
-      copyFeedback = i18n.t('guard.flow.result.copySuccess');
-    } catch {
-      copyFeedback = i18n.t('guard.flow.result.copyFailed');
-    }
-
-    if (copyFeedbackTimer) {
-      clearTimeout(copyFeedbackTimer);
-    }
-    copyFeedbackTimer = setTimeout(() => {
-      copyFeedback = '';
-      copyFeedbackTimer = null;
-    }, 2000);
+    const feedbackMessage = (await writeClipboardText(sendResult.txid))
+      ? 'copied'
+      : 'failed';
+    copyFeedbackState.set(feedbackMessage, 2000);
   }
 
   function handleBack() {
@@ -586,7 +566,7 @@
         {mode}
         {sendResult}
         {errorMessage}
-        {copyFeedback}
+        {copyStatus}
         onCopyTxid={handleCopyTxid}
       />
     {/if}

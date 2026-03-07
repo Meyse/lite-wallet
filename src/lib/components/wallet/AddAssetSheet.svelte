@@ -25,9 +25,9 @@
   } from '$lib/stores/addAssetCatalog.js';
   import type { ActiveAssetsState, CoinDefinition, PbaasCandidate, WalletNetwork } from '$lib/types/wallet.js';
 
-  /* eslint-disable prefer-const */
+   
   let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const walletChannels = $derived($walletChannelsStore);

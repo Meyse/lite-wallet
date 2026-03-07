@@ -1,12 +1,13 @@
 <!-- 
   Component: VerifyStep
   Purpose: Complete verify step with 2-column layout + bottom action
-  Last Updated: Added verifyWords() exposure and field completion tracking for parent component
+  Last Updated: Exposes verifyWords() and field completion tracking for parent component
   Security: Validates backup without storing sensitive data locally
 -->
 
 <script lang="ts">
   import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
 
   const i18n = $derived($i18nStore);
@@ -15,16 +16,14 @@
   let {
     seedPhrase = '',
     verificationIndices = [],
-    onVerified = () => {},
     onSetupVerification = (indices: number[]) => {},
-    onFieldsChanged = (filled: boolean) => {} // NEW: callback for field completion state
+    onFieldsChanged = (filled: boolean) => {}
   } = $props();
 
   // Local verification state
   let verificationWords = $state(['', '', '']);
   let verificationErrors = $state([false, false, false]);
   let hasAttempted = $state(false);
-  let isVerified = $state(false);
 
   // Auto-setup verification indices if not provided
   $effect(() => {
@@ -79,11 +78,9 @@
 
     if (!hasErrors) {
       console.info('[WALLET] Seed verification successful');
-      isVerified = true;
       return true;
     } else {
       console.info('[WALLET] Seed verification failed');
-      isVerified = false;
       return false;
     }
   }
@@ -94,7 +91,7 @@
   {#each verificationIndices as wordIndex, i}
     <div class="space-y-1.5">
       <div class="grid grid-cols-[116px_1fr] items-center gap-3">
-        <label
+        <Label
           for="word-{i}"
           class="text-foreground flex items-center gap-2 text-sm font-medium"
         >
@@ -104,7 +101,7 @@
             {wordIndex + 1}
           </span>
           <span>{i18n.t('walletCreation.verify.word', { index: wordIndex + 1 })}</span>
-        </label>
+        </Label>
 
         <Input
           id="word-{i}"
