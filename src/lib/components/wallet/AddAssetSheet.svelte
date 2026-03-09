@@ -5,6 +5,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
+  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import AddAssetRow from '$lib/components/wallet/AddAssetRow.svelte';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
@@ -445,15 +446,13 @@
       <div class="pr-8 pt-4">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold text-foreground">{i18n.t('wallet.addAsset.title')}</h2>
-          <button
-            type="button"
-            class="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
+          <InlineTextActionButton
             onclick={() => {
               view = 'manual';
             }}
           >
             {i18n.t('wallet.addAsset.cantFindTitle')}
-          </button>
+          </InlineTextActionButton>
         </div>
       </div>
     {/if}

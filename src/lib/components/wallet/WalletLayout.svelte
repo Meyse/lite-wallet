@@ -8,6 +8,7 @@
 <script lang="ts">
   import * as Sidebar from '$lib/components/ui/sidebar';
   import GenericRequestImportSheet from '$lib/components/flows/GenericRequest/GenericRequestImportSheet.svelte';
+  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import AppSidebar from './AppSidebar.svelte';
   import Overview from './sections/Overview.svelte';
   import AssetDetails from './sections/AssetDetails.svelte';
@@ -186,9 +187,9 @@
         <div class="mx-6 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <div class="flex items-start justify-between gap-3">
             <p class="break-all">{latestError}</p>
-            <button class="shrink-0 text-xs underline" onclick={dismissWalletError}>
+            <InlineTextActionButton class="shrink-0" onclick={dismissWalletError}>
               {i18n.t('wallet.layout.dismiss')}
-            </button>
+            </InlineTextActionButton>
           </div>
         </div>
       {/if}

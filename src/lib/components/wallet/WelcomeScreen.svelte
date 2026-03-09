@@ -85,7 +85,7 @@
           </Button>
         </div>
 
-        <div class="text-muted-foreground text-xs">
+        <div class="pt-2 text-muted-foreground text-xs">
           <HelpDrawerLink
             linkText={i18n.t('help.link.needHelp')}
             title={i18n.t('help.sheet.title')}

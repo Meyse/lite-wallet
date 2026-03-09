@@ -26,6 +26,9 @@ appearing without first deciding that they are now part of the style.
   `src/lib/components/ui/copy-button`.
 - Standard labeled copy actions should use the local `CopyActionButton`
   primitive in `src/lib/components/ui/copy-action-button`.
+- Standard inline text actions should use the local `InlineTextActionButton`
+  primitive in `src/lib/components/common/InlineTextActionButton.svelte`
+  instead of ad hoc underlined buttons or links.
 
 ## Semantic tokens in `src/app.css`
 

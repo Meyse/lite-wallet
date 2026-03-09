@@ -937,8 +937,8 @@ export const en: Record<string, string> = {
   'shared.home': '← Home',
   'shared.homeConfirm': 'Are you sure you want to go back? Your progress will be lost.',
 
-  'help.link.needHelp': 'Need help?',
-  'help.sheet.title': 'Need help?',
+  'help.link.needHelp': 'Get help',
+  'help.sheet.title': 'Get help',
   'help.topic.walletDifferent': 'How is this wallet different?',
   'help.topic.keepSafe': 'What do I need to keep safe?',
   'help.topic.verusIdGuard': 'What is VerusID Guard?',
@@ -957,7 +957,7 @@ export const en: Record<string, string> = {
     "You don't need to trust a company promise. Your keys stay in your wallet, data is encrypted before storage, and behavior is verifiable.",
   'help.keepSafe.itemsQuestion': 'What exactly must I keep safe?',
   'help.keepSafe.itemsAnswer':
-    'Keep your recovery phrase and private keys safe and private. Whoever has them can control your wallet.',
+    'Keep your recovery phrase (or private keys) safe and private. Whoever has them can control your wallet.',
   'help.keepSafe.phoneQuestion': 'What happens if I switch or lose my device?',
   'help.keepSafe.phoneAnswer':
     'Restore your wallet with the same recovery phrase and your data comes back. No recovery email or backup code is required.',

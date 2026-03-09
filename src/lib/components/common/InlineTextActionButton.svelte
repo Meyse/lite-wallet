@@ -22,7 +22,7 @@
   {type}
   {disabled}
   class={cn(
-    'text-muted-foreground inline-flex items-center gap-1 text-xs underline-offset-4 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50',
+    'text-muted-foreground focus-visible:ring-ring/50 inline-flex items-center gap-1 rounded-sm text-xs transition-colors outline-none hover:text-foreground focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50',
     className
   )}
   {...restProps}

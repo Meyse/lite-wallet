@@ -251,7 +251,7 @@
             <div class="flex items-center justify-between">
               <div class="min-w-0 flex items-center gap-3">
                 <div
-                  class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl leading-none text-white"
+                  class="flex h-12 w-12 shrink-0 cursor-default select-none items-center justify-center rounded-xl text-2xl leading-none text-white"
                   style={`background-color: ${walletColorHex(selectedWallet.color)};`}
                 >
                   {walletEmoji(selectedWallet.emoji)}
@@ -317,7 +317,7 @@
             </Button>
           </div>
 
-          <div class="text-muted-foreground text-xs">
+          <div class="pt-2 text-muted-foreground text-xs">
             <HelpDrawerLink
               linkText={i18n.t('help.link.needHelp')}
               title={i18n.t('help.sheet.title')}
@@ -356,7 +356,7 @@
       >
         <div class="flex items-center gap-3">
           <div
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base text-white"
+            class="flex h-9 w-9 shrink-0 cursor-default select-none items-center justify-center rounded-lg text-base text-white"
             style={`background-color: ${walletColorHex(wallet.color)};`}
           >
             {walletEmoji(wallet.emoji)}

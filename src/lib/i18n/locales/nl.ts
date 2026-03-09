@@ -959,8 +959,8 @@ export const nl: Record<string, string> = {
   'shared.home': '← Home',
   'shared.homeConfirm': 'Weet je zeker dat je terug wilt gaan? Je voortgang gaat verloren.',
 
-  'help.link.needHelp': 'Hulp nodig?',
-  'help.sheet.title': 'Hulp nodig?',
+  'help.link.needHelp': 'Hulp krijgen',
+  'help.sheet.title': 'Hulp krijgen',
   'help.topic.walletDifferent': 'Hoe verschilt deze wallet?',
   'help.topic.keepSafe': 'Wat moet ik veilig bewaren?',
   'help.topic.verusIdGuard': 'Wat is VerusID Guard?',
