@@ -446,7 +446,7 @@
         id="wallet-import-seed-paste"
         variant="default"
         value={pasteInput}
-        oninput={(event) => {
+        oninput={(event: Event) => {
           handlePastePhraseInput((event.target as HTMLTextAreaElement).value);
         }}
         onblur={() => {

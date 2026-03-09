@@ -38,7 +38,8 @@ pub struct SessionManager {
 impl SessionManager {
     /// Create a new session manager
     pub fn new(stronghold_store: StrongholdStore) -> Self {
-        let default_timeout_minutes = normalize_session_timeout_minutes(DEFAULT_SESSION_TIMEOUT_MINUTES);
+        let default_timeout_minutes =
+            normalize_session_timeout_minutes(DEFAULT_SESSION_TIMEOUT_MINUTES);
         Self {
             is_unlocked: false,
             active_account_id: None,

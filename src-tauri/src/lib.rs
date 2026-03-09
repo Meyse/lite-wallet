@@ -8,8 +8,8 @@ mod core;
 mod types;
 
 use commands::{
-    address_book, bridge_transfer, clipboard, coins, guard, identity, transaction, vrpc_transfer,
-    wallet,
+    address_book, bridge_transfer, clipboard, coins, generic_request, guard, identity, transaction,
+    vrpc_transfer, wallet,
 };
 use core::channels::btc::BtcProviderPool;
 use core::channels::eth::EthProviderPool;
@@ -21,6 +21,8 @@ use core::{
 use std::path::Path;
 use std::sync::Arc;
 use tauri::Manager;
+#[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex;
 
 #[cfg(debug_assertions)]
@@ -95,6 +97,14 @@ pub fn run() {
     configure_stronghold_encrypt_work_factor();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_stronghold::Builder::new(|password| {
@@ -107,6 +117,9 @@ pub fn run() {
             .build(),
         )
         .setup(|app| {
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.deep_link().register_all()?;
+
             // Initialize wallet manager with app data dir (unified with Stronghold storage)
             let app_dir = app.path().app_data_dir().map_err(|e| {
                 eprintln!("[APP] Failed to get app data directory: {:?}", e);
@@ -221,6 +234,18 @@ pub fn run() {
             identity::unlink_identity,
             identity::set_linked_identity_favorite,
             identity::get_identity_details,
+            generic_request::verify_generic_request_signature,
+            generic_request::sign_generic_response,
+            generic_request::build_and_sign_generic_response,
+            generic_request::post_generic_response_callback,
+            generic_request::open_generic_request_callback,
+            generic_request::sign_identity_signature_hash,
+            generic_request::verify_identity_signature_hash,
+            generic_request::preflight_generic_identity_update,
+            generic_request::store_generic_provisioning_job,
+            generic_request::list_identity_provisioning_jobs,
+            generic_request::refresh_identity_provisioning_jobs,
+            generic_request::link_ready_identity_provisioning,
             guard::begin_guard_session,
             guard::end_guard_session,
             guard::lookup_guard_target_identity,

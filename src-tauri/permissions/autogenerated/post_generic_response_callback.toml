@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-post-generic-response-callback"
+description = "Enables the post_generic_response_callback command without any pre-configured scope."
+commands.allow = ["post_generic_response_callback"]
+
+[[permission]]
+identifier = "deny-post-generic-response-callback"
+description = "Denies the post_generic_response_callback command without any pre-configured scope."
+commands.deny = ["post_generic_response_callback"]

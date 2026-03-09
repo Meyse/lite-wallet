@@ -7,6 +7,7 @@
     "default",
     "core:default",
     "core:window:allow-start-dragging",
+    "deep-link:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://verus.io/discord" }]

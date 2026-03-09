@@ -36,7 +36,7 @@
   <div class="space-y-3">
     <button
       type="button"
-      class="selection-card-button selection-card-button--revoke"
+      class="group selection-card-button selection-card-button--revoke"
       onclick={() => handleSelect('revoke')}
     >
       <div class="flex items-start gap-3">
@@ -55,7 +55,7 @@
 
     <button
       type="button"
-      class="selection-card-button selection-card-button--recover"
+      class="group selection-card-button selection-card-button--recover"
       onclick={() => handleSelect('recover')}
     >
       <div class="flex items-start gap-3">

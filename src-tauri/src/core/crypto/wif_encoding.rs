@@ -151,7 +151,9 @@ fn hash160(data: &[u8]) -> [u8; 20] {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_btc_wif, Network, BITCOIN_WIF_VERSION_MAINNET, BITCOIN_WIF_VERSION_TESTNET};
+    use super::{
+        encode_btc_wif, Network, BITCOIN_WIF_VERSION_MAINNET, BITCOIN_WIF_VERSION_TESTNET,
+    };
 
     #[test]
     fn encode_btc_wif_mainnet_uses_expected_version_byte() {

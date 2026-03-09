@@ -126,6 +126,12 @@ pub enum WalletError {
     #[error("Identity request expired")]
     IdentityRequestExpired,
 
+    #[error("Active currency status cannot be changed")]
+    IdentityUnsupportedActiveCurrencyChange,
+
+    #[error("Tokenized control status cannot be changed")]
+    IdentityUnsupportedTokenizedControlChange,
+
     #[error("Identity RPC method unsupported by endpoint")]
     IdentityRpcUnsupported,
 
@@ -134,6 +140,12 @@ pub enum WalletError {
 
     #[error("Failed to sign identity transaction")]
     IdentitySignFailed,
+
+    #[error("Generic request envelope is invalid")]
+    GenericRequestInvalidEnvelope,
+
+    #[error("Generic request signature is unsupported")]
+    GenericRequestUnsupportedSignature,
 
     #[error("Guard session not found or expired")]
     GuardSessionNotFound,

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-generic-request-callback"
+description = "Enables the open_generic_request_callback command without any pre-configured scope."
+commands.allow = ["open_generic_request_callback"]
+
+[[permission]]
+identifier = "deny-open-generic-request-callback"
+description = "Denies the open_generic_request_callback command without any pre-configured scope."
+commands.deny = ["open_generic_request_callback"]

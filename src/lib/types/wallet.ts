@@ -249,12 +249,115 @@ export interface IdentityDetails {
   fullyQualifiedName?: string | null;
   status?: string | null;
   system?: string | null;
+  parent?: string | null;
   revocationAuthority?: string | null;
   recoveryAuthority?: string | null;
   primaryAddresses: string[];
   privateAddress?: string | null;
   ownedByPrimaryAddress: boolean;
   warnings: IdentityDetailWarning[];
+}
+
+export interface GenericRequestVerificationResult {
+  valid: boolean;
+  signerSystemId: string;
+  signerIdentityId: string;
+  signatureBlockHeight: number;
+}
+
+export interface GenericResponseSignerInput {
+  systemId: string;
+  identityId: string;
+}
+
+export interface GenericAuthenticationResponseInput {
+  requestId?: string | null;
+}
+
+export interface GenericIdentityUpdateResponseInput {
+  requestId?: string | null;
+  txid: string;
+}
+
+export interface BuildAndSignGenericResponseRequest {
+  requestHex: string;
+  signer: GenericResponseSignerInput;
+  authentication?: GenericAuthenticationResponseInput | null;
+  identityUpdate?: GenericIdentityUpdateResponseInput | null;
+}
+
+export interface BuildAndSignGenericResponseResult {
+  signedResponseHex: string;
+}
+
+export interface GenericIdentityUpdateRequestMeta {
+  requestId?: string | null;
+  signerSystemId?: string | null;
+  signerIdentityId?: string | null;
+  expiryHeight?: number | null;
+}
+
+export interface GenericIdentityPrimaryAddressEntry {
+  address: string;
+  inWallet: boolean;
+}
+
+export interface GenericIdentityPrimaryAddressInfo {
+  addresses: GenericIdentityPrimaryAddressEntry[];
+  walletCount: number;
+  externalCount: number;
+}
+
+export interface GenericIdentityAuthorities {
+  revocation?: string | null;
+  recovery?: string | null;
+}
+
+export interface GenericIdentityUpdatePreflightResult {
+  preflightId: string;
+  targetIdentity: string;
+  fromAddress: string;
+  fee: string;
+  feeCurrency: string;
+  warnings: IdentityWarning[];
+  highRiskChanges: HighRiskChange[];
+  currentIdentity: Record<string, unknown>;
+  requestedIdentity: Record<string, unknown>;
+  fullyQualifiedName?: string | null;
+  friendlyNames: Record<string, string>;
+  signerCmmKeyLabels: Record<string, string>;
+  primaryAddressAfterUpdateInfo: GenericIdentityPrimaryAddressInfo;
+  currentAuthorities: GenericIdentityAuthorities;
+}
+
+export interface ProvisioningJobRecord {
+  jobId: string;
+  requestType: string;
+  requestHex: string;
+  requestedIdentityAddress?: string | null;
+  requestedFqn: string;
+  signingId: string;
+  hasResponseUris: boolean;
+  infoUri?: string | null;
+  status: string;
+  createdAt: number;
+  error?: string | null;
+}
+
+export interface StoreGenericProvisioningJobRequest {
+  requestHex: string;
+  requestedIdentityAddress?: string | null;
+  requestedFqn: string;
+  signingId: string;
+  hasResponseUris: boolean;
+  infoUri?: string | null;
+  error?: string | null;
+  status?: string | null;
+}
+
+export interface LinkReadyProvisioningJobResult {
+  job: ProvisioningJobRecord;
+  linkedIdentities: LinkedIdentity[];
 }
 
 export interface VrpcTransferPreflightParams {

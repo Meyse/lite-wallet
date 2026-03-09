@@ -49,7 +49,7 @@
   <div class="{showHeader ? 'mt-5' : ''} space-y-3">
     <button
       type="button"
-      class="selection-card-button selection-card-button--neutral"
+      class="group selection-card-button selection-card-button--neutral"
       onclick={() => onSelect('seed24')}
     >
       <div class="flex items-start gap-3">
@@ -70,7 +70,7 @@
 
     <button
       type="button"
-      class="selection-card-button selection-card-button--neutral"
+      class="group selection-card-button selection-card-button--neutral"
       onclick={() => onSelect('text')}
     >
       <div class="flex items-start gap-3">

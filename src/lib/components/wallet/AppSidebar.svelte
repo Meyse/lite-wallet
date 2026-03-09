@@ -13,6 +13,7 @@
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import ActivityIcon from '@lucide/svelte/icons/activity';
   import BookUserIcon from '@lucide/svelte/icons/book-user';
+  import Link2Icon from '@lucide/svelte/icons/link-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import LockIcon from '@lucide/svelte/icons/lock';
   import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
@@ -48,12 +49,14 @@
     activeSection = $bindable('overview' as SectionId),
     walletData,
     onSelectOverview = () => {},
-    onSelectSettings = () => {}
+    onSelectSettings = () => {},
+    onOpenRequest = () => {}
   }: {
     activeSection?: SectionId;
     walletData: WalletData;
     onSelectOverview?: () => void;
     onSelectSettings?: () => void;
+    onOpenRequest?: () => void;
   } = $props();
 
   const i18n = $derived($i18nStore);
@@ -148,6 +151,17 @@
     <Sidebar.Group class="p-2 pt-0">
       <Sidebar.GroupContent>
         <Sidebar.Menu>
+          <Sidebar.MenuItem>
+            <button
+              type="button"
+              class={footerButtonClass}
+              aria-label={i18n.t('wallet.sidebar.openRequest')}
+              onclick={onOpenRequest}
+            >
+              <Link2Icon class="size-4" />
+              <span>{i18n.t('wallet.sidebar.openRequest')}</span>
+            </button>
+          </Sidebar.MenuItem>
           <Sidebar.MenuItem>
             <Sidebar.MenuButton
               size="sm"

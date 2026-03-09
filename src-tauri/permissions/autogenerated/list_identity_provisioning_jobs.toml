@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-identity-provisioning-jobs"
+description = "Enables the list_identity_provisioning_jobs command without any pre-configured scope."
+commands.allow = ["list_identity_provisioning_jobs"]
+
+[[permission]]
+identifier = "deny-list-identity-provisioning-jobs"
+description = "Denies the list_identity_provisioning_jobs command without any pre-configured scope."
+commands.deny = ["list_identity_provisioning_jobs"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-store-generic-provisioning-job"
+description = "Enables the store_generic_provisioning_job command without any pre-configured scope."
+commands.allow = ["store_generic_provisioning_job"]
+
+[[permission]]
+identifier = "deny-store-generic-provisioning-job"
+description = "Denies the store_generic_provisioning_job command without any pre-configured scope."
+commands.deny = ["store_generic_provisioning_job"]

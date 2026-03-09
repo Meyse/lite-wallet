@@ -26,12 +26,12 @@ use crate::types::{
 const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
-struct IdentitySessionContext {
-    account_id: String,
-    network: WalletNetwork,
-    primary_address: String,
-    password_hash: Zeroizing<Vec<u8>>,
-    stronghold_store: StrongholdStore,
+pub(crate) struct IdentitySessionContext {
+    pub(crate) account_id: String,
+    pub(crate) network: WalletNetwork,
+    pub(crate) primary_address: String,
+    pub(crate) password_hash: Zeroizing<Vec<u8>>,
+    pub(crate) stronghold_store: StrongholdStore,
 }
 
 #[derive(Clone)]
@@ -42,14 +42,14 @@ struct DiscoveryCandidate {
     status: Option<String>,
 }
 
-struct ParsedGetIdentityPayload {
-    status: Option<String>,
-    identity: Value,
-    fully_qualified_name: Option<String>,
-    friendly_name: Option<String>,
+pub(crate) struct ParsedGetIdentityPayload {
+    pub(crate) status: Option<String>,
+    pub(crate) identity: Value,
+    pub(crate) fully_qualified_name: Option<String>,
+    pub(crate) friendly_name: Option<String>,
 }
 
-fn normalize_non_empty(value: &str) -> Option<String> {
+pub(crate) fn normalize_non_empty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -174,7 +174,7 @@ fn extract_identity_address(identity: &Value, fallback: Option<&str>) -> Option<
     .or_else(|| fallback.and_then(normalize_non_empty))
 }
 
-fn map_identity_lookup_error(err: WalletError) -> WalletError {
+pub(crate) fn map_identity_lookup_error(err: WalletError) -> WalletError {
     match err {
         WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
         WalletError::NetworkError => WalletError::NetworkError,
@@ -185,7 +185,9 @@ fn map_identity_lookup_error(err: WalletError) -> WalletError {
     }
 }
 
-fn parse_getidentity_payload(raw: Value) -> Result<ParsedGetIdentityPayload, WalletError> {
+pub(crate) fn parse_getidentity_payload(
+    raw: Value,
+) -> Result<ParsedGetIdentityPayload, WalletError> {
     let status = value_as_non_empty_string(raw.get("status"));
     let fully_qualified_name =
         first_non_empty_field(&raw, &["fullyqualifiedname", "fullyQualifiedName"]);
@@ -252,7 +254,7 @@ fn build_identity_warnings(
     warnings
 }
 
-fn build_identity_details_from_payload(
+pub(crate) fn build_identity_details_from_payload(
     identity: &Value,
     status: Option<String>,
     session_primary_address: &str,
@@ -267,6 +269,7 @@ fn build_identity_details_from_payload(
         first_non_empty_field(identity, &["revocationauthority", "revocationAuthority"]);
     let recovery_authority =
         first_non_empty_field(identity, &["recoveryauthority", "recoveryAuthority"]);
+    let parent = first_non_empty_field(identity, &["parent", "parentid", "parentID"]);
     let owned_by_primary_address = is_owned_by_primary(&primary_addresses, session_primary_address);
 
     let warnings = build_identity_warnings(
@@ -286,7 +289,8 @@ fn build_identity_details_from_payload(
             payload_friendly_name,
         ),
         status,
-        system: first_non_empty_field(identity, &["systemid", "system", "parent"]),
+        system: first_non_empty_field(identity, &["systemid", "system"]),
+        parent,
         revocation_authority,
         recovery_authority,
         primary_addresses,
@@ -296,7 +300,7 @@ fn build_identity_details_from_payload(
     })
 }
 
-fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
+pub(crate) fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
     LinkedIdentity {
         identity_address: details.identity_address.clone(),
         name: details.name.clone(),
@@ -307,7 +311,7 @@ fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
     }
 }
 
-fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdentity> {
+pub(crate) fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdentity> {
     let mut seen = HashSet::<String>::new();
     let mut out = Vec::<LinkedIdentity>::new();
     let mut favorite_count = 0usize;
@@ -356,7 +360,7 @@ fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdenti
     out
 }
 
-fn upsert_linked_identity(
+pub(crate) fn upsert_linked_identity(
     mut records: Vec<LinkedIdentity>,
     incoming: LinkedIdentity,
 ) -> Vec<LinkedIdentity> {
@@ -523,7 +527,7 @@ fn parse_discovery_candidates(raw: Value) -> Vec<DiscoveryCandidate> {
     dedupe_discovery_candidates(collected)
 }
 
-async fn identity_session_context(
+pub(crate) async fn identity_session_context(
     session_manager: &Arc<Mutex<SessionManager>>,
 ) -> Result<IdentitySessionContext, WalletError> {
     let session = session_manager.lock().await;
@@ -550,7 +554,7 @@ async fn identity_session_context(
     })
 }
 
-async fn load_linked_for_context(
+pub(crate) async fn load_linked_for_context(
     context: &IdentitySessionContext,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     context
@@ -563,7 +567,7 @@ async fn load_linked_for_context(
         .await
 }
 
-async fn store_linked_for_context(
+pub(crate) async fn store_linked_for_context(
     context: &IdentitySessionContext,
     records: &[LinkedIdentity],
 ) -> Result<Vec<LinkedIdentity>, WalletError> {

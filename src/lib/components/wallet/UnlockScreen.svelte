@@ -29,6 +29,7 @@
   import { getWalletColorHex } from '$lib/constants/walletColors';
   import { buildNeedHelpContent } from '$lib/utils/helpContent';
   import { cn } from '$lib/utils.js';
+  import * as walletService from '$lib/services/walletService.js';
 
   export type WalletListItem = {
     account_id: string;
@@ -170,12 +171,19 @@
     isLoading = true;
     errorMessage = '';
     try {
-      await invoke('unlock_wallet', {
+      await walletService.unlockWallet({
         account_id: effectiveAccountId,
         password
       });
-      await goto('/wallet');
-      password = '';
+
+      try {
+        await goto('/wallet');
+        password = '';
+      } catch (navigationError) {
+        console.error('[UNLOCK] Wallet unlocked but dashboard navigation failed', navigationError);
+        await walletService.lockWallet().catch(() => {});
+        errorMessage = i18n.t('unlock.error.openFailed');
+      }
     } catch (error) {
       const errorType = extractWalletErrorType(error);
       if (errorType === 'InvalidPassword') {
@@ -371,7 +379,7 @@
     <div class="space-y-3">
       <button
         type="button"
-        class="selection-card-button selection-card-button--neutral"
+        class="group selection-card-button selection-card-button--neutral"
         onclick={handleStartNewWalletFlow}
       >
         <div class="flex items-start gap-3">
@@ -392,7 +400,7 @@
 
       <button
         type="button"
-        class="selection-card-button selection-card-button--neutral"
+        class="group selection-card-button selection-card-button--neutral"
         onclick={handleShowImportMethods}
       >
         <div class="flex items-start gap-3">

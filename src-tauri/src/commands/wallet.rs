@@ -13,9 +13,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::core::address_book::manager as address_book_manager;
-use crate::core::auth::{
-    stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
-};
+use crate::core::auth::{stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager};
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::EthProviderPool;
@@ -561,7 +559,9 @@ fn crypto_network_for_wallet(network: WalletNetwork) -> Network {
     }
 }
 
-fn recovery_secret_kind_from_wallet_secret_kind(secret_kind: WalletSecretKind) -> RecoverySecretKind {
+fn recovery_secret_kind_from_wallet_secret_kind(
+    secret_kind: WalletSecretKind,
+) -> RecoverySecretKind {
     match secret_kind {
         WalletSecretKind::SeedText => RecoverySecretKind::SeedText,
         WalletSecretKind::Wif => RecoverySecretKind::Wif,
@@ -1230,7 +1230,8 @@ pub async fn get_wallet_recovery_secrets(
         decode_wif_unchecked_network(&keys.wif).map_err(|_| WalletError::OperationFailed)?;
     let btc_wif = encode_btc_wif(&private_bytes, crypto_network_for_wallet(network))?;
 
-    let password_hash = crate::core::auth::stronghold_store::StrongholdStore::hash_password(&password);
+    let password_hash =
+        crate::core::auth::stronghold_store::StrongholdStore::hash_password(&password);
     let dlight_secret = stronghold_store
         .load_dlight_seed(&account_id, password_hash.as_slice(), network)
         .await?;
@@ -1245,11 +1246,7 @@ pub async fn get_wallet_recovery_secrets(
                 None
             };
 
-            (
-                Some(secret_kind),
-                shielded_address,
-                derived_spending_key,
-            )
+            (Some(secret_kind), shielded_address, derived_spending_key)
         } else {
             (None, None, None)
         };

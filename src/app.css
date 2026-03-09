@@ -259,7 +259,7 @@
   }
 
   .selection-card-button {
-    @apply group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55;
+    @apply w-full rounded-lg bg-muted/65 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55;
   }
 
   .selection-card-button--neutral {

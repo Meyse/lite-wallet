@@ -1,9 +1,9 @@
 //
 // Identity transaction flow for VRPC channels.
 
-mod preflight;
+pub(crate) mod preflight;
 mod send;
-mod validate;
+pub(crate) mod validate;
 pub(crate) mod verus_tx;
 
 pub use preflight::preflight;

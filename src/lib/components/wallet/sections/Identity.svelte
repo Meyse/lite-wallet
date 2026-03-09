@@ -5,16 +5,22 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import StarIcon from '@lucide/svelte/icons/star';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+  import Link2Icon from '@lucide/svelte/icons/link-2';
   import { toast } from 'svelte-sonner';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
+  import { queueGenericRequest } from '$lib/stores/genericRequest.js';
+  import * as genericRequestService from '$lib/services/genericRequestService.js';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
-  import type { IdentityDetails, LinkedIdentity } from '$lib/types/wallet.js';
+  import type { IdentityDetails, LinkedIdentity, ProvisioningJobRecord } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import IdentityDetailView from './identity/IdentityDetailView.svelte';
@@ -32,6 +38,11 @@
   let error = $state('');
   let linkedIdentities = $state<LinkedIdentity[]>([]);
   let linkSheetOpen = $state(false);
+  let provisioningJobs = $state<ProvisioningJobRecord[]>([]);
+  let provisioningLoading = $state(false);
+  let provisioningError = $state('');
+  let provisioningBusyJobId = $state<string | null>(null);
+  let provisioningRefreshBusy = $state(false);
 
   let selectedIdentityAddress = $state<string | null>(null);
   let detailsLoading = $state(false);
@@ -91,6 +102,9 @@
   const hasVisibleIdentities = $derived(
     filteredFavoriteIdentities.length + filteredNonFavoriteIdentities.length > 0
   );
+  const visibleProvisioningJobs = $derived(
+    provisioningJobs.filter((job) => job.status !== 'linked')
+  );
 
   $effect(() => {
     const query = listSearchInput;
@@ -102,7 +116,7 @@
   });
 
   onMount(async () => {
-    await loadLinkedIdentities();
+    await Promise.all([loadLinkedIdentities(), loadProvisioningJobs(false)]);
   });
 
   function mapIdentityError(errorValue: unknown, fallbackKey: string): string {
@@ -218,6 +232,110 @@
       unlinking = false;
     }
   }
+
+  function mapProvisioningError(errorValue: unknown): string {
+    const errorType = extractWalletErrorType(errorValue);
+
+    switch (errorType) {
+      case 'WalletLocked':
+        return i18n.t('wallet.identity.error.walletLocked');
+      case 'IdentityOwnershipMismatch':
+        return i18n.t('wallet.identity.error.ownershipMismatch');
+      default:
+        break;
+    }
+
+    const extractedMessage = extractWalletErrorMessage(errorValue);
+    if (extractedMessage) return extractedMessage;
+
+    return i18n.t('wallet.identity.provisioning.errorLoad');
+  }
+
+  async function loadProvisioningJobs(refresh: boolean): Promise<void> {
+    if (refresh) {
+      provisioningRefreshBusy = true;
+    } else {
+      provisioningLoading = true;
+    }
+    provisioningError = '';
+
+    try {
+      provisioningJobs = refresh
+        ? await genericRequestService.refreshIdentityProvisioningJobs()
+        : await genericRequestService.listIdentityProvisioningJobs();
+    } catch (errorValue) {
+      provisioningError = mapProvisioningError(errorValue);
+    } finally {
+      provisioningLoading = false;
+      provisioningRefreshBusy = false;
+    }
+  }
+
+  function provisioningStatusLabel(status: string): string {
+    switch (status) {
+      case 'ready':
+        return i18n.t('wallet.identity.provisioning.status.ready');
+      case 'expired':
+        return i18n.t('wallet.identity.provisioning.status.expired');
+      case 'linked':
+        return i18n.t('wallet.identity.provisioning.status.linked');
+      default:
+        return i18n.t('wallet.identity.provisioning.status.pending');
+    }
+  }
+
+  function provisioningStatusBadgeClass(status: string): string {
+    switch (status) {
+      case 'ready':
+        return 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
+      case 'expired':
+        return 'bg-destructive/10 text-destructive';
+      case 'linked':
+        return 'bg-primary/10 text-primary';
+      default:
+        return 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300';
+    }
+  }
+
+  async function openProvisioningInfo(url: string): Promise<void> {
+    try {
+      await openUrl(url);
+    } catch (errorValue) {
+      toast.error(mapProvisioningError(errorValue));
+    }
+  }
+
+  async function handleLinkProvisioningJob(job: ProvisioningJobRecord): Promise<void> {
+    if (provisioningBusyJobId) return;
+
+    provisioningBusyJobId = job.jobId;
+    provisioningError = '';
+
+    try {
+      const result = await genericRequestService.linkReadyIdentityProvisioning(job.jobId);
+      applyLinkedIdentities(result.linkedIdentities);
+      provisioningJobs = provisioningJobs.map((entry) =>
+        entry.jobId === result.job.jobId ? result.job : entry
+      );
+
+      if (job.hasResponseUris) {
+        queueGenericRequest({
+          input: job.requestHex,
+          passthroughAutoLinkFqn: job.requestedFqn,
+          source: 'provisioning'
+        });
+        toast.success(i18n.t('wallet.identity.provisioning.linkAndContinueQueued'));
+      } else {
+        toast.success(i18n.t('wallet.identity.provisioning.linked'));
+      }
+    } catch (errorValue) {
+      const message = mapProvisioningError(errorValue);
+      provisioningError = message;
+      toast.error(message);
+    } finally {
+      provisioningBusyJobId = null;
+    }
+  }
 </script>
 
 {#if showingDetail}
@@ -266,7 +384,106 @@
           {i18n.t('common.retry')}
         </Button>
       </div>
-    {:else if linkedIdentities.length === 0}
+    {:else}
+      {#if provisioningLoading || provisioningError || visibleProvisioningJobs.length > 0}
+        <section class={`${linkedIdentities.length === 0 ? 'mb-8' : 'mb-6'} rounded-2xl border border-border/70 bg-muted/18 p-4`}>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-semibold text-foreground">{i18n.t('wallet.identity.provisioning.title')}</p>
+              <p class="mt-1 text-sm text-muted-foreground">
+                {i18n.t('wallet.identity.provisioning.description')}
+              </p>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              class="shrink-0 gap-2"
+              onclick={() => void loadProvisioningJobs(true)}
+              disabled={provisioningRefreshBusy || provisioningBusyJobId !== null}
+            >
+              <RefreshCwIcon class={`size-4 ${provisioningRefreshBusy ? 'animate-spin' : ''}`} />
+              {i18n.t('wallet.identity.provisioning.refresh')}
+            </Button>
+          </div>
+
+          {#if provisioningError}
+            <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">
+              {provisioningError}
+            </p>
+          {/if}
+
+          {#if provisioningLoading}
+            <p class="mt-3 rounded-lg bg-background/80 px-3 py-2.5 text-sm text-muted-foreground">
+              {i18n.t('wallet.identity.provisioning.loading')}
+            </p>
+          {:else if visibleProvisioningJobs.length > 0}
+            <div class="mt-4 space-y-3">
+              {#each visibleProvisioningJobs as job (job.jobId)}
+                <div class="rounded-xl border border-border/70 bg-background/85 p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${provisioningStatusBadgeClass(job.status)}`}>
+                          {provisioningStatusLabel(job.status)}
+                        </span>
+                        {#if job.hasResponseUris}
+                          <span class="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                            {i18n.t('wallet.identity.provisioning.callbackPending')}
+                          </span>
+                        {/if}
+                      </div>
+
+                      <p class="mt-3 truncate text-sm font-semibold text-foreground">{job.requestedFqn}</p>
+
+                      {#if job.signingId}
+                        <p class="mt-1 break-all text-xs text-muted-foreground">
+                          {i18n.t('wallet.identity.provisioning.serviceLabel', { value: job.signingId })}
+                        </p>
+                      {/if}
+
+                      {#if job.infoUri}
+                        <button
+                          type="button"
+                          class="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                          onclick={() => void openProvisioningInfo(job.infoUri ?? '')}
+                        >
+                          <ExternalLinkIcon class="size-3.5" />
+                          {i18n.t('wallet.identity.provisioning.info')}
+                        </button>
+                      {/if}
+
+                      {#if job.error}
+                        <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-xs text-destructive">
+                          {job.error}
+                        </p>
+                      {/if}
+                    </div>
+
+                    <div class="flex shrink-0 items-start gap-2">
+                      {#if job.status === 'ready'}
+                        <Button
+                          size="sm"
+                          class="gap-2"
+                          onclick={() => void handleLinkProvisioningJob(job)}
+                          disabled={provisioningBusyJobId !== null}
+                        >
+                          <Link2Icon class="size-4" />
+                          {job.hasResponseUris
+                            ? i18n.t('wallet.identity.provisioning.linkAndContinue')
+                            : i18n.t('wallet.identity.provisioning.linkIdentity')}
+                        </Button>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      {#if linkedIdentities.length === 0}
       <div class="-mt-6 flex h-full flex-col items-center justify-center px-6 py-12 text-center">
         <div class="bg-background/70 text-primary inline-flex size-14 items-center justify-center rounded-full dark:bg-background/40">
           <VerusIdAtIcon class="size-6" inverted />
@@ -279,7 +496,7 @@
           {i18n.t('wallet.identity.empty.cta')}
         </Button>
       </div>
-    {:else}
+      {:else}
       <div class="flex min-w-0 items-center gap-3">
         <div class="min-w-0 flex-[3]">
           <SearchInput
@@ -368,6 +585,7 @@
             <ScrollArea.Scrollbar orientation="vertical" />
           </ScrollArea.Root>
         </div>
+      {/if}
       {/if}
     {/if}
   </div>

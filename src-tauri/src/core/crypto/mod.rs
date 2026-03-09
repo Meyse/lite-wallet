@@ -5,6 +5,7 @@
 
 pub mod eth_keys;
 pub mod key_derivation_v1;
+pub mod verus_id_signature;
 pub mod wif_encoding;
 
 pub use key_derivation_v1::{derive_keys_from_material, derive_keys_v1};

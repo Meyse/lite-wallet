@@ -20,10 +20,10 @@
 </script>
 
 <script lang="ts">
-  import type { HTMLTextAreaAttributes } from 'svelte/elements';
+  import type { HTMLTextareaAttributes } from 'svelte/elements';
   import { cn, type WithElementRef } from '$lib/utils.js';
 
-  type Props = WithElementRef<HTMLTextAreaAttributes, HTMLTextAreaElement> & {
+  type Props = WithElementRef<HTMLTextareaAttributes, HTMLTextAreaElement> & {
     variant?: TextareaVariant;
   };
 

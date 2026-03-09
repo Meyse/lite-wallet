@@ -1,8 +1,9 @@
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
   import CopyIcon from '@lucide/svelte/icons/copy';
-  import { Button, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
+  import { buttonVariants, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
   import type { HTMLButtonAttributes } from 'svelte/elements';
+  import { cn } from '$lib/utils.js';
 
   export type CopyActionState = 'idle' | 'copied' | 'failed';
 
@@ -37,13 +38,11 @@
   const resolvedAriaPressed = $derived(state === 'copied');
 </script>
 
-<Button
-  {variant}
-  {size}
-  {type}
-  class={className}
-  aria-pressed={resolvedAriaPressed}
+<button
   {...restProps}
+  {type}
+  class={cn(buttonVariants({ variant, size }), className)}
+  aria-pressed={resolvedAriaPressed}
 >
   {#if state === 'copied'}
     <CheckIcon class={copiedIconClass} />
@@ -51,4 +50,4 @@
     <CopyIcon class={iconClass} />
   {/if}
   {resolvedLabel}
-</Button>
+</button>

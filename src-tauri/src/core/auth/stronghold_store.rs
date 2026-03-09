@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
 use crate::types::errors::WalletError;
+use crate::types::generic_request::ProvisioningJobRecord;
 use crate::types::identity::LinkedIdentity;
 use crate::types::wallet::WalletNetwork;
 use iota_stronghold::{KeyProvider, SnapshotPath, Stronghold};
@@ -22,6 +23,8 @@ const ACTIVE_ASSETS_SCHEMA_VERSION: u8 = 1;
 pub const ACTIVE_ASSETS_PROFILE_VERSION: u8 = 2;
 const LINKED_IDENTITIES_RECORD_KEY: &[u8] = b"linked_identities_v1";
 const LINKED_IDENTITIES_SCHEMA_VERSION: u8 = 1;
+const PROVISIONING_JOBS_RECORD_KEY: &[u8] = b"provisioning_jobs_v1";
+const PROVISIONING_JOBS_SCHEMA_VERSION: u8 = 1;
 const DLIGHT_SEED_RECORD_KEY: &[u8] = b"dlight_seed_v1";
 const DLIGHT_SEED_SCHEMA_VERSION: u8 = 1;
 const MAX_LINKED_IDENTITIES: usize = 100;
@@ -83,6 +86,15 @@ struct LinkedIdentitiesSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProvisioningJobsSnapshot {
+    schema_version: u8,
+    #[serde(default)]
+    mainnet: Vec<ProvisioningJobRecord>,
+    #[serde(default)]
+    testnet: Vec<ProvisioningJobRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DlightSeedSnapshot {
     schema_version: u8,
     #[serde(default)]
@@ -95,6 +107,16 @@ impl Default for LinkedIdentitiesSnapshot {
     fn default() -> Self {
         Self {
             schema_version: LINKED_IDENTITIES_SCHEMA_VERSION,
+            mainnet: vec![],
+            testnet: vec![],
+        }
+    }
+}
+
+impl Default for ProvisioningJobsSnapshot {
+    fn default() -> Self {
+        Self {
+            schema_version: PROVISIONING_JOBS_SCHEMA_VERSION,
             mainnet: vec![],
             testnet: vec![],
         }
@@ -184,6 +206,12 @@ impl StrongholdStore {
         let account_dir = self.base_path.join("accounts").join(account_id);
         let _ = std::fs::create_dir_all(&account_dir);
         account_dir.join("dlight_seed.snapshot.stronghold")
+    }
+
+    fn provisioning_jobs_snapshot_path(&self, account_id: &str) -> PathBuf {
+        let account_dir = self.base_path.join("accounts").join(account_id);
+        let _ = std::fs::create_dir_all(&account_dir);
+        account_dir.join("provisioning_jobs.snapshot.stronghold")
     }
 
     #[cfg(debug_assertions)]
@@ -341,6 +369,44 @@ impl StrongholdStore {
 
         serde_json::from_slice::<DlightSeedSnapshot>(&payload).map_err(|e| {
             println!("[AUTH] Parse dlight seed snapshot failed: {}", e);
+            WalletError::OperationFailed
+        })
+    }
+
+    async fn load_provisioning_jobs_snapshot(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+    ) -> Result<ProvisioningJobsSnapshot, WalletError> {
+        let path = self.provisioning_jobs_snapshot_path(account_id);
+        if !path.exists() {
+            return Ok(ProvisioningJobsSnapshot::default());
+        }
+
+        let snapshot_path = SnapshotPath::from_path(&path);
+        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
+        let stronghold = Stronghold::default();
+        let client = stronghold
+            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
+            .map_err(|e| {
+                println!("[AUTH] Load provisioning jobs snapshot failed: {}", e);
+                WalletError::OperationFailed
+            })?;
+
+        let bytes = client
+            .store()
+            .get(PROVISIONING_JOBS_RECORD_KEY)
+            .map_err(|e| {
+                println!("[AUTH] Read provisioning jobs record failed: {}", e);
+                WalletError::OperationFailed
+            })?;
+
+        let Some(payload) = bytes else {
+            return Ok(ProvisioningJobsSnapshot::default());
+        };
+
+        serde_json::from_slice::<ProvisioningJobsSnapshot>(&payload).map_err(|e| {
+            println!("[AUTH] Parse provisioning jobs snapshot failed: {}", e);
             WalletError::OperationFailed
         })
     }
@@ -889,11 +955,75 @@ impl StrongholdStore {
 
         Ok(())
     }
+
+    pub async fn load_provisioning_jobs(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+    ) -> Result<Vec<ProvisioningJobRecord>, WalletError> {
+        let snapshot = self
+            .load_provisioning_jobs_snapshot(account_id, password_hash)
+            .await?;
+
+        Ok(match network {
+            WalletNetwork::Mainnet => snapshot.mainnet,
+            WalletNetwork::Testnet => snapshot.testnet,
+        })
+    }
+
+    pub async fn store_provisioning_jobs(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+        jobs: &[ProvisioningJobRecord],
+    ) -> Result<(), WalletError> {
+        let path = self.provisioning_jobs_snapshot_path(account_id);
+        let snapshot_path = SnapshotPath::from_path(&path);
+        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
+
+        let mut snapshot = self
+            .load_provisioning_jobs_snapshot(account_id, password_hash)
+            .await?;
+        snapshot.schema_version = PROVISIONING_JOBS_SCHEMA_VERSION;
+
+        match network {
+            WalletNetwork::Mainnet => snapshot.mainnet = jobs.to_vec(),
+            WalletNetwork::Testnet => snapshot.testnet = jobs.to_vec(),
+        }
+
+        let stronghold = Stronghold::default();
+        let client = Self::get_or_create_client(
+            &stronghold,
+            &snapshot_path,
+            account_id,
+            &keyprovider,
+            path.exists(),
+        )?;
+        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
+        client
+            .store()
+            .insert(PROVISIONING_JOBS_RECORD_KEY.to_vec(), payload, None)
+            .map_err(|e| {
+                println!("[AUTH] Store provisioning jobs failed: {}", e);
+                WalletError::OperationFailed
+            })?;
+        stronghold
+            .commit_with_keyprovider(&snapshot_path, &keyprovider)
+            .map_err(|e| {
+                println!("[AUTH] Commit provisioning jobs snapshot failed: {}", e);
+                WalletError::OperationFailed
+            })?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{StrongholdStore, ACTIVE_ASSETS_PROFILE_VERSION};
+    use crate::types::generic_request::ProvisioningJobRecord;
     use crate::types::identity::LinkedIdentity;
     use crate::types::wallet::WalletNetwork;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1084,6 +1214,77 @@ mod tests {
         assert!(mainnet[0].favorite);
         assert!(mainnet[1].favorite);
         assert!(!mainnet[2].favorite);
+
+        let _ = std::fs::remove_dir_all(store.base_path);
+    }
+
+    #[tokio::test]
+    async fn provisioning_jobs_round_trip_is_network_scoped() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+
+        let store = temp_store();
+        let account_id = "account_provisioning_jobs";
+        let password_hash = StrongholdStore::hash_password("test-password");
+
+        store
+            .store_provisioning_jobs(
+                account_id,
+                password_hash.as_slice(),
+                WalletNetwork::Mainnet,
+                &[ProvisioningJobRecord {
+                    job_id: "job-mainnet".to_string(),
+                    request_type: "generic".to_string(),
+                    request_hex: "deadbeef".to_string(),
+                    requested_identity_address: Some("iMainnetAlpha".to_string()),
+                    requested_fqn: "alpha.verus".to_string(),
+                    signing_id: "iSigner".to_string(),
+                    has_response_uris: true,
+                    info_uri: Some("https://example.com/info".to_string()),
+                    status: "pending".to_string(),
+                    created_at: 1_234_567,
+                    error: None,
+                }],
+            )
+            .await
+            .expect("store mainnet provisioning jobs");
+
+        store
+            .store_provisioning_jobs(
+                account_id,
+                password_hash.as_slice(),
+                WalletNetwork::Testnet,
+                &[ProvisioningJobRecord {
+                    job_id: "job-testnet".to_string(),
+                    request_type: "generic".to_string(),
+                    request_hex: "cafebabe".to_string(),
+                    requested_identity_address: Some("iTestnetBeta".to_string()),
+                    requested_fqn: "beta.vrsctest".to_string(),
+                    signing_id: "iSignerTestnet".to_string(),
+                    has_response_uris: false,
+                    info_uri: None,
+                    status: "ready".to_string(),
+                    created_at: 7_654_321,
+                    error: Some("none".to_string()),
+                }],
+            )
+            .await
+            .expect("store testnet provisioning jobs");
+
+        let mainnet = store
+            .load_provisioning_jobs(account_id, password_hash.as_slice(), WalletNetwork::Mainnet)
+            .await
+            .expect("load mainnet provisioning jobs");
+        assert_eq!(mainnet.len(), 1);
+        assert_eq!(mainnet[0].job_id, "job-mainnet");
+        assert_eq!(mainnet[0].requested_fqn, "alpha.verus");
+
+        let testnet = store
+            .load_provisioning_jobs(account_id, password_hash.as_slice(), WalletNetwork::Testnet)
+            .await
+            .expect("load testnet provisioning jobs");
+        assert_eq!(testnet.len(), 1);
+        assert_eq!(testnet[0].job_id, "job-testnet");
+        assert_eq!(testnet[0].status, "ready");
 
         let _ = std::fs::remove_dir_all(store.base_path);
     }
