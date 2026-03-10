@@ -241,6 +241,7 @@ pub fn run() {
             generic_request::open_generic_request_callback,
             generic_request::sign_identity_signature_hash,
             generic_request::verify_identity_signature_hash,
+            generic_request::review_generic_identity_update,
             generic_request::preflight_generic_identity_update,
             generic_request::store_generic_provisioning_job,
             generic_request::list_identity_provisioning_jobs,

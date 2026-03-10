@@ -12,6 +12,7 @@
     steps?: { id: string; label: string; status: StepStatus }[];
     onClose?: () => void;
     closeDisabled?: boolean;
+    showCloseButton?: boolean;
     dirty?: boolean;
     showAside?: boolean;
     mobileAsideLabel?: string;
@@ -31,6 +32,7 @@
     steps = [],
     onClose = defaultCloseHandler,
     closeDisabled = false,
+    showCloseButton = true,
     dirty = false,
     showAside = true,
     mobileAsideLabel = '',
@@ -73,6 +75,7 @@
   {steps}
   onClose={requestClose}
   {closeDisabled}
+  {showCloseButton}
   {showAside}
   {mobileAsideLabel}
   {mobileAsideTitle}

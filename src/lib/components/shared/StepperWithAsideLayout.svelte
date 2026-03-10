@@ -14,6 +14,7 @@
     steps?: { id: string; label: string; status: StepStatus }[];
     onClose?: () => void;
     closeDisabled?: boolean;
+    showCloseButton?: boolean;
     showAside?: boolean;
     mobileAsideLabel?: string;
     mobileAsideTitle?: string;
@@ -31,6 +32,7 @@
     steps = [],
     onClose = defaultCloseHandler,
     closeDisabled = false,
+    showCloseButton = true,
     showAside = true,
     mobileAsideLabel = '',
     mobileAsideTitle = '',
@@ -72,17 +74,19 @@
 </script>
 
 <section class="relative h-full min-h-0 w-full overflow-hidden">
-  <div class="absolute top-0 right-0 z-40 flex h-[50px] items-center pr-4">
-    <button
-      type="button"
-      class="ring-offset-background focus-visible:ring-ring inline-flex h-8 w-8 items-center justify-center rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
-      onclick={onClose}
-      disabled={closeDisabled}
-      aria-label={i18n.t('common.cancel')}
-    >
-      <XIcon class="size-5" />
-    </button>
-  </div>
+  {#if showCloseButton}
+    <div class="absolute top-0 right-0 z-40 flex h-[50px] items-center pr-4">
+      <button
+        type="button"
+        class="ring-offset-background focus-visible:ring-ring inline-flex h-8 w-8 items-center justify-center rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
+        onclick={onClose}
+        disabled={closeDisabled}
+        aria-label={i18n.t('common.cancel')}
+      >
+        <XIcon class="size-5" />
+      </button>
+    </div>
+  {/if}
 
   <div
     class={`h-full min-h-0 md:grid md:grid-rows-[minmax(0,1fr)_auto]

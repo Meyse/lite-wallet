@@ -25,7 +25,10 @@
   },
   "license": "MIT",
   "resolutions": {
-    "yaml": "^2.4.2"
+    "yaml": "^2.4.2",
+    "verus-typescript-primitives": "git+https://github.com/VerusCoin/verus-typescript-primitives.git#39e8c31ba0ef15dfff9c999925310be7af58029d",
+    "verusd-rpc-ts-client": "git+https://github.com/VerusCoin/verusd-rpc-ts-client.git#1a1838c3ddbe5de1b4a22c492ff5aaab2065405a",
+    "verusid-ts-client": "git+https://github.com/VerusCoin/verusid-ts-client.git#7149a463e01c8302193d1fec6133c25444a87cab"
   },
   "dependencies": {
     "@bitgo/utxo-lib": "https://github.com/VerusCoin/BitGoJS.git#utxo-lib-verus",
@@ -37,9 +40,9 @@
     "buffer": "^6.0.3",
     "lucide-svelte": "^0.563.0",
     "svelte-sonner": "^1.0.5",
-    "verus-typescript-primitives": "https://github.com/VerusCoin/verus-typescript-primitives.git",
-    "verusd-rpc-ts-client": "https://github.com/VerusCoin/verusd-rpc-ts-client.git",
-    "verusid-ts-client": "https://github.com/VerusCoin/verusid-ts-client.git"
+    "verus-typescript-primitives": "git+https://github.com/VerusCoin/verus-typescript-primitives.git#39e8c31ba0ef15dfff9c999925310be7af58029d",
+    "verusd-rpc-ts-client": "git+https://github.com/VerusCoin/verusd-rpc-ts-client.git#1a1838c3ddbe5de1b4a22c492ff5aaab2065405a",
+    "verusid-ts-client": "git+https://github.com/VerusCoin/verusid-ts-client.git#7149a463e01c8302193d1fec6133c25444a87cab"
   },
   "devDependencies": {
     "@internationalized/date": "^3.10.0",

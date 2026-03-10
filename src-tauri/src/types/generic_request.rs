@@ -56,6 +56,7 @@ pub struct GenericIdentityUpdateRequestMeta {
     pub signer_system_id: Option<String>,
     pub signer_identity_id: Option<String>,
     pub expiry_height: Option<u32>,
+    pub request_system_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +79,21 @@ pub struct GenericIdentityPrimaryAddressInfo {
 pub struct GenericIdentityAuthorities {
     pub revocation: Option<String>,
     pub recovery: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericIdentityUpdateReviewResult {
+    pub target_identity: String,
+    pub warnings: Vec<IdentityWarning>,
+    pub high_risk_changes: Vec<HighRiskChange>,
+    pub current_identity: Value,
+    pub requested_identity: Value,
+    pub fully_qualified_name: Option<String>,
+    pub friendly_names: HashMap<String, String>,
+    pub signer_cmm_key_labels: HashMap<String, String>,
+    pub primary_address_after_update_info: GenericIdentityPrimaryAddressInfo,
+    pub current_authorities: GenericIdentityAuthorities,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -184,10 +184,13 @@ export const nl: Record<string, string> = {
   'genericRequest.error.insufficientFunds':
     'Not enough VRSC is available to pay the network fee for this request.',
   'genericRequest.error.linkedIdentities': 'Could not load linked VerusIDs for this request.',
+  'genericRequest.error.fundingSources': 'Could not load wallets that can pay for this request.',
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.updateSend': 'Could not broadcast this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
+  'genericRequest.error.unsupportedPostCallback':
+    'This app requested a POST callback that is not supported on desktop.',
   'genericRequest.steps.auth': 'Sign in',
   'genericRequest.steps.updateOverview': 'Review',
   'genericRequest.steps.updateRisk': 'High risk',
@@ -238,18 +241,134 @@ export const nl: Record<string, string> = {
   'genericRequest.update.highRiskTitle': 'Confirm high-risk changes',
   'genericRequest.update.highRiskDescription':
     'These changes affect ownership, recovery, revocation, status, or other high-risk identity fields.',
+  'genericRequest.update.highRiskDescriptionContentClear':
+    'After this update, apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.highRiskAcknowledge':
     'I understand that these high-risk identity changes may be difficult or impossible to undo.',
   'genericRequest.update.contentTitle': 'Review content changes',
   'genericRequest.update.contentDescription':
-    'Review content multimap, private address, and other non-authority changes before continuing.',
+    'Review how these changes affect the data apps see on this VerusID before continuing.',
   'genericRequest.update.beforeValue': 'Before',
   'genericRequest.update.afterValue': 'After',
+  'genericRequest.update.currentValue': 'Current value',
+  'genericRequest.update.newValue': 'New value',
   'genericRequest.update.emptyValue': 'Empty',
-  'genericRequest.update.fundingTitle': 'Choose funding source',
+  'genericRequest.update.privateAddress': 'Private address',
+  'genericRequest.update.contentPrefix': 'Content',
+  'genericRequest.update.content.currentIdentityContent': 'Current identity content',
+  'genericRequest.update.content.noneAfterUpdate': 'No content after update',
+  'genericRequest.update.content.currentLabel': 'Current',
+  'genericRequest.update.content.currentValueLabel': 'Current value',
+  'genericRequest.update.content.currentValuesLabel': 'Current values',
+  'genericRequest.update.content.existingLabel': 'Existing',
+  'genericRequest.update.content.newLabel': 'Will add',
+  'genericRequest.update.content.addingLabel': 'Will add',
+  'genericRequest.update.content.willRemoveLabel': 'Will remove',
+  'genericRequest.update.content.afterUpdateLabel': 'After this update',
+  'genericRequest.update.content.badge.add': 'Will add',
+  'genericRequest.update.content.badge.append': 'Will add',
+  'genericRequest.update.content.badge.remove': 'Removing',
+  'genericRequest.update.content.inspectTitle': 'Content details: {label}',
+  'genericRequest.update.content.viewDetails': 'View details',
+  'genericRequest.update.content.requestedValue': 'Requested value',
+  'genericRequest.update.content.keyLine': 'Key: {label}',
+  'genericRequest.update.content.removeValuePreview':
+    'Apps will no longer see this value on your VerusID.',
+  'genericRequest.update.content.removeMatchingValuesPreview':
+    'Apps will no longer see the matching values on your VerusID.',
+  'genericRequest.update.content.removeAllValuesPreview':
+    'Apps will no longer see these values on your VerusID.',
+  'genericRequest.update.contentClearTitle': 'Clear current identity content',
+  'genericRequest.update.contentClearDescription':
+    'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
+  'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
+  'genericRequest.update.contentRemoveValueTitleGeneric':
+    'Remove one current value under this key',
+  'genericRequest.update.contentRemoveValueDescription':
+    'This request removes one value from {label}.',
+  'genericRequest.update.contentRemoveAllValuesTitle':
+    'Remove all current values under {label}',
+  'genericRequest.update.contentRemoveAllValuesTitleGeneric':
+    'Remove all current values under this key',
+  'genericRequest.update.contentRemoveAllValuesDescription':
+    'This request removes every current value stored under {label}.',
+  'genericRequest.update.contentRemoveMatchingValuesTitle':
+    'Remove matching current values under {label}',
+  'genericRequest.update.contentRemoveMatchingValuesTitleGeneric':
+    'Remove matching current values under this key',
+  'genericRequest.update.contentRemoveMatchingValuesDescription':
+    'This request removes matching values from {label}.',
+  'genericRequest.update.contentRemoveEffect':
+    'Removed values stop appearing in the current identity content after this update.',
+  'genericRequest.update.contentRemoveHistory':
+    'They can still be found on the blockchain.',
+  'genericRequest.update.contentRemoveHistoryHash':
+    'This request targets values matching hash {hash}. They can still be found on the blockchain.',
+  'genericRequest.update.contentKeyTitle': 'Content key: {label}',
+  'genericRequest.update.outcome.keepControlTitle': 'Wallet keeps control',
+  'genericRequest.update.outcome.keepControlDescription':
+    'All primary addresses after this update are still controlled by this wallet.',
+  'genericRequest.update.outcome.shareControlTitle': 'Control becomes shared',
+  'genericRequest.update.outcome.shareControlDescription':
+    'This update keeps at least one wallet-controlled primary address, but also adds an external one.',
+  'genericRequest.update.outcome.loseControlTitle': 'Wallet loses control',
+  'genericRequest.update.outcome.loseControlDescription':
+    'No primary address after this update is controlled by this wallet.',
+  'genericRequest.update.outcome.clearContentTitle': 'Current content is cleared',
+  'genericRequest.update.outcome.clearContentDescription':
+    'This request clears current identity content without changing primary control.',
+  'genericRequest.update.outcome.reviewRequiredTitle': 'Review requested identity changes',
+  'genericRequest.update.outcome.reviewRequiredDescription':
+    'This request changes sensitive identity fields and should be reviewed carefully.',
+  'genericRequest.update.badge.inWallet': 'In wallet',
+  'genericRequest.update.badge.external': 'External',
+  'genericRequest.update.authority.sectionTitle': 'Authority changes',
+  'genericRequest.update.authority.sectionDescription':
+    'Recovery and revocation authorities can change who is able to take over this identity.',
+  'genericRequest.update.authority.learnMore': 'Learn more',
+  'genericRequest.update.authority.changeRevocation': 'Change revocation authority',
+  'genericRequest.update.authority.changeRecovery': 'Change recovery authority',
+  'genericRequest.update.authority.infoTitle': 'Authority changes',
+  'genericRequest.update.authority.infoTitleBoth': 'Recovery and revocation are changing',
+  'genericRequest.update.authority.infoTitleRecovery': 'Recovery authority is changing',
+  'genericRequest.update.authority.infoTitleRevocation': 'Revocation authority is changing',
+  'genericRequest.update.authority.infoBody':
+    'Authority changes can shift who is able to revoke or recover this identity.',
+  'genericRequest.update.authority.infoBodyBoth':
+    'Both recovery and revocation authority are changing, which changes who can freeze or restore this identity.',
+  'genericRequest.update.authority.infoBodyRecovery':
+    'The recovery authority can restore access after revocation and may be able to take control during recovery.',
+  'genericRequest.update.authority.infoBodyRevocation':
+    'The revocation authority can freeze the identity and force recovery before it can be used again.',
+  'genericRequest.update.primaryAddress.sectionTitle': 'Primary address changes',
+  'genericRequest.update.primaryAddress.afterUpdateTitle': 'Primary addresses after update',
+  'genericRequest.update.primaryAddress.addTitle': 'Add primary address',
+  'genericRequest.update.primaryAddress.addWalletDescription':
+    'This primary address is controlled by the active wallet.',
+  'genericRequest.update.primaryAddress.addSharedDescription':
+    'This primary address is external, but the wallet still controls another primary address after the update.',
+  'genericRequest.update.primaryAddress.addLoseControlDescription':
+    'This primary address is external and leaves no wallet-controlled primary address after the update.',
+  'genericRequest.update.primaryAddress.removeTitle': 'Remove primary address',
+  'genericRequest.update.primaryAddress.removeDescription':
+    'This primary address will no longer control the identity after the update.',
+  'genericRequest.update.status.title': 'Identity status',
+  'genericRequest.update.status.revokedDescription':
+    'This update marks the identity as revoked.',
+  'genericRequest.update.status.activeDescription':
+    'This update restores the identity to an active state.',
+  'genericRequest.update.status.revoked': 'Revoked',
+  'genericRequest.update.status.active': 'Active',
+  'genericRequest.update.fundingTitle': 'Choose wallet to pay from',
   'genericRequest.update.fundingDescription':
-    'Pick which VRSC channel will pay the network fee for this identity update.',
-  'genericRequest.update.fundingSource': 'Funding source',
+    'Choose the wallet that will pay the network fee for this identity update.',
+  'genericRequest.update.fundingSource': 'Wallet to pay from',
+  'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
+  'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
+  'genericRequest.update.fundingCalculating': 'Calculating fee…',
+  'genericRequest.update.fundingEmpty': 'No eligible wallets on this network are available to pay from.',
+  'genericRequest.update.fundingFeePlaceholder': 'Select a wallet to calculate the fee.',
+  'genericRequest.update.feeTitle': 'Estimated fee',
   'genericRequest.update.feeLabel': 'Estimated fee: {fee} {currency}',
   'genericRequest.update.broadcast': 'Broadcast update',
   'genericRequest.complete.title': 'Finish request',
@@ -260,7 +379,8 @@ export const nl: Record<string, string> = {
   'genericRequest.complete.deliveryNotice': 'Response will be sent to {destination}.',
   'genericRequest.complete.sent': 'The response was signed successfully.',
   'genericRequest.complete.updateBroadcast': 'Identity update broadcast: {txid}',
-  'genericRequest.complete.cta': 'Send response',
+  'genericRequest.complete.txidLabel': 'Transaction id',
+  'genericRequest.complete.cta': 'Voltooien',
   'genericRequest.provisioning.title': 'Provision requested VerusID',
   'genericRequest.provisioning.description':
     'Create the requested VerusID, then finish this request after it appears in your wallet.',

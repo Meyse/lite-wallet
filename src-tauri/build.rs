@@ -69,6 +69,7 @@ const APP_COMMANDS: &[&str] = &[
     "open_generic_request_callback",
     "sign_identity_signature_hash",
     "verify_identity_signature_hash",
+    "review_generic_identity_update",
     "preflight_generic_identity_update",
     "store_generic_provisioning_job",
     "list_identity_provisioning_jobs",

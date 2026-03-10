@@ -295,6 +295,7 @@ export interface GenericIdentityUpdateRequestMeta {
   signerSystemId?: string | null;
   signerIdentityId?: string | null;
   expiryHeight?: number | null;
+  requestSystemId?: string | null;
 }
 
 export interface GenericIdentityPrimaryAddressEntry {
@@ -313,12 +314,8 @@ export interface GenericIdentityAuthorities {
   recovery?: string | null;
 }
 
-export interface GenericIdentityUpdatePreflightResult {
-  preflightId: string;
+export interface GenericIdentityUpdateReviewResult {
   targetIdentity: string;
-  fromAddress: string;
-  fee: string;
-  feeCurrency: string;
   warnings: IdentityWarning[];
   highRiskChanges: HighRiskChange[];
   currentIdentity: Record<string, unknown>;
@@ -328,6 +325,13 @@ export interface GenericIdentityUpdatePreflightResult {
   signerCmmKeyLabels: Record<string, string>;
   primaryAddressAfterUpdateInfo: GenericIdentityPrimaryAddressInfo;
   currentAuthorities: GenericIdentityAuthorities;
+}
+
+export interface GenericIdentityUpdatePreflightResult extends GenericIdentityUpdateReviewResult {
+  preflightId: string;
+  fromAddress: string;
+  fee: string;
+  feeCurrency: string;
 }
 
 export interface ProvisioningJobRecord {

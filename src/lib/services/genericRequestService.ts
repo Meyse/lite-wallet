@@ -4,6 +4,7 @@ import type {
   BuildAndSignGenericResponseResult,
   GenericIdentityUpdatePreflightResult,
   GenericIdentityUpdateRequestMeta,
+  GenericIdentityUpdateReviewResult,
   GenericRequestVerificationResult,
   LinkReadyProvisioningJobResult,
   ProvisioningJobRecord,
@@ -83,6 +84,20 @@ export async function preflightGenericIdentityUpdate(
     requested_identity_json: requestedIdentityJson,
     target_identity_address: targetIdentityAddress,
     source_channel_id: sourceChannelId,
+    request_meta: requestMeta ?? null,
+  });
+}
+
+export async function reviewGenericIdentityUpdate(
+  requestedIdentityJson: Record<string, unknown>,
+  targetIdentityAddress: string,
+  systemId: string,
+  requestMeta?: GenericIdentityUpdateRequestMeta | null
+): Promise<GenericIdentityUpdateReviewResult> {
+  return invoke<GenericIdentityUpdateReviewResult>('review_generic_identity_update', {
+    requested_identity_json: requestedIdentityJson,
+    target_identity_address: targetIdentityAddress,
+    system_id: systemId,
     request_meta: requestMeta ?? null,
   });
 }

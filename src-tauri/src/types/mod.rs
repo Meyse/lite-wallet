@@ -30,8 +30,9 @@ pub use generic_request::{
     GenericAuthenticationResponseInput, GenericIdentityAuthorities,
     GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
     GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
-    GenericIdentityUpdateResponseInput, GenericRequestVerificationResult,
-    GenericResponseSignerInput, LinkReadyProvisioningJobResult, ProvisioningJobRecord,
+    GenericIdentityUpdateResponseInput, GenericIdentityUpdateReviewResult,
+    GenericRequestVerificationResult, GenericResponseSignerInput, LinkReadyProvisioningJobResult,
+    ProvisioningJobRecord,
 };
 pub use guard::{
     BeginGuardSessionRequest, BeginGuardSessionResult, EndGuardSessionRequest,

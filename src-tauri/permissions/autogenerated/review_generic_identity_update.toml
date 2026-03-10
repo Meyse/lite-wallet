@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-review-generic-identity-update"
+description = "Enables the review_generic_identity_update command without any pre-configured scope."
+commands.allow = ["review_generic_identity_update"]
+
+[[permission]]
+identifier = "deny-review-generic-identity-update"
+description = "Denies the review_generic_identity_update command without any pre-configured scope."
+commands.deny = ["review_generic_identity_update"]

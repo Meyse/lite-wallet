@@ -7,8 +7,10 @@ use base64::{
     Engine as _,
 };
 use reqwest::header::CONTENT_TYPE;
+use ripemd::Ripemd160;
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
@@ -45,8 +47,9 @@ use crate::types::{
     BuildAndSignGenericResponseRequest, BuildAndSignGenericResponseResult,
     GenericIdentityAuthorities, GenericIdentityPrimaryAddressEntry,
     GenericIdentityPrimaryAddressInfo, GenericIdentityUpdatePreflightResult,
-    GenericIdentityUpdateRequestMeta, GenericRequestVerificationResult, IdentityOperation,
-    IdentityWarning, LinkReadyProvisioningJobResult, ProvisioningJobRecord, WalletError,
+    GenericIdentityUpdateRequestMeta, GenericIdentityUpdateReviewResult,
+    GenericRequestVerificationResult, IdentityOperation, IdentityWarning,
+    LinkReadyProvisioningJobResult, LinkedIdentity, ProvisioningJobRecord, WalletError,
 };
 use uuid::Uuid;
 
@@ -73,6 +76,10 @@ const AUTHENTICATION_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
 const IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_TXID: u64 = 1;
 const IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_REQUEST_ID: u64 = 2;
 const GENERIC_RESPONSE_DEEPLINK_VDXF_ID: &str = "i9JzVt59mAVHqjc8WAQJx7bEFAQ4ffuhrC";
+const DATA_TYPE_DEFINEDKEY_VDXF_ID: &str = "iD3yzD6KnrSG75d8RzirMD6SyvrAS2HxjH";
+const I_ADDRESS_VERSION: u8 = 102;
+const MAINNET_VERUS_CHAIN_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
+const TESTNET_VERUS_CHAIN_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,7 +108,7 @@ fn now_unix_seconds() -> u64 {
         .unwrap_or(0)
 }
 
-fn parse_generic_response_callback_uri(uri: &str) -> Result<reqwest::Url, WalletError> {
+fn parse_generic_response_post_callback_uri(uri: &str) -> Result<reqwest::Url, WalletError> {
     let parsed = reqwest::Url::parse(uri.trim()).map_err(|_| WalletError::OperationFailed)?;
     match parsed.scheme() {
         "http" | "https" => Ok(parsed),
@@ -109,11 +116,19 @@ fn parse_generic_response_callback_uri(uri: &str) -> Result<reqwest::Url, Wallet
     }
 }
 
+fn parse_generic_response_redirect_uri(uri: &str) -> Result<reqwest::Url, WalletError> {
+    let parsed = reqwest::Url::parse(uri.trim()).map_err(|_| WalletError::OperationFailed)?;
+    if parsed.scheme().trim().is_empty() {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(parsed)
+}
+
 fn build_generic_response_redirect_url(
     callback_uri: &str,
     response_hex: &str,
 ) -> Result<reqwest::Url, WalletError> {
-    let mut redirect_url = parse_generic_response_callback_uri(callback_uri)?;
+    let mut redirect_url = parse_generic_response_redirect_uri(callback_uri)?;
     let response_bytes =
         hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
     let encoded_response = URL_SAFE_NO_PAD.encode(response_bytes);
@@ -135,6 +150,295 @@ fn ensure_active_wallet_controls_signer(
     }
 
     Err(WalletError::IdentityUnsupportedAuthority)
+}
+
+fn double_sha256(parts: &[&[u8]]) -> [u8; 32] {
+    let mut first = Sha256::new();
+    for part in parts {
+        first.update(part);
+    }
+    let first_digest = first.finalize();
+    let second_digest = Sha256::digest(first_digest);
+    second_digest.into()
+}
+
+fn hash160(data: &[u8]) -> [u8; 20] {
+    let sha = Sha256::digest(data);
+    let ripemd = Ripemd160::digest(sha);
+    ripemd.into()
+}
+
+fn to_base58_check(hash: &[u8; 20], version: u8) -> String {
+    let mut payload = Vec::with_capacity(21);
+    payload.push(version);
+    payload.extend_from_slice(hash);
+    bs58::encode(payload).with_check().into_string()
+}
+
+fn from_base58_check_hash160(address: &str) -> Option<[u8; 20]> {
+    let decoded = bs58::decode(address.trim())
+        .with_check(None)
+        .into_vec()
+        .ok()?;
+    if decoded.len() != 21 || decoded[0] != I_ADDRESS_VERSION {
+        return None;
+    }
+
+    decoded[1..].try_into().ok()
+}
+
+fn capitalize_label(value: &str) -> String {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    out.extend(first.to_uppercase());
+    out.push_str(chars.as_str());
+    out
+}
+
+fn normalize_identity_name(value: &str) -> String {
+    value.to_ascii_lowercase()
+}
+
+fn name_and_parent_addr_to_i_addr(name: &str, parent_iaddr: Option<&str>) -> Option<String> {
+    let name_bytes = normalize_identity_name(name).into_bytes();
+    let name_hash = double_sha256(&[&name_bytes]);
+    let final_hash = if let Some(parent) = parent_iaddr {
+        let parent_hash = from_base58_check_hash160(parent)?;
+        double_sha256(&[&parent_hash, &name_hash])
+    } else {
+        name_hash
+    };
+
+    Some(to_base58_check(&hash160(&final_hash), I_ADDRESS_VERSION))
+}
+
+fn fqn_to_i_addr(name: &str) -> Option<String> {
+    let at_parts = name
+        .split('@')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if at_parts.len() != 1 {
+        return None;
+    }
+
+    let mut name_parts = at_parts[0].split('.').collect::<Vec<_>>();
+    if name_parts.last().is_some_and(|part| part.is_empty()) {
+        let _ = name_parts.pop();
+    }
+
+    let first = name_parts.first()?.trim();
+    if first.is_empty() {
+        return None;
+    }
+
+    let mut parent: Option<String> = None;
+    for part in name_parts.iter().skip(1).rev() {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        parent = Some(name_and_parent_addr_to_i_addr(trimmed, parent.as_deref())?);
+    }
+
+    name_and_parent_addr_to_i_addr(first, parent.as_deref())
+}
+
+fn hierarchical_name_to_i_addr(name: &str, parent_iaddr: Option<&str>) -> Option<String> {
+    if name == "::" {
+        return name_and_parent_addr_to_i_addr(name, parent_iaddr);
+    }
+
+    let name_parts = name.split('.').collect::<Vec<_>>();
+    let first = name_parts.first()?.trim();
+    if first.is_empty() {
+        return None;
+    }
+
+    let mut parent = parent_iaddr.map(ToString::to_string);
+    for part in name_parts.iter().skip(1).rev() {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        parent = Some(name_and_parent_addr_to_i_addr(trimmed, parent.as_deref())?);
+    }
+
+    name_and_parent_addr_to_i_addr(first, parent.as_deref())
+}
+
+fn get_data_key_id(key_name: &str, verus_chain_id: &str) -> Option<String> {
+    let address_parts = key_name.split(':').collect::<Vec<_>>();
+    let mut namespace_id = verus_chain_id.to_string();
+    let mut key_copy = key_name.to_string();
+
+    if address_parts.len() > 2 && address_parts[1].is_empty() {
+        namespace_id = fqn_to_i_addr(address_parts[0])?;
+        key_copy = address_parts[2..].join(":");
+    }
+
+    let parent = name_and_parent_addr_to_i_addr("::", Some(&namespace_id))?;
+    hierarchical_name_to_i_addr(&key_copy, Some(&parent))
+}
+
+fn read_compact_size_local(bytes: &[u8], offset: usize) -> Result<(u64, usize), WalletError> {
+    if offset >= bytes.len() {
+        return Err(WalletError::OperationFailed);
+    }
+
+    let first = bytes[offset];
+    match first {
+        0..=252 => Ok((first as u64, 1)),
+        253 => {
+            let end = offset.checked_add(3).ok_or(WalletError::OperationFailed)?;
+            let slice = bytes
+                .get(offset + 1..end)
+                .ok_or(WalletError::OperationFailed)?;
+            Ok((
+                u16::from_le_bytes(slice.try_into().map_err(|_| WalletError::OperationFailed)?)
+                    as u64,
+                3,
+            ))
+        }
+        254 => {
+            let end = offset.checked_add(5).ok_or(WalletError::OperationFailed)?;
+            let slice = bytes
+                .get(offset + 1..end)
+                .ok_or(WalletError::OperationFailed)?;
+            Ok((
+                u32::from_le_bytes(slice.try_into().map_err(|_| WalletError::OperationFailed)?)
+                    as u64,
+                5,
+            ))
+        }
+        _ => {
+            let end = offset.checked_add(9).ok_or(WalletError::OperationFailed)?;
+            let slice = bytes
+                .get(offset + 1..end)
+                .ok_or(WalletError::OperationFailed)?;
+            Ok((
+                u64::from_le_bytes(slice.try_into().map_err(|_| WalletError::OperationFailed)?),
+                9,
+            ))
+        }
+    }
+}
+
+fn read_varint_local(bytes: &[u8], offset: usize) -> Result<(u64, usize), WalletError> {
+    let mut value = 0u64;
+    let mut shift = 0u32;
+    let mut cursor = offset;
+
+    loop {
+        let byte = *bytes.get(cursor).ok_or(WalletError::OperationFailed)?;
+        cursor += 1;
+        value |= ((byte & 0x7f) as u64) << shift;
+        if byte & 0x80 == 0 {
+            return Ok((value, cursor - offset));
+        }
+        value = value.checked_add(1).ok_or(WalletError::OperationFailed)?;
+        shift = shift.checked_add(7).ok_or(WalletError::OperationFailed)?;
+        if shift > 63 {
+            return Err(WalletError::OperationFailed);
+        }
+    }
+}
+
+fn decode_defined_key_label(
+    value_hex: &str,
+    verus_chain_id: &str,
+) -> Option<(String, String, String)> {
+    let bytes = hex::decode(value_hex.trim()).ok()?;
+    let (_, version_len) = read_varint_local(&bytes, 0).ok()?;
+    let (_, flags_len) = read_varint_local(&bytes, version_len).ok()?;
+    let payload_offset = version_len.checked_add(flags_len)?;
+    let (uri_len, uri_len_size) = read_compact_size_local(&bytes, payload_offset).ok()?;
+    let uri_offset = payload_offset.checked_add(uri_len_size)?;
+    let uri_end = uri_offset.checked_add(uri_len as usize)?;
+    let uri_bytes = bytes.get(uri_offset..uri_end)?;
+    let vdxf_uri = std::str::from_utf8(uri_bytes).ok()?.trim();
+    if vdxf_uri.is_empty() {
+        return None;
+    }
+
+    let key_id = get_data_key_id(vdxf_uri, verus_chain_id)?;
+    let namespace_id = if let Some((namespace, suffix)) = vdxf_uri.split_once("::") {
+        let suffix = suffix.trim();
+        if suffix.is_empty() {
+            verus_chain_id.to_string()
+        } else {
+            fqn_to_i_addr(namespace)?
+        }
+    } else {
+        verus_chain_id.to_string()
+    };
+    let raw_label = vdxf_uri
+        .split("::")
+        .nth(1)
+        .unwrap_or(vdxf_uri)
+        .replace('.', " ");
+    let label = capitalize_label(&raw_label);
+    Some((key_id, namespace_id, label))
+}
+
+fn resolve_signer_cmm_key_labels_from_identity(
+    signer_identity: &Value,
+    network: WalletNetwork,
+) -> HashMap<String, String> {
+    let mut labels = HashMap::<String, String>::new();
+    let identity = signer_identity
+        .get("identity")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let content_map = identity
+        .get("contentmultimap")
+        .or_else(|| identity.get("contentMultiMap"))
+        .and_then(Value::as_object);
+    let Some(content_map) = content_map else {
+        return labels;
+    };
+    let signer_identity_id = identity
+        .get("identityaddress")
+        .or_else(|| identity.get("identityAddress"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let defined_key_entries = content_map.get(DATA_TYPE_DEFINEDKEY_VDXF_ID);
+    let Some(defined_key_entries) = defined_key_entries else {
+        return labels;
+    };
+
+    let verus_chain_id = match network {
+        WalletNetwork::Mainnet => MAINNET_VERUS_CHAIN_ID,
+        WalletNetwork::Testnet => TESTNET_VERUS_CHAIN_ID,
+    };
+
+    let raw_entries = if let Some(entries) = defined_key_entries.as_array() {
+        entries.iter().collect::<Vec<_>>()
+    } else {
+        vec![defined_key_entries]
+    };
+
+    for entry in raw_entries {
+        let Some(value_hex) = entry.as_str() else {
+            continue;
+        };
+        let Some((key_id, namespace_id, label)) =
+            decode_defined_key_label(value_hex, verus_chain_id)
+        else {
+            continue;
+        };
+        if signer_identity_id.is_some_and(|expected| !namespace_id.eq_ignore_ascii_case(expected)) {
+            continue;
+        }
+        labels.entry(key_id).or_insert(label);
+    }
+
+    labels
 }
 
 fn validate_supported_request_grouping(
@@ -709,7 +1013,7 @@ pub async fn post_generic_response_callback(
     callback_uri: String,
     response_hex: String,
 ) -> Result<(), WalletError> {
-    let callback_uri = parse_generic_response_callback_uri(&callback_uri)?;
+    let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
     let response_bytes =
         hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
 
@@ -862,6 +1166,201 @@ pub async fn verify_identity_signature_hash(
     ))
 }
 
+struct GenericIdentityUpdateInspection {
+    target: crate::core::channels::vrpc::identity::preflight::TargetIdentityState,
+    effective_requested_identity: Value,
+    review: GenericIdentityUpdateReviewResult,
+}
+
+fn validate_generic_request_funding_source(
+    selected_address: &str,
+    selected_system_id: &str,
+    request_system_id: Option<&str>,
+    primary_address: &str,
+    linked_identities: &[LinkedIdentity],
+    watched_addresses: &[String],
+) -> Result<(), WalletError> {
+    // Generic request funding mirrors mobile: allow wallet-owned transparent scopes
+    // (primary address or linked identities) and reject watched/read-only addresses.
+    if let Some(request_system_id) = request_system_id {
+        let trimmed_request_system_id = request_system_id.trim();
+        if !trimmed_request_system_id.is_empty()
+            && !selected_system_id.eq_ignore_ascii_case(trimmed_request_system_id)
+        {
+            return Err(WalletError::InvalidAddress);
+        }
+    }
+
+    if selected_address.eq_ignore_ascii_case(primary_address) {
+        return Ok(());
+    }
+
+    if linked_identities.iter().any(|identity| {
+        identity
+            .identity_address
+            .eq_ignore_ascii_case(selected_address)
+    }) {
+        return Ok(());
+    }
+
+    if watched_addresses
+        .iter()
+        .any(|address| address.eq_ignore_ascii_case(selected_address))
+    {
+        return Err(WalletError::InvalidAddress);
+    }
+
+    Err(WalletError::InvalidAddress)
+}
+
+async fn ensure_identity_update_request_not_expired(
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    request_meta: Option<&GenericIdentityUpdateRequestMeta>,
+) -> Result<(), WalletError> {
+    let info = provider.getinfo().await?;
+    let current_height = extract_chain_height(&info)?;
+    if request_meta
+        .and_then(|meta| meta.expiry_height)
+        .is_some_and(|expiry_height| current_height > expiry_height)
+    {
+        return Err(WalletError::IdentityRequestExpired);
+    }
+
+    Ok(())
+}
+
+async fn inspect_generic_identity_update(
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    network: WalletNetwork,
+    requested_identity_json: &Value,
+    target_identity_address: &str,
+    active_wallet_primary_address: &str,
+    request_meta: Option<&GenericIdentityUpdateRequestMeta>,
+) -> Result<GenericIdentityUpdateInspection, WalletError> {
+    let raw_target = provider
+        .getidentity(target_identity_address.trim())
+        .await
+        .map_err(map_preflight_identity_lookup_error)?;
+    let target = parse_target_identity(raw_target.clone())?;
+    let effective_requested_identity =
+        merge_identity_update_patch(&target.identity, requested_identity_json);
+
+    validate_target_state(&target.status, &IdentityOperation::Update)?;
+    validate_unsupported_identity_flags(&target.identity, &effective_requested_identity)?;
+
+    let mut warnings = Vec::<IdentityWarning>::new();
+    if target.identity == effective_requested_identity {
+        warnings.push(IdentityWarning {
+            warning_type: "no_effect".to_string(),
+            message: "Request does not change identity fields.".to_string(),
+        });
+    }
+
+    let fully_qualified_name = first_non_empty_field(
+        &raw_target,
+        &[
+            "fullyqualifiedname",
+            "fullyQualifiedName",
+            "friendlyname",
+            "friendlyName",
+        ],
+    );
+    let high_risk_changes =
+        classify_high_risk_changes(&target.identity, &effective_requested_identity);
+    let signer_cmm_key_labels = if let Some(signer_identity_id) =
+        request_meta.and_then(|meta| meta.signer_identity_id.as_deref())
+    {
+        let signer_identity = match provider.getidentitycontent(signer_identity_id).await {
+            Ok(identity_content) => Ok(identity_content),
+            Err(_) => provider.getidentity(signer_identity_id).await,
+        };
+
+        signer_identity
+            .ok()
+            .map(|signer_identity| {
+                resolve_signer_cmm_key_labels_from_identity(&signer_identity, network)
+            })
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    let friendly_names = resolve_identity_friendly_names(
+        provider,
+        &target.identity,
+        &effective_requested_identity,
+        request_meta.and_then(|meta| meta.signer_identity_id.as_deref()),
+    )
+    .await;
+    let primary_address_after_update_info = build_primary_address_update_info(
+        &effective_requested_identity,
+        active_wallet_primary_address,
+    );
+
+    Ok(GenericIdentityUpdateInspection {
+        target: target.clone(),
+        effective_requested_identity: effective_requested_identity.clone(),
+        review: GenericIdentityUpdateReviewResult {
+            target_identity: target_identity_address.trim().to_string(),
+            warnings,
+            high_risk_changes,
+            current_identity: target.identity.clone(),
+            requested_identity: effective_requested_identity,
+            fully_qualified_name,
+            friendly_names,
+            signer_cmm_key_labels,
+            primary_address_after_update_info,
+            current_authorities: GenericIdentityAuthorities {
+                revocation: first_non_empty_field(
+                    &target.identity,
+                    &["revocationauthority", "revocationAuthority"],
+                ),
+                recovery: first_non_empty_field(
+                    &target.identity,
+                    &["recoveryauthority", "recoveryAuthority"],
+                ),
+            },
+        },
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_generic_identity_update(
+    requested_identity_json: Value,
+    target_identity_address: String,
+    system_id: String,
+    request_meta: Option<GenericIdentityUpdateRequestMeta>,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<GenericIdentityUpdateReviewResult, WalletError> {
+    let session = session_manager.lock().await;
+    if !session.is_unlocked() {
+        return Err(WalletError::WalletLocked);
+    }
+
+    let (session_vrpc_address, _, _) = session.get_addresses()?;
+    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
+    drop(session);
+
+    if !requested_identity_json.is_object() {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+
+    let provider = vrpc_provider_pool.for_system(network, system_id.trim());
+    ensure_identity_update_request_not_expired(&provider, request_meta.as_ref()).await?;
+
+    let inspection = inspect_generic_identity_update(
+        &provider,
+        network,
+        &requested_identity_json,
+        &target_identity_address,
+        &session_vrpc_address,
+        request_meta.as_ref(),
+    )
+    .await?;
+
+    Ok(inspection.review)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn preflight_generic_identity_update(
     requested_identity_json: Value,
@@ -872,60 +1371,64 @@ pub async fn preflight_generic_identity_update(
     preflight_store: State<'_, PreflightStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<GenericIdentityUpdatePreflightResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?
-        .to_string();
-    let (session_vrpc_address, _, _) = session.get_addresses()?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
+    let context = identity_session_context(session_manager.inner()).await?;
+    let account_id = context.account_id.clone();
+    let session_vrpc_address = context.primary_address.clone();
+    let network = context.network;
 
     if !requested_identity_json.is_object() {
         return Err(WalletError::IdentityBuildFailed);
     }
 
     let resolved = vrpc::parse_vrpc_channel_id(&source_channel_id, Some(&session_vrpc_address))?;
-    if resolved.address != session_vrpc_address {
-        return Err(WalletError::InvalidAddress);
-    }
+    let linked_identities = load_linked_for_context(&context).await?;
+    let watched_addresses = context
+        .stronghold_store
+        .load_watched_vrpc_addresses(
+            &context.account_id,
+            context.password_hash.as_ref(),
+            context.network,
+        )
+        .await?;
+    validate_generic_request_funding_source(
+        &resolved.address,
+        &resolved.system_id,
+        request_meta
+            .as_ref()
+            .and_then(|meta| meta.request_system_id.as_deref()),
+        &context.primary_address,
+        &linked_identities,
+        &watched_addresses,
+    )?;
 
     let canonical_channel_id =
         vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id);
     let provider = vrpc_provider_pool.for_system(network, &resolved.system_id);
+    ensure_identity_update_request_not_expired(&provider, request_meta.as_ref()).await?;
 
-    let info = provider.getinfo().await?;
-    let current_height = extract_chain_height(&info)?;
-    if let Some(expiry_height) = request_meta
-        .as_ref()
-        .and_then(|meta| meta.expiry_height)
-        .filter(|height| current_height > *height)
-    {
-        let _ = expiry_height;
-        return Err(WalletError::IdentityRequestExpired);
-    }
+    let inspection = inspect_generic_identity_update(
+        &provider,
+        network,
+        &requested_identity_json,
+        &target_identity_address,
+        &session_vrpc_address,
+        request_meta.as_ref(),
+    )
+    .await?;
+    let GenericIdentityUpdateInspection {
+        target,
+        effective_requested_identity: _effective_requested_identity,
+        mut review,
+    } = inspection;
 
-    let raw_target = provider
-        .getidentity(target_identity_address.trim())
-        .await
-        .map_err(map_preflight_identity_lookup_error)?;
-    let target = parse_target_identity(raw_target.clone())?;
-
-    validate_target_state(&target.status, &IdentityOperation::Update)?;
     validate_operation_authority(
-        provider,
+        &provider,
         &IdentityOperation::Update,
         &target.identity,
         &target.status,
         &resolved.address,
     )
     .await?;
-
-    validate_unsupported_identity_flags(&target.identity, &requested_identity_json)?;
 
     let funding_candidates = parse_funding_utxos(
         &provider
@@ -985,38 +1488,12 @@ pub async fn preflight_generic_identity_update(
         Some(IDENTITY_PREFLIGHT_TTL),
     );
 
-    let mut warnings = Vec::<IdentityWarning>::new();
-    if target.identity == requested_identity_json {
-        warnings.push(IdentityWarning {
-            warning_type: "no_effect".to_string(),
-            message: "Request does not change identity fields.".to_string(),
-        });
-    }
     if dropped_dust_change {
-        warnings.push(IdentityWarning {
+        review.warnings.push(IdentityWarning {
             warning_type: "dust_change".to_string(),
             message: "Change below dust threshold is added to fee.".to_string(),
         });
     }
-
-    let fully_qualified_name = first_non_empty_field(
-        &raw_target,
-        &[
-            "fullyqualifiedname",
-            "fullyQualifiedName",
-            "friendlyname",
-            "friendlyName",
-        ],
-    );
-    let high_risk_changes = classify_high_risk_changes(&target.identity, &requested_identity_json);
-    let friendly_names = resolve_identity_friendly_names(
-        provider,
-        &target.identity,
-        request_meta
-            .as_ref()
-            .and_then(|meta| meta.signer_identity_id.as_deref()),
-    )
-    .await;
 
     Ok(GenericIdentityUpdatePreflightResult {
         preflight_id,
@@ -1024,27 +1501,15 @@ pub async fn preflight_generic_identity_update(
         from_address: resolved.address.clone(),
         fee,
         fee_currency: resolved.system_id,
-        warnings,
-        high_risk_changes,
-        current_identity: target.identity.clone(),
-        requested_identity: requested_identity_json.clone(),
-        fully_qualified_name,
-        friendly_names,
-        signer_cmm_key_labels: HashMap::new(),
-        primary_address_after_update_info: build_primary_address_update_info(
-            &requested_identity_json,
-            &session_vrpc_address,
-        ),
-        current_authorities: GenericIdentityAuthorities {
-            revocation: first_non_empty_field(
-                &target.identity,
-                &["revocationauthority", "revocationAuthority"],
-            ),
-            recovery: first_non_empty_field(
-                &target.identity,
-                &["recoveryauthority", "recoveryAuthority"],
-            ),
-        },
+        warnings: review.warnings,
+        high_risk_changes: review.high_risk_changes,
+        current_identity: review.current_identity,
+        requested_identity: review.requested_identity,
+        fully_qualified_name: review.fully_qualified_name,
+        friendly_names: review.friendly_names,
+        signer_cmm_key_labels: review.signer_cmm_key_labels,
+        primary_address_after_update_info: review.primary_address_after_update_info,
+        current_authorities: review.current_authorities,
     })
 }
 
@@ -1290,6 +1755,23 @@ fn extract_flags(value: &Value) -> u64 {
         .unwrap_or(0)
 }
 
+fn merge_identity_update_patch(current: &Value, patch: &Value) -> Value {
+    match (current, patch) {
+        (Value::Object(current_obj), Value::Object(patch_obj)) => {
+            let mut merged = current_obj.clone();
+            for (key, patch_value) in patch_obj {
+                let next_value = merged
+                    .get(key)
+                    .map(|current_value| merge_identity_update_patch(current_value, patch_value))
+                    .unwrap_or_else(|| patch_value.clone());
+                merged.insert(key.clone(), next_value);
+            }
+            Value::Object(merged)
+        }
+        _ => patch.clone(),
+    }
+}
+
 fn validate_unsupported_identity_flags(before: &Value, after: &Value) -> Result<(), WalletError> {
     const IDENTITY_FLAG_ACTIVE_CURRENCY: u64 = 0x1;
     const IDENTITY_FLAG_TOKENIZED_CONTROL: u64 = 0x4;
@@ -1346,11 +1828,12 @@ fn build_primary_address_update_info(
 async fn resolve_identity_friendly_names(
     provider: &crate::core::channels::vrpc::VrpcProvider,
     current_identity: &Value,
+    requested_identity: &Value,
     signer_identity_id: Option<&str>,
 ) -> HashMap<String, String> {
     let mut names = HashMap::<String, String>::new();
 
-    for identity_id in [
+    let mut candidate_ids = [
         first_non_empty_field(
             current_identity,
             &["identityaddress", "identityAddress", "iaddress"],
@@ -1363,12 +1846,48 @@ async fn resolve_identity_friendly_names(
             current_identity,
             &["recoveryauthority", "recoveryAuthority"],
         ),
+        first_non_empty_field(
+            requested_identity,
+            &["revocationauthority", "revocationAuthority"],
+        ),
+        first_non_empty_field(
+            requested_identity,
+            &["recoveryauthority", "recoveryAuthority"],
+        ),
         signer_identity_id.map(|value| value.trim().to_string()),
     ]
     .into_iter()
     .flatten()
-    {
-        if names.contains_key(&identity_id) {
+    .collect::<Vec<_>>();
+
+    candidate_ids.extend(
+        current_identity
+            .get("primaryaddresses")
+            .or_else(|| current_identity.get("primaryAddresses"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
+    );
+
+    candidate_ids.extend(
+        requested_identity
+            .get("primaryaddresses")
+            .or_else(|| requested_identity.get("primaryAddresses"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
+    );
+
+    for identity_id in candidate_ids {
+        if names.contains_key(&identity_id) || identity_id.trim().is_empty() {
             continue;
         }
 
@@ -1397,14 +1916,17 @@ async fn resolve_identity_friendly_names(
 mod tests {
     use super::{
         build_and_sign_generic_response_internal, build_generic_response_redirect_url,
-        build_unsigned_generic_response_hex, parse_generic_response_callback_uri,
-        post_generic_response_callback, wallet_network_to_crypto_network,
-        BuildAndSignGenericResponseRequest, WalletNetwork,
+        build_unsigned_generic_response_hex, decode_defined_key_label, merge_identity_update_patch,
+        parse_generic_response_post_callback_uri, post_generic_response_callback,
+        resolve_signer_cmm_key_labels_from_identity, validate_generic_request_funding_source,
+        wallet_network_to_crypto_network, BuildAndSignGenericResponseRequest, WalletNetwork,
+        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
         GENERIC_RESPONSE_FLAG_HAS_CREATED_AT, GENERIC_RESPONSE_FLAG_IS_TESTNET,
         GENERIC_RESPONSE_FLAG_MULTI_DETAILS, GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256,
-        VDXF_ORDINAL_AUTHENTICATION_REQUEST, VDXF_ORDINAL_AUTHENTICATION_RESPONSE,
-        VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST, VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE,
-        VDXF_ORDINAL_PROVISION_IDENTITY, VERIFIABLE_SIGNATURE_VERSION_V2,
+        MAINNET_VERUS_CHAIN_ID, VDXF_ORDINAL_AUTHENTICATION_REQUEST,
+        VDXF_ORDINAL_AUTHENTICATION_RESPONSE, VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST,
+        VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE, VDXF_ORDINAL_PROVISION_IDENTITY,
+        VERIFIABLE_SIGNATURE_VERSION_V2,
     };
     use crate::core::crypto::verus_id_signature::{
         compute_identity_signature_hash, encode_compact_i_address, get_raw_envelope_sha256,
@@ -1415,7 +1937,7 @@ mod tests {
     use crate::core::crypto::wif_encoding::{encode_wif, generate_p2pkh_address};
     use crate::types::{
         GenericAuthenticationResponseInput, GenericIdentityUpdateResponseInput,
-        GenericResponseSignerInput, WalletError,
+        GenericResponseSignerInput, LinkedIdentity, WalletError,
     };
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1489,6 +2011,17 @@ mod tests {
             },
             authentication,
             identity_update,
+        }
+    }
+
+    fn linked_identity(identity_address: &str) -> LinkedIdentity {
+        LinkedIdentity {
+            identity_address: identity_address.to_string(),
+            name: None,
+            fully_qualified_name: None,
+            status: None,
+            system_id: None,
+            favorite: false,
         }
     }
 
@@ -1739,10 +2272,153 @@ mod tests {
     }
 
     #[test]
+    fn funding_source_validation_allows_primary_address() {
+        let result = validate_generic_request_funding_source(
+            "RPrimary",
+            TEST_SYSTEM_ID,
+            Some(TEST_SYSTEM_ID),
+            "RPrimary",
+            &[],
+            &[],
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn funding_source_validation_allows_linked_identity_scope() {
+        let result = validate_generic_request_funding_source(
+            "iLinkedIdentity",
+            TEST_SYSTEM_ID,
+            Some(TEST_SYSTEM_ID),
+            "RPrimary",
+            &[linked_identity("iLinkedIdentity")],
+            &[],
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn funding_source_validation_rejects_watched_scope() {
+        let result = validate_generic_request_funding_source(
+            "RWatchedOnly",
+            TEST_SYSTEM_ID,
+            Some(TEST_SYSTEM_ID),
+            "RPrimary",
+            &[],
+            &["RWatchedOnly".to_string()],
+        );
+
+        assert!(matches!(result, Err(WalletError::InvalidAddress)));
+    }
+
+    #[test]
+    fn funding_source_validation_rejects_wrong_request_system() {
+        let result = validate_generic_request_funding_source(
+            "RPrimary",
+            "iDifferentSystem",
+            Some(TEST_SYSTEM_ID),
+            "RPrimary",
+            &[],
+            &[],
+        );
+
+        assert!(matches!(result, Err(WalletError::InvalidAddress)));
+    }
+
+    #[test]
     fn callback_uri_rejects_non_http_schemes() {
-        let error = parse_generic_response_callback_uri("ftp://example.com/callback")
+        let error = parse_generic_response_post_callback_uri("ftp://example.com/callback")
             .expect_err("non-http scheme should fail");
         assert!(matches!(error, WalletError::OperationFailed));
+    }
+
+    #[test]
+    fn generic_response_redirect_url_allows_custom_schemes() {
+        let redirect_url =
+            build_generic_response_redirect_url("valu://callback/finish", "deadbeef")
+                .expect("redirect url");
+
+        assert_eq!(redirect_url.scheme(), "valu");
+        assert_eq!(redirect_url.host_str(), Some("callback"));
+        assert_eq!(redirect_url.path(), "/finish");
+        assert_eq!(
+            redirect_url
+                .query_pairs()
+                .find(|(key, _)| key == GENERIC_RESPONSE_DEEPLINK_VDXF_ID)
+                .map(|(_, value)| value.into_owned()),
+            Some("3q2-7w".to_string())
+        );
+    }
+
+    #[test]
+    fn decode_defined_key_label_extracts_key_id_and_label() {
+        let (key_id, namespace_id, label) = decode_defined_key_label(
+            "0100216578616d706c652e6e616d6573706163653a3a70726f66696c652e617661746172",
+            MAINNET_VERUS_CHAIN_ID,
+        )
+        .expect("defined key label");
+
+        assert_eq!(key_id, "i5ZsXhytTtBe6f6DeV1eQRVLUgBBXwVi6h");
+        assert_eq!(namespace_id, "iKdh7UtrXGLXedeA2Dub8AsPZcSZchx47T");
+        assert_eq!(label, "Profile avatar");
+    }
+
+    #[test]
+    fn resolve_signer_cmm_key_labels_reads_defined_keys_from_identity_content() {
+        let signer_identity = serde_json::json!({
+            "identity": {
+                "contentmultimap": {
+                    DATA_TYPE_DEFINEDKEY_VDXF_ID: [
+                        "0100216578616d706c652e6e616d6573706163653a3a70726f66696c652e617661746172"
+                    ]
+                }
+            }
+        });
+
+        let labels =
+            resolve_signer_cmm_key_labels_from_identity(&signer_identity, WalletNetwork::Mainnet);
+
+        assert_eq!(
+            labels.get("i5ZsXhytTtBe6f6DeV1eQRVLUgBBXwVi6h"),
+            Some(&"Profile avatar".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_identity_update_patch_preserves_omitted_primary_addresses() {
+        let current = serde_json::json!({
+            "name": "before",
+            "primaryaddresses": ["RFWcHcpnFh57ovrV1hmzN8o8wmMZjvqCSh"],
+            "contentmultimap": {
+                "existing": {
+                    "data": {
+                        "message": "before"
+                    }
+                }
+            }
+        });
+        let patch = serde_json::json!({
+            "name": "maxs",
+            "contentmultimap": {
+                "new_key": {
+                    "data": {
+                        "message": "after"
+                    }
+                }
+            }
+        });
+
+        let merged = merge_identity_update_patch(&current, &patch);
+
+        assert_eq!(merged["name"], serde_json::json!("maxs"));
+        assert_eq!(
+            merged["primaryaddresses"],
+            serde_json::json!(["RFWcHcpnFh57ovrV1hmzN8o8wmMZjvqCSh"])
+        );
+        assert!(merged["contentmultimap"].get("existing").is_some());
+        assert!(merged["contentmultimap"].get("new_key").is_some());
     }
 
     #[tokio::test]
@@ -1805,9 +2481,8 @@ mod tests {
 
     #[test]
     fn generic_response_redirect_url_appends_base64url_response_param() {
-        let redirect_url =
-            build_generic_response_redirect_url("https://www.verus.io", "deadbeef")
-                .expect("redirect url");
+        let redirect_url = build_generic_response_redirect_url("https://www.verus.io", "deadbeef")
+            .expect("redirect url");
 
         assert_eq!(redirect_url.scheme(), "https");
         assert_eq!(redirect_url.host_str(), Some("www.verus.io"));

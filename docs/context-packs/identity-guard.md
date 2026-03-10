@@ -12,6 +12,8 @@ behavior.
 
 - Guard sessions are in-memory only and must be clearable.
 - Identity preflight/send follows `preflight_id` trust boundary.
+- Generic identity update request review must stay separate from funding: do not
+  calculate or display the fee until the user selects a funding source.
 - Account/guard ownership checks are required before send.
 - Identity signing metadata in preflight must cover all signable inputs, including
   the identity input.

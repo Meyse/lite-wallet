@@ -1718,14 +1718,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"axios@npm:1.11.0":
-  version: 1.11.0
-  resolution: "axios@npm:1.11.0"
+"axios@npm:1.13.5":
+  version: 1.13.5
+  resolution: "axios@npm:1.13.5"
   dependencies:
-    follow-redirects: "npm:^1.15.6"
-    form-data: "npm:^4.0.4"
+    follow-redirects: "npm:^1.15.11"
+    form-data: "npm:^4.0.5"
     proxy-from-env: "npm:^1.1.0"
-  checksum: 10c0/5de273d33d43058610e4d252f0963cc4f10714da0bfe872e8ef2cbc23c2c999acc300fd357b6bce0fc84a2ca9bd45740fa6bb28199ce2c1266c8b1a393f2b36e
+  checksum: 10c0/abf468c34f2d145f3dc7dbc0f1be67e520630624307bda69a41bbe8d386bd672d87b4405c4ee77f9ff54b235ab02f96a9968fb00e75b13ce64706e352a3068fd
   languageName: node
   linkType: hard
 
@@ -1910,10 +1910,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bn.js@npm:5.2.1":
-  version: 5.2.1
-  resolution: "bn.js@npm:5.2.1"
-  checksum: 10c0/bed3d8bd34ec89dbcf9f20f88bd7d4a49c160fda3b561c7bb227501f974d3e435a48fb9b61bc3de304acab9215a3bda0803f7017ffb4d0016a0c3a740a283caa
+"bn.js@npm:5.2.3":
+  version: 5.2.3
+  resolution: "bn.js@npm:5.2.3"
+  checksum: 10c0/eef19cb9cf5e91e91e3e0f036b799ce6c72f79463c3934d62991c3dcdb58f6c94dc3d806495d9b0bf31cd121870ed79bb2115cea71b56c03e794fb71485031fa
   languageName: node
   linkType: hard
 
@@ -2874,7 +2874,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"follow-redirects@npm:^1.15.6":
+"follow-redirects@npm:^1.15.11":
   version: 1.15.11
   resolution: "follow-redirects@npm:1.15.11"
   peerDependenciesMeta:
@@ -2893,7 +2893,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"form-data@npm:^4.0.4":
+"form-data@npm:^4.0.5":
   version: 4.0.5
   resolution: "form-data@npm:4.0.5"
   dependencies:
@@ -5024,50 +5024,51 @@ __metadata:
     typescript: "npm:~5.6.2"
     typescript-eslint: "npm:^8.42.0"
     validator: "npm:^13.15.15"
-    verus-typescript-primitives: "https://github.com/VerusCoin/verus-typescript-primitives.git"
-    verusd-rpc-ts-client: "https://github.com/VerusCoin/verusd-rpc-ts-client.git"
-    verusid-ts-client: "https://github.com/VerusCoin/verusid-ts-client.git"
+    verus-typescript-primitives: "git+https://github.com/VerusCoin/verus-typescript-primitives.git#39e8c31ba0ef15dfff9c999925310be7af58029d"
+    verusd-rpc-ts-client: "git+https://github.com/VerusCoin/verusd-rpc-ts-client.git#1a1838c3ddbe5de1b4a22c492ff5aaab2065405a"
+    verusid-ts-client: "git+https://github.com/VerusCoin/verusid-ts-client.git#7149a463e01c8302193d1fec6133c25444a87cab"
     vite: "npm:^6.0.3"
     xstate: "npm:^5.21.0"
     zod: "npm:^4.1.5"
   languageName: unknown
   linkType: soft
 
-"verus-typescript-primitives@git+https://github.com/VerusCoin/verus-typescript-primitives.git, verus-typescript-primitives@https://github.com/VerusCoin/verus-typescript-primitives.git":
+"verus-typescript-primitives@git+https://github.com/VerusCoin/verus-typescript-primitives.git#39e8c31ba0ef15dfff9c999925310be7af58029d":
   version: 1.0.0
-  resolution: "verus-typescript-primitives@https://github.com/VerusCoin/verus-typescript-primitives.git#commit=0ba0af7f83a781269a475ab09fe2c989326d815c"
+  resolution: "verus-typescript-primitives@https://github.com/VerusCoin/verus-typescript-primitives.git#commit=39e8c31ba0ef15dfff9c999925310be7af58029d"
   dependencies:
     base64url: "npm:3.0.1"
     bech32: "npm:2.0.0"
     blake2b: "https://github.com/VerusCoin/blake2b"
-    bn.js: "npm:5.2.1"
+    bn.js: "npm:5.2.3"
     bs58check: "npm:2.0.0"
     create-hash: "npm:1.2.0"
-  checksum: 10c0/1a8ce530592d6ad4cda54b5a299879197dfb5c63ffd698dac311d9b8c1a62d2a8a9f9732632dbe57e7550818c670cabd3d8df698f0c8bad1c2c6a94c23581570
+  checksum: 10c0/93db5dcf863448046971b5b0728f831117677edb1606e4798ef353386745b60e94397e965bac57961318623b775129ebddb5a19dbd36266a3d2cf5090b9378b5
   languageName: node
   linkType: hard
 
-"verusd-rpc-ts-client@git+https://github.com/VerusCoin/verusd-rpc-ts-client, verusd-rpc-ts-client@https://github.com/VerusCoin/verusd-rpc-ts-client.git":
+"verusd-rpc-ts-client@git+https://github.com/VerusCoin/verusd-rpc-ts-client.git#1a1838c3ddbe5de1b4a22c492ff5aaab2065405a":
   version: 0.1.0
-  resolution: "verusd-rpc-ts-client@https://github.com/VerusCoin/verusd-rpc-ts-client.git#commit=222dc442271370df0d1c52b45d595e6196bb92d9"
+  resolution: "verusd-rpc-ts-client@https://github.com/VerusCoin/verusd-rpc-ts-client.git#commit=1a1838c3ddbe5de1b4a22c492ff5aaab2065405a"
   dependencies:
-    axios: "npm:1.11.0"
+    axios: "npm:1.13.5"
+    blake2b: "https://github.com/VerusCoin/blake2b"
     verus-typescript-primitives: "git+https://github.com/VerusCoin/verus-typescript-primitives.git"
-  checksum: 10c0/150fa72639a82304fabf6572b1343eaed35086c46e2575323fec486c99cb3e974ce7e3b9335e2b9b254151d81d8139ced1ea76e205d7d581a4b46b4aed909b09
+  checksum: 10c0/926eb35c6c1213e0e4050a4f846c08f90e10584fc96f155b6175a4e1749d694e081c04af59e49de35d3edf2ec8a43c89cbe12f6529eaf3d46c047ed994ce7349
   languageName: node
   linkType: hard
 
-"verusid-ts-client@https://github.com/VerusCoin/verusid-ts-client.git":
+"verusid-ts-client@git+https://github.com/VerusCoin/verusid-ts-client.git#7149a463e01c8302193d1fec6133c25444a87cab":
   version: 0.1.0
-  resolution: "verusid-ts-client@https://github.com/VerusCoin/verusid-ts-client.git#commit=229b72da4da577a914ceecd400dd74cafece6eb8"
+  resolution: "verusid-ts-client@https://github.com/VerusCoin/verusid-ts-client.git#commit=7149a463e01c8302193d1fec6133c25444a87cab"
   dependencies:
     "@bitgo/utxo-lib": "git+https://github.com/VerusCoin/BitGoJS.git#utxo-lib-verus"
-    axios: "npm:1.11.0"
+    axios: "npm:1.13.5"
     bignumber.js: "npm:9.1.0"
-    bn.js: "npm:5.2.1"
+    bn.js: "npm:5.2.3"
     verus-typescript-primitives: "git+https://github.com/VerusCoin/verus-typescript-primitives.git"
     verusd-rpc-ts-client: "git+https://github.com/VerusCoin/verusd-rpc-ts-client"
-  checksum: 10c0/f07926c27700ea7a43f9cdac1cd808167585cbe31fbf0e78ca77676f72602c2cfb22fa80dde829e6bc0985f997ea3a0286dc07c1737694e0e1e1616a49343fd6
+  checksum: 10c0/51e084f12bbff5aaff5b881bf4346ea41815ac36201ff275c8c31ff33e65e0e9627ba715a57dac63eaa2b33b3133e557440da5aa330ce70402aeaceec207128e
   languageName: node
   linkType: hard
 

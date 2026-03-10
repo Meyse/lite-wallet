@@ -3,6 +3,7 @@
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Label } from '$lib/components/ui/label';
   import { Textarea } from '$lib/components/ui/textarea';
   import { i18nStore } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService.js';
@@ -61,9 +62,9 @@
 >
   <div class="flex h-full min-h-0 flex-col">
     <div class="min-h-0 flex-1">
-      <label for="generic-request-input" class="text-sm font-medium text-foreground">
+      <Label for="generic-request-input" class="text-sm font-medium text-foreground">
         {i18n.t('genericRequest.import.label')}
-      </label>
+      </Label>
 
       <div class="relative mt-2">
         <Button
