@@ -189,6 +189,8 @@
       if (errorType === 'InvalidPassword') {
         errorMessage = i18n.t('unlock.error.invalidPassword');
         await triggerWrongPasswordShake();
+      } else if (errorType === 'SecureStorageUnavailable') {
+        errorMessage = i18n.t('common.error.secureStorageUnavailable');
       } else if (errorType === 'OperationFailed') {
         errorMessage = i18n.t('unlock.error.operationFailed');
       } else if (errorType === 'InvalidArgs') {

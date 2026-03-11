@@ -34,6 +34,8 @@ This directory is the repository knowledge system of record.
 - Wallet activation source-of-truth: wallet-scoped active assets are persisted
   per account + network and drive both Add Asset state and chain scope
   availability.
+- Wallet storage policy:
+  [`./references/storage-policy.md`](./references/storage-policy.md)
 
 ## Ownership and freshness
 

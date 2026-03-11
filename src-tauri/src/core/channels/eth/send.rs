@@ -9,7 +9,9 @@ use ethers::types::Bytes;
 use ethers::types::{Address, Eip1559TransactionRequest, U256};
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::eth::bridge::delegator::{
     CcurrencyValueMap, CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
 };
@@ -17,7 +19,6 @@ use crate::core::channels::eth::preflight::EthPreflightPayload;
 use crate::core::channels::eth::provider::EthProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
-use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 const ERC20_TRANSFER_ABI: &str = r#"[
@@ -59,27 +60,16 @@ pub async fn send(
     let payload: EthPreflightPayload =
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
 
-    let session = session_manager.lock().await;
-    let active_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?;
-    if active_id.as_str() != record.account_id {
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
 
-    let wallet_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let eth_private_key = session.get_eth_private_key_for_signing()?;
-    drop(session);
+    let wallet_network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let network_provider = provider_pool.for_network(wallet_network)?;
-    let private_hex = if eth_private_key.starts_with("0x") {
-        eth_private_key
-    } else {
-        format!("0x{}", eth_private_key)
-    };
-
-    let wallet = private_hex
-        .parse::<LocalWallet>()
+    let wallet = LocalWallet::from_bytes(&*private_key)
         .map_err(|_| WalletError::OperationFailed)?
         .with_chain_id(network_provider.chain_id);
 

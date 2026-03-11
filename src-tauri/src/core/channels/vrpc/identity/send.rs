@@ -7,7 +7,9 @@ use bitcoin::secp256k1::{Message, Secp256k1};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::store::PreflightStore;
 use crate::core::channels::vrpc::identity::preflight::{
     IdentityPreflightPayload, IdentitySignMode,
@@ -40,20 +42,16 @@ pub async fn send(
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &VrpcProviderPool,
 ) -> Result<IdentitySendResult, WalletError> {
-    let session = session_manager.lock().await;
-    let active_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?;
-    let account_id = active_id.to_string();
-    let wif = session.get_wif_for_signing()?;
-    let wallet_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    let account_id = context.account_id.clone();
+    let wallet_network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
-    send_with_signing_material(
+    send_with_private_key_material(
         preflight_id,
         preflight_store,
         &account_id,
-        &wif,
+        &private_key,
         wallet_network,
         provider_pool,
     )
@@ -68,6 +66,31 @@ pub async fn send_with_signing_material(
     wallet_network: WalletNetwork,
     provider_pool: &VrpcProviderPool,
 ) -> Result<IdentitySendResult, WalletError> {
+    let wif_network = match wallet_network {
+        WalletNetwork::Mainnet => Network::Mainnet,
+        WalletNetwork::Testnet => Network::Testnet,
+    };
+    let private_key = decode_wif(wif, wif_network)?;
+
+    send_with_private_key_material(
+        preflight_id,
+        preflight_store,
+        expected_account_id,
+        &private_key,
+        wallet_network,
+        provider_pool,
+    )
+    .await
+}
+
+pub async fn send_with_private_key_material(
+    preflight_id: &str,
+    preflight_store: &PreflightStore,
+    expected_account_id: &str,
+    private_key: &[u8; 32],
+    wallet_network: WalletNetwork,
+    provider_pool: &VrpcProviderPool,
+) -> Result<IdentitySendResult, WalletError> {
     let record = preflight_store
         .take(preflight_id)
         .ok_or(WalletError::InvalidPreflight)?;
@@ -77,7 +100,7 @@ pub async fn send_with_signing_material(
     let payload: IdentityPreflightPayload =
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
 
-    let signed_hex = sign_payload(&payload, wif, wallet_network)?;
+    let signed_hex = sign_payload(&payload, private_key)?;
     let provider = provider_pool.for_network(wallet_network);
     let txid_raw = provider.sendrawtransaction(&signed_hex).await?;
     let txid = parse_txid_from_result(&txid_raw).ok_or(WalletError::IdentityBuildFailed)?;
@@ -93,16 +116,10 @@ pub async fn send_with_signing_material(
 
 fn sign_payload(
     payload: &IdentityPreflightPayload,
-    wif: &str,
-    wallet_network: WalletNetwork,
+    private_key: &[u8; 32],
 ) -> Result<String, WalletError> {
-    let wif_network = match wallet_network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    };
-    let priv_key = decode_wif(wif, wif_network)?;
     let secp = Secp256k1::new();
-    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&priv_key)
+    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(private_key)
         .map_err(|_| WalletError::IdentitySignFailed)?;
     let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
 

@@ -15,6 +15,7 @@ use crate::core::channels::vrpc::identity as vrpc_identity;
 use crate::core::channels::vrpc::{self, VrpcProviderPool};
 use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
+use crate::core::wallet::AccountStateStore;
 use crate::core::StrongholdStore;
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
@@ -32,6 +33,7 @@ pub(crate) struct IdentitySessionContext {
     pub(crate) primary_address: String,
     pub(crate) password_hash: Zeroizing<Vec<u8>>,
     pub(crate) stronghold_store: StrongholdStore,
+    pub(crate) account_state_store: AccountStateStore,
 }
 
 #[derive(Clone)]
@@ -529,6 +531,7 @@ fn parse_discovery_candidates(raw: Value) -> Vec<DiscoveryCandidate> {
 
 pub(crate) async fn identity_session_context(
     session_manager: &Arc<Mutex<SessionManager>>,
+    account_state_store: &AccountStateStore,
 ) -> Result<IdentitySessionContext, WalletError> {
     let session = session_manager.lock().await;
     if !session.is_unlocked() {
@@ -551,6 +554,7 @@ pub(crate) async fn identity_session_context(
         primary_address,
         password_hash,
         stronghold_store,
+        account_state_store: account_state_store.clone(),
     })
 }
 
@@ -660,9 +664,11 @@ pub async fn send_identity_update(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn discover_linkable_identities(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Vec<LinkableIdentity>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let discovery_raw = vrpc_provider_pool
         .for_network(context.network)
@@ -741,8 +747,10 @@ pub async fn discover_linkable_identities(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_linked_identities(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     load_linked_for_context(&context).await
 }
 
@@ -751,12 +759,14 @@ pub async fn get_linked_identities(
 pub async fn link_identity(
     request: LinkIdentityRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let raw_identity = vrpc_provider_pool
         .for_network(context.network)
@@ -789,11 +799,13 @@ pub async fn link_identity(
 pub async fn unlink_identity(
     request: UnlinkIdentityRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let current = load_linked_for_context(&context).await?;
     let updated = remove_linked_identity(current, &requested_identity_address);
 
@@ -805,11 +817,13 @@ pub async fn unlink_identity(
 pub async fn set_linked_identity_favorite(
     request: SetLinkedIdentityFavoriteRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let current = load_linked_for_context(&context).await?;
     let updated =
         apply_linked_identity_favorite(current, &requested_identity_address, request.favorite)?;
@@ -822,12 +836,14 @@ pub async fn set_linked_identity_favorite(
 pub async fn get_identity_details(
     identity_address: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<IdentityDetails, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let raw_identity = vrpc_provider_pool
         .for_network(context.network)

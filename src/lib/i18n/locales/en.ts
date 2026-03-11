@@ -6,6 +6,8 @@ export const en: Record<string, string> = {
   'common.done': 'Done',
   'common.retry': 'Try Again',
   'common.unknownError': 'Unknown error',
+  'common.error.secureStorageUnavailable':
+    'Secure wallet storage is unavailable on this device. Restore from recovery or a device backup.',
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
 
@@ -200,7 +202,8 @@ export const en: Record<string, string> = {
   'genericRequest.summary.signer': 'Signed by',
   'genericRequest.summary.destination': 'Callback',
   'genericRequest.summary.provisioningTitle': 'Provisioning included',
-  'genericRequest.summary.provisioningRequested': 'A new VerusID can be provisioned from this request.',
+  'genericRequest.summary.provisioningRequested':
+    'A new VerusID can be provisioned from this request.',
   'genericRequest.auth.title': 'Sign-in request',
   'genericRequest.auth.description': 'Choose the VerusID you want to use for this request.',
   'genericRequest.auth.constraints': 'Requirements',
@@ -279,12 +282,10 @@ export const en: Record<string, string> = {
   'genericRequest.update.contentClearDescription':
     'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
-  'genericRequest.update.contentRemoveValueTitleGeneric':
-    'Remove one current value under this key',
+  'genericRequest.update.contentRemoveValueTitleGeneric': 'Remove one current value under this key',
   'genericRequest.update.contentRemoveValueDescription':
     'This request removes one value from {label}.',
-  'genericRequest.update.contentRemoveAllValuesTitle':
-    'Remove all current values under {label}',
+  'genericRequest.update.contentRemoveAllValuesTitle': 'Remove all current values under {label}',
   'genericRequest.update.contentRemoveAllValuesTitleGeneric':
     'Remove all current values under this key',
   'genericRequest.update.contentRemoveAllValuesDescription':
@@ -297,8 +298,7 @@ export const en: Record<string, string> = {
     'This request removes matching values from {label}.',
   'genericRequest.update.contentRemoveEffect':
     'Removed values stop appearing in the current identity content after this update.',
-  'genericRequest.update.contentRemoveHistory':
-    'They can still be found on the blockchain.',
+  'genericRequest.update.contentRemoveHistory': 'They can still be found on the blockchain.',
   'genericRequest.update.contentRemoveHistoryHash':
     'This request targets values matching hash {hash}. They can still be found on the blockchain.',
   'genericRequest.update.contentKeyTitle': 'Content key: {label}',
@@ -350,8 +350,7 @@ export const en: Record<string, string> = {
   'genericRequest.update.primaryAddress.removeDescription':
     'This primary address will no longer control the identity after the update.',
   'genericRequest.update.status.title': 'Identity status',
-  'genericRequest.update.status.revokedDescription':
-    'This update marks the identity as revoked.',
+  'genericRequest.update.status.revokedDescription': 'This update marks the identity as revoked.',
   'genericRequest.update.status.activeDescription':
     'This update restores the identity to an active state.',
   'genericRequest.update.status.revoked': 'Revoked',
@@ -363,7 +362,8 @@ export const en: Record<string, string> = {
   'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
   'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
   'genericRequest.update.fundingCalculating': 'Calculating fee…',
-  'genericRequest.update.fundingEmpty': 'No eligible wallets on this network are available to pay from.',
+  'genericRequest.update.fundingEmpty':
+    'No eligible wallets on this network are available to pay from.',
   'genericRequest.update.fundingFeePlaceholder': 'Select a wallet to calculate the fee.',
   'genericRequest.update.feeTitle': 'Estimated fee',
   'genericRequest.update.feeLabel': 'Estimated fee: {fee} {currency}',
@@ -394,14 +394,12 @@ export const en: Record<string, string> = {
     'This request does not include a provisioning webhook.',
   'genericRequest.provisioning.error.invalidRequest':
     'This provisioning request is missing required fields.',
-  'genericRequest.provisioning.error.webhook':
-    'The provisioning service rejected the request.',
+  'genericRequest.provisioning.error.webhook': 'The provisioning service rejected the request.',
   'genericRequest.provisioning.error.invalidResponse':
     'The provisioning service returned an invalid response.',
   'genericRequest.provisioning.error.invalidResponseSignature':
     'The provisioning response signature could not be verified.',
-  'genericRequest.provisioning.error.failed':
-    'The provisioning service reported a failure.',
+  'genericRequest.provisioning.error.failed': 'The provisioning service reported a failure.',
   'genericRequest.provisioning.error.identityMismatch':
     'The provisioning response returned a different identity than requested.',
   'genericRequest.provisioning.error.nameMismatch':
@@ -530,8 +528,7 @@ export const en: Record<string, string> = {
   'wallet.assetDetails.transactions': 'Transaction history',
   'wallet.assetDetails.errorLoadTransactions': 'Could not load transactions for this scope.',
   'wallet.assetDetails.errorLoadMoreTransactions': 'Could not load more transactions.',
-  'wallet.assetDetails.noTransactionsForScope':
-    'No transactions for this address on this network.',
+  'wallet.assetDetails.noTransactionsForScope': 'No transactions for this address on this network.',
   'wallet.assetDetails.scopeSheetTitle': 'Select address and network',
   'wallet.assetDetails.scopeSearchPlaceholder': 'Search address or network',
   'wallet.assetDetails.noScopeMatches': 'No address or network matches your search.',
@@ -712,8 +709,7 @@ export const en: Record<string, string> = {
     'Amount changed from {submitted} to {adjusted} {ticker} to cover network fees.',
   'wallet.transfer.review.unsavedRecipient': 'This recipient is not saved in your address book.',
   'wallet.transfer.review.unsavedConfirmShort': 'Recipient verified',
-  'wallet.transfer.review.unsavedSettingHint':
-    'You can change this security setting in Settings.',
+  'wallet.transfer.review.unsavedSettingHint': 'You can change this security setting in Settings.',
   'wallet.transfer.review.refresh': 'Refresh review',
   'wallet.transfer.reviewUnavailable': 'Review data is unavailable. Try preflight again.',
   'wallet.transfer.privateSyncBlocked':
@@ -730,7 +726,8 @@ export const en: Record<string, string> = {
   'wallet.transfer.saveRecipient.saving': 'Saving recipient…',
   'wallet.transfer.saveRecipient.defaultEndpointLabel': 'Default',
   'wallet.transfer.saveRecipient.error.nameRequired': 'Enter a recipient name.',
-  'wallet.transfer.saveRecipient.error.invalid': 'This address is not valid for the selected network.',
+  'wallet.transfer.saveRecipient.error.invalid':
+    'This address is not valid for the selected network.',
   'wallet.transfer.saveRecipient.error.duplicate':
     'This address is already saved for the selected network.',
   'wallet.transfer.saveRecipient.error.walletLocked': 'Wallet is locked. Unlock and try again.',
@@ -853,8 +850,7 @@ export const en: Record<string, string> = {
   'wallet.identity.detail.fields.revocationAuthority': 'Revocation authority',
   'wallet.identity.detail.fields.recoveryAuthority': 'Recovery authority',
   'wallet.identity.detail.warningCards.spendAndSign.title': 'Spend and sign',
-  'wallet.identity.detail.warningCards.spendAndSign.safe':
-    'Owned by this wallet address only.',
+  'wallet.identity.detail.warningCards.spendAndSign.safe': 'Owned by this wallet address only.',
   'wallet.identity.detail.warningCards.spendAndSign.warning':
     'Funds can be spent or signed by other primary addresses.',
   'wallet.identity.detail.warningCards.revoke.title': 'Revoke',

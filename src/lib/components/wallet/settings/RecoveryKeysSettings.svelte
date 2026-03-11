@@ -13,6 +13,7 @@
   import { CopyActionButton } from '$lib/components/ui/copy-action-button';
   import { i18nStore } from '$lib/i18n';
   import { TimedRecordState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors';
   import * as walletService from '$lib/services/walletService';
   import type {
     DlightRecoverySecretKind,
@@ -207,8 +208,13 @@
       visibleSecretById = {};
       copyFeedbackState.clearAll();
       closePasswordDialog();
-    } catch {
-      passwordError = i18n.t('wallet.settings.recovery.passwordInvalid');
+    } catch (error) {
+      const errorType = extractWalletErrorType(error);
+      if (errorType === 'SecureStorageUnavailable') {
+        passwordError = i18n.t('common.error.secureStorageUnavailable');
+      } else {
+        passwordError = i18n.t('wallet.settings.recovery.passwordInvalid');
+      }
     } finally {
       isLoading = false;
     }

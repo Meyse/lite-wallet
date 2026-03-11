@@ -11,9 +11,13 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::core::address_book::manager as address_book_manager;
-use crate::core::auth::{stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager};
+use crate::core::auth::{
+    capture_active_wallet_access_context, load_primary_secret_material_for_context,
+    stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
+};
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::EthProviderPool;
@@ -21,10 +25,12 @@ use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::coins::Channel;
 use crate::core::coins::{CoinDefinition, CoinRegistry};
 use crate::core::crypto::wif_encoding::{decode_wif_unchecked_network, encode_btc_wif};
-use crate::core::crypto::{derive_keys_from_material, Network};
+use crate::core::crypto::{
+    derive_keys_from_material, derive_public_profile_from_material, Network,
+};
 use crate::core::updates::UpdateEngineStartConfig;
-use crate::core::wallet::WalletManager;
-use crate::core::{GuardSessionManager, PreflightStore, UpdateEngine};
+use crate::core::wallet::{AccountStateStore, WalletManager};
+use crate::core::{GuardSessionManager, PreflightStore, StrongholdStore, UpdateEngine};
 use crate::types::wallet::{DlightSeedSetupMode, ScopeKind, WalletNetwork};
 use crate::types::{
     AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressEndpointKind, AddressResponse,
@@ -66,6 +72,18 @@ const VETH_SYSTEM_ID: &str = "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X";
 const MAINNET_DEFAULT_ACTIVE_COIN_IDS: &[&str] =
     &["VRSC", "ETH", "BTC", "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd"];
 const TESTNET_DEFAULT_ACTIVE_COIN_IDS: &[&str] = &["VRSCTEST", "GETH", "BTCTEST"];
+
+async fn resolve_current_password_hash(
+    account: &AccountRecord,
+    password: &str,
+    stronghold_store: &StrongholdStore,
+    wallet_manager: &WalletManager,
+    account_state_store: &AccountStateStore,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, WalletError> {
+    stronghold_store
+        .ensure_account_password_hash(account, password, wallet_manager, account_state_store)
+        .await
+}
 
 fn coin_supports_channel(coin: &CoinDefinition, channel: Channel) -> bool {
     coin.compatible_channels.iter().any(|item| *item == channel)
@@ -583,8 +601,8 @@ pub async fn create_wallet(
     request: CreateWalletRequest,
     password: String,
     wallet_manager: State<'_, WalletManager>,
+    account_state_store: State<'_, AccountStateStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    app_handle: AppHandle,
 ) -> Result<CreateWalletResult, WalletError> {
     // Validate inputs
     request.validate()?;
@@ -609,12 +627,12 @@ pub async fn create_wallet(
     // Store seed in Stronghold
     let session = session_manager.lock().await;
     let stronghold_store = session.stronghold_store().clone();
+    drop(session);
+    let password_hash = stronghold_store.derive_current_password_hash(&password, true)?;
     stronghold_store
-        .store_seed(&account_id, &request.seed_phrase, &password, &app_handle)
+        .store_seed(&account_id, &request.seed_phrase, password_hash.as_ref())
         .await?;
     if request.setup_dlight_with_primary {
-        let password_hash =
-            crate::core::auth::stronghold_store::StrongholdStore::hash_password(&password);
         stronghold_store
             .store_dlight_seed(
                 &account_id,
@@ -624,7 +642,13 @@ pub async fn create_wallet(
             )
             .await?;
     }
-    drop(session);
+    account_state_store.store_active_assets(
+        &account_id,
+        request.network,
+        false,
+        ACTIVE_ASSETS_PROFILE_VERSION,
+        &[],
+    )?;
 
     // Create account hash
     let account_hash = hash_account_id(&account_id);
@@ -633,7 +657,7 @@ pub async fn create_wallet(
     let account = AccountRecord {
         id: account_id.clone(),
         account_hash,
-        key_derivation_version: 1,
+        key_derivation_version: stronghold_store.current_key_derivation_version(),
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -664,8 +688,8 @@ pub async fn import_wallet_text(
     request: ImportWalletTextRequest,
     password: String,
     wallet_manager: State<'_, WalletManager>,
+    account_state_store: State<'_, AccountStateStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    app_handle: AppHandle,
 ) -> Result<CreateWalletResult, WalletError> {
     request.validate()?;
 
@@ -691,17 +715,25 @@ pub async fn import_wallet_text(
     let account_id = Uuid::new_v4().to_string();
 
     let session = session_manager.lock().await;
-    session
-        .stronghold_store()
-        .store_seed(&account_id, &secret_material, &password, &app_handle)
-        .await?;
+    let stronghold_store = session.stronghold_store().clone();
     drop(session);
+    let password_hash = stronghold_store.derive_current_password_hash(&password, true)?;
+    stronghold_store
+        .store_seed(&account_id, &secret_material, password_hash.as_ref())
+        .await?;
+    account_state_store.store_active_assets(
+        &account_id,
+        request.network,
+        false,
+        ACTIVE_ASSETS_PROFILE_VERSION,
+        &[],
+    )?;
 
     let account_hash = hash_account_id(&account_id);
     let account = AccountRecord {
         id: account_id.clone(),
         account_hash,
-        key_derivation_version: 1,
+        key_derivation_version: stronghold_store.current_key_derivation_version(),
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -734,9 +766,9 @@ pub async fn unlock_wallet(
     account_id: String,
     password: String,
     wallet_manager: State<'_, WalletManager>,
+    account_state_store: State<'_, AccountStateStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
-    app_handle: AppHandle,
 ) -> Result<(), WalletError> {
     println!("[WALLET] Unlock wallet requested");
 
@@ -745,20 +777,51 @@ pub async fn unlock_wallet(
         .await?
         .ok_or(WalletError::OperationFailed)?;
 
-    let mut session = session_manager.lock().await;
-    if let Err(err) = session
-        .unlock(
-            account_id.clone(),
-            password,
-            wallet.network,
-            wallet.secret_kind,
-            &app_handle,
-        )
+    let session = session_manager.lock().await;
+    let stronghold_store = session.stronghold_store().clone();
+    drop(session);
+
+    let password_hash = resolve_current_password_hash(
+        &wallet,
+        &password,
+        &stronghold_store,
+        wallet_manager.inner(),
+        account_state_store.inner(),
+    )
+    .await;
+    let password_hash = match password_hash {
+        Ok(value) => value,
+        Err(err) => {
+            println!("[WALLET] Unlock failed during KDF resolution: {:?}", err);
+            return Err(err);
+        }
+    };
+    let seed = match stronghold_store
+        .load_seed(&account_id, password_hash.as_ref())
         .await
     {
-        println!("[WALLET] Unlock failed: {:?}", err);
-        return Err(err);
-    }
+        Ok(value) => Zeroizing::new(value),
+        Err(err) => {
+            println!("[WALLET] Unlock failed while loading seed: {:?}", err);
+            return Err(err);
+        }
+    };
+
+    let public_profile = derive_public_profile_from_material(
+        seed.as_str(),
+        wallet.secret_kind,
+        crypto_network_for_wallet(wallet.network),
+    )
+    .map_err(|_| WalletError::OperationFailed)?;
+
+    let mut session = session_manager.lock().await;
+    session.unlock_with_profile(
+        account_id.clone(),
+        wallet.network,
+        wallet.secret_kind,
+        public_profile,
+        password_hash,
+    );
     drop(session);
     if let Err(error) = wallet_manager.mark_wallet_last_unlocked(&account_id).await {
         println!(
@@ -913,6 +976,7 @@ pub async fn get_active_wallet(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_watched_vrpc_addresses(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<String>, WalletError> {
     let session = session_manager.lock().await;
     if !session.is_unlocked() {
@@ -924,13 +988,9 @@ pub async fn get_watched_vrpc_addresses(
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
     drop(session);
 
-    let addresses = stronghold_store
-        .load_watched_vrpc_addresses(&account_id, password_hash.as_ref(), network)
-        .await?;
+    let addresses = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
     Ok(dedupe_preserve_order(
         addresses
             .into_iter()
@@ -944,6 +1004,7 @@ pub async fn get_watched_vrpc_addresses(
 pub async fn set_watched_vrpc_addresses(
     addresses: Vec<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<String>, WalletError> {
     const MAX_WATCHED_ADDRESSES: usize = 100;
 
@@ -958,8 +1019,6 @@ pub async fn set_watched_vrpc_addresses(
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     let (primary_vrpc_address, _, _) = session.get_addresses()?;
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
     drop(session);
 
     let mut sanitized = dedupe_preserve_order(
@@ -971,9 +1030,7 @@ pub async fn set_watched_vrpc_addresses(
     );
     sanitized.truncate(MAX_WATCHED_ADDRESSES);
 
-    stronghold_store
-        .store_watched_vrpc_addresses(&account_id, password_hash.as_ref(), network, &sanitized)
-        .await?;
+    account_state_store.store_watched_vrpc_addresses(&account_id, network, &sanitized)?;
 
     Ok(sanitized)
 }
@@ -982,6 +1039,7 @@ pub async fn set_watched_vrpc_addresses(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_active_assets(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<ActiveAssetsState, WalletError> {
     let session = session_manager.lock().await;
@@ -994,13 +1052,10 @@ pub async fn get_active_assets(
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
     drop(session);
 
-    let (initialized, coin_ids, profile_version) = stronghold_store
-        .load_active_assets(&account_id, password_hash.as_ref(), network)
-        .await?;
+    let (initialized, coin_ids, profile_version) =
+        account_state_store.load_active_assets(&account_id, network)?;
     let sanitized = sanitize_active_coin_ids(coin_registry.as_ref(), network, &coin_ids);
     if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
         let defaults = sanitize_active_coin_ids(
@@ -1008,16 +1063,13 @@ pub async fn get_active_assets(
             network,
             &default_active_coin_ids(network),
         );
-        stronghold_store
-            .store_active_assets(
-                &account_id,
-                password_hash.as_ref(),
-                network,
-                true,
-                ACTIVE_ASSETS_PROFILE_VERSION,
-                &defaults,
-            )
-            .await?;
+        account_state_store.store_active_assets(
+            &account_id,
+            network,
+            true,
+            ACTIVE_ASSETS_PROFILE_VERSION,
+            &defaults,
+        )?;
 
         return Ok(ActiveAssetsState {
             network,
@@ -1038,6 +1090,7 @@ pub async fn get_active_assets(
 pub async fn set_active_assets(
     coin_ids: Vec<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<ActiveAssetsState, WalletError> {
     let session = session_manager.lock().await;
@@ -1050,21 +1103,16 @@ pub async fn set_active_assets(
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
     drop(session);
 
     let sanitized = sanitize_active_coin_ids(coin_registry.as_ref(), network, &coin_ids);
-    stronghold_store
-        .store_active_assets(
-            &account_id,
-            password_hash.as_ref(),
-            network,
-            true,
-            ACTIVE_ASSETS_PROFILE_VERSION,
-            &sanitized,
-        )
-        .await?;
+    account_state_store.store_active_assets(
+        &account_id,
+        network,
+        true,
+        ACTIVE_ASSETS_PROFILE_VERSION,
+        &sanitized,
+    )?;
 
     Ok(ActiveAssetsState {
         network,
@@ -1120,24 +1168,12 @@ pub async fn setup_dlight_seed(
     wallet_manager: State<'_, WalletManager>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<SetupDlightSeedResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .cloned()
-        .ok_or(WalletError::WalletLocked)?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let reuse_primary_seed = if matches!(request.mode, DlightSeedSetupMode::ReusePrimary) {
-        Some(session.active_seed_material()?)
+        Some(load_primary_secret_material_for_context(&context).await?)
     } else {
         None
     };
-    drop(session);
 
     let mut generated_seed_phrase: Option<String> = None;
     let seed_to_store = match request.mode {
@@ -1168,13 +1204,14 @@ pub async fn setup_dlight_seed(
         }
     };
     // Validate and normalize z-address derivation before persisting.
-    let _ = dlight_private::derive_scope_address(&seed_to_store, network)?;
+    let _ = dlight_private::derive_scope_address(&seed_to_store, context.wallet_network)?;
 
-    stronghold_store
+    context
+        .stronghold_store
         .store_dlight_seed(
-            &account_id,
-            password_hash.as_ref(),
-            network,
+            &context.account_id,
+            context.password_hash(),
+            context.wallet_network,
             Some(seed_to_store.as_str()),
         )
         .await?;
@@ -1190,8 +1227,8 @@ pub async fn setup_dlight_seed(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_wallet_recovery_secrets(
     password: String,
-    app_handle: AppHandle,
     wallet_manager: State<'_, WalletManager>,
+    account_state_store: State<'_, AccountStateStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<WalletRecoverySecretsResult, WalletError> {
     if password.trim().is_empty() {
@@ -1215,8 +1252,16 @@ pub async fn get_wallet_recovery_secrets(
         .get_account_record_by_account_id(&account_id)
         .await?
         .ok_or(WalletError::OperationFailed)?;
+    let password_hash = resolve_current_password_hash(
+        &account,
+        &password,
+        &stronghold_store,
+        wallet_manager.inner(),
+        account_state_store.inner(),
+    )
+    .await?;
     let primary_secret = stronghold_store
-        .load_seed(&account_id, &password, &app_handle)
+        .load_seed(&account_id, password_hash.as_ref())
         .await?;
     let primary_secret_kind = recovery_secret_kind_from_wallet_secret_kind(account.secret_kind);
     let keys = derive_keys_from_material(
@@ -1229,9 +1274,6 @@ pub async fn get_wallet_recovery_secrets(
     let private_bytes =
         decode_wif_unchecked_network(&keys.wif).map_err(|_| WalletError::OperationFailed)?;
     let btc_wif = encode_btc_wif(&private_bytes, crypto_network_for_wallet(network))?;
-
-    let password_hash =
-        crate::core::auth::stronghold_store::StrongholdStore::hash_password(&password);
     let dlight_secret = stronghold_store
         .load_dlight_seed(&account_id, password_hash.as_slice(), network)
         .await?;
@@ -1345,6 +1387,7 @@ pub async fn get_dlight_prover_status() -> Result<DlightProverStatusResult, Wall
 pub async fn get_coin_scopes(
     coin_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<CoinScopesResult, WalletError> {
     let session = session_manager.lock().await;
@@ -1369,9 +1412,7 @@ pub async fn get_coin_scopes(
         .ok_or(WalletError::UnsupportedChannel)?;
 
     if coin_supports_channel(&coin, Channel::Vrpc) {
-        let watched = stronghold_store
-            .load_watched_vrpc_addresses(&account_id, password_hash.as_ref(), network)
-            .await?;
+        let watched = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
         let linked_identities = stronghold_store
             .load_linked_identities(&account_id, password_hash.as_ref(), network)
             .await
@@ -1389,9 +1430,8 @@ pub async fn get_coin_scopes(
             network,
         );
 
-        let active_coin_ids = stronghold_store
-            .load_active_assets(&account_id, password_hash.as_ref(), network)
-            .await
+        let active_coin_ids = account_state_store
+            .load_active_assets(&account_id, network)
             .map(|(_initialized, coin_ids, _profile_version)| coin_ids);
         let systems = match active_coin_ids {
             Ok(active_ids) => {

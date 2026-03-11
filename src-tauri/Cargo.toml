@@ -39,6 +39,7 @@ ripemd = "0.1"              # RIPEMD160 for hash160
 bs58 = { version = "0.5", features = ["check"] }  # Base58 encoding with checksum
 zeroize = { version = "1.6", features = ["derive"] }  # Secure memory clearing
 sha2 = "0.10"               # SHA-256 hashing for passwords
+argon2 = "0.5"             # Argon2id password hashing for Stronghold KDF
 thiserror = "1.0"           # Structured error handling
 tokio = { version = "1.0", features = ["full"] }  # Async runtime
 tokio-util = "0.7"  # CancellationToken for update engine (Module 7)

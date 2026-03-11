@@ -257,7 +257,15 @@ pub fn sign_identity_hash(
     network: Network,
 ) -> Result<Vec<u8>, WalletError> {
     let private_key = decode_wif(wif, network)?;
-    let secret_key = SecretKey::from_slice(&private_key)
+    sign_identity_hash_with_private_bytes(identity_hash, signed_block_height, &private_key)
+}
+
+pub fn sign_identity_hash_with_private_bytes(
+    identity_hash: [u8; 32],
+    signed_block_height: u32,
+    private_key: &[u8; 32],
+) -> Result<Vec<u8>, WalletError> {
+    let secret_key = SecretKey::from_slice(private_key)
         .map_err(|_| WalletError::GenericRequestUnsupportedSignature)?;
     let secp = Secp256k1::new();
     let message = Message::from_digest(identity_hash);
@@ -822,7 +830,9 @@ pub(crate) fn encode_compact_i_address(address: &str) -> Result<Vec<u8>, WalletE
 mod tests {
     use super::{
         compute_identity_signature_hash, get_raw_envelope_sha256, parse_generic_envelope_hex,
+        sign_identity_hash, sign_identity_hash_with_private_bytes,
     };
+    use crate::core::crypto::{derive_keys_v1, Network};
 
     const SIGNED_REQUEST_HEX: &str = "0195001002050102a6ef9ea235635e328124ff3429db9f9e91b64e2d0102333e45170feadf2565b8512f1fe92af448ccb8e24902058bbc0e0001411f7d22d03c6ff11539f76be72aeab046ca23d3a8c31e686e809cd7e436e545d6ab0e1bb78bcae64cdff930c86220a481c43ab4856c49914deaf40a8763d68e4212fe2b8dab690201170101025d1d62a4f01ffca0cc061665d2e33e47c328fb6601021468747470733a2f2f7777772e76657275732e696f";
     const EXPECTED_RAW_SHA256: &str =
@@ -845,5 +855,23 @@ mod tests {
         )
         .expect("identity hash");
         assert_eq!(hex::encode(identity_hash), EXPECTED_IDENTITY_HASH);
+    }
+
+    #[test]
+    fn private_bytes_signing_matches_wif_signing() {
+        let keys = derive_keys_v1("verus id signature private byte parity", Network::Mainnet)
+            .expect("derive keys");
+        let private_key = hex::decode(&keys.eth_private_key).expect("decode private key");
+        let private_key: [u8; 32] = private_key.try_into().expect("private key length");
+        let hash = hex::decode(EXPECTED_IDENTITY_HASH).expect("hash bytes");
+        let hash: [u8; 32] = hash.try_into().expect("hash length");
+
+        let from_wif = sign_identity_hash(hash, SIGNED_BLOCK_HEIGHT, &keys.wif, Network::Mainnet)
+            .expect("sign with wif");
+        let from_private_bytes =
+            sign_identity_hash_with_private_bytes(hash, SIGNED_BLOCK_HEIGHT, &private_key)
+                .expect("sign with private bytes");
+
+        assert_eq!(from_private_bytes, from_wif);
     }
 }

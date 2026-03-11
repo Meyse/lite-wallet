@@ -4,9 +4,13 @@
 // Last Updated: Created for Module 1 integration
 
 pub mod guard_session;
+pub mod kdf;
 pub mod session;
 pub mod stronghold_store;
 
 pub use guard_session::GuardSessionManager;
-pub use session::SessionManager;
+pub use session::{
+    capture_active_wallet_access_context, load_primary_private_scalar_for_context,
+    load_primary_secret_material_for_context, SessionManager,
+};
 pub use stronghold_store::StrongholdStore;

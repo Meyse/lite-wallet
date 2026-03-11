@@ -6,6 +6,8 @@ export const nl: Record<string, string> = {
   'common.done': 'Klaar',
   'common.retry': 'Opnieuw proberen',
   'common.unknownError': 'Onbekende fout',
+  'common.error.secureStorageUnavailable':
+    'Beveiligde walletopslag is niet beschikbaar op dit apparaat. Herstel vanaf een backup of herstelzin.',
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
 
@@ -24,7 +26,8 @@ export const nl: Record<string, string> = {
     'Wallet kon niet op dit apparaat worden ontgrendeld. Probeer opnieuw of maak hem opnieuw aan.',
   'unlock.error.invalidArgs':
     'Ontgrendelverzoek was ongeldig. Start de app opnieuw en probeer het nogmaals.',
-  'unlock.error.openFailed': 'Wallet is ontgrendeld, maar het dashboard kon niet openen. Probeer opnieuw.',
+  'unlock.error.openFailed':
+    'Wallet is ontgrendeld, maar het dashboard kon niet openen. Probeer opnieuw.',
   'unlock.error.generic': 'Kan wallet nu niet ontgrendelen. Probeer opnieuw.',
   'unlock.switcher.title': 'Kies wallet',
   'unlock.create.title': 'Wallet maken of importeren',
@@ -203,7 +206,8 @@ export const nl: Record<string, string> = {
   'genericRequest.summary.signer': 'Signed by',
   'genericRequest.summary.destination': 'Callback',
   'genericRequest.summary.provisioningTitle': 'Provisioning included',
-  'genericRequest.summary.provisioningRequested': 'A new VerusID can be provisioned from this request.',
+  'genericRequest.summary.provisioningRequested':
+    'A new VerusID can be provisioned from this request.',
   'genericRequest.auth.title': 'Aanmeldverzoek',
   'genericRequest.auth.description': 'Kies de VerusID die je voor dit verzoek wilt gebruiken.',
   'genericRequest.auth.constraints': 'Requirements',
@@ -219,7 +223,8 @@ export const nl: Record<string, string> = {
   'genericRequest.auth.selectIdentity': 'Selecteer VerusID',
   'genericRequest.auth.signInTo': 'Meld je aan bij {app}',
   'genericRequest.auth.requestedBy': 'Aangevraagd door {requester}',
-  'genericRequest.auth.noSelection': 'Er is nog geen VerusID geselecteerd. Kies er een om door te gaan.',
+  'genericRequest.auth.noSelection':
+    'Er is nog geen VerusID geselecteerd. Kies er een om door te gaan.',
   'genericRequest.auth.selectedDescription':
     'Deze VerusID ondertekent de reactie die naar de aanvrager wordt teruggestuurd.',
   'genericRequest.auth.changeSelection': 'Wijzigen',
@@ -282,12 +287,10 @@ export const nl: Record<string, string> = {
   'genericRequest.update.contentClearDescription':
     'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
-  'genericRequest.update.contentRemoveValueTitleGeneric':
-    'Remove one current value under this key',
+  'genericRequest.update.contentRemoveValueTitleGeneric': 'Remove one current value under this key',
   'genericRequest.update.contentRemoveValueDescription':
     'This request removes one value from {label}.',
-  'genericRequest.update.contentRemoveAllValuesTitle':
-    'Remove all current values under {label}',
+  'genericRequest.update.contentRemoveAllValuesTitle': 'Remove all current values under {label}',
   'genericRequest.update.contentRemoveAllValuesTitleGeneric':
     'Remove all current values under this key',
   'genericRequest.update.contentRemoveAllValuesDescription':
@@ -300,8 +303,7 @@ export const nl: Record<string, string> = {
     'This request removes matching values from {label}.',
   'genericRequest.update.contentRemoveEffect':
     'Removed values stop appearing in the current identity content after this update.',
-  'genericRequest.update.contentRemoveHistory':
-    'They can still be found on the blockchain.',
+  'genericRequest.update.contentRemoveHistory': 'They can still be found on the blockchain.',
   'genericRequest.update.contentRemoveHistoryHash':
     'This request targets values matching hash {hash}. They can still be found on the blockchain.',
   'genericRequest.update.contentKeyTitle': 'Content key: {label}',
@@ -353,8 +355,7 @@ export const nl: Record<string, string> = {
   'genericRequest.update.primaryAddress.removeDescription':
     'This primary address will no longer control the identity after the update.',
   'genericRequest.update.status.title': 'Identity status',
-  'genericRequest.update.status.revokedDescription':
-    'This update marks the identity as revoked.',
+  'genericRequest.update.status.revokedDescription': 'This update marks the identity as revoked.',
   'genericRequest.update.status.activeDescription':
     'This update restores the identity to an active state.',
   'genericRequest.update.status.revoked': 'Revoked',
@@ -366,7 +367,8 @@ export const nl: Record<string, string> = {
   'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
   'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
   'genericRequest.update.fundingCalculating': 'Calculating fee…',
-  'genericRequest.update.fundingEmpty': 'No eligible wallets on this network are available to pay from.',
+  'genericRequest.update.fundingEmpty':
+    'No eligible wallets on this network are available to pay from.',
   'genericRequest.update.fundingFeePlaceholder': 'Select a wallet to calculate the fee.',
   'genericRequest.update.feeTitle': 'Estimated fee',
   'genericRequest.update.feeLabel': 'Estimated fee: {fee} {currency}',
@@ -397,14 +399,12 @@ export const nl: Record<string, string> = {
     'This request does not include a provisioning webhook.',
   'genericRequest.provisioning.error.invalidRequest':
     'This provisioning request is missing required fields.',
-  'genericRequest.provisioning.error.webhook':
-    'The provisioning service rejected the request.',
+  'genericRequest.provisioning.error.webhook': 'The provisioning service rejected the request.',
   'genericRequest.provisioning.error.invalidResponse':
     'The provisioning service returned an invalid response.',
   'genericRequest.provisioning.error.invalidResponseSignature':
     'The provisioning response signature could not be verified.',
-  'genericRequest.provisioning.error.failed':
-    'The provisioning service reported a failure.',
+  'genericRequest.provisioning.error.failed': 'The provisioning service reported a failure.',
   'genericRequest.provisioning.error.identityMismatch':
     'The provisioning response returned a different identity than requested.',
   'genericRequest.provisioning.error.nameMismatch':
@@ -534,8 +534,7 @@ export const nl: Record<string, string> = {
   'wallet.assetDetails.errorLoadTransactions':
     'Transacties voor deze scope konden niet worden geladen.',
   'wallet.assetDetails.errorLoadMoreTransactions': 'Meer transacties konden niet worden geladen.',
-  'wallet.assetDetails.noTransactionsForScope':
-    'Geen transacties voor dit adres op dit netwerk.',
+  'wallet.assetDetails.noTransactionsForScope': 'Geen transacties voor dit adres op dit netwerk.',
   'wallet.assetDetails.scopeSheetTitle': 'Adres en netwerk selecteren',
   'wallet.assetDetails.scopeSearchPlaceholder': 'Zoek adres of netwerk',
   'wallet.assetDetails.noScopeMatches': 'Geen adres of netwerk gevonden voor je zoekopdracht.',
@@ -595,8 +594,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.step.success.description': 'Je transactie is succesvol uitgezonden.',
   'wallet.transfer.step.success.txidLabel': 'Transactie-id',
   'wallet.transfer.step.success.savedRecipientTitle': 'Ontvanger opgeslagen',
-  'wallet.transfer.step.success.savedRecipientDescription':
-    'Dit adres staat nu in je adresboek.',
+  'wallet.transfer.step.success.savedRecipientDescription': 'Dit adres staat nu in je adresboek.',
   'wallet.transfer.youSend': 'Je verzendt',
   'wallet.transfer.youReceive': 'Je ontvangt',
   'wallet.transfer.receiveAsset': 'Ontvangst-asset',
@@ -623,7 +621,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.exportSheetTitle': 'Bestemmingsnetwerk selecteren',
   'wallet.transfer.exportSheetDescription':
     'Kies op welk netwerk de ontvanger {value} moet ontvangen.',
-  'wallet.transfer.onlyAvailableOnNetwork': 'Deze asset is alleen beschikbaar op het {value}-netwerk.',
+  'wallet.transfer.onlyAvailableOnNetwork':
+    'Deze asset is alleen beschikbaar op het {value}-netwerk.',
   'wallet.transfer.keepOnNetwork': 'Behouden op {value}',
   'wallet.transfer.crossChainSendAvailable': 'Cross-chain versturen beschikbaar',
   'wallet.transfer.crossChainSendUnavailable': 'Cross-chain versturen niet beschikbaar',
@@ -688,8 +687,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.addressBook.open': 'Adresboek openen',
   'wallet.transfer.addressBook.sheetTitle': 'Adresboek',
   'wallet.transfer.addressBook.searchPlaceholder': 'Zoek op contact of adres',
-  'wallet.transfer.addressBook.empty':
-    'Geen opgeslagen ontvangers gevonden voor dit adrestype.',
+  'wallet.transfer.addressBook.empty': 'Geen opgeslagen ontvangers gevonden voor dit adrestype.',
   'wallet.transfer.addressBook.recent': 'Recent',
   'wallet.transfer.addressBook.savedMatch': 'Opgeslagen ontvanger: {contact} ({endpoint})',
   'wallet.transfer.addressBook.similarWarning':
@@ -711,7 +709,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.sendStageHint.broadcasting':
     'Uitzenden duurt langer dan verwacht. Endpoint-latentie kan hoog zijn; probeer opnieuw als er geen txid verschijnt.',
   'wallet.transfer.warningsTitle': 'Waarschuwingen',
-  'wallet.transfer.warning.finalAmountMayVary': 'Definitieve hoeveelheid die je ontvangt kan iets afwijken.',
+  'wallet.transfer.warning.finalAmountMayVary':
+    'Definitieve hoeveelheid die je ontvangt kan iets afwijken.',
   'wallet.transfer.review.changeDetails': 'Details wijzigen',
   'wallet.transfer.review.changeRecipient': 'Ontvanger wijzigen',
   'wallet.transfer.review.sending': 'Je verzendt',
@@ -720,8 +719,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.review.savedRecipient': 'Opgeslagen ontvanger: {contact} ({endpoint})',
   'wallet.transfer.review.amountAdjustedWarning':
     'Bedrag aangepast van {submitted} naar {adjusted} {ticker} om netwerkkosten te dekken.',
-  'wallet.transfer.review.unsavedRecipient':
-    'Deze ontvanger staat niet in je adresboek.',
+  'wallet.transfer.review.unsavedRecipient': 'Deze ontvanger staat niet in je adresboek.',
   'wallet.transfer.review.unsavedConfirmShort': 'Ontvanger geverifieerd',
   'wallet.transfer.review.unsavedSettingHint':
     'Je kunt deze beveiligingsinstelling wijzigen in Instellingen.',
@@ -748,8 +746,7 @@ export const nl: Record<string, string> = {
     'Dit adres is al opgeslagen voor het geselecteerde netwerk.',
   'wallet.transfer.saveRecipient.error.walletLocked':
     'Wallet is vergrendeld. Ontgrendel en probeer opnieuw.',
-  'wallet.transfer.saveRecipient.error.generic':
-    'Kon de ontvanger nu niet opslaan.',
+  'wallet.transfer.saveRecipient.error.generic': 'Kon de ontvanger nu niet opslaan.',
   'wallet.transfer.pathExportTo': 'Exporteren naar: {value}',
   'wallet.transfer.pathVia': 'Via: {value}',
   'wallet.transfer.pathMapTo': 'Mappen naar: {value}',
@@ -868,23 +865,19 @@ export const nl: Record<string, string> = {
   'wallet.identity.detail.fields.revocationAuthority': 'Intrekkingsautoriteit',
   'wallet.identity.detail.fields.recoveryAuthority': 'Herstelautoriteit',
   'wallet.identity.detail.warningCards.spendAndSign.title': 'Uitgeven en ondertekenen',
-  'wallet.identity.detail.warningCards.spendAndSign.safe':
-    'Alleen beheerd door dit walletadres.',
+  'wallet.identity.detail.warningCards.spendAndSign.safe': 'Alleen beheerd door dit walletadres.',
   'wallet.identity.detail.warningCards.spendAndSign.warning':
     'Geld kan door andere primaire adressen worden uitgegeven of ondertekend.',
   'wallet.identity.detail.warningCards.revoke.title': 'Intrekken',
-  'wallet.identity.detail.warningCards.revoke.safe':
-    'Intrekkingsautoriteit staat op deze VerusID.',
+  'wallet.identity.detail.warningCards.revoke.safe': 'Intrekkingsautoriteit staat op deze VerusID.',
   'wallet.identity.detail.warningCards.revoke.warning':
     'Een andere VerusID kan toegang en ondertekenen intrekken.',
   'wallet.identity.detail.warningCards.recover.title': 'Herstellen',
-  'wallet.identity.detail.warningCards.recover.safe':
-    'Herstelautoriteit staat op deze VerusID.',
+  'wallet.identity.detail.warningCards.recover.safe': 'Herstelautoriteit staat op deze VerusID.',
   'wallet.identity.detail.warningCards.recover.warning':
     'Een andere VerusID kan herstellen en eigenaarschap wijzigen.',
   'wallet.addressBook.title': 'Adresboek',
-  'wallet.addressBook.description':
-    'Sla vertrouwde ontvangers versleuteld op.',
+  'wallet.addressBook.description': 'Sla vertrouwde ontvangers versleuteld op.',
   'wallet.addressBook.addContact': 'Contact toevoegen',
   'wallet.addressBook.searchPlaceholder': 'Zoek contacten',
   'wallet.addressBook.empty': 'Nog geen contacten.',
@@ -909,12 +902,10 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.form.save': 'Contact opslaan',
   'wallet.addressBook.error.nameRequired': 'Voer een contactnaam in.',
   'wallet.addressBook.error.endpointRequired': 'Voeg minimaal één adres toe.',
-  'wallet.addressBook.error.endpointFieldsRequired':
-    'Elk adres heeft een label en adres nodig.',
+  'wallet.addressBook.error.endpointFieldsRequired': 'Elk adres heeft een label en adres nodig.',
   'wallet.addressBook.error.invalidEndpoint': 'Een of meer adressen zijn ongeldig.',
   'wallet.addressBook.error.invalidInput': 'Ongeldige adresboek-invoer.',
-  'wallet.addressBook.error.duplicate':
-    'Er bestaat al een overeenkomstig adres voor dit netwerk.',
+  'wallet.addressBook.error.duplicate': 'Er bestaat al een overeenkomstig adres voor dit netwerk.',
   'wallet.addressBook.error.walletLocked': 'Wallet is vergrendeld. Ontgrendel en probeer opnieuw.',
   'wallet.addressBook.error.saveFailed': 'Kon adresboekwijzigingen nu niet opslaan.',
 

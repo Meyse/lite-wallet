@@ -8,12 +8,19 @@ pub mod key_derivation_v1;
 pub mod verus_id_signature;
 pub mod wif_encoding;
 
-pub use key_derivation_v1::{derive_keys_from_material, derive_keys_v1};
+pub use key_derivation_v1::{
+    derive_keys_from_material, derive_keys_v1, derive_private_scalar_from_material,
+    derive_public_profile_from_material, derive_public_profile_from_private_bytes,
+    DerivedPublicProfile,
+};
 pub use wif_encoding::Network;
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_keys_from_material, derive_keys_v1, Network};
+    use super::{
+        derive_keys_from_material, derive_keys_v1, derive_private_scalar_from_material,
+        derive_public_profile_from_private_bytes, Network,
+    };
     use crate::types::wallet::WalletSecretKind;
     use bs58;
 
@@ -158,6 +165,40 @@ mod tests {
         assert_eq!(from_material.address, from_seed.address);
         assert_eq!(from_material.eth_address, from_seed.eth_address);
         assert_eq!(from_material.btc_address, from_seed.btc_address);
+    }
+
+    #[test]
+    fn test_private_scalar_from_material_matches_other_secret_formats() {
+        let seed = "material private scalar parity";
+        let from_seed =
+            derive_private_scalar_from_material(seed, WalletSecretKind::SeedText).expect("seed");
+        let from_keys = derive_keys_v1(seed, Network::Mainnet).expect("derive keys");
+        let from_wif = derive_private_scalar_from_material(&from_keys.wif, WalletSecretKind::Wif)
+            .expect("wif");
+        let from_hex = derive_private_scalar_from_material(
+            &format!("0x{}", from_keys.eth_private_key),
+            WalletSecretKind::PrivateKeyHex,
+        )
+        .expect("hex");
+
+        assert_eq!(&*from_seed, &*from_wif);
+        assert_eq!(&*from_seed, &*from_hex);
+    }
+
+    #[test]
+    fn test_public_profile_from_private_scalar_matches_full_derivation() {
+        let seed = "public profile parity seed";
+        let private_scalar =
+            derive_private_scalar_from_material(seed, WalletSecretKind::SeedText).expect("scalar");
+        let public_profile =
+            derive_public_profile_from_private_bytes(&private_scalar, Network::Testnet)
+                .expect("public profile");
+        let full_keys = derive_keys_v1(seed, Network::Testnet).expect("full derivation");
+
+        assert_eq!(public_profile.address, full_keys.address);
+        assert_eq!(public_profile.eth_address, full_keys.eth_address);
+        assert_eq!(public_profile.btc_address, full_keys.btc_address);
+        assert_eq!(public_profile.pub_hex, full_keys.pub_hex);
     }
 
     // TODO: Test Verus-Mobile v1 parity (VRSC, ETH, BTC)

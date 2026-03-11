@@ -8,6 +8,8 @@ This file applies to frontend work under `src/`.
 - Keep sentence case for user-facing text.
 - Validate light and dark mode for all changed UI states.
 - Default to desktop UX decisions for this app.
+- Use the `frontend-design` skill for frontend UI work in `src/`, especially
+  layout, hierarchy, spacing, styling, states, and responsiveness.
 - Keep visual patterns consistent with
   `src/lib/components/wallet/UnlockScreen.svelte`.
 - For scrollable lists/panels in app UI, use shadcn-svelte `ScrollArea`

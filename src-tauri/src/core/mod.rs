@@ -16,4 +16,4 @@ pub use auth::{GuardSessionManager, SessionManager, StrongholdStore};
 pub use channels::{route_preflight, route_send, PreflightStore, WalletChannel};
 pub use coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
 pub use updates::UpdateEngine;
-pub use wallet::WalletManager;
+pub use wallet::{AccountStateStore, WalletManager};

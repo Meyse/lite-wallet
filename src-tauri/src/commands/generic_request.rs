@@ -20,7 +20,9 @@ use crate::commands::identity::{
     load_linked_for_context, map_identity_lookup_error as map_link_identity_lookup_error,
     parse_getidentity_payload, store_linked_for_context, upsert_linked_identity,
 };
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::vrpc;
 use crate::core::channels::vrpc::identity::preflight::{
     build_unsigned_identity_tx, fetch_identity_prevout,
@@ -36,12 +38,12 @@ use crate::core::channels::PreflightRecord;
 use crate::core::crypto::verus_id_signature::{
     compute_identity_signature_hash, encode_compact_i_address, extract_chain_height,
     extract_primary_addresses, get_raw_envelope_sha256, parse_generic_envelope_hex,
-    parse_identity_signature, sign_identity_hash, validate_identity_control_for_active_wallet,
-    verify_generic_request_signature_with_provider, verify_identity_signature_against_addresses,
-    write_compact_size, write_var_slice, write_varint,
+    parse_identity_signature, sign_identity_hash_with_private_bytes,
+    validate_identity_control_for_active_wallet, verify_generic_request_signature_with_provider,
+    verify_identity_signature_against_addresses, write_compact_size, write_var_slice, write_varint,
 };
 use crate::core::crypto::Network;
-use crate::core::PreflightStore;
+use crate::core::{AccountStateStore, PreflightStore};
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
     BuildAndSignGenericResponseRequest, BuildAndSignGenericResponseResult,
@@ -636,7 +638,7 @@ fn build_and_sign_generic_response_internal(
     active_wallet_primary_address: &str,
     allowed_primary_addresses: &[String],
     signed_block_height: u32,
-    wif: &str,
+    private_key: &[u8; 32],
     created_at: u64,
 ) -> Result<String, WalletError> {
     let parsed_request = parse_generic_envelope_hex(&request.request_hex)?;
@@ -663,7 +665,8 @@ fn build_and_sign_generic_response_internal(
         signed_block_height,
         raw_envelope_sha256,
     )?;
-    let signature_as_vch = sign_identity_hash(identity_hash, signed_block_height, wif, network)?;
+    let signature_as_vch =
+        sign_identity_hash_with_private_bytes(identity_hash, signed_block_height, private_key)?;
     let signed_signature_data = parsed_response
         .signature_data
         .to_buffer_with_signature(&signature_as_vch);
@@ -723,23 +726,14 @@ async fn store_provisioning_jobs_for_context(
     context: &crate::commands::identity::IdentitySessionContext,
     jobs: &[ProvisioningJobRecord],
 ) -> Result<Vec<ProvisioningJobRecord>, WalletError> {
+    context.account_state_store.store_provisioning_jobs(
+        &context.account_id,
+        context.network,
+        jobs,
+    )?;
     context
-        .stronghold_store
-        .store_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-            jobs,
-        )
-        .await?;
-    context
-        .stronghold_store
-        .load_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await
+        .account_state_store
+        .load_provisioning_jobs(&context.account_id, context.network)
 }
 
 async fn refresh_provisioning_jobs_for_context(
@@ -854,15 +848,10 @@ pub async fn sign_generic_response(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<String, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let (active_wallet_primary_address, _, _) = session.get_addresses()?;
-    let wif = session.get_wif_for_signing()?;
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let network = context.wallet_network;
+    let active_wallet_primary_address = context.vrsc_address.clone();
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let parsed = parse_generic_envelope_hex(&response_hex)?;
     if parsed.created_at.is_none() {
@@ -888,12 +877,8 @@ pub async fn sign_generic_response(
         signed_block_height,
         raw_envelope_sha256,
     )?;
-    let signature_as_vch = sign_identity_hash(
-        identity_hash,
-        signed_block_height,
-        &wif,
-        wallet_network_to_crypto_network(network),
-    )?;
+    let signature_as_vch =
+        sign_identity_hash_with_private_bytes(identity_hash, signed_block_height, &private_key)?;
 
     let signed_signature_data = parsed
         .signature_data
@@ -959,15 +944,10 @@ pub async fn build_and_sign_generic_response(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<BuildAndSignGenericResponseResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let (active_wallet_primary_address, _, _) = session.get_addresses()?;
-    let wif = session.get_wif_for_signing()?;
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let network = context.wallet_network;
+    let active_wallet_primary_address = context.vrsc_address.clone();
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let request = BuildAndSignGenericResponseRequest {
         request_hex,
@@ -999,7 +979,7 @@ pub async fn build_and_sign_generic_response(
         &active_wallet_primary_address,
         &allowed_primary_addresses,
         signed_block_height,
-        &wif,
+        &private_key,
         now_unix_seconds(),
     )?;
 
@@ -1052,14 +1032,9 @@ pub async fn sign_identity_signature_hash(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<String, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let wif = session.get_wif_for_signing()?;
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let trimmed_system_id = system_id.trim();
     if trimmed_system_id.is_empty() {
@@ -1075,12 +1050,8 @@ pub async fn sign_identity_signature_hash(
     let provider = vrpc_provider_pool.for_system(network, trimmed_system_id);
     let info = provider.getinfo().await?;
     let signed_block_height = extract_chain_height(&info)?;
-    let signature_as_vch = sign_identity_hash(
-        hash_bytes,
-        signed_block_height,
-        &wif,
-        wallet_network_to_crypto_network(network),
-    )?;
+    let signature_as_vch =
+        sign_identity_hash_with_private_bytes(hash_bytes, signed_block_height, &private_key)?;
 
     Ok(BASE64_STANDARD.encode(signature_as_vch))
 }
@@ -1368,10 +1339,12 @@ pub async fn preflight_generic_identity_update(
     source_channel_id: String,
     request_meta: Option<GenericIdentityUpdateRequestMeta>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     preflight_store: State<'_, PreflightStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<GenericIdentityUpdatePreflightResult, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let account_id = context.account_id.clone();
     let session_vrpc_address = context.primary_address.clone();
     let network = context.network;
@@ -1383,13 +1356,8 @@ pub async fn preflight_generic_identity_update(
     let resolved = vrpc::parse_vrpc_channel_id(&source_channel_id, Some(&session_vrpc_address))?;
     let linked_identities = load_linked_for_context(&context).await?;
     let watched_addresses = context
-        .stronghold_store
-        .load_watched_vrpc_addresses(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await?;
+        .account_state_store
+        .load_watched_vrpc_addresses(&context.account_id, context.network)?;
     validate_generic_request_funding_source(
         &resolved.address,
         &resolved.system_id,
@@ -1516,16 +1484,13 @@ pub async fn preflight_generic_identity_update(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn list_identity_provisioning_jobs(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<ProvisioningJobRecord>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let mut jobs = context
-        .stronghold_store
-        .load_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await?;
+        .account_state_store
+        .load_provisioning_jobs(&context.account_id, context.network)?;
 
     if expire_provisioning_jobs(&mut jobs, now_unix_seconds()) {
         jobs = store_provisioning_jobs_for_context(&context, &jobs).await?;
@@ -1538,16 +1503,13 @@ pub async fn list_identity_provisioning_jobs(
 pub async fn store_generic_provisioning_job(
     request: StoreGenericProvisioningJobRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<ProvisioningJobRecord, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let mut jobs = context
-        .stronghold_store
-        .load_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await?;
+        .account_state_store
+        .load_provisioning_jobs(&context.account_id, context.network)?;
 
     expire_provisioning_jobs(&mut jobs, now_unix_seconds());
 
@@ -1608,17 +1570,14 @@ pub async fn store_generic_provisioning_job(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn refresh_identity_provisioning_jobs(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Vec<ProvisioningJobRecord>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let mut jobs = context
-        .stronghold_store
-        .load_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await?;
+        .account_state_store
+        .load_provisioning_jobs(&context.account_id, context.network)?;
 
     let mut changed = expire_provisioning_jobs(&mut jobs, now_unix_seconds());
     changed |= refresh_provisioning_jobs_for_context(
@@ -1639,6 +1598,7 @@ pub async fn refresh_identity_provisioning_jobs(
 pub async fn link_ready_identity_provisioning(
     job_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<LinkReadyProvisioningJobResult, WalletError> {
     let requested_job_id = job_id.trim();
@@ -1646,15 +1606,11 @@ pub async fn link_ready_identity_provisioning(
         return Err(WalletError::OperationFailed);
     }
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let mut jobs = context
-        .stronghold_store
-        .load_provisioning_jobs(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await?;
+        .account_state_store
+        .load_provisioning_jobs(&context.account_id, context.network)?;
 
     let mut changed = expire_provisioning_jobs(&mut jobs, now_unix_seconds());
     changed |= refresh_provisioning_jobs_for_context(
@@ -1934,7 +1890,7 @@ mod tests {
         verify_identity_signature_against_addresses, write_compact_size, write_var_slice,
         write_varint,
     };
-    use crate::core::crypto::wif_encoding::{encode_wif, generate_p2pkh_address};
+    use crate::core::crypto::wif_encoding::generate_p2pkh_address;
     use crate::types::{
         GenericAuthenticationResponseInput, GenericIdentityUpdateResponseInput,
         GenericResponseSignerInput, LinkedIdentity, WalletError,
@@ -1988,14 +1944,13 @@ mod tests {
         hex::encode(request)
     }
 
-    fn test_signing_context(network: crate::core::crypto::Network, seed: u8) -> (String, String) {
+    fn test_signing_context(network: crate::core::crypto::Network, seed: u8) -> ([u8; 32], String) {
         let private_key = [seed; 32];
-        let wif = encode_wif(&private_key, network).expect("wif");
         let secret_key = SecretKey::from_slice(&private_key).expect("secret key");
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
         let address = generate_p2pkh_address(&public_key, network).expect("address");
-        (wif, address)
+        (private_key, address)
     }
 
     fn test_request(
@@ -2063,7 +2018,7 @@ mod tests {
     #[test]
     fn auth_only_request_builds_and_signs_a_valid_response() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (wif, active_wallet_primary_address) = test_signing_context(network, 7);
+        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
         let request = test_request(
             build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], true),
             Some(GenericAuthenticationResponseInput {
@@ -2078,7 +2033,7 @@ mod tests {
             &active_wallet_primary_address,
             std::slice::from_ref(&active_wallet_primary_address),
             FIXED_SIGNED_BLOCK_HEIGHT,
-            &wif,
+            &private_key,
             FIXED_CREATED_AT,
         )
         .expect("auth-only response");
@@ -2115,7 +2070,7 @@ mod tests {
     #[test]
     fn auth_and_update_request_builds_response_details_in_stable_order() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (wif, active_wallet_primary_address) = test_signing_context(network, 7);
+        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
         let request = test_request(
             build_test_request_hex(
                 &[
@@ -2139,7 +2094,7 @@ mod tests {
             &active_wallet_primary_address,
             std::slice::from_ref(&active_wallet_primary_address),
             FIXED_SIGNED_BLOCK_HEIGHT,
-            &wif,
+            &private_key,
             FIXED_CREATED_AT,
         )
         .expect("auth+update response");
@@ -2161,7 +2116,7 @@ mod tests {
     #[test]
     fn update_only_request_signs_with_the_explicit_signer() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (wif, active_wallet_primary_address) = test_signing_context(network, 7);
+        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
         let request = test_request(
             build_test_request_hex(&[VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST], true),
             None,
@@ -2177,7 +2132,7 @@ mod tests {
             &active_wallet_primary_address,
             std::slice::from_ref(&active_wallet_primary_address),
             FIXED_SIGNED_BLOCK_HEIGHT,
-            &wif,
+            &private_key,
             FIXED_CREATED_AT,
         )
         .expect("update-only response");
@@ -2235,7 +2190,7 @@ mod tests {
     #[test]
     fn signer_not_controlled_by_the_active_wallet_is_rejected() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (wif, active_wallet_primary_address) = test_signing_context(network, 7);
+        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
         let (_, foreign_address) = test_signing_context(network, 8);
         let request = test_request(
             build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], true),
@@ -2251,7 +2206,7 @@ mod tests {
             &active_wallet_primary_address,
             std::slice::from_ref(&foreign_address),
             FIXED_SIGNED_BLOCK_HEIGHT,
-            &wif,
+            &private_key,
             FIXED_CREATED_AT,
         )
         .expect_err("control check should fail");

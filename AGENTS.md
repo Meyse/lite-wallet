@@ -11,6 +11,7 @@ Use this file as a table of contents, not as an encyclopedia.
 - Use sentence case for user-facing UI copy.
 - Always verify both light and dark mode for changed UI.
 - Default to desktop UX over mobile parity.
+- Use the `frontend-design` skill for frontend UI, layout, styling, and visual polish work in this repository.
 - Keep cognitive load low: one primary task at a time and minimal simultaneous
   UI elements.
 - Keep visual language consistent with existing screens (especially

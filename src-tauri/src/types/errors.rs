@@ -45,6 +45,9 @@ pub enum WalletError {
     #[error("Operation failed")]
     OperationFailed,
 
+    #[error("Secure storage is unavailable")]
+    SecureStorageUnavailable,
+
     #[error("Invalid coin definition")]
     InvalidCoinDefinition,
 

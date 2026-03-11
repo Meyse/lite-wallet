@@ -11,12 +11,13 @@ use commands::{
     address_book, bridge_transfer, clipboard, coins, generic_request, guard, identity, transaction,
     vrpc_transfer, wallet,
 };
+use core::auth::kdf::derive_current_argon2id;
 use core::channels::btc::BtcProviderPool;
 use core::channels::eth::EthProviderPool;
 use core::channels::vrpc::VrpcProviderPool;
 use core::{
-    CoinRegistry, GuardSessionManager, PreflightStore, SessionManager, StrongholdStore,
-    UpdateEngine, WalletManager,
+    AccountStateStore, CoinRegistry, GuardSessionManager, PreflightStore, SessionManager,
+    StrongholdStore, UpdateEngine, WalletManager,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -106,16 +107,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_stronghold::Builder::new(|password| {
-                // Password hash function for Stronghold
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(password);
-                hasher.finalize().to_vec()
-            })
-            .build(),
-        )
         .setup(|app| {
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
             app.deep_link().register_all()?;
@@ -131,7 +122,34 @@ pub fn run() {
                 e
             })?;
             let wallet_manager = WalletManager::new(wallet_data_dir.clone());
+            let any_current_kdf_accounts = wallet_manager
+                .has_account_with_key_derivation_version(
+                    StrongholdStore::current_key_derivation_version_static(),
+                )
+                .map_err(|e| {
+                    eprintln!(
+                        "[APP] Failed to inspect wallet key derivation versions: {:?}",
+                        e
+                    );
+                    e
+                })?;
+            let app_local_dir = app.path().app_local_data_dir().map_err(|e| {
+                eprintln!("[APP] Failed to get app local data directory: {:?}", e);
+                e
+            })?;
+            let argon2_salt_path = core::auth::kdf::argon2_salt_path(&app_local_dir);
+            let allow_create_salt = !any_current_kdf_accounts;
+            app.handle().plugin(
+                tauri_plugin_stronghold::Builder::new(move |password| {
+                    derive_current_argon2id(password, &argon2_salt_path, allow_create_salt)
+                        .expect("failed to derive Stronghold Argon2id hash")
+                })
+                .build(),
+            )?;
             app.manage(wallet_manager);
+
+            let account_state_store = AccountStateStore::new(wallet_data_dir.clone());
+            app.manage(account_state_store);
 
             // Initialize Stronghold store and session manager
             let app_handle = app.handle();

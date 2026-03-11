@@ -12,11 +12,20 @@ use crate::types::errors::WalletError;
 use crate::types::wallet::{DerivedKeys, WalletSecretKind};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 /// Bitcoin mainnet P2PKH version byte (addresses start with "1")
 const BITCOIN_P2PKH_VERSION_MAINNET: u8 = 0x00;
 /// Bitcoin testnet P2PKH version byte (addresses start with "m" or "n")
 const BITCOIN_P2PKH_VERSION_TESTNET: u8 = 0x6F;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DerivedPublicProfile {
+    pub address: String,
+    pub pub_hex: String,
+    pub eth_address: String,
+    pub btc_address: String,
+}
 
 /// Derive keys using Verus-Mobile v1 derivation method
 ///
@@ -30,6 +39,67 @@ const BITCOIN_P2PKH_VERSION_TESTNET: u8 = 0x6F;
 ///
 /// Security: Never logs seed or derived keys
 pub fn derive_keys_v1(seed: &str, network: Network) -> Result<DerivedKeys, WalletError> {
+    let private_scalar = derive_private_scalar_from_seed(seed)?;
+    derive_keys_from_private_bytes(&private_scalar, network)
+}
+
+/// Derive keys from existing secret material format.
+pub fn derive_keys_from_material(
+    secret: &str,
+    secret_kind: WalletSecretKind,
+    network: Network,
+) -> Result<DerivedKeys, WalletError> {
+    let private_scalar = derive_private_scalar_from_material(secret, secret_kind)?;
+    derive_keys_from_private_bytes(&private_scalar, network)
+}
+
+pub fn derive_private_scalar_from_material(
+    secret: &str,
+    secret_kind: WalletSecretKind,
+) -> Result<Zeroizing<[u8; 32]>, WalletError> {
+    let private_scalar = match secret_kind {
+        WalletSecretKind::SeedText => derive_private_scalar_from_seed(secret)?,
+        WalletSecretKind::Wif => Zeroizing::new(decode_wif_unchecked_network(secret)?),
+        WalletSecretKind::PrivateKeyHex => Zeroizing::new(decode_private_key_hex(secret)?),
+    };
+    validate_private_scalar(&private_scalar)?;
+    Ok(private_scalar)
+}
+
+pub fn derive_public_profile_from_material(
+    secret: &str,
+    secret_kind: WalletSecretKind,
+    network: Network,
+) -> Result<DerivedPublicProfile, WalletError> {
+    let private_scalar = derive_private_scalar_from_material(secret, secret_kind)?;
+    derive_public_profile_from_private_bytes(&private_scalar, network)
+}
+
+pub fn derive_public_profile_from_private_bytes(
+    priv_bytes: &[u8; 32],
+    network: Network,
+) -> Result<DerivedPublicProfile, WalletError> {
+    let scalar = validate_private_scalar(priv_bytes)?;
+    let secp = Secp256k1::new();
+    let pub_key = PublicKey::from_secret_key(&secp, &scalar);
+    let pub_hex = hex::encode(pub_key.serialize());
+    let address = generate_p2pkh_address(&pub_key, network)?;
+    let eth_address = derive_eth_address(&pub_key)?;
+    let btc_version = match network {
+        Network::Mainnet => BITCOIN_P2PKH_VERSION_MAINNET,
+        Network::Testnet => BITCOIN_P2PKH_VERSION_TESTNET,
+    };
+    let btc_address = generate_p2pkh_address_with_version(&pub_key, btc_version)?;
+
+    Ok(DerivedPublicProfile {
+        address,
+        pub_hex,
+        eth_address,
+        btc_address,
+    })
+}
+
+pub fn derive_private_scalar_from_seed(seed: &str) -> Result<Zeroizing<[u8; 32]>, WalletError> {
     // 1. SHA256(seed string as UTF-8 bytes) - no normalization
     let mut priv_bytes = sha256_digest(seed.as_bytes());
 
@@ -41,26 +111,8 @@ pub fn derive_keys_v1(seed: &str, network: Network) -> Result<DerivedKeys, Walle
     // bytes[31] |= 64  (set second-highest bit)
     priv_bytes[31] |= 64;
 
-    derive_keys_from_private_bytes(&priv_bytes, network)
-}
-
-/// Derive keys from existing secret material format.
-pub fn derive_keys_from_material(
-    secret: &str,
-    secret_kind: WalletSecretKind,
-    network: Network,
-) -> Result<DerivedKeys, WalletError> {
-    match secret_kind {
-        WalletSecretKind::SeedText => derive_keys_v1(secret, network),
-        WalletSecretKind::Wif => {
-            let priv_bytes = decode_wif_unchecked_network(secret)?;
-            derive_keys_from_private_bytes(&priv_bytes, network)
-        }
-        WalletSecretKind::PrivateKeyHex => {
-            let priv_bytes = decode_private_key_hex(secret)?;
-            derive_keys_from_private_bytes(&priv_bytes, network)
-        }
-    }
+    validate_private_scalar(&priv_bytes)?;
+    Ok(Zeroizing::new(priv_bytes))
 }
 
 /// Derive all wallet keys and addresses from a 32-byte private scalar.
@@ -69,15 +121,7 @@ pub fn derive_keys_from_private_bytes(
     network: Network,
 ) -> Result<DerivedKeys, WalletError> {
     // 3. Validate scalar is in range [1, n-1] where n is curve order
-    let scalar = SecretKey::from_slice(priv_bytes).map_err(|e| {
-        // Never log the actual scalar value
-        WalletError::Internal(format!("Invalid scalar: {}", e))
-    })?;
-
-    // Verify scalar is not zero (shouldn't happen after clamp, but check anyway)
-    if scalar.as_ref().iter().all(|&b| b == 0) {
-        return Err(WalletError::Internal("Derived scalar is zero".to_string()));
-    }
+    let scalar = validate_private_scalar(priv_bytes)?;
 
     // 4. Derive compressed secp256k1 public key (33 bytes)
     let secp = Secp256k1::new();
@@ -109,6 +153,19 @@ pub fn derive_keys_from_private_bytes(
         eth_address,
         btc_address,
     })
+}
+
+fn validate_private_scalar(priv_bytes: &[u8; 32]) -> Result<SecretKey, WalletError> {
+    let scalar = SecretKey::from_slice(priv_bytes).map_err(|error| {
+        // Never log the actual scalar value.
+        WalletError::Internal(format!("Invalid scalar: {}", error))
+    })?;
+
+    if scalar.as_ref().iter().all(|&byte| byte == 0) {
+        return Err(WalletError::Internal("Derived scalar is zero".to_string()));
+    }
+
+    Ok(scalar)
 }
 
 fn decode_private_key_hex(secret: &str) -> Result<[u8; 32], WalletError> {
