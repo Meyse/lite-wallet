@@ -10,11 +10,12 @@ use tauri::State;
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::identity as vrpc_identity;
 use crate::core::channels::vrpc::{self, VrpcProviderPool};
 use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
+use crate::core::identity_display::{ensure_identity_handle_suffix, format_identity_display_name};
 use crate::core::wallet::AccountStateStore;
 use crate::core::StrongholdStore;
 use crate::types::wallet::WalletNetwork;
@@ -72,45 +73,6 @@ fn first_non_empty_field(value: &Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn ensure_identity_handle_suffix(value: &str) -> Option<String> {
-    let normalized = normalize_non_empty(value)?;
-    if normalized.ends_with('@') {
-        return Some(normalized);
-    }
-    Some(format!("{normalized}@"))
-}
-
-fn looks_like_identity_system_suffix(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
-}
-
-fn format_fully_qualified_name_for_display(raw_fqn: &str) -> Option<String> {
-    let with_at = ensure_identity_handle_suffix(raw_fqn)?;
-    let without_at = with_at.trim_end_matches('@');
-
-    let Some(last_dot_index) = without_at.rfind('.') else {
-        return Some(with_at);
-    };
-    if last_dot_index == 0 {
-        return Some(with_at);
-    }
-
-    let suffix = &without_at[last_dot_index + 1..];
-    if !looks_like_identity_system_suffix(suffix) {
-        return Some(with_at);
-    }
-
-    let without_system = without_at[..last_dot_index].trim();
-    if without_system.is_empty() {
-        return Some(with_at);
-    }
-
-    Some(format!("{without_system}@"))
-}
-
 fn resolve_identity_display_name(
     identity: &Value,
     payload_fully_qualified_name: Option<&str>,
@@ -123,12 +85,8 @@ fn resolve_identity_display_name(
     let identity_fqn =
         first_non_empty_field(identity, &["fullyqualifiedname", "fullyQualifiedName"])
             .or_else(|| payload_fully_qualified_name.and_then(normalize_non_empty));
-
-    if let Some(identity_fqn) = identity_fqn {
-        return format_fully_qualified_name_for_display(&identity_fqn);
-    }
-
-    first_non_empty_field(identity, &["name"]).and_then(|name| ensure_identity_handle_suffix(&name))
+    let identity_name = first_non_empty_field(identity, &["name"]);
+    format_identity_display_name(identity_fqn.as_deref(), identity_name.as_deref())
 }
 
 fn dedupe_case_insensitive(values: Vec<String>) -> Vec<String> {
@@ -533,27 +491,15 @@ pub(crate) async fn identity_session_context(
     session_manager: &Arc<Mutex<SessionManager>>,
     account_state_store: &AccountStateStore,
 ) -> Result<IdentitySessionContext, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .cloned()
-        .ok_or(WalletError::WalletLocked)?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let (primary_address, _, _) = session.get_addresses()?;
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    let password_hash = Zeroizing::new(context.password_hash().to_vec());
 
     Ok(IdentitySessionContext {
-        account_id,
-        network,
-        primary_address,
+        account_id: context.account_id,
+        network: context.wallet_network,
+        primary_address: context.vrsc_address,
         password_hash,
-        stronghold_store,
+        stronghold_store: context.stronghold_store,
         account_state_store: account_state_store.clone(),
     })
 }

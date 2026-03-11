@@ -275,10 +275,7 @@ mod tests {
     fn test_store() -> StrongholdStore {
         let base_path = std::env::temp_dir().join(format!(
             "lite_wallet_session_store_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
+            uuid::Uuid::new_v4()
         ));
         StrongholdStore::new_for_tests(base_path)
     }

@@ -3,8 +3,9 @@
 // Security: Seeds encrypted at rest via Stronghold snapshot; one vault per account (per password)
 // Last Updated: Replaced XOR with iota_stronghold; unified app data dir with WalletManager
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
@@ -148,6 +149,30 @@ impl Default for ActiveAssetsSnapshot {
     }
 }
 
+struct LegacyMigrationBundle {
+    seed: String,
+    address_book: Option<Vec<u8>>,
+    linked_identities: Option<LinkedIdentitiesSnapshot>,
+    dlight_seed: DlightSeedSnapshot,
+    watched_vrpc_addresses: WatchedVrpcAddressesSnapshot,
+    active_assets: ActiveAssetsSnapshot,
+    provisioning_jobs: ProvisioningJobsSnapshot,
+}
+
+fn network_mut<'a, T>(mainnet: &'a mut T, testnet: &'a mut T, network: WalletNetwork) -> &'a mut T {
+    match network {
+        WalletNetwork::Mainnet => mainnet,
+        WalletNetwork::Testnet => testnet,
+    }
+}
+
+fn network_value<T>(mainnet: T, testnet: T, network: WalletNetwork) -> T {
+    match network {
+        WalletNetwork::Mainnet => mainnet,
+        WalletNetwork::Testnet => testnet,
+    }
+}
+
 #[derive(Clone)]
 pub struct StrongholdStore {
     /// Base directory for Stronghold (app data dir / stronghold); accounts go under accounts/<id>/
@@ -195,66 +220,62 @@ impl StrongholdStore {
             .unwrap_or_else(|| self.base_path.clone())
     }
 
-    fn account_snapshot_path(&self, account_id: &str) -> PathBuf {
+    fn account_dir(&self, account_id: &str) -> PathBuf {
         let account_dir = self.base_path.join("accounts").join(account_id);
         let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("snapshot.stronghold")
+        account_dir
+    }
+
+    fn isolated_snapshot_path(&self, account_id: &str, file_name: &str) -> PathBuf {
+        self.account_dir(account_id).join(file_name)
+    }
+
+    fn temp_snapshot_path(path: &Path) -> PathBuf {
+        path.with_extension("stronghold.argon2.tmp")
+    }
+
+    fn account_snapshot_path(&self, account_id: &str) -> PathBuf {
+        self.isolated_snapshot_path(account_id, "snapshot.stronghold")
     }
 
     fn address_book_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("address_book.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "address_book.snapshot.stronghold")
     }
 
     fn watched_vrpc_addresses_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("watched_vrpc_addresses.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "watched_vrpc_addresses.snapshot.stronghold")
     }
 
     fn active_assets_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("active_assets.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "active_assets.snapshot.stronghold")
     }
 
     fn linked_identities_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("linked_identities.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "linked_identities.snapshot.stronghold")
     }
 
     fn dlight_seed_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("dlight_seed.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "dlight_seed.snapshot.stronghold")
     }
 
     fn provisioning_jobs_snapshot_path(&self, account_id: &str) -> PathBuf {
-        let account_dir = self.base_path.join("accounts").join(account_id);
-        let _ = std::fs::create_dir_all(&account_dir);
-        account_dir.join("provisioning_jobs.snapshot.stronghold")
+        self.isolated_snapshot_path(account_id, "provisioning_jobs.snapshot.stronghold")
     }
 
     fn seed_temp_snapshot_path(&self, account_id: &str) -> PathBuf {
-        self.account_snapshot_path(account_id)
-            .with_extension("stronghold.argon2.tmp")
+        Self::temp_snapshot_path(&self.account_snapshot_path(account_id))
     }
 
     fn address_book_temp_snapshot_path(&self, account_id: &str) -> PathBuf {
-        self.address_book_snapshot_path(account_id)
-            .with_extension("stronghold.argon2.tmp")
+        Self::temp_snapshot_path(&self.address_book_snapshot_path(account_id))
     }
 
     fn linked_identities_temp_snapshot_path(&self, account_id: &str) -> PathBuf {
-        self.linked_identities_snapshot_path(account_id)
-            .with_extension("stronghold.argon2.tmp")
+        Self::temp_snapshot_path(&self.linked_identities_snapshot_path(account_id))
     }
 
     fn dlight_seed_temp_snapshot_path(&self, account_id: &str) -> PathBuf {
-        self.dlight_seed_snapshot_path(account_id)
-            .with_extension("stronghold.argon2.tmp")
+        Self::temp_snapshot_path(&self.dlight_seed_snapshot_path(account_id))
     }
 
     #[cfg(debug_assertions)]
@@ -270,42 +291,91 @@ impl StrongholdStore {
         factor.trim().parse::<u8>().ok()
     }
 
+    async fn load_optional_record_from_path(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        path: &Path,
+        record_key: &[u8],
+        snapshot_label: &str,
+    ) -> Result<Option<Vec<u8>>, WalletError> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let snapshot_path = SnapshotPath::from_path(path);
+        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
+        let stronghold = Stronghold::default();
+        let client = stronghold
+            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
+            .map_err(|e| {
+                println!("[AUTH] Load {} snapshot failed: {}", snapshot_label, e);
+                WalletError::OperationFailed
+            })?;
+
+        client.store().get(record_key).map_err(|e| {
+            println!("[AUTH] Read {} record failed: {}", snapshot_label, e);
+            WalletError::OperationFailed
+        })
+    }
+
+    async fn load_json_snapshot_from_path<T: DeserializeOwned + Default>(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        path: &Path,
+        record_key: &[u8],
+        snapshot_label: &str,
+    ) -> Result<T, WalletError> {
+        let bytes = self
+            .load_optional_record_from_path(
+                account_id,
+                password_hash,
+                path,
+                record_key,
+                snapshot_label,
+            )
+            .await?;
+        let Some(payload) = bytes else {
+            return Ok(T::default());
+        };
+
+        serde_json::from_slice::<T>(&payload).map_err(|e| {
+            println!("[AUTH] Parse {} snapshot failed: {}", snapshot_label, e);
+            WalletError::OperationFailed
+        })
+    }
+
+    fn store_json_snapshot_to_path<T: Serialize>(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        path: &Path,
+        record_key: &[u8],
+        snapshot: &T,
+        snapshot_label: &str,
+    ) -> Result<(), WalletError> {
+        let payload = serde_json::to_vec(snapshot).map_err(|e| {
+            println!("[AUTH] Serialize {} snapshot failed: {}", snapshot_label, e);
+            WalletError::OperationFailed
+        })?;
+        self.commit_record_to_path(account_id, path, password_hash, record_key, &payload)
+    }
+
     async fn load_watched_vrpc_addresses_snapshot(
         &self,
         account_id: &str,
         password_hash: &[u8],
     ) -> Result<WatchedVrpcAddressesSnapshot, WalletError> {
         let path = self.watched_vrpc_addresses_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(WatchedVrpcAddressesSnapshot::default());
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load watched VRPC addresses snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let bytes = client
-            .store()
-            .get(WATCHED_VRPC_ADDRESSES_RECORD_KEY)
-            .map_err(|e| {
-                println!("[AUTH] Read watched VRPC addresses record failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let Some(payload) = bytes else {
-            return Ok(WatchedVrpcAddressesSnapshot::default());
-        };
-
-        serde_json::from_slice::<WatchedVrpcAddressesSnapshot>(&payload).map_err(|e| {
-            println!("[AUTH] Parse watched VRPC addresses snapshot failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_json_snapshot_from_path(
+            account_id,
+            password_hash,
+            &path,
+            WATCHED_VRPC_ADDRESSES_RECORD_KEY,
+            "watched VRPC addresses",
+        )
+        .await
     }
 
     async fn load_active_assets_snapshot(
@@ -314,33 +384,14 @@ impl StrongholdStore {
         password_hash: &[u8],
     ) -> Result<ActiveAssetsSnapshot, WalletError> {
         let path = self.active_assets_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(ActiveAssetsSnapshot::default());
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load active assets snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let bytes = client.store().get(ACTIVE_ASSETS_RECORD_KEY).map_err(|e| {
-            println!("[AUTH] Read active assets record failed: {}", e);
-            WalletError::OperationFailed
-        })?;
-
-        let Some(payload) = bytes else {
-            return Ok(ActiveAssetsSnapshot::default());
-        };
-
-        serde_json::from_slice::<ActiveAssetsSnapshot>(&payload).map_err(|e| {
-            println!("[AUTH] Parse active assets snapshot failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_json_snapshot_from_path(
+            account_id,
+            password_hash,
+            &path,
+            ACTIVE_ASSETS_RECORD_KEY,
+            "active assets",
+        )
+        .await
     }
 
     async fn load_linked_identities_snapshot(
@@ -349,36 +400,14 @@ impl StrongholdStore {
         password_hash: &[u8],
     ) -> Result<LinkedIdentitiesSnapshot, WalletError> {
         let path = self.linked_identities_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(LinkedIdentitiesSnapshot::default());
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load linked identities snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let bytes = client
-            .store()
-            .get(LINKED_IDENTITIES_RECORD_KEY)
-            .map_err(|e| {
-                println!("[AUTH] Read linked identities record failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let Some(payload) = bytes else {
-            return Ok(LinkedIdentitiesSnapshot::default());
-        };
-
-        serde_json::from_slice::<LinkedIdentitiesSnapshot>(&payload).map_err(|e| {
-            println!("[AUTH] Parse linked identities snapshot failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_json_snapshot_from_path(
+            account_id,
+            password_hash,
+            &path,
+            LINKED_IDENTITIES_RECORD_KEY,
+            "linked identities",
+        )
+        .await
     }
 
     async fn load_dlight_seed_snapshot(
@@ -387,33 +416,14 @@ impl StrongholdStore {
         password_hash: &[u8],
     ) -> Result<DlightSeedSnapshot, WalletError> {
         let path = self.dlight_seed_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(DlightSeedSnapshot::default());
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load dlight seed snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let bytes = client.store().get(DLIGHT_SEED_RECORD_KEY).map_err(|e| {
-            println!("[AUTH] Read dlight seed record failed: {}", e);
-            WalletError::OperationFailed
-        })?;
-
-        let Some(payload) = bytes else {
-            return Ok(DlightSeedSnapshot::default());
-        };
-
-        serde_json::from_slice::<DlightSeedSnapshot>(&payload).map_err(|e| {
-            println!("[AUTH] Parse dlight seed snapshot failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_json_snapshot_from_path(
+            account_id,
+            password_hash,
+            &path,
+            DLIGHT_SEED_RECORD_KEY,
+            "dlight seed",
+        )
+        .await
     }
 
     async fn load_provisioning_jobs_snapshot(
@@ -422,36 +432,14 @@ impl StrongholdStore {
         password_hash: &[u8],
     ) -> Result<ProvisioningJobsSnapshot, WalletError> {
         let path = self.provisioning_jobs_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(ProvisioningJobsSnapshot::default());
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load provisioning jobs snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let bytes = client
-            .store()
-            .get(PROVISIONING_JOBS_RECORD_KEY)
-            .map_err(|e| {
-                println!("[AUTH] Read provisioning jobs record failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        let Some(payload) = bytes else {
-            return Ok(ProvisioningJobsSnapshot::default());
-        };
-
-        serde_json::from_slice::<ProvisioningJobsSnapshot>(&payload).map_err(|e| {
-            println!("[AUTH] Parse provisioning jobs snapshot failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_json_snapshot_from_path(
+            account_id,
+            password_hash,
+            &path,
+            PROVISIONING_JOBS_RECORD_KEY,
+            "provisioning jobs",
+        )
+        .await
     }
 
     fn sanitize_linked_identities(identities: &[LinkedIdentity]) -> Vec<LinkedIdentity> {
@@ -676,6 +664,222 @@ impl StrongholdStore {
         Ok(())
     }
 
+    async fn load_legacy_linked_identities_snapshot(
+        &self,
+        account_id: &str,
+        legacy_hash: &[u8],
+    ) -> Option<LinkedIdentitiesSnapshot> {
+        let mainnet = self
+            .load_linked_identities(account_id, legacy_hash, WalletNetwork::Mainnet)
+            .await
+            .ok()?;
+        let testnet = self
+            .load_linked_identities(account_id, legacy_hash, WalletNetwork::Testnet)
+            .await
+            .ok()?;
+        Some(LinkedIdentitiesSnapshot {
+            schema_version: LINKED_IDENTITIES_SCHEMA_VERSION,
+            mainnet,
+            testnet,
+        })
+    }
+
+    async fn read_legacy_migration_bundle(
+        &self,
+        account_id: &str,
+        legacy_hash: &[u8],
+    ) -> Result<LegacyMigrationBundle, WalletError> {
+        Ok(LegacyMigrationBundle {
+            seed: self
+                .load_seed_by_hash_internal(account_id, legacy_hash)
+                .await?,
+            address_book: self.load_address_book(account_id, legacy_hash).await?,
+            linked_identities: self
+                .load_legacy_linked_identities_snapshot(account_id, legacy_hash)
+                .await,
+            dlight_seed: DlightSeedSnapshot {
+                schema_version: DLIGHT_SEED_SCHEMA_VERSION,
+                mainnet: self
+                    .load_dlight_seed(account_id, legacy_hash, WalletNetwork::Mainnet)
+                    .await?,
+                testnet: self
+                    .load_dlight_seed(account_id, legacy_hash, WalletNetwork::Testnet)
+                    .await?,
+            },
+            watched_vrpc_addresses: WatchedVrpcAddressesSnapshot {
+                schema_version: WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION,
+                mainnet: self
+                    .load_watched_vrpc_addresses(account_id, legacy_hash, WalletNetwork::Mainnet)
+                    .await
+                    .unwrap_or_default(),
+                testnet: self
+                    .load_watched_vrpc_addresses(account_id, legacy_hash, WalletNetwork::Testnet)
+                    .await
+                    .unwrap_or_default(),
+            },
+            active_assets: ActiveAssetsSnapshot {
+                schema_version: ACTIVE_ASSETS_SCHEMA_VERSION,
+                mainnet: {
+                    let (initialized, coin_ids, profile_version) = self
+                        .load_active_assets(account_id, legacy_hash, WalletNetwork::Mainnet)
+                        .await
+                        .unwrap_or((false, vec![], 0));
+                    ActiveAssetsNetworkSnapshot {
+                        initialized,
+                        profile_version,
+                        coin_ids,
+                    }
+                },
+                testnet: {
+                    let (initialized, coin_ids, profile_version) = self
+                        .load_active_assets(account_id, legacy_hash, WalletNetwork::Testnet)
+                        .await
+                        .unwrap_or((false, vec![], 0));
+                    ActiveAssetsNetworkSnapshot {
+                        initialized,
+                        profile_version,
+                        coin_ids,
+                    }
+                },
+            },
+            provisioning_jobs: ProvisioningJobsSnapshot {
+                schema_version: PROVISIONING_JOBS_SCHEMA_VERSION,
+                mainnet: self
+                    .load_provisioning_jobs(account_id, legacy_hash, WalletNetwork::Mainnet)
+                    .await
+                    .unwrap_or_default(),
+                testnet: self
+                    .load_provisioning_jobs(account_id, legacy_hash, WalletNetwork::Testnet)
+                    .await
+                    .unwrap_or_default(),
+            },
+        })
+    }
+
+    fn write_migrated_secret_snapshots(
+        &self,
+        account_id: &str,
+        current_hash: &[u8],
+        bundle: &LegacyMigrationBundle,
+    ) -> Result<(), WalletError> {
+        self.commit_record_to_path(
+            account_id,
+            &self.seed_temp_snapshot_path(account_id),
+            current_hash,
+            SEED_RECORD_KEY,
+            bundle.seed.as_bytes(),
+        )?;
+
+        if let Some(payload) = bundle.address_book.as_deref() {
+            self.commit_record_to_path(
+                account_id,
+                &self.address_book_temp_snapshot_path(account_id),
+                current_hash,
+                ADDRESS_BOOK_RECORD_KEY,
+                payload,
+            )?;
+        }
+
+        if let Some(linked_identities) = bundle.linked_identities.as_ref() {
+            self.store_json_snapshot_to_path(
+                account_id,
+                current_hash,
+                &self.linked_identities_temp_snapshot_path(account_id),
+                LINKED_IDENTITIES_RECORD_KEY,
+                linked_identities,
+                "linked identities",
+            )?;
+        }
+
+        self.store_json_snapshot_to_path(
+            account_id,
+            current_hash,
+            &self.dlight_seed_temp_snapshot_path(account_id),
+            DLIGHT_SEED_RECORD_KEY,
+            &bundle.dlight_seed,
+            "dlight seed",
+        )
+    }
+
+    fn migrate_legacy_account_state(
+        &self,
+        account_id: &str,
+        account_state_store: &AccountStateStore,
+        bundle: &LegacyMigrationBundle,
+    ) -> Result<(), WalletError> {
+        account_state_store.store_watched_vrpc_addresses(
+            account_id,
+            WalletNetwork::Mainnet,
+            &bundle.watched_vrpc_addresses.mainnet,
+        )?;
+        account_state_store.store_watched_vrpc_addresses(
+            account_id,
+            WalletNetwork::Testnet,
+            &bundle.watched_vrpc_addresses.testnet,
+        )?;
+        account_state_store.store_active_assets(
+            account_id,
+            WalletNetwork::Mainnet,
+            bundle.active_assets.mainnet.initialized,
+            bundle.active_assets.mainnet.profile_version,
+            &bundle.active_assets.mainnet.coin_ids,
+        )?;
+        account_state_store.store_active_assets(
+            account_id,
+            WalletNetwork::Testnet,
+            bundle.active_assets.testnet.initialized,
+            bundle.active_assets.testnet.profile_version,
+            &bundle.active_assets.testnet.coin_ids,
+        )?;
+        account_state_store.store_provisioning_jobs(
+            account_id,
+            WalletNetwork::Mainnet,
+            &bundle.provisioning_jobs.mainnet,
+        )?;
+        account_state_store.store_provisioning_jobs(
+            account_id,
+            WalletNetwork::Testnet,
+            &bundle.provisioning_jobs.testnet,
+        )
+    }
+
+    fn promote_migrated_secret_snapshots(&self, account_id: &str) -> Result<(), WalletError> {
+        Self::promote_temp_snapshot(
+            &self.account_snapshot_path(account_id),
+            &self.seed_temp_snapshot_path(account_id),
+        )?;
+        Self::promote_temp_snapshot(
+            &self.address_book_snapshot_path(account_id),
+            &self.address_book_temp_snapshot_path(account_id),
+        )?;
+        Self::promote_temp_snapshot(
+            &self.linked_identities_snapshot_path(account_id),
+            &self.linked_identities_temp_snapshot_path(account_id),
+        )?;
+        Self::promote_temp_snapshot(
+            &self.dlight_seed_snapshot_path(account_id),
+            &self.dlight_seed_temp_snapshot_path(account_id),
+        )
+    }
+
+    async fn persist_current_account_kdf_version(
+        &self,
+        account: &AccountRecord,
+        wallet_manager: &WalletManager,
+    ) -> Result<(), WalletError> {
+        let mut updated = account.clone();
+        updated.key_derivation_version = CURRENT_KEY_DERIVATION_VERSION;
+        wallet_manager
+            .save_account_record_by_account_id(&account.id, &updated)
+            .await
+    }
+
+    fn remove_legacy_account_state_snapshots(&self, account_id: &str) -> Result<(), WalletError> {
+        Self::remove_file_if_exists(&self.watched_vrpc_addresses_snapshot_path(account_id))?;
+        Self::remove_file_if_exists(&self.active_assets_snapshot_path(account_id))?;
+        Self::remove_file_if_exists(&self.provisioning_jobs_snapshot_path(account_id))
+    }
+
     pub async fn ensure_account_password_hash(
         &self,
         account: &AccountRecord,
@@ -692,168 +896,17 @@ impl StrongholdStore {
         }
 
         let legacy_hash = Self::derive_legacy_password_hash(password);
-        let seed = self
-            .load_seed_by_hash_internal(&account.id, legacy_hash.as_ref())
+        let bundle = self
+            .read_legacy_migration_bundle(&account.id, legacy_hash.as_ref())
             .await?;
-        let address_book = self
-            .load_address_book(&account.id, legacy_hash.as_ref())
-            .await?;
-        let linked_identities = self
-            .load_linked_identities(&account.id, legacy_hash.as_ref(), WalletNetwork::Mainnet)
-            .await
-            .ok()
-            .zip(
-                self.load_linked_identities(
-                    &account.id,
-                    legacy_hash.as_ref(),
-                    WalletNetwork::Testnet,
-                )
-                .await
-                .ok(),
-            );
-        let dlight_mainnet = self
-            .load_dlight_seed(&account.id, legacy_hash.as_ref(), WalletNetwork::Mainnet)
-            .await?;
-        let dlight_testnet = self
-            .load_dlight_seed(&account.id, legacy_hash.as_ref(), WalletNetwork::Testnet)
-            .await?;
-
-        let watched_mainnet = self
-            .load_watched_vrpc_addresses(&account.id, legacy_hash.as_ref(), WalletNetwork::Mainnet)
-            .await
-            .unwrap_or_default();
-        let watched_testnet = self
-            .load_watched_vrpc_addresses(&account.id, legacy_hash.as_ref(), WalletNetwork::Testnet)
-            .await
-            .unwrap_or_default();
-        let active_mainnet = self
-            .load_active_assets(&account.id, legacy_hash.as_ref(), WalletNetwork::Mainnet)
-            .await
-            .unwrap_or((false, vec![], 0));
-        let active_testnet = self
-            .load_active_assets(&account.id, legacy_hash.as_ref(), WalletNetwork::Testnet)
-            .await
-            .unwrap_or((false, vec![], 0));
-        let jobs_mainnet = self
-            .load_provisioning_jobs(&account.id, legacy_hash.as_ref(), WalletNetwork::Mainnet)
-            .await
-            .unwrap_or_default();
-        let jobs_testnet = self
-            .load_provisioning_jobs(&account.id, legacy_hash.as_ref(), WalletNetwork::Testnet)
-            .await
-            .unwrap_or_default();
-
         let current_hash = self.derive_current_password_hash(password, true)?;
 
-        self.commit_record_to_path(
-            &account.id,
-            &self.seed_temp_snapshot_path(&account.id),
-            current_hash.as_ref(),
-            SEED_RECORD_KEY,
-            seed.as_bytes(),
-        )?;
-
-        if let Some(payload) = address_book.as_deref() {
-            self.commit_record_to_path(
-                &account.id,
-                &self.address_book_temp_snapshot_path(&account.id),
-                current_hash.as_ref(),
-                ADDRESS_BOOK_RECORD_KEY,
-                payload,
-            )?;
-        }
-
-        if let Some((mainnet, testnet)) = linked_identities {
-            let payload = serde_json::to_vec(&LinkedIdentitiesSnapshot {
-                schema_version: LINKED_IDENTITIES_SCHEMA_VERSION,
-                mainnet,
-                testnet,
-            })
-            .map_err(|_| WalletError::OperationFailed)?;
-            self.commit_record_to_path(
-                &account.id,
-                &self.linked_identities_temp_snapshot_path(&account.id),
-                current_hash.as_ref(),
-                LINKED_IDENTITIES_RECORD_KEY,
-                &payload,
-            )?;
-        }
-
-        let dlight_payload = serde_json::to_vec(&DlightSeedSnapshot {
-            schema_version: DLIGHT_SEED_SCHEMA_VERSION,
-            mainnet: dlight_mainnet,
-            testnet: dlight_testnet,
-        })
-        .map_err(|_| WalletError::OperationFailed)?;
-        self.commit_record_to_path(
-            &account.id,
-            &self.dlight_seed_temp_snapshot_path(&account.id),
-            current_hash.as_ref(),
-            DLIGHT_SEED_RECORD_KEY,
-            &dlight_payload,
-        )?;
-
-        account_state_store.store_watched_vrpc_addresses(
-            &account.id,
-            WalletNetwork::Mainnet,
-            &watched_mainnet,
-        )?;
-        account_state_store.store_watched_vrpc_addresses(
-            &account.id,
-            WalletNetwork::Testnet,
-            &watched_testnet,
-        )?;
-        account_state_store.store_active_assets(
-            &account.id,
-            WalletNetwork::Mainnet,
-            active_mainnet.0,
-            active_mainnet.2,
-            &active_mainnet.1,
-        )?;
-        account_state_store.store_active_assets(
-            &account.id,
-            WalletNetwork::Testnet,
-            active_testnet.0,
-            active_testnet.2,
-            &active_testnet.1,
-        )?;
-        account_state_store.store_provisioning_jobs(
-            &account.id,
-            WalletNetwork::Mainnet,
-            &jobs_mainnet,
-        )?;
-        account_state_store.store_provisioning_jobs(
-            &account.id,
-            WalletNetwork::Testnet,
-            &jobs_testnet,
-        )?;
-
-        Self::promote_temp_snapshot(
-            &self.account_snapshot_path(&account.id),
-            &self.seed_temp_snapshot_path(&account.id),
-        )?;
-        Self::promote_temp_snapshot(
-            &self.address_book_snapshot_path(&account.id),
-            &self.address_book_temp_snapshot_path(&account.id),
-        )?;
-        Self::promote_temp_snapshot(
-            &self.linked_identities_snapshot_path(&account.id),
-            &self.linked_identities_temp_snapshot_path(&account.id),
-        )?;
-        Self::promote_temp_snapshot(
-            &self.dlight_seed_snapshot_path(&account.id),
-            &self.dlight_seed_temp_snapshot_path(&account.id),
-        )?;
-
-        let mut updated = account.clone();
-        updated.key_derivation_version = CURRENT_KEY_DERIVATION_VERSION;
-        wallet_manager
-            .save_account_record_by_account_id(&account.id, &updated)
+        self.write_migrated_secret_snapshots(&account.id, current_hash.as_ref(), &bundle)?;
+        self.migrate_legacy_account_state(&account.id, account_state_store, &bundle)?;
+        self.promote_migrated_secret_snapshots(&account.id)?;
+        self.persist_current_account_kdf_version(account, wallet_manager)
             .await?;
-
-        Self::remove_file_if_exists(&self.watched_vrpc_addresses_snapshot_path(&account.id))?;
-        Self::remove_file_if_exists(&self.active_assets_snapshot_path(&account.id))?;
-        Self::remove_file_if_exists(&self.provisioning_jobs_snapshot_path(&account.id))?;
+        self.remove_legacy_account_state_snapshots(&account.id)?;
 
         Ok(current_hash)
     }
@@ -900,34 +953,13 @@ impl StrongholdStore {
         data: &[u8],
     ) -> Result<(), WalletError> {
         let path = self.address_book_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        self.commit_record_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-
-        client
-            .store()
-            .insert(ADDRESS_BOOK_RECORD_KEY.to_vec(), data.to_vec(), None)
-            .map_err(|e| {
-                println!("[AUTH] Store address book failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!("[AUTH] Commit address book snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            &path,
+            password_hash,
+            ADDRESS_BOOK_RECORD_KEY,
+            data,
+        )
     }
 
     /// Load address book snapshot bytes for an account from isolated Stronghold snapshot.
@@ -937,24 +969,14 @@ impl StrongholdStore {
         password_hash: &[u8],
     ) -> Result<Option<Vec<u8>>, WalletError> {
         let path = self.address_book_snapshot_path(account_id);
-        if !path.exists() {
-            return Ok(None);
-        }
-
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load address book snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        client.store().get(ADDRESS_BOOK_RECORD_KEY).map_err(|e| {
-            println!("[AUTH] Read address book record failed: {}", e);
-            WalletError::OperationFailed
-        })
+        self.load_optional_record_from_path(
+            account_id,
+            password_hash,
+            &path,
+            ADDRESS_BOOK_RECORD_KEY,
+            "address book",
+        )
+        .await
     }
 
     pub async fn load_watched_vrpc_addresses(
@@ -966,11 +988,7 @@ impl StrongholdStore {
         let snapshot = self
             .load_watched_vrpc_addresses_snapshot(account_id, password_hash)
             .await?;
-
-        Ok(match network {
-            WalletNetwork::Mainnet => snapshot.mainnet,
-            WalletNetwork::Testnet => snapshot.testnet,
-        })
+        Ok(network_value(snapshot.mainnet, snapshot.testnet, network))
     }
 
     pub async fn store_watched_vrpc_addresses(
@@ -981,52 +999,18 @@ impl StrongholdStore {
         addresses: &[String],
     ) -> Result<(), WalletError> {
         let path = self.watched_vrpc_addresses_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
         let mut snapshot = self
             .load_watched_vrpc_addresses_snapshot(account_id, password_hash)
             .await?;
-        match network {
-            WalletNetwork::Mainnet => {
-                snapshot.mainnet = addresses.to_vec();
-            }
-            WalletNetwork::Testnet => {
-                snapshot.testnet = addresses.to_vec();
-            }
-        }
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = addresses.to_vec();
+        self.store_json_snapshot_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
-        client
-            .store()
-            .insert(
-                WATCHED_VRPC_ADDRESSES_RECORD_KEY.to_vec(),
-                payload.to_vec(),
-                None,
-            )
-            .map_err(|e| {
-                println!("[AUTH] Store watched VRPC addresses failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!(
-                    "[AUTH] Commit watched VRPC addresses snapshot failed: {}",
-                    e
-                );
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            password_hash,
+            &path,
+            WATCHED_VRPC_ADDRESSES_RECORD_KEY,
+            &snapshot,
+            "watched VRPC addresses",
+        )
     }
 
     pub async fn load_active_assets(
@@ -1038,19 +1022,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_active_assets_snapshot(account_id, password_hash)
             .await?;
-
-        match network {
-            WalletNetwork::Mainnet => Ok((
-                snapshot.mainnet.initialized,
-                snapshot.mainnet.coin_ids,
-                snapshot.mainnet.profile_version,
-            )),
-            WalletNetwork::Testnet => Ok((
-                snapshot.testnet.initialized,
-                snapshot.testnet.coin_ids,
-                snapshot.testnet.profile_version,
-            )),
-        }
+        let network_snapshot = network_value(snapshot.mainnet, snapshot.testnet, network);
+        Ok((
+            network_snapshot.initialized,
+            network_snapshot.coin_ids,
+            network_snapshot.profile_version,
+        ))
     }
 
     pub async fn store_active_assets(
@@ -1063,46 +1040,22 @@ impl StrongholdStore {
         coin_ids: &[String],
     ) -> Result<(), WalletError> {
         let path = self.active_assets_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
         let mut snapshot = self
             .load_active_assets_snapshot(account_id, password_hash)
             .await?;
         snapshot.schema_version = ACTIVE_ASSETS_SCHEMA_VERSION;
-
-        let network_snapshot = match network {
-            WalletNetwork::Mainnet => &mut snapshot.mainnet,
-            WalletNetwork::Testnet => &mut snapshot.testnet,
-        };
+        let network_snapshot = network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network);
         network_snapshot.initialized = initialized;
         network_snapshot.profile_version = profile_version;
         network_snapshot.coin_ids = coin_ids.to_vec();
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        self.store_json_snapshot_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
-        client
-            .store()
-            .insert(ACTIVE_ASSETS_RECORD_KEY.to_vec(), payload, None)
-            .map_err(|e| {
-                println!("[AUTH] Store active assets failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!("[AUTH] Commit active assets snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            password_hash,
+            &path,
+            ACTIVE_ASSETS_RECORD_KEY,
+            &snapshot,
+            "active assets",
+        )
     }
 
     pub async fn load_linked_identities(
@@ -1114,10 +1067,7 @@ impl StrongholdStore {
         let snapshot = self
             .load_linked_identities_snapshot(account_id, password_hash)
             .await?;
-        let records = match network {
-            WalletNetwork::Mainnet => snapshot.mainnet,
-            WalletNetwork::Testnet => snapshot.testnet,
-        };
+        let records = network_value(snapshot.mainnet, snapshot.testnet, network);
         Ok(Self::sanitize_linked_identities(&records))
     }
 
@@ -1129,44 +1079,21 @@ impl StrongholdStore {
         identities: &[LinkedIdentity],
     ) -> Result<(), WalletError> {
         let path = self.linked_identities_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
         let mut snapshot = self
             .load_linked_identities_snapshot(account_id, password_hash)
             .await?;
         snapshot.schema_version = LINKED_IDENTITIES_SCHEMA_VERSION;
 
         let sanitized = Self::sanitize_linked_identities(identities);
-        match network {
-            WalletNetwork::Mainnet => snapshot.mainnet = sanitized,
-            WalletNetwork::Testnet => snapshot.testnet = sanitized,
-        }
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = sanitized;
+        self.store_json_snapshot_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
-        client
-            .store()
-            .insert(LINKED_IDENTITIES_RECORD_KEY.to_vec(), payload, None)
-            .map_err(|e| {
-                println!("[AUTH] Store linked identities failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!("[AUTH] Commit linked identities snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            password_hash,
+            &path,
+            LINKED_IDENTITIES_RECORD_KEY,
+            &snapshot,
+            "linked identities",
+        )
     }
 
     pub async fn load_dlight_seed(
@@ -1178,10 +1105,7 @@ impl StrongholdStore {
         let snapshot = self
             .load_dlight_seed_snapshot(account_id, password_hash)
             .await?;
-        let seed = match network {
-            WalletNetwork::Mainnet => snapshot.mainnet,
-            WalletNetwork::Testnet => snapshot.testnet,
-        };
+        let seed = network_value(snapshot.mainnet, snapshot.testnet, network);
 
         Ok(seed
             .map(|value| value.trim().to_string())
@@ -1196,9 +1120,6 @@ impl StrongholdStore {
         seed: Option<&str>,
     ) -> Result<(), WalletError> {
         let path = self.dlight_seed_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
         let mut snapshot = self
             .load_dlight_seed_snapshot(account_id, password_hash)
             .await?;
@@ -1207,35 +1128,15 @@ impl StrongholdStore {
         let normalized_seed = seed
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        match network {
-            WalletNetwork::Mainnet => snapshot.mainnet = normalized_seed,
-            WalletNetwork::Testnet => snapshot.testnet = normalized_seed,
-        }
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = normalized_seed;
+        self.store_json_snapshot_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
-        client
-            .store()
-            .insert(DLIGHT_SEED_RECORD_KEY.to_vec(), payload, None)
-            .map_err(|e| {
-                println!("[AUTH] Store dlight seed failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!("[AUTH] Commit dlight seed snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            password_hash,
+            &path,
+            DLIGHT_SEED_RECORD_KEY,
+            &snapshot,
+            "dlight seed",
+        )
     }
 
     pub async fn load_provisioning_jobs(
@@ -1247,11 +1148,7 @@ impl StrongholdStore {
         let snapshot = self
             .load_provisioning_jobs_snapshot(account_id, password_hash)
             .await?;
-
-        Ok(match network {
-            WalletNetwork::Mainnet => snapshot.mainnet,
-            WalletNetwork::Testnet => snapshot.testnet,
-        })
+        Ok(network_value(snapshot.mainnet, snapshot.testnet, network))
     }
 
     pub async fn store_provisioning_jobs(
@@ -1262,43 +1159,19 @@ impl StrongholdStore {
         jobs: &[ProvisioningJobRecord],
     ) -> Result<(), WalletError> {
         let path = self.provisioning_jobs_snapshot_path(account_id);
-        let snapshot_path = SnapshotPath::from_path(&path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-
         let mut snapshot = self
             .load_provisioning_jobs_snapshot(account_id, password_hash)
             .await?;
         snapshot.schema_version = PROVISIONING_JOBS_SCHEMA_VERSION;
-
-        match network {
-            WalletNetwork::Mainnet => snapshot.mainnet = jobs.to_vec(),
-            WalletNetwork::Testnet => snapshot.testnet = jobs.to_vec(),
-        }
-
-        let stronghold = Stronghold::default();
-        let client = Self::get_or_create_client(
-            &stronghold,
-            &snapshot_path,
+        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = jobs.to_vec();
+        self.store_json_snapshot_to_path(
             account_id,
-            &keyprovider,
-            path.exists(),
-        )?;
-        let payload = serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?;
-        client
-            .store()
-            .insert(PROVISIONING_JOBS_RECORD_KEY.to_vec(), payload, None)
-            .map_err(|e| {
-                println!("[AUTH] Store provisioning jobs failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-        stronghold
-            .commit_with_keyprovider(&snapshot_path, &keyprovider)
-            .map_err(|e| {
-                println!("[AUTH] Commit provisioning jobs snapshot failed: {}", e);
-                WalletError::OperationFailed
-            })?;
-
-        Ok(())
+            password_hash,
+            &path,
+            PROVISIONING_JOBS_RECORD_KEY,
+            &snapshot,
+            "provisioning jobs",
+        )
     }
 }
 
@@ -1314,12 +1187,10 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_store() -> StrongholdStore {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let base_path =
-            std::env::temp_dir().join(format!("lite_wallet_stronghold_store_{}", unique));
+        let base_path = std::env::temp_dir().join(format!(
+            "lite_wallet_stronghold_store_{}",
+            uuid::Uuid::new_v4()
+        ));
         let salt_path = base_path.join("argon2_salt.bin");
         StrongholdStore {
             base_path,

@@ -8,9 +8,7 @@ use rand::rngs::OsRng;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::types::{
-    AccountRecord, CreateWalletRequest, WalletError, WalletListItem, WalletMetadata,
-};
+use crate::types::{AccountRecord, WalletError, WalletListItem};
 
 pub struct WalletManager {
     data_directory: PathBuf,
@@ -84,43 +82,6 @@ impl WalletManager {
             .iter()
             .map(|word| (*word).to_string())
             .collect())
-    }
-
-    /// Create a new wallet (simplified implementation for now)
-    /// TODO: Implement full Stronghold integration using frontend API
-    pub async fn create_wallet(
-        &self,
-        request: &CreateWalletRequest,
-        _password: &str,
-    ) -> Result<String, WalletError> {
-        // Validate seed phrase
-        let _mnemonic =
-            Mnemonic::parse_in(Language::English, &request.seed_phrase).map_err(|e| {
-                println!("[WALLET] Invalid seed phrase format: {}", e);
-                WalletError::InvalidSeedPhrase
-            })?;
-
-        // Check if wallet already exists
-        if self.wallet_exists(&request.wallet_name).await? {
-            return Err(WalletError::WalletExists);
-        }
-
-        println!("[WALLET] Creating wallet: {}", request.wallet_name);
-
-        // Create wallet metadata file (simplified for now)
-        let metadata = WalletMetadata::new(request.wallet_name.clone());
-        let metadata_path = self.get_metadata_path(&request.wallet_name)?;
-
-        let metadata_json = serde_json::to_string_pretty(&metadata)?;
-        std::fs::write(metadata_path, metadata_json).map_err(|e| {
-            println!("[WALLET] Failed to write metadata: {}", e);
-            WalletError::OperationFailed
-        })?;
-
-        println!("[WALLET] Wallet created successfully (simplified)");
-        println!("[WALLET] TODO: Integrate Stronghold for secure seed storage");
-
-        Ok(request.wallet_name.clone())
     }
 
     /// List available wallets with account_id for unlock flow.

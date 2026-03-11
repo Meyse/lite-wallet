@@ -7,6 +7,7 @@ pub mod auth;
 pub mod channels;
 pub mod coins;
 pub mod crypto;
+pub mod identity_display;
 pub mod rates;
 pub mod runtime_config;
 pub mod updates;
