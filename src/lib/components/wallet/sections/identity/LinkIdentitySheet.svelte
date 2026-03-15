@@ -8,6 +8,7 @@
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import type { LinkableIdentity, LinkedIdentity } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
@@ -89,11 +90,13 @@
   }
 
   function mapSheetError(error: unknown, fallbackKey: string): string {
+    if (isForcedWalletLockError(error)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(error);
 
     switch (errorType) {
-      case 'WalletLocked':
-        return i18n.t('wallet.identity.error.walletLocked');
       case 'IdentityOwnershipMismatch':
         return i18n.t('wallet.identity.error.ownershipMismatch');
       case 'IdentityNotFound':

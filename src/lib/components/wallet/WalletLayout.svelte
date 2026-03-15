@@ -20,6 +20,10 @@
   import Activity from './sections/Activity.svelte';
   import AddressBook from './sections/AddressBook.svelte';
   import Settings from './sections/Settings.svelte';
+  import {
+    createIdentitySectionSessionState,
+    type IdentitySectionSessionState
+  } from './sections/identity/identitySectionSessionState.js';
   import { dismissWalletError, pushWalletError, walletErrorsStore } from '$lib/stores/walletErrors.js';
   import {
     consumeQueuedGenericRequest,
@@ -27,6 +31,7 @@
   } from '$lib/stores/genericRequest.js';
   import { i18nStore } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import type { TransferEntryContext } from './sections/transfer-wizard/types';
   import type { WalletEntrySelection } from '$lib/types/wallet';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
@@ -61,6 +66,8 @@
   let genericRequestImportError = $state('');
   let genericRequestFlowOpen = $state(false);
   let genericRequestSession = $state<GenericRequestFlowSession | null>(null);
+  let identitySectionSession = $state<IdentitySectionSessionState>(createIdentitySectionSessionState());
+  let identitySectionWalletKey = $state('');
   let GenericRequestFlowHostComponent = $state<null | (typeof import('$lib/components/flows/GenericRequest/GenericRequestFlowHost.svelte').default)>(null);
   const walletErrors = $derived($walletErrorsStore);
   const latestError = $derived(walletErrors.latest);
@@ -82,12 +89,22 @@
     void openGenericRequestFlow(queued.input, queued.passthroughAutoLinkFqn, true);
   });
 
+  $effect(() => {
+    const nextWalletKey = `${walletData.name.trim().toLowerCase()}::${walletData.network ?? 'mainnet'}`;
+    if (identitySectionWalletKey === nextWalletKey) return;
+
+    identitySectionWalletKey = nextWalletKey;
+    identitySectionSession = createIdentitySectionSessionState();
+  });
+
   function resolveGenericRequestErrorMessage(errorValue: unknown): string {
+    if (isForcedWalletLockError(errorValue)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(errorValue);
 
     switch (errorType) {
-      case 'WalletLocked':
-        return i18n.t('genericRequest.error.walletLocked');
       case 'GenericRequestInvalidEnvelope':
         return i18n.t('genericRequest.import.error.invalid');
       case 'GenericRequestUnsupportedSignature':
@@ -140,6 +157,8 @@
       genericRequestImportValue = input.trim();
     } catch (errorValue) {
       const message = resolveGenericRequestErrorMessage(errorValue);
+      if (!message) return;
+
       if (surfaceAsWalletError) {
         pushWalletError(message);
       } else {
@@ -255,7 +274,15 @@
             }}
           />
         {:else if activeSection === 'identity'}
-          <Identity walletNetwork={walletData.network ?? 'mainnet'} />
+          {#key identitySectionWalletKey}
+            <Identity
+              walletNetwork={walletData.network ?? 'mainnet'}
+              sessionState={identitySectionSession}
+              onSessionStateChange={(nextState) => {
+                identitySectionSession = nextState;
+              }}
+            />
+          {/key}
         {:else if activeSection === 'apps'}
           <Apps />
         {:else if activeSection === 'activity'}

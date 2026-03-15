@@ -12,7 +12,9 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import { addressBookStore, removeAddressBookContact, upsertAddressBookContact } from '$lib/stores/addressBook';
   import * as addressBookService from '$lib/services/addressBookService';
   import type { AddressBookContact, AddressEndpointKind } from '$lib/types/addressBook';
@@ -206,38 +208,16 @@
     }
   }
 
-  function extractWalletErrorType(error: unknown): string | null {
-    if (typeof error === 'string') {
-      try {
-        const parsed = JSON.parse(error) as { type?: string };
-        return parsed.type ?? null;
-      } catch {
-        return null;
-      }
-    }
-
-    if (!error || typeof error !== 'object') return null;
-    const typed = error as { type?: unknown; data?: { type?: unknown }; message?: unknown };
-    if (typeof typed.type === 'string') return typed.type;
-    if (typed.data && typeof typed.data.type === 'string') return typed.data.type;
-    if (typeof typed.message === 'string') {
-      try {
-        const parsed = JSON.parse(typed.message) as { type?: string };
-        return parsed.type ?? null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-
   function mapSaveError(error: unknown): string {
+    if (isForcedWalletLockError(error)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(error);
     if (errorType === 'AddressBookDuplicate') return i18n.t('wallet.addressBook.error.duplicate');
     if (errorType === 'AddressBookInvalidInput' || errorType === 'InvalidAddress') {
       return i18n.t('wallet.addressBook.error.invalidInput');
     }
-    if (errorType === 'WalletLocked') return i18n.t('wallet.addressBook.error.walletLocked');
     if (error instanceof Error && error.message.trim()) return error.message;
     return i18n.t('wallet.addressBook.error.saveFailed');
   }

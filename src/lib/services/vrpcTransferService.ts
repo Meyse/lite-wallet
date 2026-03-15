@@ -2,13 +2,13 @@
  * Thin invoke wrapper for advanced VRPC transfer preflight.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import type { VrpcTransferPreflightParams, VrpcTransferPreflightResult } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export async function preflightVrpcTransfer(
   params: VrpcTransferPreflightParams
 ): Promise<VrpcTransferPreflightResult> {
-  return invoke<VrpcTransferPreflightResult>('preflight_vrpc_transfer', {
+  return invokeWalletCommand<VrpcTransferPreflightResult>('preflight_vrpc_transfer', {
     params: {
       coinId: params.coinId,
       channelId: params.channelId,

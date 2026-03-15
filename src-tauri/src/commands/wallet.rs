@@ -952,6 +952,15 @@ pub async fn set_session_timeout_minutes(
     Ok(normalized)
 }
 
+/// Refreshes the wallet session inactivity timer for explicit user activity.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn touch_session_activity(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+) -> Result<(), WalletError> {
+    let mut session = session_manager.lock().await;
+    session.touch_activity()
+}
+
 /// Get active wallet display info for dashboard (when unlocked)
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_active_wallet(

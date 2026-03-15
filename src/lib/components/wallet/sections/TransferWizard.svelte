@@ -52,6 +52,7 @@
   import { channelIdForCoin } from '$lib/utils/channelId.js';
   import * as walletService from '$lib/services/walletService.js';
   import { preflightSend, sendTransaction } from '$lib/services/txService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import {
     estimateBridgeConversion,
     estimateBridgeExportFee,
@@ -92,6 +93,7 @@
     TransferStepperStep,
     WizardOperationalStepId
   } from './transfer-wizard/types';
+  import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
 
   type EntryIntent = 'send' | 'convert';
 
@@ -1940,12 +1942,13 @@
   }
 
   function mapAddressBookError(error: unknown): string {
+    if (isForcedWalletLockError(error)) return '';
+
     const errorType = extractWalletErrorType(error);
     if (errorType === 'AddressBookDuplicate') return i18n.t('wallet.transfer.saveRecipient.error.duplicate');
     if (errorType === 'AddressBookInvalidInput' || errorType === 'InvalidAddress') {
       return i18n.t('wallet.transfer.saveRecipient.error.invalid');
     }
-    if (errorType === 'WalletLocked') return i18n.t('wallet.transfer.saveRecipient.error.walletLocked');
     if (error instanceof Error && error.message.trim()) return error.message;
     return i18n.t('wallet.transfer.saveRecipient.error.generic');
   }
@@ -2851,34 +2854,6 @@
     return (Number(amount) * price).toFixed(8);
   }
 
-  function extractWalletErrorType(error: unknown): string | null {
-    if (!error || typeof error !== 'object') return null;
-    const object = error as Record<string, unknown>;
-
-    if (typeof object.type === 'string') return object.type;
-    if (object.data && typeof object.data === 'object') {
-      const data = object.data as Record<string, unknown>;
-      if (typeof data.type === 'string') return data.type;
-    }
-    return null;
-  }
-
-  function extractWalletErrorMessage(error: unknown): string | null {
-    if (!error || typeof error !== 'object') return null;
-    const object = error as Record<string, unknown>;
-
-    if (typeof object.message === 'string' && object.message.trim()) {
-      return object.message.trim();
-    }
-    if (object.data && typeof object.data === 'object') {
-      const data = object.data as Record<string, unknown>;
-      if (typeof data.message === 'string' && data.message.trim()) {
-        return data.message.trim();
-      }
-    }
-    return null;
-  }
-
   function mapPreflightWarningMessage(warning: PreflightWarning): string {
     if (warning.warningType === 'estimated_fee') {
       return i18n.t('wallet.transfer.warning.finalAmountMayVary');
@@ -2887,6 +2862,10 @@
   }
 
   function mapWalletError(error: unknown): string {
+    if (isForcedWalletLockError(error)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(error);
     const rawMessage = extractWalletErrorMessage(error);
     if (errorType === 'InvalidPreflight') return i18n.t('wallet.transfer.reviewUnavailable');

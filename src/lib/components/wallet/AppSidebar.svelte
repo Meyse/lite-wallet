@@ -6,8 +6,6 @@
 -->
 
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { invoke } from '@tauri-apps/api/core';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import WalletIcon from '@lucide/svelte/icons/wallet';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
@@ -19,6 +17,7 @@
   import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
   import { i18nStore } from '$lib/i18n';
   import { getWalletColorHex } from '$lib/constants/walletColors';
+  import { forceWalletToUnlock } from '$lib/services/walletLockCoordinator.js';
 
   type SectionId =
     | 'overview'
@@ -89,8 +88,7 @@
 
   async function handleLock() {
     try {
-      await invoke('lock_wallet');
-      goto('/');
+      await forceWalletToUnlock();
     } catch {
       console.error('[WALLET] Lock failed');
     }

@@ -108,6 +108,7 @@
     const normalized = normalizeAutoLockMinutes(minutes);
     setAutoLockMinutes(normalized);
     await walletService.setSessionTimeoutMinutes(normalized).catch(() => {});
+    await walletService.touchSessionActivity().catch(() => {});
   }
 
   $effect(() => {

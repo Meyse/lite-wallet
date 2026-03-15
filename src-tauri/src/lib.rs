@@ -221,6 +221,7 @@ pub fn run() {
             wallet::get_dlight_prover_status,
             wallet::get_session_timeout_minutes,
             wallet::set_session_timeout_minutes,
+            wallet::touch_session_activity,
             wallet::get_watched_vrpc_addresses,
             wallet::set_watched_vrpc_addresses,
             wallet::is_unlocked,

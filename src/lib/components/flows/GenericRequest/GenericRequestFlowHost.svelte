@@ -41,6 +41,7 @@
   import * as genericRequestService from '$lib/services/genericRequestService.js';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
   import * as identityService from '$lib/services/identityService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import { coinsStore } from '$lib/stores/coins.js';
   import { walletChannelsStore } from '$lib/stores/walletChannels.js';
@@ -310,11 +311,13 @@
   }
 
   function setError(error: unknown, fallbackKey = 'genericRequest.error.generic') {
+    if (isForcedWalletLockError(error)) {
+      flowError = '';
+      return;
+    }
+
     const type = extractWalletErrorType(error);
     switch (type) {
-      case 'WalletLocked':
-        flowError = i18n.t('genericRequest.error.walletLocked');
-        return;
       case 'IdentityOwnershipMismatch':
         flowError = i18n.t('genericRequest.error.identityOwnershipMismatch');
         return;

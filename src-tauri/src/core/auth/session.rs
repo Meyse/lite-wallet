@@ -75,7 +75,7 @@ pub fn normalize_session_timeout_minutes(minutes: u64) -> u64 {
 pub struct SessionManager {
     is_unlocked: bool,
     active_account_id: Option<String>,
-    unlocked_at: Option<Instant>,
+    last_activity_at: Option<Instant>,
     timeout_duration: Duration,
     active_network: Option<WalletNetwork>,
     active_secret_kind: Option<WalletSecretKind>,
@@ -92,7 +92,7 @@ impl SessionManager {
         Self {
             is_unlocked: false,
             active_account_id: None,
-            unlocked_at: None,
+            last_activity_at: None,
             timeout_duration: Duration::from_secs(default_timeout_minutes * 60),
             active_network: None,
             active_secret_kind: None,
@@ -123,7 +123,7 @@ impl SessionManager {
         });
         self.stronghold_password_hash = Some(stronghold_password_hash);
         self.is_unlocked = true;
-        self.unlocked_at = Some(Instant::now());
+        self.last_activity_at = Some(Instant::now());
 
         println!("[SESSION] Unlock successful");
     }
@@ -138,7 +138,7 @@ impl SessionManager {
         self.active_addresses = None;
         self.stronghold_password_hash = None;
         self.is_unlocked = false;
-        self.unlocked_at = None;
+        self.last_activity_at = None;
 
         println!("[SESSION] Wallet locked, session secrets zeroized");
     }
@@ -149,8 +149,8 @@ impl SessionManager {
             return true;
         }
 
-        if let Some(unlocked_at) = self.unlocked_at {
-            unlocked_at.elapsed() > self.timeout_duration
+        if let Some(last_activity_at) = self.last_activity_at {
+            last_activity_at.elapsed() > self.timeout_duration
         } else {
             true
         }
@@ -199,6 +199,16 @@ impl SessionManager {
         let normalized_minutes = normalize_session_timeout_minutes(minutes);
         self.set_timeout(Duration::from_secs(normalized_minutes * 60));
         normalized_minutes
+    }
+
+    /// Refreshes the session inactivity timer for explicit user activity only.
+    pub fn touch_activity(&mut self) -> Result<(), WalletError> {
+        if !self.is_unlocked || self.is_expired() {
+            return Err(WalletError::WalletLocked);
+        }
+
+        self.last_activity_at = Some(Instant::now());
+        Ok(())
     }
 
     /// Returns the active timeout in minutes.
@@ -269,7 +279,9 @@ mod tests {
     };
     use crate::core::crypto::{derive_public_profile_from_material, Network};
     use crate::core::StrongholdStore;
+    use crate::types::errors::WalletError;
     use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+    use std::time::Duration;
     use zeroize::Zeroizing;
 
     fn test_store() -> StrongholdStore {
@@ -371,5 +383,45 @@ mod tests {
         assert!(session.get_addresses().is_err());
         assert!(session.stronghold_password_hash_for_storage().is_err());
         assert!(session.active_wallet_access_context().is_err());
+    }
+
+    #[test]
+    fn touch_activity_extends_session_from_last_user_interaction() {
+        let store = test_store();
+        let public_profile = derive_public_profile_from_material(
+            "session activity extends timeout",
+            WalletSecretKind::SeedText,
+            Network::Mainnet,
+        )
+        .expect("public profile");
+        let mut session = SessionManager::new(store);
+
+        session.unlock_with_profile(
+            "account-3".to_string(),
+            WalletNetwork::Mainnet,
+            WalletSecretKind::SeedText,
+            public_profile,
+            Zeroizing::new(vec![7, 7, 7, 7]),
+        );
+        session.set_timeout(Duration::from_millis(150));
+
+        std::thread::sleep(Duration::from_millis(90));
+        session.touch_activity().expect("session activity touch");
+        std::thread::sleep(Duration::from_millis(90));
+        assert!(!session.is_expired());
+
+        std::thread::sleep(Duration::from_millis(90));
+        assert!(session.is_expired());
+    }
+
+    #[test]
+    fn touch_activity_rejects_locked_sessions() {
+        let store = test_store();
+        let mut session = SessionManager::new(store);
+
+        assert!(matches!(
+            session.touch_activity(),
+            Err(WalletError::WalletLocked)
+        ));
     }
 }

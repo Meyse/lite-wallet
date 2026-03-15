@@ -10,6 +10,8 @@
   import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import WalletLayout from '$lib/components/wallet/WalletLayout.svelte';
+  import { startWalletActivityMonitor } from '$lib/services/walletActivityMonitor.js';
+  import { forceWalletToUnlock, isForcedWalletLockError, walletUnlockRedirectingStore } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import * as coinsService from '$lib/services/coinsService.js';
   import * as addressBookService from '$lib/services/addressBookService.js';
@@ -52,9 +54,17 @@
 
   let loading = $state(true);
   let walletData = $state<{ name: string; emoji: string; color: string; network: WalletNetwork } | null>(null);
+  let teardownActivityMonitor: (() => void) | null = null;
   let teardownEventBridge: (() => void) | null = null;
   let handlingSessionExpiry = $state(false);
   const i18n = $derived($i18nStore);
+  const redirectingToUnlock = $derived($walletUnlockRedirectingStore);
+
+  function rethrowForcedWalletLock(error: unknown): void {
+    if (isForcedWalletLockError(error)) {
+      throw error;
+    }
+  }
 
   onMount(async () => {
     walletBootstrapStore.set(true);
@@ -67,7 +77,7 @@
       const unlocked = await walletService.isUnlocked();
       if (!unlocked) {
         walletBootstrapStore.set(false);
-        await goto('/');
+        await goto('/', { replaceState: true });
         return;
       }
 
@@ -75,6 +85,7 @@
       await walletService.setSessionTimeoutMinutes(resolvedAutoLockMinutes).catch((error) => {
         console.error('[WALLET_ROUTE] Failed to apply session timeout', error);
       });
+      teardownActivityMonitor = startWalletActivityMonitor();
 
       const active = await walletService.getActiveWallet().catch((error) => {
         console.error('[WALLET_ROUTE] Failed to resolve active wallet', error);
@@ -92,6 +103,7 @@
       const cacheKey = activeAssetsCacheKey(walletData.name, walletNetwork);
 
       const addresses = await walletService.getAddresses().catch((error) => {
+        rethrowForcedWalletLock(error);
         console.error('[WALLET_ROUTE] Failed to load wallet addresses', error);
         return null;
       });
@@ -111,6 +123,7 @@
         coins = filterCoinsByActiveIds(supportedCoins, activeAssets.coinIds);
         sessionCoinsByWallet.set(cacheKey, coins);
       } catch (error) {
+        rethrowForcedWalletLock(error);
         console.error('[WALLET_ROUTE] Failed to load active assets state', error);
         const previousSessionCoins = sessionCoinsByWallet.get(cacheKey) ?? get(coinsStore);
         const fallbackCoins = previousSessionCoins.length > 0 ? previousSessionCoins : [];
@@ -125,6 +138,7 @@
       walletChannelsStore.set(channels);
 
       const contacts = await addressBookService.listAddressBookContacts().catch((error) => {
+        rethrowForcedWalletLock(error);
         console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
         return [];
       });
@@ -135,9 +149,7 @@
           if (handlingSessionExpiry) return;
           handlingSessionExpiry = true;
           walletBootstrapStore.set(false);
-          pushWalletError(i18n.t('wallet.session.expired'));
-          await walletService.lockWallet().catch(() => {});
-          await goto('/');
+          await forceWalletToUnlock();
         }
       }).catch((error) => {
         console.error('[WALLET_ROUTE] Failed to setup wallet event bridge', error);
@@ -151,11 +163,16 @@
         priorityCoinIds: coins.map((coin) => coin.id),
         priorityChannelIds: channels.channels
       }).catch((error) => {
+        rethrowForcedWalletLock(error);
         console.error('[WALLET_ROUTE] Failed to start update engine', error);
         walletBootstrapStore.set(false);
         pushWalletError(error instanceof Error ? error.message : i18n.t('common.unknownError'));
       });
     } catch (error) {
+      if (isForcedWalletLockError(error)) {
+        return;
+      }
+
       console.error('[WALLET_ROUTE] Startup failed', error);
       walletBootstrapStore.set(false);
       const message = error instanceof Error ? error.message : i18n.t('common.unknownError');
@@ -174,6 +191,7 @@
   });
 
   onDestroy(() => {
+    teardownActivityMonitor?.();
     teardownEventBridge?.();
     walletBootstrapStore.set(false);
     balanceStore.set({});
@@ -185,7 +203,7 @@
   });
 </script>
 
-{#if loading}
+{#if loading || redirectingToUnlock}
   <main class="bg-background flex min-h-screen items-center justify-center">
     <div class="text-muted-foreground">{i18n.t('common.loading')}</div>
   </main>

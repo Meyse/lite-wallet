@@ -8,13 +8,14 @@ import type {
   GenericRequestVerificationResult,
   LinkReadyProvisioningJobResult,
   ProvisioningJobRecord,
-  StoreGenericProvisioningJobRequest,
+  StoreGenericProvisioningJobRequest
 } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export async function verifyGenericRequestSignature(
   requestHex: string
 ): Promise<GenericRequestVerificationResult> {
-  return invoke<GenericRequestVerificationResult>('verify_generic_request_signature', {
+  return invokeWalletCommand<GenericRequestVerificationResult>('verify_generic_request_signature', {
     request_hex: requestHex,
   });
 }
@@ -22,7 +23,7 @@ export async function verifyGenericRequestSignature(
 export async function buildAndSignGenericResponse(
   request: BuildAndSignGenericResponseRequest
 ): Promise<BuildAndSignGenericResponseResult> {
-  return invoke<BuildAndSignGenericResponseResult>('build_and_sign_generic_response', {
+  return invokeWalletCommand<BuildAndSignGenericResponseResult>('build_and_sign_generic_response', {
     request_hex: request.requestHex,
     signer: request.signer,
     authentication: request.authentication ?? null,
@@ -54,7 +55,7 @@ export async function signIdentitySignatureHash(
   hashHex: string,
   systemId: string
 ): Promise<string> {
-  return invoke<string>('sign_identity_signature_hash', {
+  return invokeWalletCommand<string>('sign_identity_signature_hash', {
     hash_hex: hashHex,
     system_id: systemId,
   });
@@ -66,7 +67,7 @@ export async function verifyIdentitySignatureHash(
   signerIdentityId: string,
   signerSystemId: string
 ): Promise<boolean> {
-  return invoke<boolean>('verify_identity_signature_hash', {
+  return invokeWalletCommand<boolean>('verify_identity_signature_hash', {
     hash_hex: hashHex,
     signature_base64: signatureBase64,
     signer_identity_id: signerIdentityId,
@@ -80,7 +81,7 @@ export async function preflightGenericIdentityUpdate(
   sourceChannelId: string,
   requestMeta?: GenericIdentityUpdateRequestMeta | null
 ): Promise<GenericIdentityUpdatePreflightResult> {
-  return invoke<GenericIdentityUpdatePreflightResult>('preflight_generic_identity_update', {
+  return invokeWalletCommand<GenericIdentityUpdatePreflightResult>('preflight_generic_identity_update', {
     requested_identity_json: requestedIdentityJson,
     target_identity_address: targetIdentityAddress,
     source_channel_id: sourceChannelId,
@@ -94,7 +95,7 @@ export async function reviewGenericIdentityUpdate(
   systemId: string,
   requestMeta?: GenericIdentityUpdateRequestMeta | null
 ): Promise<GenericIdentityUpdateReviewResult> {
-  return invoke<GenericIdentityUpdateReviewResult>('review_generic_identity_update', {
+  return invokeWalletCommand<GenericIdentityUpdateReviewResult>('review_generic_identity_update', {
     requested_identity_json: requestedIdentityJson,
     target_identity_address: targetIdentityAddress,
     system_id: systemId,
@@ -103,25 +104,25 @@ export async function reviewGenericIdentityUpdate(
 }
 
 export async function listIdentityProvisioningJobs(): Promise<ProvisioningJobRecord[]> {
-  return invoke<ProvisioningJobRecord[]>('list_identity_provisioning_jobs');
+  return invokeWalletCommand<ProvisioningJobRecord[]>('list_identity_provisioning_jobs');
 }
 
 export async function storeGenericProvisioningJob(
   request: StoreGenericProvisioningJobRequest
 ): Promise<ProvisioningJobRecord> {
-  return invoke<ProvisioningJobRecord>('store_generic_provisioning_job', {
+  return invokeWalletCommand<ProvisioningJobRecord>('store_generic_provisioning_job', {
     request,
   });
 }
 
 export async function refreshIdentityProvisioningJobs(): Promise<ProvisioningJobRecord[]> {
-  return invoke<ProvisioningJobRecord[]>('refresh_identity_provisioning_jobs');
+  return invokeWalletCommand<ProvisioningJobRecord[]>('refresh_identity_provisioning_jobs');
 }
 
 export async function linkReadyIdentityProvisioning(
   jobId: string
 ): Promise<LinkReadyProvisioningJobResult> {
-  return invoke<LinkReadyProvisioningJobResult>('link_ready_identity_provisioning', {
+  return invokeWalletCommand<LinkReadyProvisioningJobResult>('link_ready_identity_provisioning', {
     job_id: jobId,
   });
 }

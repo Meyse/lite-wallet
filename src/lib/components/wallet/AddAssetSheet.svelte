@@ -15,6 +15,7 @@
   import { coinsStore } from '$lib/stores/coins.js';
   import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
   import * as coinsService from '$lib/services/coinsService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import {
     type AddAssetEntry,
@@ -25,6 +26,7 @@
     pbaasLookupValue
   } from '$lib/stores/addAssetCatalog.js';
   import type { ActiveAssetsState, CoinDefinition, PbaasCandidate, WalletNetwork } from '$lib/types/wallet.js';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
 
    
   let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } = $props();
@@ -176,41 +178,11 @@
     manualCandidates = [];
   }
 
-  function extractWalletErrorType(error: unknown): string | null {
-    if (typeof error === 'string') {
-      try {
-        const parsed = JSON.parse(error) as unknown;
-        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-          const typed = (parsed as { type?: unknown }).type;
-          if (typeof typed === 'string') return typed;
-        }
-      } catch {
-        return null;
-      }
-      return null;
-    }
-
-    if (!error || typeof error !== 'object') return null;
-
-    const obj = error as { type?: unknown; data?: unknown; message?: unknown };
-    if (typeof obj.type === 'string') return obj.type;
-    if (obj.data && typeof obj.data === 'object') {
-      const data = obj.data as { type?: unknown };
-      if (typeof data.type === 'string') return data.type;
-    }
-    if (typeof obj.message === 'string') {
-      try {
-        const parsed = JSON.parse(obj.message) as { type?: unknown };
-        if (typeof parsed.type === 'string') return parsed.type;
-      } catch {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
   function translateAssetError(error: unknown, fallbackKey: string): string {
+    if (isForcedWalletLockError(error)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(error);
 
     switch (errorType) {
@@ -227,8 +199,6 @@
         return i18n.t('wallet.addAsset.error.unsupportedNetwork');
       case 'EthNotConfigured':
         return i18n.t('wallet.addAsset.error.ethNotConfigured');
-      case 'WalletLocked':
-        return i18n.t('wallet.addAsset.error.walletLocked');
       default:
         break;
     }

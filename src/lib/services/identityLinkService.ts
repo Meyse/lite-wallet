@@ -2,7 +2,7 @@
  * Thin invoke wrappers for identity discovery/link/detail commands.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 import type {
   IdentityDetails,
   LinkableIdentity,
@@ -13,15 +13,15 @@ import type {
 } from '$lib/types/wallet.js';
 
 export async function discoverLinkableIdentities(): Promise<LinkableIdentity[]> {
-  return invoke<LinkableIdentity[]>('discover_linkable_identities');
+  return invokeWalletCommand<LinkableIdentity[]>('discover_linkable_identities');
 }
 
 export async function getLinkedIdentities(): Promise<LinkedIdentity[]> {
-  return invoke<LinkedIdentity[]>('get_linked_identities');
+  return invokeWalletCommand<LinkedIdentity[]>('get_linked_identities');
 }
 
 export async function linkIdentity(request: LinkIdentityRequest): Promise<LinkedIdentity[]> {
-  return invoke<LinkedIdentity[]>('link_identity', {
+  return invokeWalletCommand<LinkedIdentity[]>('link_identity', {
     request: {
       identityAddress: request.identityAddress
     }
@@ -29,7 +29,7 @@ export async function linkIdentity(request: LinkIdentityRequest): Promise<Linked
 }
 
 export async function unlinkIdentity(request: UnlinkIdentityRequest): Promise<LinkedIdentity[]> {
-  return invoke<LinkedIdentity[]>('unlink_identity', {
+  return invokeWalletCommand<LinkedIdentity[]>('unlink_identity', {
     request: {
       identityAddress: request.identityAddress
     }
@@ -37,7 +37,7 @@ export async function unlinkIdentity(request: UnlinkIdentityRequest): Promise<Li
 }
 
 export async function getIdentityDetails(identityAddress: string): Promise<IdentityDetails> {
-  return invoke<IdentityDetails>('get_identity_details', {
+  return invokeWalletCommand<IdentityDetails>('get_identity_details', {
     identity_address: identityAddress
   });
 }
@@ -45,7 +45,7 @@ export async function getIdentityDetails(identityAddress: string): Promise<Ident
 export async function setLinkedIdentityFavorite(
   request: SetLinkedIdentityFavoriteRequest
 ): Promise<LinkedIdentity[]> {
-  return invoke<LinkedIdentity[]>('set_linked_identity_favorite', {
+  return invokeWalletCommand<LinkedIdentity[]>('set_linked_identity_favorite', {
     request: {
       identityAddress: request.identityAddress,
       favorite: request.favorite
