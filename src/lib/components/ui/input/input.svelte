@@ -71,6 +71,7 @@
 				"focus-visible:border-transparent focus-visible:ring-ring/60 focus-visible:ring-[3px]",
 				"aria-invalid:ring-destructive/30 dark:aria-invalid:ring-destructive/45 aria-invalid:border-transparent",
 				type === "password" && "pe-11",
+				type === "password" && !showPassword && "tracking-[0.2em] placeholder:tracking-normal",
 				className
 			)}
 			type={type === "password" && showPassword ? "text" : type}
