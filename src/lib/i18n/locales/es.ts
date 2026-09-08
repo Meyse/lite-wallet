@@ -125,7 +125,8 @@ export const es: Record<string, string> = {
   'genericRequest.summary.signer': 'Signed by',
   'genericRequest.summary.destination': 'Callback',
   'genericRequest.summary.provisioningTitle': 'Provisioning included',
-  'genericRequest.summary.provisioningRequested': 'A new VerusID can be provisioned from this request.',
+  'genericRequest.summary.provisioningRequested':
+    'A new VerusID can be provisioned from this request.',
   'genericRequest.auth.title': 'Sign-in request',
   'genericRequest.auth.description': 'Choose the VerusID you want to use for this request.',
   'genericRequest.auth.constraints': 'Requirements',
@@ -204,12 +205,10 @@ export const es: Record<string, string> = {
   'genericRequest.update.contentClearDescription':
     'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
-  'genericRequest.update.contentRemoveValueTitleGeneric':
-    'Remove one current value under this key',
+  'genericRequest.update.contentRemoveValueTitleGeneric': 'Remove one current value under this key',
   'genericRequest.update.contentRemoveValueDescription':
     'This request removes one value from {label}.',
-  'genericRequest.update.contentRemoveAllValuesTitle':
-    'Remove all current values under {label}',
+  'genericRequest.update.contentRemoveAllValuesTitle': 'Remove all current values under {label}',
   'genericRequest.update.contentRemoveAllValuesTitleGeneric':
     'Remove all current values under this key',
   'genericRequest.update.contentRemoveAllValuesDescription':
@@ -222,8 +221,7 @@ export const es: Record<string, string> = {
     'This request removes matching values from {label}.',
   'genericRequest.update.contentRemoveEffect':
     'Removed values stop appearing in the current identity content after this update.',
-  'genericRequest.update.contentRemoveHistory':
-    'They can still be found on the blockchain.',
+  'genericRequest.update.contentRemoveHistory': 'They can still be found on the blockchain.',
   'genericRequest.update.contentRemoveHistoryHash':
     'This request targets values matching hash {hash}. They can still be found on the blockchain.',
   'genericRequest.update.contentKeyTitle': 'Content key: {label}',
@@ -275,8 +273,7 @@ export const es: Record<string, string> = {
   'genericRequest.update.primaryAddress.removeDescription':
     'This primary address will no longer control the identity after the update.',
   'genericRequest.update.status.title': 'Identity status',
-  'genericRequest.update.status.revokedDescription':
-    'This update marks the identity as revoked.',
+  'genericRequest.update.status.revokedDescription': 'This update marks the identity as revoked.',
   'genericRequest.update.status.activeDescription':
     'This update restores the identity to an active state.',
   'genericRequest.update.status.revoked': 'Revoked',
@@ -288,7 +285,8 @@ export const es: Record<string, string> = {
   'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
   'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
   'genericRequest.update.fundingCalculating': 'Calculating fee…',
-  'genericRequest.update.fundingEmpty': 'No eligible wallets on this network are available to pay from.',
+  'genericRequest.update.fundingEmpty':
+    'No eligible wallets on this network are available to pay from.',
   'genericRequest.update.fundingFeePlaceholder': 'Select a wallet to calculate the fee.',
   'genericRequest.update.feeTitle': 'Estimated fee',
   'genericRequest.update.feeLabel': 'Estimated fee: {fee} {currency}',
@@ -319,14 +317,12 @@ export const es: Record<string, string> = {
     'This request does not include a provisioning webhook.',
   'genericRequest.provisioning.error.invalidRequest':
     'This provisioning request is missing required fields.',
-  'genericRequest.provisioning.error.webhook':
-    'The provisioning service rejected the request.',
+  'genericRequest.provisioning.error.webhook': 'The provisioning service rejected the request.',
   'genericRequest.provisioning.error.invalidResponse':
     'The provisioning service returned an invalid response.',
   'genericRequest.provisioning.error.invalidResponseSignature':
     'The provisioning response signature could not be verified.',
-  'genericRequest.provisioning.error.failed':
-    'The provisioning service reported a failure.',
+  'genericRequest.provisioning.error.failed': 'The provisioning service reported a failure.',
   'genericRequest.provisioning.error.identityMismatch':
     'The provisioning response returned a different identity than requested.',
   'genericRequest.provisioning.error.nameMismatch':
@@ -352,7 +348,8 @@ export const es: Record<string, string> = {
   'wallet.private.syncingPercent': 'Sincronizando {percent}%',
 
   'wallet.settings.home.title': 'Ajustes',
-  'wallet.settings.home.description': 'Administra preferencias de la app y herramientas de seguridad.',
+  'wallet.settings.home.description':
+    'Administra preferencias de la app y herramientas de seguridad.',
   'wallet.settings.home.category.displayLanguage': 'Pantalla e idioma',
   'wallet.settings.home.category.profileSecurity': 'Copias y seguridad',
   'wallet.settings.home.category.privateVerus': 'Privacidad',
@@ -462,11 +459,16 @@ export const es: Record<string, string> = {
   'wallet.overview.showHoldings': 'Mostrar balances',
   'wallet.overview.scrollHintMoreAssets': 'Desplazate para ver mas activos',
   'wallet.overview.partialRatesNotice': 'Algunas cotizaciones de activos no estan disponibles.',
+  'wallet.overview.partialBalancesNotice':
+    'Algunos balances aun se estan cargando o no estan disponibles.',
+  'wallet.assetDetails.noTransactionsInRecentRange':
+    'No hay transacciones en el historial reciente.',
+  'wallet.assetDetails.loadOlderTransactions': 'Consultar historial anterior',
   'wallet.assetDetails.errorLoadScopes': 'No se pudieron cargar los alcances de subcartera.',
   'wallet.assetDetails.scopeUnavailable': 'No hay alcance disponible para este activo.',
   'wallet.assetDetails.scopePicker': 'Cambiar direccion y red',
   'wallet.assetDetails.readOnlyHelper':
     'Enviar y convertir solo estan disponibles desde tu direccion principal.',
   'wallet.assetDetails.privateSyncInlineHelper': 'Sincronizando balance',
-  'wallet.assetDetails.sendCapabilityInline': 'Sync de envio {percent}%'
+  'wallet.assetDetails.sendCapabilityInline': 'Sync de envio {percent}%',
 };

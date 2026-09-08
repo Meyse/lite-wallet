@@ -303,20 +303,37 @@ impl StrongholdStore {
             return Ok(None);
         }
 
-        let snapshot_path = SnapshotPath::from_path(path);
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load {} snapshot failed: {}", snapshot_label, e);
-                WalletError::OperationFailed
-            })?;
+        let account_id = account_id.as_bytes().to_vec();
+        let password_hash = Zeroizing::new(password_hash.to_vec());
+        let path = path.to_path_buf();
+        let record_key = record_key.to_vec();
+        let snapshot_label = snapshot_label.to_string();
+        let worker_label = snapshot_label.clone();
 
-        client.store().get(record_key).map_err(|e| {
-            println!("[AUTH] Read {} record failed: {}", snapshot_label, e);
-            WalletError::OperationFailed
+        tokio::task::spawn_blocking(move || {
+            let snapshot_path = SnapshotPath::from_path(&path);
+            let keyprovider = Self::keyprovider_from_hash(&password_hash)?;
+            let stronghold = Stronghold::default();
+            let client = stronghold
+                .load_client_from_snapshot(&account_id, &keyprovider, &snapshot_path)
+                .map_err(|e| {
+                    println!("[AUTH] Load {} snapshot failed: {}", worker_label, e);
+                    WalletError::OperationFailed
+                })?;
+
+            client.store().get(&record_key).map_err(|e| {
+                println!("[AUTH] Read {} record failed: {}", worker_label, e);
+                WalletError::OperationFailed
+            })
         })
+        .await
+        .map_err(|error| {
+            println!(
+                "[AUTH] {} snapshot worker failed: {}",
+                snapshot_label, error
+            );
+            WalletError::OperationFailed
+        })?
     }
 
     async fn load_json_snapshot_from_path<T: DeserializeOwned + Default>(

@@ -14,7 +14,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::auth::SessionManager;
 use crate::core::channels::btc::BtcProviderPool;
-use crate::core::channels::dlight_private;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::channels::{route_get_balances, route_get_info, route_get_transactions};
@@ -153,10 +152,13 @@ fn active_channels(
     vrpc_address: &str,
     eth_enabled: bool,
     dlight_scope_address: Option<&str>,
+    active_coin_ids: &HashSet<String>,
 ) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for c in coin_registry.get_all() {
-        if c.is_testnet != is_testnet {
+        if c.is_testnet != is_testnet
+            || !active_coin_ids.contains(&c.id.trim().to_ascii_lowercase())
+        {
             continue;
         }
         for ch in &c.compatible_channels {
@@ -771,13 +773,9 @@ async fn run_bootstrap_balance_fetches(
             return;
         }
 
-        let permit = match semaphore.clone().acquire_owned().await {
-            Ok(permit) => permit,
-            Err(_) => return,
-        };
-
         let coin_id = coin_id.clone();
         let channel_id = channel_id.clone();
+        let semaphore = Arc::clone(&semaphore);
         let session_manager = Arc::clone(&session_manager);
         let coin_registry = Arc::clone(&coin_registry);
         let vrpc_provider_pool = Arc::clone(&vrpc_provider_pool);
@@ -785,7 +783,10 @@ async fn run_bootstrap_balance_fetches(
         let eth_provider_pool = Arc::clone(&eth_provider_pool);
 
         join_set.spawn(async move {
-            let _permit = permit;
+            let permit = semaphore.acquire_owned().await;
+            let Ok(_permit) = permit else {
+                return (coin_id, channel_id, Err(WalletError::OperationFailed));
+            };
             let result = route_get_balances(
                 &channel_id,
                 Some(coin_id.as_str()),
@@ -827,16 +828,22 @@ async fn run_bootstrap_balance_fetches(
                     .last_balance_fetch = Some(Instant::now());
             }
             Err(err) => {
-                let message = user_facing_error(&err);
-                let _ = app_handle.emit(
-                    EVENT_ERROR,
-                    &UpdateErrorPayload {
-                        data_type: "balance".to_string(),
-                        coin_id,
-                        channel: channel_id,
-                        message,
-                    },
-                );
+                if should_emit_update_error(&channel_id, &err) {
+                    let message = user_facing_error(&err);
+                    let _ = app_handle.emit(
+                        EVENT_ERROR,
+                        &UpdateErrorPayload {
+                            data_type: "balance".to_string(),
+                            coin_id: coin_id.clone(),
+                            channel: channel_id.clone(),
+                            message,
+                        },
+                    );
+                }
+                channel_state
+                    .entry(format!("{}::{}", channel_id, coin_id))
+                    .or_default()
+                    .last_balance_fetch = Some(Instant::now());
             }
         }
     }
@@ -1074,8 +1081,8 @@ async fn run_update_loop(
             }
             continue;
         }
-        let (session_vrpc_address, _, _) = match session.get_addresses() {
-            Ok(v) => v,
+        let access_context = match session.active_wallet_access_context() {
+            Ok(context) => context,
             Err(_) => {
                 drop(session);
                 tokio::select! {
@@ -1085,49 +1092,20 @@ async fn run_update_loop(
                 continue;
             }
         };
-        let account_id = match session.active_account_id() {
-            Some(value) => value.clone(),
-            None => {
-                drop(session);
-                tokio::select! {
-                    _ = cancel_token.cancelled() => break,
-                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
-                }
-                continue;
-            }
-        };
-        let active_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
+        let session_vrpc_address = access_context.vrsc_address.clone();
+        let active_network = access_context.wallet_network;
         let is_testnet = matches!(active_network, WalletNetwork::Testnet);
-        let password_hash = session.stronghold_password_hash_for_storage().ok();
-        let stronghold_store = session.stronghold_store().clone();
         drop(session);
 
-        let dlight_scope_address = if let Some(password_hash) = password_hash {
-            match stronghold_store
-                .load_dlight_seed(&account_id, password_hash.as_ref(), active_network)
-                .await
-            {
-                Ok(seed) => seed.as_deref().and_then(|seed_value| {
-                    dlight_private::derive_scope_address(seed_value, active_network)
-                        .map_err(|error| {
-                            println!(
-                                "[UPDATE] Failed to derive dlight scope address for {}: {:?}",
-                                account_id, error
-                            );
-                            error
-                        })
-                        .ok()
-                }),
-                Err(error) => {
-                    println!(
-                        "[UPDATE] Failed to resolve dlight seed status for {}: {:?}",
-                        account_id, error
-                    );
-                    None
-                }
+        let dlight_scope_address = match access_context.load_dlight_public_metadata_cached().await {
+            Ok(metadata) => metadata.shielded_address,
+            Err(error) => {
+                println!(
+                    "[UPDATE] Failed to resolve dlight status for {}: {:?}",
+                    access_context.account_id, error
+                );
+                None
             }
-        } else {
-            None
         };
 
         let raw_channels = active_channels(
@@ -1136,6 +1114,7 @@ async fn run_update_loop(
             &session_vrpc_address,
             eth_provider_pool.is_enabled(),
             dlight_scope_address.as_deref(),
+            &priority_coin_ids,
         );
         let channels = dedupe_channel_pairs(&raw_channels);
         if channels.is_empty() {
@@ -1159,7 +1138,7 @@ async fn run_update_loop(
 
             let rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
             let prioritized_coins =
-                prioritized_rate_coins(&rate_coins, &prioritized_channels, &priority_coin_ids);
+                prioritized_rate_coins(&rate_coins, &channels, &priority_coin_ids);
 
             let balance_bootstrap = async {
                 let started_at = Instant::now();
@@ -1175,6 +1154,10 @@ async fn run_update_loop(
                     &mut channel_state,
                 )
                 .await;
+
+                // Balances define wallet readiness. Fiat rates continue as
+                // optional enrichment and must not keep known amounts hidden.
+                emit_bootstrap_updated(&app_handle, false);
                 started_at.elapsed()
             };
 
@@ -1196,6 +1179,7 @@ async fn run_update_loop(
 
             let (balance_bootstrap_elapsed, rate_bootstrap_elapsed) =
                 tokio::join!(balance_bootstrap, rate_bootstrap);
+            bootstrap_completed = true;
             let bootstrap_elapsed = bootstrap_started_at.elapsed();
 
             println!(
@@ -1206,17 +1190,12 @@ async fn run_update_loop(
                 rate_bootstrap_elapsed.as_millis(),
                 bootstrap_elapsed.as_millis()
             );
-
-            emit_bootstrap_updated(&app_handle, false);
-            bootstrap_completed = true;
         }
 
         let now = Instant::now();
 
+        let mut due_balance_channels = Vec::new();
         for (coin_id, channel_id) in &channels {
-            if cancel_token.is_cancelled() {
-                return;
-            }
             let channel_state_key = format!("{}::{}", channel_id, coin_id);
 
             let needs_balance = {
@@ -1232,55 +1211,21 @@ async fn run_update_loop(
             };
 
             if needs_balance {
-                match route_get_balances(
-                    channel_id,
-                    Some(coin_id.as_str()),
-                    &session_manager,
-                    coin_registry.as_ref(),
-                    vrpc_provider_pool.as_ref(),
-                    btc_provider_pool.as_ref(),
-                    eth_provider_pool.as_ref(),
-                )
-                .await
-                {
-                    Ok(bal) => {
-                        let payload = BalancesUpdatedPayload {
-                            coin_id: coin_id.clone(),
-                            channel: channel_id.clone(),
-                            confirmed: bal.confirmed,
-                            pending: bal.pending,
-                            total: bal.total,
-                        };
-                        if let Err(e) = app_handle.emit(EVENT_BALANCES_UPDATED, &payload) {
-                            println!("[UPDATE] Emit balances-updated failed: {:?}", e);
-                        }
-                        channel_state
-                            .entry(channel_state_key.clone())
-                            .or_default()
-                            .last_balance_fetch = Some(Instant::now());
-                    }
-                    Err(e) => {
-                        if should_emit_update_error(channel_id, &e) {
-                            let message = user_facing_error(&e);
-                            let _ = app_handle.emit(
-                                EVENT_ERROR,
-                                &UpdateErrorPayload {
-                                    data_type: "balance".to_string(),
-                                    coin_id: coin_id.clone(),
-                                    channel: channel_id.clone(),
-                                    message,
-                                },
-                            );
-                        }
-                        channel_state
-                            .entry(channel_state_key.clone())
-                            .or_default()
-                            .last_balance_fetch = Some(Instant::now());
-                    }
-                }
-                tokio::time::sleep(jitter_duration(2)).await;
+                due_balance_channels.push((coin_id.clone(), channel_id.clone()));
             }
         }
+        run_bootstrap_balance_fetches(
+            &app_handle,
+            &cancel_token,
+            &due_balance_channels,
+            Arc::clone(&session_manager),
+            Arc::clone(&coin_registry),
+            Arc::clone(&vrpc_provider_pool),
+            Arc::clone(&btc_provider_pool),
+            Arc::clone(&eth_provider_pool),
+            &mut channel_state,
+        )
+        .await;
 
         for (coin_id, channel_id) in &channels {
             if cancel_token.is_cancelled() {
@@ -1429,7 +1374,8 @@ async fn run_update_loop(
             }
         }
 
-        let rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
+        let all_rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
+        let rate_coins = prioritized_rate_coins(&all_rate_coins, &channels, &priority_coin_ids);
 
         let needs_any_rates = rate_coins.iter().any(|coin| {
             coin_rates_state.get(&coin.id).map_or(true, |t| {
@@ -1573,7 +1519,8 @@ mod tests {
     #[test]
     fn active_channels_includes_eth_and_erc20_when_eth_enabled() {
         let registry = CoinRegistry::new();
-        let channels = active_channels(&registry, false, "RtestAddress", true, None);
+        let active = HashSet::from(["eth".to_string(), "usdc".to_string()]);
+        let channels = active_channels(&registry, false, "RtestAddress", true, None, &active);
 
         assert!(channels
             .iter()
@@ -1586,7 +1533,8 @@ mod tests {
     #[test]
     fn active_channels_omits_eth_and_erc20_when_eth_disabled() {
         let registry = CoinRegistry::new();
-        let channels = active_channels(&registry, false, "RtestAddress", false, None);
+        let active = HashSet::from(["eth".to_string(), "usdc".to_string()]);
+        let channels = active_channels(&registry, false, "RtestAddress", false, None, &active);
 
         assert!(!channels
             .iter()
@@ -1599,7 +1547,8 @@ mod tests {
     #[test]
     fn active_channels_respects_testnet_network() {
         let registry = CoinRegistry::new();
-        let channels = active_channels(&registry, true, "RtestAddress", true, None);
+        let active = HashSet::from(["geth".to_string(), "eth".to_string(), "usdc".to_string()]);
+        let channels = active_channels(&registry, true, "RtestAddress", true, None, &active);
 
         assert!(channels
             .iter()
@@ -1607,6 +1556,16 @@ mod tests {
         assert!(!channels
             .iter()
             .any(|(coin_id, _)| coin_id == "ETH" || coin_id == "USDC"));
+    }
+
+    #[test]
+    fn active_channels_excludes_inactive_assets_on_shared_vrpc_channel() {
+        let registry = CoinRegistry::new();
+        let active = HashSet::from(["vrsc".to_string()]);
+        let channels = active_channels(&registry, false, "RtestAddress", false, None, &active);
+
+        assert!(channels.iter().any(|(coin_id, _)| coin_id == "VRSC"));
+        assert!(channels.iter().all(|(coin_id, _)| coin_id == "VRSC"));
     }
 
     #[test]

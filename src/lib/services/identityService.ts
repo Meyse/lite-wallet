@@ -7,9 +7,13 @@ import type {
   IdentityPreflightParams,
   IdentityPreflightResult,
   IdentitySendRequest,
-  IdentitySendResult
+  IdentitySendResult,
 } from '$lib/types/wallet.js';
 import { invokeWalletCommand } from './invokeWalletCommand.js';
+import {
+  invalidateWalletDisplayHistory,
+  invalidateWalletDisplayScopes,
+} from './walletDisplayService.js';
 
 export async function preflightIdentityUpdate(
   params: IdentityPreflightParams
@@ -25,16 +29,21 @@ export async function preflightIdentityUpdate(
             primaryAddresses: params.patch.primaryAddresses ?? null,
             recoveryAuthority: params.patch.recoveryAuthority ?? null,
             revocationAuthority: params.patch.revocationAuthority ?? null,
-            privateAddress: params.patch.privateAddress ?? null
+            privateAddress: params.patch.privateAddress ?? null,
           }
         : null,
-      memo: params.memo ?? null
-    }
+      memo: params.memo ?? null,
+    },
   });
 }
 
-export async function sendIdentityUpdate(request: IdentitySendRequest): Promise<IdentitySendResult> {
-  return invokeWalletCommand<IdentitySendResult>('send_identity_update', {
-    request: { preflightId: request.preflightId }
+export async function sendIdentityUpdate(
+  request: IdentitySendRequest
+): Promise<IdentitySendResult> {
+  const result = await invokeWalletCommand<IdentitySendResult>('send_identity_update', {
+    request: { preflightId: request.preflightId },
   });
+  invalidateWalletDisplayScopes();
+  invalidateWalletDisplayHistory();
+  return result;
 }

@@ -23,14 +23,18 @@
     buildAddAssetCatalogView,
     catalogEntryToCoinDefinition,
     erc20ContractValue,
-    pbaasLookupValue
+    pbaasLookupValue,
   } from '$lib/stores/addAssetCatalog.js';
-  import type { ActiveAssetsState, CoinDefinition, PbaasCandidate, WalletNetwork } from '$lib/types/wallet.js';
+  import type {
+    ActiveAssetsState,
+    CoinDefinition,
+    PbaasCandidate,
+    WalletNetwork,
+  } from '$lib/types/wallet.js';
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
 
-   
-  let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } = $props();
-   
+  let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } =
+    $props();
 
   const i18n = $derived($i18nStore);
   const walletChannels = $derived($walletChannelsStore);
@@ -60,7 +64,7 @@
       coins: registryCoins,
       network,
       query: debouncedSearch,
-      activeCoinIds: activeAssetIds
+      activeCoinIds: activeAssetIds,
     })
   );
 
@@ -103,16 +107,17 @@
 
   function filterCoinsByActiveIds(coins: CoinDefinition[], coinIds: string[]): CoinDefinition[] {
     const activeSet = new Set(
-      coinIds
-        .map((coinId) => normalizeCoinId(coinId))
-        .filter((coinId) => coinId.length > 0)
+      coinIds.map((coinId) => normalizeCoinId(coinId)).filter((coinId) => coinId.length > 0)
     );
     if (activeSet.size === 0) return [];
 
     return coins.filter((coin) => activeSet.has(normalizeCoinId(coin.id)));
   }
 
-  function applyActiveAssetsState(state: ActiveAssetsState, sourceCoins: CoinDefinition[] = registryCoins): void {
+  function applyActiveAssetsState(
+    state: ActiveAssetsState,
+    sourceCoins: CoinDefinition[] = registryCoins
+  ): void {
     activeAssetIds = state.coinIds;
     const activeCoins = filterCoinsByActiveIds(sourceCoins, state.coinIds);
     coinsStore.set(activeCoins);
@@ -122,7 +127,7 @@
   async function hydrateCatalogState(): Promise<void> {
     const [allCoins, activeAssets] = await Promise.all([
       coinsService.getCoinRegistry(),
-      walletService.getActiveAssets()
+      walletService.getActiveAssets(),
     ]);
     const networkCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
     registryCoins = networkCoins;
@@ -223,6 +228,13 @@
   async function persistActiveAssets(coinIds: string[]): Promise<void> {
     const nextState = await walletService.setActiveAssets(coinIds);
     applyActiveAssetsState(nextState);
+    const activeCoins = filterCoinsByActiveIds(registryCoins, nextState.coinIds);
+    const channels = buildWalletChannels(activeCoins, walletChannels.vrpcAddress);
+    await walletService.startUpdateEngine({
+      includeTransactions: false,
+      priorityCoinIds: activeCoins.map((coin) => coin.id),
+      priorityChannelIds: channels.channels,
+    });
   }
 
   async function activateAsset(coinId: string): Promise<void> {
@@ -230,7 +242,9 @@
   }
 
   async function deactivateAsset(coinId: string): Promise<void> {
-    const nextIds = activeAssetIds.filter((existingId) => normalizeCoinId(existingId) !== normalizeCoinId(coinId));
+    const nextIds = activeAssetIds.filter(
+      (existingId) => normalizeCoinId(existingId) !== normalizeCoinId(coinId)
+    );
     await persistActiveAssets(nextIds);
   }
 
@@ -253,7 +267,11 @@
   async function addCoinToRegistry(
     definition: CoinDefinition,
     successMessageKey: string,
-    options?: { showSuccessNotice?: boolean; successTone?: 'success' | 'destructive'; autoClearMs?: number }
+    options?: {
+      showSuccessNotice?: boolean;
+      successTone?: 'success' | 'destructive';
+      autoClearMs?: number;
+    }
   ) {
     const showSuccessNotice = options?.showSuccessNotice ?? true;
     const successTone = options?.successTone ?? 'success';
@@ -264,7 +282,11 @@
       await activateAsset(addedCoin.id);
       actionError = '';
       if (showSuccessNotice) {
-        setActionSuccess(i18n.t(successMessageKey, { ticker: definition.displayTicker }), successTone, autoClearMs);
+        setActionSuccess(
+          i18n.t(successMessageKey, { ticker: definition.displayTicker }),
+          successTone,
+          autoClearMs
+        );
       } else {
         clearActionSuccess();
       }
@@ -279,7 +301,11 @@
         await activateAsset(existingCoin.id);
         actionError = '';
         if (showSuccessNotice) {
-          setActionSuccess(i18n.t('wallet.addAsset.toast.enabled', { ticker: definition.displayTicker }), successTone, autoClearMs);
+          setActionSuccess(
+            i18n.t('wallet.addAsset.toast.enabled', { ticker: definition.displayTicker }),
+            successTone,
+            autoClearMs
+          );
         } else {
           clearActionSuccess();
         }
@@ -298,7 +324,11 @@
     try {
       if (entry.status === 'added') {
         await deactivateAsset(entry.id);
-        setActionSuccess(i18n.t('wallet.addAsset.toast.disabled', { ticker: entry.displayTicker }), 'destructive', 2000);
+        setActionSuccess(
+          i18n.t('wallet.addAsset.toast.disabled', { ticker: entry.displayTicker }),
+          'destructive',
+          2000
+        );
         return;
       }
 
@@ -373,7 +403,9 @@
     } catch (error) {
       manualError = translateAssetError(
         error,
-        contractCandidate ? 'wallet.addAsset.error.erc20ResolveFailed' : 'wallet.addAsset.error.pbaasResolveFailed'
+        contractCandidate
+          ? 'wallet.addAsset.error.erc20ResolveFailed'
+          : 'wallet.addAsset.error.pbaasResolveFailed'
       );
     } finally {
       manualResolving = false;
@@ -387,7 +419,9 @@
 
     try {
       const hydratedCoin = applyCatalogMetadataToCoinDefinition(manualResolvedCoin);
-      await addCoinToRegistry(hydratedCoin, 'wallet.addAsset.toast.added', { showSuccessNotice: false });
+      await addCoinToRegistry(hydratedCoin, 'wallet.addAsset.toast.added', {
+        showSuccessNotice: false,
+      });
       manualAdded = true;
     } catch (error) {
       manualError = translateAssetError(error, 'wallet.addAsset.error.addFailed');
@@ -413,7 +447,7 @@
 >
   <div class="flex h-full min-h-0 flex-col">
     {#if view === 'catalog'}
-      <div class="pr-8 pt-4">
+      <div class="pt-4 pr-8">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold text-foreground">{i18n.t('wallet.addAsset.title')}</h2>
           <InlineTextActionButton
@@ -441,7 +475,9 @@
           />
 
           {#if actionError}
-            <div class="mt-2 flex items-start gap-2 rounded-md bg-destructive/12 px-2.5 py-2 text-xs text-destructive">
+            <div
+              class="mt-2 flex items-start gap-2 rounded-md bg-destructive/12 px-2.5 py-2 text-xs text-destructive"
+            >
               <AlertCircleIcon class="mt-0.5 h-4 w-4 shrink-0" />
               <p>{actionError}</p>
             </div>
@@ -465,7 +501,9 @@
             {i18n.t('wallet.addAsset.sectionAdded')}
           </h3>
           {#if catalogView.addedEntries.length === 0}
-            <p class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50">
+            <p
+              class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
+            >
               {i18n.t('wallet.addAsset.emptySearch')}
             </p>
           {:else}
@@ -486,7 +524,9 @@
             {i18n.t('wallet.addAsset.sectionAvailable')}
           </h3>
           {#if catalogView.availableEntries.length === 0}
-            <p class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50">
+            <p
+              class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
+            >
               {i18n.t('wallet.addAsset.emptySearch')}
             </p>
           {:else}
@@ -506,7 +546,7 @@
       <div class="mt-2 flex min-h-0 flex-1 flex-col">
         <button
           type="button"
-          class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
+          class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
           onclick={() => {
             view = 'catalog';
           }}
@@ -545,58 +585,70 @@
                 autocorrect="off"
                 autocapitalize="off"
                 spellcheck={false}
-                class="h-10 focus-visible:ring-0 focus-visible:ring-transparent focus-visible:border-transparent"
+                class="h-10 focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
               />
 
               <div class="flex gap-2">
-                <Button variant="secondary" type="submit" class="h-8" disabled={manualResolving || manualAdding}>
-                  {manualResolving ? i18n.t('wallet.addAsset.resolving') : i18n.t('wallet.addAsset.resolve')}
+                <Button
+                  variant="secondary"
+                  type="submit"
+                  class="h-8"
+                  disabled={manualResolving || manualAdding}
+                >
+                  {manualResolving
+                    ? i18n.t('wallet.addAsset.resolving')
+                    : i18n.t('wallet.addAsset.resolve')}
                 </Button>
               </div>
             </form>
 
             {#if manualResolvedCoin}
-              <div class="flex items-center gap-3 rounded-lg bg-muted/65 px-3.5 py-3 dark:bg-muted/55">
-                <CoinIcon coinId={manualResolvedCoin.id} coinName={manualResolvedCoin.displayName} size={20} decorative />
+              <div
+                class="flex items-center gap-3 rounded-lg bg-muted/65 px-3.5 py-3 dark:bg-muted/55"
+              >
+                <CoinIcon
+                  coinId={manualResolvedCoin.id}
+                  coinName={manualResolvedCoin.displayName}
+                  size={20}
+                  decorative
+                />
 
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-sm font-semibold text-foreground">
                     {manualResolvedCoin.displayName}
                   </p>
                   {#if shouldShowResolvedTicker(manualResolvedCoin)}
-                    <p class="truncate text-xs text-muted-foreground">{manualResolvedCoin.displayTicker}</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      {manualResolvedCoin.displayTicker}
+                    </p>
                   {/if}
                 </div>
 
                 <div class="flex shrink-0 items-center gap-2">
                   <span
-                    class="bg-background/60 text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-background/45"
+                    class="inline-flex rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
                   >
                     {manualResolvedCoin.proto.toUpperCase()}
                   </span>
                   <button
                     type="button"
-                    class={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:ring-ring focus-visible:ring-[2px] focus-visible:outline-none disabled:opacity-45 ${
+                    class={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:ring-[2px] focus-visible:ring-ring focus-visible:outline-none disabled:opacity-45 ${
                       manualAdded
-                        ? 'text-emerald-700 bg-emerald-500/15 dark:text-emerald-300 dark:bg-emerald-500/20'
-                        : 'text-primary bg-primary/12 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                        : 'bg-primary/12 text-primary hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30'
                     }`}
                     onclick={addResolvedManualAsset}
                     disabled={manualAdding || manualResolving || manualAdded}
-                    aria-label={
-                      manualAdded
-                        ? i18n.t('wallet.addAsset.stateAdded')
-                        : manualAdding
-                          ? i18n.t('wallet.addAsset.adding')
-                          : i18n.t('wallet.addAsset.add')
-                    }
-                    title={
-                      manualAdded
-                        ? i18n.t('wallet.addAsset.stateAdded')
-                        : manualAdding
-                          ? i18n.t('wallet.addAsset.adding')
-                          : i18n.t('wallet.addAsset.add')
-                    }
+                    aria-label={manualAdded
+                      ? i18n.t('wallet.addAsset.stateAdded')
+                      : manualAdding
+                        ? i18n.t('wallet.addAsset.adding')
+                        : i18n.t('wallet.addAsset.add')}
+                    title={manualAdded
+                      ? i18n.t('wallet.addAsset.stateAdded')
+                      : manualAdding
+                        ? i18n.t('wallet.addAsset.adding')
+                        : i18n.t('wallet.addAsset.add')}
                   >
                     {#if manualAdded}
                       <CheckIcon class="h-4 w-4" absoluteStrokeWidth />
@@ -610,7 +662,9 @@
 
             {#if manualCandidates.length > 1}
               <div class="space-y-1">
-                <p class="text-[11px] text-muted-foreground">{i18n.t('wallet.addAsset.pbaasMatches')}</p>
+                <p class="text-[11px] text-muted-foreground">
+                  {i18n.t('wallet.addAsset.pbaasMatches')}
+                </p>
                 {#each manualCandidates as candidate}
                   <button
                     type="button"

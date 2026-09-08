@@ -32,7 +32,8 @@ export const de: Record<string, string> = {
   'unlock.switcher.title': 'Wallet auswahlen',
   'unlock.create.title': 'Wallet erstellen oder importieren',
   'unlock.create.newTitle': 'Neue Wallet erstellen',
-  'unlock.create.newDescription': 'Erzeuge eine neue Wiederherstellungsphrase und richte eine neue Wallet ein.',
+  'unlock.create.newDescription':
+    'Erzeuge eine neue Wiederherstellungsphrase und richte eine neue Wallet ein.',
   'unlock.create.importTitle': 'Bestehende Wallet importieren',
   'unlock.create.importDescription':
     'Verwende deine bestehende Seed-Phrase, um eine Wallet auf diesem Gerat wiederherzustellen.',
@@ -124,7 +125,8 @@ export const de: Record<string, string> = {
   'genericRequest.summary.signer': 'Signed by',
   'genericRequest.summary.destination': 'Callback',
   'genericRequest.summary.provisioningTitle': 'Provisioning included',
-  'genericRequest.summary.provisioningRequested': 'A new VerusID can be provisioned from this request.',
+  'genericRequest.summary.provisioningRequested':
+    'A new VerusID can be provisioned from this request.',
   'genericRequest.auth.title': 'Sign-in request',
   'genericRequest.auth.description': 'Choose the VerusID you want to use for this request.',
   'genericRequest.auth.constraints': 'Requirements',
@@ -203,12 +205,10 @@ export const de: Record<string, string> = {
   'genericRequest.update.contentClearDescription':
     'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
-  'genericRequest.update.contentRemoveValueTitleGeneric':
-    'Remove one current value under this key',
+  'genericRequest.update.contentRemoveValueTitleGeneric': 'Remove one current value under this key',
   'genericRequest.update.contentRemoveValueDescription':
     'This request removes one value from {label}.',
-  'genericRequest.update.contentRemoveAllValuesTitle':
-    'Remove all current values under {label}',
+  'genericRequest.update.contentRemoveAllValuesTitle': 'Remove all current values under {label}',
   'genericRequest.update.contentRemoveAllValuesTitleGeneric':
     'Remove all current values under this key',
   'genericRequest.update.contentRemoveAllValuesDescription':
@@ -221,8 +221,7 @@ export const de: Record<string, string> = {
     'This request removes matching values from {label}.',
   'genericRequest.update.contentRemoveEffect':
     'Removed values stop appearing in the current identity content after this update.',
-  'genericRequest.update.contentRemoveHistory':
-    'They can still be found on the blockchain.',
+  'genericRequest.update.contentRemoveHistory': 'They can still be found on the blockchain.',
   'genericRequest.update.contentRemoveHistoryHash':
     'This request targets values matching hash {hash}. They can still be found on the blockchain.',
   'genericRequest.update.contentKeyTitle': 'Content key: {label}',
@@ -274,8 +273,7 @@ export const de: Record<string, string> = {
   'genericRequest.update.primaryAddress.removeDescription':
     'This primary address will no longer control the identity after the update.',
   'genericRequest.update.status.title': 'Identity status',
-  'genericRequest.update.status.revokedDescription':
-    'This update marks the identity as revoked.',
+  'genericRequest.update.status.revokedDescription': 'This update marks the identity as revoked.',
   'genericRequest.update.status.activeDescription':
     'This update restores the identity to an active state.',
   'genericRequest.update.status.revoked': 'Revoked',
@@ -287,7 +285,8 @@ export const de: Record<string, string> = {
   'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
   'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
   'genericRequest.update.fundingCalculating': 'Calculating fee…',
-  'genericRequest.update.fundingEmpty': 'No eligible wallets on this network are available to pay from.',
+  'genericRequest.update.fundingEmpty':
+    'No eligible wallets on this network are available to pay from.',
   'genericRequest.update.fundingFeePlaceholder': 'Select a wallet to calculate the fee.',
   'genericRequest.update.feeTitle': 'Estimated fee',
   'genericRequest.update.feeLabel': 'Estimated fee: {fee} {currency}',
@@ -318,14 +317,12 @@ export const de: Record<string, string> = {
     'This request does not include a provisioning webhook.',
   'genericRequest.provisioning.error.invalidRequest':
     'This provisioning request is missing required fields.',
-  'genericRequest.provisioning.error.webhook':
-    'The provisioning service rejected the request.',
+  'genericRequest.provisioning.error.webhook': 'The provisioning service rejected the request.',
   'genericRequest.provisioning.error.invalidResponse':
     'The provisioning service returned an invalid response.',
   'genericRequest.provisioning.error.invalidResponseSignature':
     'The provisioning response signature could not be verified.',
-  'genericRequest.provisioning.error.failed':
-    'The provisioning service reported a failure.',
+  'genericRequest.provisioning.error.failed': 'The provisioning service reported a failure.',
   'genericRequest.provisioning.error.identityMismatch':
     'The provisioning response returned a different identity than requested.',
   'genericRequest.provisioning.error.nameMismatch':
@@ -390,7 +387,8 @@ export const de: Record<string, string> = {
   'wallet.settings.privateVerus.statusConfigured': 'Privatsphare ist konfiguriert.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privatsphare ist noch nicht konfiguriert.',
   'wallet.settings.privateVerus.statusAddress': 'Shielded-Adresse: {address}',
-  'wallet.settings.privateVerus.statusLoadError': 'Privatsphare-Status konnte nicht geladen werden.',
+  'wallet.settings.privateVerus.statusLoadError':
+    'Privatsphare-Status konnte nicht geladen werden.',
   'wallet.settings.privateVerus.reusePrimary': 'Primaren Wallet-Seed wiederverwenden',
   'wallet.settings.privateVerus.createNew': 'Neuen Privacy-Seed erstellen',
   'wallet.settings.privateVerus.importLabel': 'Privacy-Seed oder Spending Key importieren',
@@ -461,11 +459,16 @@ export const de: Record<string, string> = {
   'wallet.overview.showHoldings': 'Bestande anzeigen',
   'wallet.overview.scrollHintMoreAssets': 'Scrollen fur weitere Assets',
   'wallet.overview.partialRatesNotice': 'Einige Asset-Kurse sind nicht verfugbar.',
+  'wallet.overview.partialBalancesNotice':
+    'Einige Bestande werden noch geladen oder sind nicht verfugbar.',
+  'wallet.assetDetails.noTransactionsInRecentRange':
+    'Keine Transaktionen im letzten Verlaufsbereich.',
+  'wallet.assetDetails.loadOlderTransactions': 'Alteren Verlauf prufen',
   'wallet.assetDetails.errorLoadScopes': 'Subwallet-Scopes konnten nicht geladen werden.',
   'wallet.assetDetails.scopeUnavailable': 'Fur dieses Asset ist kein Scope verfugbar.',
   'wallet.assetDetails.scopePicker': 'Adresse und Netzwerk andern',
   'wallet.assetDetails.readOnlyHelper':
     'Senden und Konvertieren sind nur von deiner primaren Adresse verfugbar.',
   'wallet.assetDetails.privateSyncInlineHelper': 'Bestand wird synchronisiert',
-  'wallet.assetDetails.sendCapabilityInline': 'Send-Sync {percent}%'
+  'wallet.assetDetails.sendCapabilityInline': 'Send-Sync {percent}%',
 };

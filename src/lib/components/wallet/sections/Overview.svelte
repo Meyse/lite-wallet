@@ -6,7 +6,6 @@
 -->
 
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
@@ -30,19 +29,23 @@
     buildWalletOverviewViewModel,
     formatCryptoAmount,
     OVERVIEW_UNAVAILABLE_DISPLAY,
-    type WalletOverviewRowViewModel
+    type WalletOverviewRowViewModel,
   } from '$lib/utils/walletOverview.js';
-  import { formatFiatAmount, formatFiatAmountParts, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
+  import {
+    formatFiatAmount,
+    formatFiatAmountParts,
+    getRateForCurrency,
+  } from '$lib/utils/fiatDisplay.js';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import PrivateVerusWordmark from '$lib/components/wallet/PrivateVerusWordmark.svelte';
   import AddAssetSheet from '$lib/components/wallet/AddAssetSheet.svelte';
-  import * as walletService from '$lib/services/walletService';
+  import * as walletDisplayService from '$lib/services/walletDisplayService.js';
   import type {
     CoinDefinition,
     CoinScope,
     ScopeKind,
     WalletEntryKind,
-    WalletEntrySelection
+    WalletEntrySelection,
   } from '$lib/types/wallet';
 
   interface WalletData {
@@ -57,10 +60,10 @@
     onOpenAssetDetails = () => {},
     onNavigateToSend = () => {},
     onNavigateToReceive = () => {},
-    onNavigateToConvert = () => {}
+    onNavigateToConvert = () => {},
   }: {
     walletData: WalletData;
-     
+
     onOpenAssetDetails?: (_entry: WalletEntrySelection) => void;
     onNavigateToSend?: () => void;
     onNavigateToReceive?: () => void;
@@ -100,9 +103,7 @@
   };
 
   const privateBaseCoinId = $derived(walletNetwork === 'testnet' ? 'VRSCTEST' : 'VRSC');
-  const privateBaseCoin = $derived(
-    coins.find((coin) => coin.id === privateBaseCoinId) ?? null
-  );
+  const privateBaseCoin = $derived(coins.find((coin) => coin.id === privateBaseCoinId) ?? null);
   const privateLabel = $derived(
     walletNetwork === 'testnet'
       ? i18n.t('wallet.private.label.testnet')
@@ -116,7 +117,10 @@
       return;
     }
 
-    const maxScrollTop = Math.max(0, listScrollElement.scrollHeight - listScrollElement.clientHeight);
+    const maxScrollTop = Math.max(
+      0,
+      listScrollElement.scrollHeight - listScrollElement.clientHeight
+    );
     hasOverviewScroll = listScrollElement.scrollTop > 0;
     canScrollDown = maxScrollTop > 1 && listScrollElement.scrollTop < maxScrollTop - 1;
   }
@@ -163,10 +167,6 @@
     };
   });
 
-  onMount(() => {
-    void loadDlightStatus();
-  });
-
   $effect(() => {
     walletNetwork;
     void loadDlightStatus();
@@ -197,7 +197,7 @@
       rates,
       intlLocale: i18n.intlLocale,
       displayCurrency,
-      network: walletData.network
+      network: walletData.network,
     })
   );
   const overview = $derived(liveOverview);
@@ -205,7 +205,7 @@
     overview.rows.map((row) => ({
       ...row,
       walletEntryKind: 'coin',
-      scopeFilterMode: 'transparent'
+      scopeFilterMode: 'transparent',
     }))
   );
   const privateRow = $derived<WalletEntryRow | null>(
@@ -230,16 +230,12 @@
       const change24hPct = rateMetrics?.change24hPct ?? null;
       const fiatValue = hasSnapshot && fiatRate !== null ? totalAmount * fiatRate : null;
       const rowFractionDigits = Math.max(0, Math.min(4, baseCoin.decimals));
-      const syncSnapshot = getPrivateSyncSnapshot(
-        privateScopes,
-        baseCoin.systemId,
-        chainInfo
-      );
+      const syncSnapshot = getPrivateSyncSnapshot(privateScopes, baseCoin.systemId, chainInfo);
       const syncPercent = syncSnapshot.percent;
       const syncLabel =
         syncPercent !== null && syncPercent !== 100 && syncPercent !== -1
           ? i18n.t('wallet.private.syncingPercent', {
-              percent: formatPrivateSyncPercent(syncPercent)
+              percent: formatPrivateSyncPercent(syncPercent),
             })
           : null;
 
@@ -277,7 +273,7 @@
         walletEntryKind: 'private_verus',
         baseCoinId: baseCoin.id,
         scopeFilterMode: 'shielded',
-        syncLabel
+        syncLabel,
       };
     })()
   );
@@ -312,7 +308,17 @@
         return {
           symbol: '',
           value: OVERVIEW_UNAVAILABLE_DISPLAY,
-          hasPartialRates: false
+          hasPartialRates: false,
+          hasPartialBalances: rows.some((row) => !row.hasSnapshot),
+        };
+      }
+
+      if (!rows.some((row) => row.hasSnapshot)) {
+        return {
+          symbol: '',
+          value: OVERVIEW_UNAVAILABLE_DISPLAY,
+          hasPartialRates: false,
+          hasPartialBalances: false,
         };
       }
 
@@ -320,14 +326,17 @@
       return {
         symbol: parts.symbol,
         value: parts.value,
-        hasPartialRates: hasHoldings && hasAnyFiatForHoldings && hasMissingFiatForHoldings
+        hasPartialRates: hasHoldings && hasAnyFiatForHoldings && hasMissingFiatForHoldings,
+        hasPartialBalances: rows.some((row) => !row.hasSnapshot),
       };
     })()
   );
   const rowIconSize = 34;
   const overviewSkeletonRows = [0, 1, 2, 3, 4, 5];
 
-  function getChangeDirection(changePct: number | null): WalletOverviewRowViewModel['change24hDirection'] {
+  function getChangeDirection(
+    changePct: number | null
+  ): WalletOverviewRowViewModel['change24hDirection'] {
     if (changePct === null) return 'none';
     if (Math.abs(changePct) < 0.01) return 'flat';
     if (changePct > 0) return 'up';
@@ -337,7 +346,7 @@
   function formatPercentChange(changePct: number): string {
     const formatted = i18n.formatNumber(Math.abs(changePct), {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     });
     if (changePct > 0) return `+${formatted}%`;
     if (changePct < 0) return `-${formatted}%`;
@@ -382,7 +391,7 @@
     const floored = Math.floor(clamped * 10) / 10;
     return i18n.formatNumber(floored, {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 1
+      maximumFractionDigits: 1,
     });
   }
 
@@ -398,7 +407,7 @@
 
     const snapshot = infoByChannel[rootScope.channelId];
     return {
-      percent: toFiniteNumber(snapshot?.percent)
+      percent: toFiniteNumber(snapshot?.percent),
     };
   }
 
@@ -406,7 +415,7 @@
     dlightStatusRequestSequence += 1;
     const requestSequence = dlightStatusRequestSequence;
     try {
-      const status = await walletService.getDlightSeedStatus();
+      const status = await walletDisplayService.getDisplayDlightSeedStatus();
       if (requestSequence !== dlightStatusRequestSequence) return;
       privateConfigured = status.configured;
       if (!status.configured) {
@@ -423,7 +432,7 @@
     privateScopesRequestSequence += 1;
     const requestSequence = privateScopesRequestSequence;
     try {
-      const result = await walletService.getCoinScopes(coinId);
+      const result = await walletDisplayService.getDisplayCoinScopes(coinId);
       if (requestSequence !== privateScopesRequestSequence) return;
       privateScopes = result.scopes.filter((scope) => scope.scopeKind === 'shielded');
     } catch {
@@ -438,17 +447,17 @@
     inFlightTransparentAggregateByChannel.add(channelKey);
 
     try {
-      const balance = await walletService.getBalances(scope.channelId, coinId);
+      const balance = await walletDisplayService.getDisplayBalance(scope.channelId, coinId);
       balanceStore.update((state) => ({
         ...state,
         [scope.channelId]: {
           ...(state[scope.channelId] ?? {}),
-          [coinId]: balance
-        }
+          [coinId]: balance,
+        },
       }));
       loadedTransparentAggregateByChannel = {
         ...loadedTransparentAggregateByChannel,
-        [channelKey]: true
+        [channelKey]: true,
       };
     } catch {
       // Best effort preload for overview totals.
@@ -463,11 +472,11 @@
     inFlightTransparentScopeCoins.add(coin.id);
 
     try {
-      const scopeResult = await walletService.getCoinScopes(coin.id);
+      const scopeResult = await walletDisplayService.getDisplayCoinScopes(coin.id);
       const scopes = scopeResult.scopes.filter((scope) => scope.scopeKind === 'transparent');
       transparentScopeChannelIdsByCoinId = {
         ...transparentScopeChannelIdsByCoinId,
-        [coin.id]: Array.from(new Set(scopes.map((scope) => scope.channelId)))
+        [coin.id]: Array.from(new Set(scopes.map((scope) => scope.channelId))),
       };
       const pendingScopes = scopes.filter((scope) => {
         const channelKey = `${scope.channelId}::${coin.id}`;
@@ -500,56 +509,56 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pb-6 pt-0 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-0 pb-6 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div
-      class={`z-10 bg-background pb-4 pt-3 sm:pt-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
+      class={`z-10 bg-background pt-3 pb-4 sm:pt-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
       <div class="flex items-start justify-between gap-4">
         <div class="relative z-20 min-w-0">
-          {#if isBootstrapping}
-            <div class="holdings-obscured-bleed">
-              <Skeleton class="h-11 w-44 rounded-md sm:h-12 sm:w-56" />
-            </div>
-          {:else}
-            <div class={`holdings-obscured-bleed flex items-start ${hideHoldings ? 'holdings-obscured' : ''}`}>
-              {#if heroSummary.symbol}
-                <span
-                  class="text-muted-foreground mt-1 mr-1.5 text-xl font-semibold sm:text-2xl"
-                >
-                  {heroSummary.symbol}
-                </span>
-              {/if}
-              <p class="font-google-sans-17pt text-4xl leading-[1.02] font-semibold tracking-tight sm:text-5xl">
-                {heroSummary.value}
-              </p>
-            </div>
-          {/if}
-        </div>
-        {#if isBootstrapping}
-          <Skeleton class="mt-0.5 h-8 w-8 rounded-full" />
-        {:else}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="text-muted-foreground/85 mt-0.5 rounded-full hover:text-foreground"
-            aria-label={hideHoldings ? i18n.t('wallet.overview.showHoldings') : i18n.t('wallet.overview.hideHoldings')}
-            title={hideHoldings ? i18n.t('wallet.overview.showHoldings') : i18n.t('wallet.overview.hideHoldings')}
-            onclick={() => {
-              hideHoldings = !hideHoldings;
-            }}
+          <div
+            class={`holdings-obscured-bleed flex items-start ${hideHoldings ? 'holdings-obscured' : ''}`}
           >
-            {#if hideHoldings}
-              <EyeIcon class="h-4 w-4" />
-            {:else}
-              <EyeOffIcon class="h-4 w-4" />
+            {#if heroSummary.symbol}
+              <span class="mt-1 mr-1.5 text-xl font-semibold text-muted-foreground sm:text-2xl">
+                {heroSummary.symbol}
+              </span>
             {/if}
-          </Button>
-        {/if}
+            <p
+              class="font-google-sans-17pt text-4xl leading-[1.02] font-semibold tracking-tight sm:text-5xl"
+            >
+              {heroSummary.value}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="mt-0.5 rounded-full text-muted-foreground/85 hover:text-foreground"
+          aria-label={hideHoldings
+            ? i18n.t('wallet.overview.showHoldings')
+            : i18n.t('wallet.overview.hideHoldings')}
+          title={hideHoldings
+            ? i18n.t('wallet.overview.showHoldings')
+            : i18n.t('wallet.overview.hideHoldings')}
+          onclick={() => {
+            hideHoldings = !hideHoldings;
+          }}
+        >
+          {#if hideHoldings}
+            <EyeIcon class="h-4 w-4" />
+          {:else}
+            <EyeOffIcon class="h-4 w-4" />
+          {/if}
+        </Button>
       </div>
       <div class="min-w-0">
-        {#if !isBootstrapping && heroSummary.hasPartialRates}
-          <p class="text-muted-foreground mt-0.5 text-xs">
+        {#if heroSummary.hasPartialBalances}
+          <p class="mt-0.5 text-xs text-muted-foreground">
+            {i18n.t('wallet.overview.partialBalancesNotice')}
+          </p>
+        {:else if heroSummary.hasPartialRates}
+          <p class="mt-0.5 text-xs text-muted-foreground">
             {i18n.t('wallet.overview.partialRatesNotice')}
           </p>
         {/if}
@@ -558,15 +567,30 @@
       <div class="mt-5 w-full">
         <div class="flex w-full gap-2">
           <div class="grid w-full flex-1 grid-cols-3 gap-2">
-            <Button variant="secondary" size="lg" class="h-10 w-full gap-1.5 rounded-md px-3" onclick={onNavigateToReceive}>
+            <Button
+              variant="secondary"
+              size="lg"
+              class="h-10 w-full gap-1.5 rounded-md px-3"
+              onclick={onNavigateToReceive}
+            >
               <DownloadIcon class="h-4 w-4" />
               <span>{i18n.t('wallet.overview.receive')}</span>
             </Button>
-            <Button variant="secondary" size="lg" class="h-10 w-full gap-1.5 rounded-md px-3" onclick={onNavigateToSend}>
+            <Button
+              variant="secondary"
+              size="lg"
+              class="h-10 w-full gap-1.5 rounded-md px-3"
+              onclick={onNavigateToSend}
+            >
               <SendIcon class="h-4 w-4" />
               <span>{i18n.t('wallet.overview.send')}</span>
             </Button>
-            <Button variant="secondary" size="lg" class="h-10 w-full gap-1.5 rounded-md px-3" onclick={onNavigateToConvert}>
+            <Button
+              variant="secondary"
+              size="lg"
+              class="h-10 w-full gap-1.5 rounded-md px-3"
+              onclick={onNavigateToConvert}
+            >
               <ArrowLeftRightIcon class="h-4 w-4" />
               <span>{i18n.t('wallet.overview.convert')}</span>
             </Button>
@@ -593,13 +617,15 @@
           bind:ref={listScrollElement}
           onscroll={onOverviewScroll}
         >
-          {#if isBootstrapping}
+          {#if isBootstrapping && visibleRows.length === 0}
             <ul class="space-y-1 pb-3">
               {#each overviewSkeletonRows as skeletonRow (skeletonRow)}
-                <li class="grid grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3">
-                  <div class="min-w-0 flex w-full items-center gap-3.5">
+                <li
+                  class="grid grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3"
+                >
+                  <div class="flex w-full min-w-0 items-center gap-3.5">
                     <Skeleton class="h-[34px] w-[34px] rounded-full" />
-                    <div class="min-w-0 flex flex-1 min-h-8 items-center">
+                    <div class="flex min-h-8 min-w-0 flex-1 items-center">
                       <Skeleton class="h-5 w-28 rounded-sm" />
                     </div>
                   </div>
@@ -619,24 +645,26 @@
               {/each}
             </ul>
           {:else if visibleRows.length === 0}
-            <p class="text-muted-foreground px-1 py-8 text-sm">{i18n.t('wallet.overview.noChannel')}</p>
+            <p class="px-1 py-8 text-sm text-muted-foreground">
+              {i18n.t('wallet.overview.noChannel')}
+            </p>
           {:else}
             <ul class="space-y-1 pb-3">
               {#each visibleRows as row (row.key)}
                 <li>
                   <button
                     type="button"
-                    class="hover:bg-muted/40 focus-visible:ring-ring/55 grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
+                    class="grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
                     onclick={() =>
                       onOpenAssetDetails({
                         walletEntryKind: row.walletEntryKind,
                         coinId: row.coinId,
                         baseCoinId: row.baseCoinId,
                         scopeFilterMode: row.scopeFilterMode,
-                        displayName: row.walletEntryKind === 'private_verus' ? row.name : undefined
+                        displayName: row.walletEntryKind === 'private_verus' ? row.name : undefined,
                       })}
                   >
-                    <div class="min-w-0 flex w-full items-center gap-3.5">
+                    <div class="flex w-full min-w-0 items-center gap-3.5">
                       <CoinIcon
                         coinId={row.coinId}
                         coinName={row.name}
@@ -646,19 +674,21 @@
                         privateMuted={row.walletEntryKind === 'private_verus'}
                         decorative
                       />
-                      <div class="min-w-0 flex flex-1 min-h-8 items-center">
+                      <div class="flex min-h-8 min-w-0 flex-1 items-center">
                         {#if row.walletEntryKind === 'private_verus'}
-                          <p class="text-foreground truncate text-base leading-tight font-medium">
+                          <p class="truncate text-base leading-tight font-medium text-foreground">
                             <PrivateVerusWordmark label={row.name} />
                           </p>
                         {:else}
-                          <p class="text-foreground truncate text-base leading-tight font-medium">{row.name}</p>
+                          <p class="truncate text-base leading-tight font-medium text-foreground">
+                            {row.name}
+                          </p>
                         {/if}
                       </div>
                     </div>
 
                     <div class="justify-self-end pr-4 text-right tabular-nums">
-                      <p class="text-foreground/75 text-xs font-medium">{row.marketPriceDisplay}</p>
+                      <p class="text-xs font-medium text-foreground/75">{row.marketPriceDisplay}</p>
                       <div
                         class={`mt-0.5 flex items-center justify-end text-xs ${
                           row.change24hDirection === 'up'
@@ -672,22 +702,33 @@
                       </div>
                     </div>
 
-                    <div class={`text-right tabular-nums ${row.syncLabel ? 'self-stretch flex items-center justify-end' : ''}`}>
+                    <div
+                      class={`text-right tabular-nums ${row.syncLabel ? 'flex items-center justify-end self-stretch' : ''}`}
+                    >
                       {#if row.syncLabel}
-                        <p class={`text-muted-foreground text-[13px] ${hideHoldings ? 'holdings-obscured' : ''}`}>
+                        <p
+                          class={`text-[13px] text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                        >
                           {row.syncLabel}
                         </p>
                       {:else}
-                        <p class={`text-foreground text-base font-semibold ${hideHoldings ? 'holdings-obscured' : ''}`}>
+                        <p
+                          class={`text-base font-semibold text-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                        >
                           {row.fiatValueDisplay}
                         </p>
-                        <p class={`text-muted-foreground mt-0.5 text-[13px] ${hideHoldings ? 'holdings-obscured' : ''}`}>
+                        <p
+                          class={`mt-0.5 text-[13px] text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                        >
                           {row.cryptoAmountDisplay}
                         </p>
                       {/if}
                     </div>
 
-                    <ChevronRightIcon class="text-muted-foreground/70 h-[18px] w-[18px] justify-self-end" aria-hidden="true" />
+                    <ChevronRightIcon
+                      class="h-[18px] w-[18px] justify-self-end text-muted-foreground/70"
+                      aria-hidden="true"
+                    />
                   </button>
                 </li>
               {/each}
@@ -697,15 +738,17 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
 
-      {#if !isBootstrapping && canScrollDown}
+      {#if canScrollDown}
         <div
           class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
         ></div>
       {/if}
 
-      {#if !isBootstrapping && canScrollDown && !hasOverviewScroll && !hasSeenScrollHint}
+      {#if canScrollDown && !hasOverviewScroll && !hasSeenScrollHint}
         <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <div class="scroll-hint text-muted-foreground/85 inline-flex items-center gap-1 text-[11px]">
+          <div
+            class="scroll-hint inline-flex items-center gap-1 text-[11px] text-muted-foreground/85"
+          >
             <ChevronDownIcon class="scroll-hint-icon h-3.5 w-3.5" aria-hidden="true" />
             <span>{i18n.t('wallet.overview.scrollHintMoreAssets')}</span>
           </div>

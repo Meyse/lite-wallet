@@ -20,6 +20,7 @@
   import * as coinsService from '$lib/services/coinsService.js';
   import * as addressBookService from '$lib/services/addressBookService.js';
   import { setupWalletEventBridge } from '$lib/services/eventBridge.js';
+  import { resetWalletDisplaySession } from '$lib/services/walletDisplayService.js';
   import { balanceStore } from '$lib/stores/balances.js';
   import { ratesStore } from '$lib/stores/rates.js';
   import { networkStore } from '$lib/stores/network.js';
@@ -84,6 +85,7 @@
   onMount(async () => {
     const scope = new DisposableScope();
     routeScope = scope;
+    resetWalletDisplaySession();
     walletBootstrapStore.set(true);
     clearWalletErrors();
     balanceStore.set({});
@@ -240,6 +242,7 @@
   onDestroy(() => {
     routeScope?.dispose();
     routeScope = null;
+    resetWalletDisplaySession();
     walletBootstrapStore.set(false);
     balanceStore.set({});
     networkStore.set({});

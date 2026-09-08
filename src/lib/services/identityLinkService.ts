@@ -3,13 +3,17 @@
  */
 
 import { invokeWalletCommand } from './invokeWalletCommand.js';
+import {
+  invalidateWalletDisplayHistory,
+  invalidateWalletDisplayScopes,
+} from './walletDisplayService.js';
 import type {
   IdentityDetails,
   LinkableIdentity,
   LinkedIdentity,
   LinkIdentityRequest,
   SetLinkedIdentityFavoriteRequest,
-  UnlinkIdentityRequest
+  UnlinkIdentityRequest,
 } from '$lib/types/wallet.js';
 
 export async function discoverLinkableIdentities(): Promise<LinkableIdentity[]> {
@@ -21,34 +25,42 @@ export async function getLinkedIdentities(): Promise<LinkedIdentity[]> {
 }
 
 export async function linkIdentity(request: LinkIdentityRequest): Promise<LinkedIdentity[]> {
-  return invokeWalletCommand<LinkedIdentity[]>('link_identity', {
+  const result = await invokeWalletCommand<LinkedIdentity[]>('link_identity', {
     request: {
-      identityAddress: request.identityAddress
-    }
+      identityAddress: request.identityAddress,
+    },
   });
+  invalidateWalletDisplayScopes();
+  invalidateWalletDisplayHistory();
+  return result;
 }
 
 export async function unlinkIdentity(request: UnlinkIdentityRequest): Promise<LinkedIdentity[]> {
-  return invokeWalletCommand<LinkedIdentity[]>('unlink_identity', {
+  const result = await invokeWalletCommand<LinkedIdentity[]>('unlink_identity', {
     request: {
-      identityAddress: request.identityAddress
-    }
+      identityAddress: request.identityAddress,
+    },
   });
+  invalidateWalletDisplayScopes();
+  invalidateWalletDisplayHistory();
+  return result;
 }
 
 export async function getIdentityDetails(identityAddress: string): Promise<IdentityDetails> {
   return invokeWalletCommand<IdentityDetails>('get_identity_details', {
-    identity_address: identityAddress
+    identity_address: identityAddress,
   });
 }
 
 export async function setLinkedIdentityFavorite(
   request: SetLinkedIdentityFavoriteRequest
 ): Promise<LinkedIdentity[]> {
-  return invokeWalletCommand<LinkedIdentity[]>('set_linked_identity_favorite', {
+  const result = await invokeWalletCommand<LinkedIdentity[]>('set_linked_identity_favorite', {
     request: {
       identityAddress: request.identityAddress,
-      favorite: request.favorite
-    }
+      favorite: request.favorite,
+    },
   });
+  invalidateWalletDisplayScopes();
+  return result;
 }

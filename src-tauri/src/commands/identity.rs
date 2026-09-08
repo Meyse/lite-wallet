@@ -5,11 +5,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use serde_json::Value;
-use tauri::State;
-use tokio::sync::Mutex;
-use zeroize::Zeroizing;
-
+use crate::core::auth::session::ActiveWalletAccessContext;
 use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::identity as vrpc_identity;
 use crate::core::channels::vrpc::{self, VrpcProviderPool};
@@ -17,24 +13,25 @@ use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
 use crate::core::identity_display::{ensure_identity_handle_suffix, format_identity_display_name};
 use crate::core::wallet::AccountStateStore;
-use crate::core::StrongholdStore;
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
     IdentityDetailWarning, IdentityDetails, IdentityPreflightParams, IdentityPreflightResult,
     IdentitySendRequest, IdentitySendResult, LinkIdentityRequest, LinkableIdentity, LinkedIdentity,
     SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest, WalletError,
 };
+use serde_json::Value;
+use tauri::State;
+use tokio::sync::Mutex;
 
 const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
 pub(crate) struct IdentitySessionContext {
+    pub(crate) access: ActiveWalletAccessContext,
     pub(crate) session_id: String,
     pub(crate) account_id: String,
     pub(crate) network: WalletNetwork,
     pub(crate) primary_address: String,
-    pub(crate) password_hash: Zeroizing<Vec<u8>>,
-    pub(crate) stronghold_store: StrongholdStore,
     pub(crate) account_state_store: AccountStateStore,
 }
 
@@ -493,15 +490,13 @@ pub(crate) async fn identity_session_context(
     account_state_store: &AccountStateStore,
 ) -> Result<IdentitySessionContext, WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
-    let password_hash = Zeroizing::new(context.password_hash().to_vec());
 
     Ok(IdentitySessionContext {
-        session_id: context.session_id,
-        account_id: context.account_id,
+        session_id: context.session_id.clone(),
+        account_id: context.account_id.clone(),
         network: context.wallet_network,
-        primary_address: context.vrsc_address,
-        password_hash,
-        stronghold_store: context.stronghold_store,
+        primary_address: context.vrsc_address.clone(),
+        access: context,
         account_state_store: account_state_store.clone(),
     })
 }
@@ -509,14 +504,7 @@ pub(crate) async fn identity_session_context(
 pub(crate) async fn load_linked_for_context(
     context: &IdentitySessionContext,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
-    context
-        .stronghold_store
-        .load_linked_identities(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-        )
-        .await
+    context.access.load_linked_identities_cached().await
 }
 
 pub(crate) async fn store_linked_for_context(
@@ -525,15 +513,10 @@ pub(crate) async fn store_linked_for_context(
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let sanitized = normalize_linked_identities(records.to_vec());
     context
-        .stronghold_store
-        .store_linked_identities(
-            &context.account_id,
-            context.password_hash.as_ref(),
-            context.network,
-            &sanitized,
-        )
+        .access
+        .store_linked_identities_cached(&sanitized)
         .await?;
-    load_linked_for_context(context).await
+    Ok(sanitized)
 }
 
 /// Preflight identity operation on VRPC channel.

@@ -1137,38 +1137,12 @@ pub async fn set_active_assets(
 pub async fn get_dlight_seed_status(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<DlightSeedStatusResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .cloned()
-        .ok_or(WalletError::WalletLocked)?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
-    drop(session);
-
-    let seed = stronghold_store
-        .load_dlight_seed(&account_id, password_hash.as_ref(), network)
-        .await?;
-    let shielded_address = seed.as_deref().and_then(|value| {
-        dlight_private::derive_scope_address(value, network)
-            .map_err(|error| {
-                println!(
-                    "[WALLET] Failed to derive dlight shielded address for status lookup: {:?}",
-                    error
-                );
-                error
-            })
-            .ok()
-    });
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let metadata = context.load_dlight_public_metadata_cached().await?;
 
     Ok(DlightSeedStatusResult {
-        configured: seed.is_some() && shielded_address.is_some(),
-        shielded_address,
+        configured: metadata.configured,
+        shielded_address: metadata.shielded_address,
     })
 }
 
@@ -1419,8 +1393,7 @@ pub async fn get_coin_scopes(
     if coin_supports_channel(&coin, Channel::Vrpc) {
         let watched = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
         let linked_identities = context
-            .stronghold_store
-            .load_linked_identities(&account_id, context.password_hash(), network)
+            .load_linked_identities_cached()
             .await
             .unwrap_or_else(|error| {
                 println!(
@@ -1474,37 +1447,24 @@ pub async fn get_coin_scopes(
         }
 
         if coin_supports_channel(&coin, Channel::DlightPrivate) {
-            let dlight_seed = context
-                .stronghold_store
-                .load_dlight_seed(&account_id, context.password_hash(), network)
-                .await?;
-            if let Some(seed) = dlight_seed {
-                match dlight_private::derive_scope_address(&seed, network) {
-                    Ok(shielded_address) => {
-                        if let Some(system) = systems.iter().find(|system| system.is_root) {
-                            scopes.push(CoinScope {
-                                channel_id: dlight_private::canonical_dlight_channel_id(
-                                    &shielded_address,
-                                    &system.system_id,
-                                ),
-                                coin_id: coin.id.clone(),
-                                address: shielded_address.clone(),
-                                address_label: "Shielded wallet".to_string(),
-                                system_id: system.system_id.clone(),
-                                system_ticker: system.system_ticker.clone(),
-                                system_display_name: system.system_display_name.clone(),
-                                is_primary_address: true,
-                                is_read_only: false,
-                                scope_kind: ScopeKind::Shielded,
-                            });
-                        }
-                    }
-                    Err(error) => {
-                        println!(
-                            "[WALLET] Failed to derive dlight shielded address for scopes: {:?}",
-                            error
-                        );
-                    }
+            let dlight = context.load_dlight_public_metadata_cached().await?;
+            if let Some(shielded_address) = dlight.shielded_address {
+                if let Some(system) = systems.iter().find(|system| system.is_root) {
+                    scopes.push(CoinScope {
+                        channel_id: dlight_private::canonical_dlight_channel_id(
+                            &shielded_address,
+                            &system.system_id,
+                        ),
+                        coin_id: coin.id.clone(),
+                        address: shielded_address.clone(),
+                        address_label: "Shielded wallet".to_string(),
+                        system_id: system.system_id.clone(),
+                        system_ticker: system.system_ticker.clone(),
+                        system_display_name: system.system_display_name.clone(),
+                        is_primary_address: true,
+                        is_read_only: false,
+                        scope_kind: ScopeKind::Shielded,
+                    });
                 }
             }
         }

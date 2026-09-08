@@ -6,7 +6,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Error, Debug, Serialize)]
+#[derive(Clone, Error, Debug, Serialize)]
 #[serde(tag = "type", content = "message")]
 pub enum WalletError {
     #[error("Invalid wallet address")]

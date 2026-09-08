@@ -15,6 +15,7 @@ import { walletChannelsStore } from '$lib/stores/walletChannels.js';
 import { pushWalletError } from '$lib/stores/walletErrors.js';
 import type { BalanceResult, ChainInfo, Transaction } from '$lib/types/wallet.js';
 import { canonicalizeVrpcChannelId } from '$lib/utils/channelId.js';
+import { invalidateWalletDisplayHistory, primeDisplayBalance } from './walletDisplayService.js';
 
 const BALANCES_UPDATED = 'wallet://balances-updated';
 const TRANSACTIONS_UPDATED = 'wallet://transactions-updated';
@@ -148,11 +149,19 @@ export async function setupWalletEventBridge(
       const p = event.payload;
       const key = normalizeChannelKey(balanceKey(p));
       const coinId = p.coinId ?? DEFAULT_COIN_KEY;
+      if (
+        typeof p.confirmed !== 'string' ||
+        typeof p.pending !== 'string' ||
+        typeof p.total !== 'string'
+      ) {
+        return;
+      }
       const value: BalanceResult = {
-        confirmed: p.confirmed ?? '0',
-        pending: p.pending ?? '0',
-        total: p.total ?? '0',
+        confirmed: p.confirmed,
+        pending: p.pending,
+        total: p.total,
       };
+      primeDisplayBalance(key, coinId, value);
       balanceStore.update((m) => ({
         ...m,
         [key]: {
@@ -174,6 +183,7 @@ export async function setupWalletEventBridge(
           [coinId]: list,
         },
       }));
+      invalidateWalletDisplayHistory(key, coinId);
     });
 
     await register<InfoUpdatedPayload>(INFO_UPDATED, (event) => {
