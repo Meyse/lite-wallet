@@ -71,7 +71,7 @@
   const menuButtonClass =
     'h-8 rounded-md px-2 text-[13px] dark:text-[14px] hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-item-hover active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active data-[active=true]:text-sidebar-accent-foreground data-[active=true]:hover:bg-sidebar-item-active data-[state=open]:hover:text-sidebar-accent-foreground';
   const footerButtonClass =
-    'text-sidebar-foreground/65 ring-sidebar-ring cursor-pointer hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground focus-visible:ring-2 flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] dark:text-[14px] font-normal outline-hidden transition-colors';
+    'text-sidebar-foreground/65 ring-sidebar-ring cursor-default hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground focus-visible:ring-2 flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] dark:text-[14px] font-normal outline-hidden transition-colors';
 
   function isMenuItemActive(itemId: MenuItem['id']): boolean {
     if (itemId === 'overview') {

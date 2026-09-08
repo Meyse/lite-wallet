@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { mode } from 'mode-watcher';
+  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { openCommunityHangout } from '$lib/utils/externalLinks.js';
+  import { i18nStore } from '$lib/i18n';
+
+  const i18n = $derived($i18nStore);
 
   type WalletHeroBackgroundProps = {
     suspended?: boolean;
@@ -69,11 +75,19 @@
     <img src={posterSrc} alt="" class="h-full w-full object-cover" />
   {/if}
 
-  <div class="absolute inset-0 flex flex-col items-center pt-24">
-    <img
-      src="/images/verus-logo-white.svg"
-      alt="Verus"
-      class="h-8 w-auto cursor-default select-none"
-    />
+  <div class="absolute inset-0 flex flex-col items-start px-8 pt-24 pb-8 lg:px-12 lg:pb-12">
+    <p class="text-foreground max-w-sm text-left text-3xl leading-tight font-medium tracking-tight">
+      {i18n.t('wallet.hero.ownership')}
+    </p>
+    <Button
+      variant="ghost"
+      size="icon"
+      class="cursor-pointer text-foreground/70 hover:text-foreground hover:bg-transparent dark:hover:bg-transparent mt-auto -ml-2 size-10"
+      aria-label={i18n.t('wallet.hero.discord')}
+      title={i18n.t('wallet.hero.discord')}
+      onclick={() => { void openCommunityHangout(); }}
+    >
+      <DiscordIcon class="size-5" />
+    </Button>
   </div>
 </div>

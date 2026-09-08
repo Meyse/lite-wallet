@@ -11,6 +11,9 @@ export const nl: Record<string, string> = {
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
 
+  'wallet.hero.discord': 'Ga naar Verus op Discord',
+  'wallet.hero.ownership': 'Met Verus ben je eigenaar van je identiteit, data en geld',
+
   'welcome.titleLine1': 'Jouw toegang tot',
   'welcome.titleLine2': 'het nieuwe internet',
   'welcome.cta.start': 'Nieuwe wallet maken',

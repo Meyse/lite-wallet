@@ -4,7 +4,7 @@
 	import { type VariantProps, tv } from "tailwind-variants";
 
 	export const buttonVariants = tv({
-		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 cursor-default items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground hover:bg-primary/90 disabled:hover:bg-primary",
@@ -13,7 +13,7 @@
 				outline:
 					"bg-background hover:bg-accent hover:text-accent-foreground disabled:hover:bg-background disabled:hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 dark:disabled:hover:bg-input/30 border",
 				secondary:
-					"bg-primary/14 text-primary hover:bg-primary/22 disabled:hover:bg-primary/14 dark:bg-primary/28 dark:text-primary-foreground dark:hover:bg-primary/36 dark:disabled:hover:bg-primary/28",
+					"bg-secondary text-secondary-foreground hover:bg-secondary-hover disabled:hover:bg-secondary",
 				ghost:
 					"hover:bg-accent hover:text-accent-foreground disabled:hover:bg-transparent disabled:hover:text-current dark:hover:bg-accent/50 dark:disabled:hover:bg-transparent",
 				link: "text-primary underline-offset-4 hover:underline disabled:hover:no-underline",
@@ -61,7 +61,7 @@
 	<a
 		bind:this={ref}
 		data-slot="button"
-		class={cn(buttonVariants({ variant, size }), className)}
+		class={cn(buttonVariants({ variant, size }), /^(https?:|mailto:)/.test(href) && "cursor-pointer", className)}
 		href={disabled ? undefined : href}
 		aria-disabled={disabled}
 		role={disabled ? "link" : undefined}

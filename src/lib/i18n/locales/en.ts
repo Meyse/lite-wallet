@@ -11,6 +11,9 @@ export const en: Record<string, string> = {
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
 
+  'wallet.hero.discord': 'Join Verus on Discord',
+  'wallet.hero.ownership': 'With Verus you own your identity, data, and money',
+
   'welcome.titleLine1': 'Your access to',
   'welcome.titleLine2': 'the new internet',
   'welcome.cta.start': 'Create new wallet',

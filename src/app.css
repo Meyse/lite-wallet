@@ -80,6 +80,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
+  --secondary-hover: color-mix(in oklab, var(--secondary) 94%, var(--secondary-foreground));
   --muted: oklch(0.967 0.001 286.375);
   --muted-foreground: oklch(0.552 0.016 285.938);
   --accent: oklch(0.967 0.001 286.375);
@@ -124,6 +125,7 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
+  --secondary-hover: color-mix(in oklab, var(--secondary) 80%, transparent);
   --muted: oklch(0.274 0.006 286.033);
   --muted-foreground: oklch(0.705 0.015 286.067);
   --accent: oklch(0.274 0.006 286.033);
@@ -174,6 +176,7 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
@@ -221,6 +224,11 @@
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']),
   a[href] {
+    cursor: default;
+  }
+  a[href^='https://'],
+  a[href^='http://'],
+  a[href^='mailto:'] {
     cursor: pointer;
   }
 }
@@ -345,4 +353,16 @@
   .dark .guard-dock-button:hover .guard-dock-icon {
     opacity: 1;
   }
+}
+
+/* Hover feedback is immediate on entry and exit, including nested icons.
+   Keep structural transitions and entrance/exit animations elsewhere intact. */
+[class*="hover:"],
+[class*="hover:"]::before,
+[class*="hover:"]::after,
+.guard-dock-button,
+.guard-dock-icon,
+.selection-card-button,
+.selection-card-icon {
+  transition: none !important;
 }

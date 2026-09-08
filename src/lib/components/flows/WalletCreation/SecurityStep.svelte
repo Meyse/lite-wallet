@@ -49,7 +49,7 @@
 
   <Label
     for="security-acceptance-main"
-    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
+    class="flex cursor-default items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
   >
     <Checkbox id="security-acceptance-main" bind:checked={securityAccepted} class="mt-0.5" />
     <span class="text-sm leading-5 text-foreground">
@@ -59,7 +59,7 @@
 
   <Label
     for="security-private-verus"
-    class="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
+    class="flex cursor-default items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-normal leading-normal"
   >
     <Checkbox id="security-private-verus" bind:checked={setupPrivateVerus} class="mt-0.5" />
     <div class="space-y-1">
