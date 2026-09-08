@@ -18,13 +18,15 @@
   import * as walletService from '$lib/services/walletService.js';
   import { i18nStore } from '$lib/i18n';
   import type { WalletNetwork } from '$lib/types/wallet.js';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
 
   let addresses = $state<{ vrsc_address: string; eth_address: string; btc_address: string } | null>(null);
   let network = $state<WalletNetwork>('mainnet');
   let loading = $state(true);
   let error = $state('');
-  let copied = $state<'vrsc' | 'eth' | 'btc' | null>(null);
+  const copiedState = new TimedValueState<'vrsc' | 'eth' | 'btc'>();
+  const copied = $derived(copiedState.current);
   const i18n = $derived($i18nStore);
   const vrscLabel = $derived(
     network === 'testnet'
@@ -62,17 +64,17 @@
   });
 
   async function copyAddress(addr: string, which: 'vrsc' | 'eth' | 'btc') {
-    try {
-      await globalThis.navigator.clipboard.writeText(addr);
-      copied = which;
+    if (await writeClipboardText(addr)) {
+      copiedState.set(which, 2000);
       const ticker = which.toUpperCase();
       toast.success(i18n.t('wallet.receive.toast.copiedTitle'), {
         description: i18n.t('wallet.receive.toast.copiedDescription', { ticker })
       });
-      setTimeout(() => (copied = null), 2000);
-    } catch {
-      toast.error(i18n.t('wallet.receive.toast.copyFailed'));
+      return;
     }
+
+    copiedState.clear();
+    toast.error(i18n.t('wallet.receive.toast.copyFailed'));
   }
 </script>
 

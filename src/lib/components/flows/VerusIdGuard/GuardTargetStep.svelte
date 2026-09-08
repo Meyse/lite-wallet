@@ -17,7 +17,7 @@
     void value;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     mode,
     targetIdentity,
@@ -26,7 +26,7 @@
     shakeNonce = 0,
     onTargetIdentityChange = defaultStringHandler
   }: GuardTargetStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   let shakeTargetField = $state(false);
   let previousShakeNonce = $state(0);

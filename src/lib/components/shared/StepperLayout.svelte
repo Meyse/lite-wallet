@@ -21,7 +21,6 @@
     network?: WalletNetwork;
     networkLabel?: string;
     networkToggleDisabled?: boolean;
-    // eslint-disable-next-line no-unused-vars
     onNetworkChange?: (value: WalletNetwork) => void;
   };
 
@@ -29,13 +28,12 @@
     void value;
   };
 
-  /* eslint-disable prefer-const */
   let {
     currentStep,
     totalSteps,
     children,
     footer,
-    backgroundClass = 'bg-[#fbfbfb] dark:bg-[#111111]',
+    backgroundClass = 'bg-app-canvas',
     contentClass = 'flex-1 overflow-y-auto px-6 py-10 sm:px-8',
     contentInnerClass = 'mx-auto w-full max-w-[620px] space-y-6',
     footerClass = 'px-6 py-4 sm:px-8',
@@ -48,7 +46,6 @@
     networkToggleDisabled = false,
     onNetworkChange = defaultNetworkHandler
   }: StepperLayoutProps = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
   const canRenderClose = $derived(typeof onClose === 'function');

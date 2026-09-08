@@ -32,6 +32,10 @@ export function extractWalletErrorType(error: unknown): string | null {
   return null;
 }
 
+export function isWalletLockedError(error: unknown): boolean {
+  return extractWalletErrorType(error) === 'WalletLocked';
+}
+
 export function extractWalletErrorMessage(error: unknown): string | null {
   const object = toWalletErrorObject(error);
   if (object) {

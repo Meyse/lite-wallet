@@ -66,7 +66,7 @@ pub struct WalletMetadata {
 pub struct KeyPair {
     pub public_key: String,
     pub address: String,
-    // Note: Private key never leaves Stronghold vault!
+    // Note: Private key remains backend-only and is never serialized here.
 }
 
 #[derive(Serialize, Deserialize)]

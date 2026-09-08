@@ -123,98 +123,113 @@ export async function setupWalletEventBridge(
   options: SetupWalletEventBridgeOptions = {}
 ): Promise<() => void> {
   const unsubs: (() => void)[] = [];
+  let active = true;
 
-  const unBalances = await listen<BalancesUpdatedPayload>(BALANCES_UPDATED, (event) => {
-    const p = event.payload;
-    const key = normalizeChannelKey(balanceKey(p));
-    const coinId = p.coinId ?? DEFAULT_COIN_KEY;
-    const value: BalanceResult = {
-      confirmed: p.confirmed ?? '0',
-      pending: p.pending ?? '0',
-      total: p.total ?? '0'
-    };
-    balanceStore.update((m) => ({
-      ...m,
-      [key]: {
-        ...(m[key] ?? {}),
-        [coinId]: value
-      }
-    }));
-  });
-  unsubs.push(() => unBalances());
-
-  const unTx = await listen<TransactionsUpdatedPayload>(TRANSACTIONS_UPDATED, (event) => {
-    const p = event.payload;
-    const key = normalizeChannelKey(txKey(p));
-    const coinId = p.coinId ?? DEFAULT_COIN_KEY;
-    const list = p.transactions ?? [];
-    transactionStore.update((m) => ({
-      ...m,
-      [key]: {
-        ...(m[key] ?? {}),
-        [coinId]: list
-      }
-    }));
-  });
-  unsubs.push(() => unTx());
-
-  const unInfo = await listen<InfoUpdatedPayload>(INFO_UPDATED, (event) => {
-    const p = event.payload;
-    const key = normalizeChannelKey(infoKey(p));
-    const value: ChainInfo = {
-      channel: p.channel ?? p.channelId,
-      percent: p.percent,
-      blocks: p.blocks,
-      longestChain: p.longestChain,
-      syncing: p.syncing,
-      statusKind: p.statusKind,
-      lastUpdated: p.lastUpdated,
-      lastProgressAt: p.lastProgressAt,
-      stalled: p.stalled,
-      scanRateBlocksPerSec: p.scanRateBlocksPerSec
-    };
-    networkStore.update((m) => ({ ...m, [key]: value }));
-  });
-  unsubs.push(() => unInfo());
-
-  const unRates = await listen<RatesUpdatedPayload>(RATES_UPDATED, (event) => {
-    const p = event.payload;
-    const coinId = p.coinId ?? 'default';
-    const rates = p.rates ?? {};
-    ratesStore.update((m) => ({
-      ...m,
-      [coinId]: {
-        rates,
-        usdChange24hPct: typeof p.usdChange24hPct === 'number' ? p.usdChange24hPct : null
-      }
-    }));
-  });
-  unsubs.push(() => unRates());
-
-  const unBootstrap = await listen<BootstrapUpdatedPayload>(BOOTSTRAP_UPDATED, (event) => {
-    const inProgress = event.payload?.inProgress;
-    walletBootstrapStore.set(typeof inProgress === 'boolean' ? inProgress : false);
-  });
-  unsubs.push(() => unBootstrap());
-
-  const unError = await listen<UpdateErrorPayload>(ERROR, (event) => {
-    const p = event.payload;
-    if (shouldSuppressWalletError(p)) return;
-
-    const channel = p.channel ? normalizeChannelKey(p.channel) : '';
-    const type = p.dataType ?? 'wallet';
-    const message = p.message ?? 'Temporarily unavailable';
-    const prefix = channel ? `${type} (${channel})` : type;
-    pushWalletError(`${prefix}: ${message}`);
-  });
-  unsubs.push(() => unError());
-
-  const unSessionExpired = await listen(SESSION_EXPIRED, () => {
-    void options.onSessionExpired?.();
-  });
-  unsubs.push(() => unSessionExpired());
-
-  return () => {
-    unsubs.forEach((u) => u());
+  const cleanup = () => {
+    if (!active) return;
+    active = false;
+    for (const unsubscribe of unsubs.splice(0).reverse()) {
+      unsubscribe();
+    }
   };
+
+  const register = async <T>(
+    eventName: string,
+    handler: Parameters<typeof listen<T>>[1]
+  ): Promise<void> => {
+    const unsubscribe = await listen<T>(eventName, (event) => {
+      if (active) handler(event);
+    });
+    unsubs.push(unsubscribe);
+  };
+
+  try {
+    await register<BalancesUpdatedPayload>(BALANCES_UPDATED, (event) => {
+      const p = event.payload;
+      const key = normalizeChannelKey(balanceKey(p));
+      const coinId = p.coinId ?? DEFAULT_COIN_KEY;
+      const value: BalanceResult = {
+        confirmed: p.confirmed ?? '0',
+        pending: p.pending ?? '0',
+        total: p.total ?? '0',
+      };
+      balanceStore.update((m) => ({
+        ...m,
+        [key]: {
+          ...(m[key] ?? {}),
+          [coinId]: value,
+        },
+      }));
+    });
+
+    await register<TransactionsUpdatedPayload>(TRANSACTIONS_UPDATED, (event) => {
+      const p = event.payload;
+      const key = normalizeChannelKey(txKey(p));
+      const coinId = p.coinId ?? DEFAULT_COIN_KEY;
+      const list = p.transactions ?? [];
+      transactionStore.update((m) => ({
+        ...m,
+        [key]: {
+          ...(m[key] ?? {}),
+          [coinId]: list,
+        },
+      }));
+    });
+
+    await register<InfoUpdatedPayload>(INFO_UPDATED, (event) => {
+      const p = event.payload;
+      const key = normalizeChannelKey(infoKey(p));
+      const value: ChainInfo = {
+        channel: p.channel ?? p.channelId,
+        percent: p.percent,
+        blocks: p.blocks,
+        longestChain: p.longestChain,
+        syncing: p.syncing,
+        statusKind: p.statusKind,
+        lastUpdated: p.lastUpdated,
+        lastProgressAt: p.lastProgressAt,
+        stalled: p.stalled,
+        scanRateBlocksPerSec: p.scanRateBlocksPerSec,
+      };
+      networkStore.update((m) => ({ ...m, [key]: value }));
+    });
+
+    await register<RatesUpdatedPayload>(RATES_UPDATED, (event) => {
+      const p = event.payload;
+      const coinId = p.coinId ?? 'default';
+      const rates = p.rates ?? {};
+      ratesStore.update((m) => ({
+        ...m,
+        [coinId]: {
+          rates,
+          usdChange24hPct: typeof p.usdChange24hPct === 'number' ? p.usdChange24hPct : null,
+        },
+      }));
+    });
+
+    await register<BootstrapUpdatedPayload>(BOOTSTRAP_UPDATED, (event) => {
+      const inProgress = event.payload?.inProgress;
+      walletBootstrapStore.set(typeof inProgress === 'boolean' ? inProgress : false);
+    });
+
+    await register<UpdateErrorPayload>(ERROR, (event) => {
+      const p = event.payload;
+      if (shouldSuppressWalletError(p)) return;
+
+      const channel = p.channel ? normalizeChannelKey(p.channel) : '';
+      const type = p.dataType ?? 'wallet';
+      const message = p.message ?? 'Temporarily unavailable';
+      const prefix = channel ? `${type} (${channel})` : type;
+      pushWalletError(`${prefix}: ${message}`);
+    });
+
+    await register(SESSION_EXPIRED, () => {
+      void options.onSessionExpired?.();
+    });
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+
+  return cleanup;
 }

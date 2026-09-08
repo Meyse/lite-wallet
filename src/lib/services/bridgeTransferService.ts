@@ -3,7 +3,6 @@
  * Security: No tx hex or signing payloads leave backend trust boundary.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import type {
   BridgeCapabilitiesRequest,
   BridgeCapabilitiesResult,
@@ -16,11 +15,12 @@ import type {
   BridgeTransferPreflightParams,
   BridgeTransferPreflightResult
 } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export async function getBridgeCapabilities(
   request: BridgeCapabilitiesRequest
 ): Promise<BridgeCapabilitiesResult> {
-  return invoke<BridgeCapabilitiesResult>('get_bridge_capabilities', {
+  return invokeWalletCommand<BridgeCapabilitiesResult>('get_bridge_capabilities', {
     request: {
       coinId: request.coinId,
       channelId: request.channelId
@@ -31,7 +31,7 @@ export async function getBridgeCapabilities(
 export async function getBridgeConversionPaths(
   request: BridgeConversionPathRequest
 ): Promise<BridgeConversionPathsResult> {
-  return invoke<BridgeConversionPathsResult>('get_bridge_conversion_paths', {
+  return invokeWalletCommand<BridgeConversionPathsResult>('get_bridge_conversion_paths', {
     request: {
       coinId: request.coinId,
       channelId: request.channelId,
@@ -44,7 +44,7 @@ export async function getBridgeConversionPaths(
 export async function estimateBridgeConversion(
   request: BridgeConversionEstimateRequest
 ): Promise<BridgeConversionEstimateResult> {
-  return invoke<BridgeConversionEstimateResult>('estimate_bridge_conversion', {
+  return invokeWalletCommand<BridgeConversionEstimateResult>('estimate_bridge_conversion', {
     request: {
       coinId: request.coinId,
       channelId: request.channelId,
@@ -60,7 +60,7 @@ export async function estimateBridgeConversion(
 export async function estimateBridgeExportFee(
   request: BridgeExportFeeEstimateRequest
 ): Promise<BridgeExportFeeEstimateResult> {
-  return invoke<BridgeExportFeeEstimateResult>('estimate_bridge_export_fee', {
+  return invokeWalletCommand<BridgeExportFeeEstimateResult>('estimate_bridge_export_fee', {
     request: {
       coinId: request.coinId,
       channelId: request.channelId
@@ -71,7 +71,7 @@ export async function estimateBridgeExportFee(
 export async function preflightBridgeTransfer(
   params: BridgeTransferPreflightParams
 ): Promise<BridgeTransferPreflightResult> {
-  return invoke<BridgeTransferPreflightResult>('preflight_bridge_transfer', {
+  return invokeWalletCommand<BridgeTransferPreflightResult>('preflight_bridge_transfer', {
     params: {
       coinId: params.coinId,
       channelId: params.channelId,

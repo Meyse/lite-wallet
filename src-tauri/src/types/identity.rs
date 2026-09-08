@@ -133,6 +133,7 @@ pub struct IdentityDetails {
     pub fully_qualified_name: Option<String>,
     pub status: Option<String>,
     pub system: Option<String>,
+    pub parent: Option<String>,
     pub revocation_authority: Option<String>,
     pub recovery_authority: Option<String>,
     pub primary_addresses: Vec<String>,

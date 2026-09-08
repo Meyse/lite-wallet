@@ -8,19 +8,22 @@ mod core;
 mod types;
 
 use commands::{
-    address_book, bridge_transfer, clipboard, coins, guard, identity, transaction, vrpc_transfer,
-    wallet,
+    address_book, bridge_transfer, clipboard, coins, generic_request, guard, identity, transaction,
+    vrpc_transfer, wallet,
 };
+use core::auth::kdf::derive_current_argon2id;
 use core::channels::btc::BtcProviderPool;
 use core::channels::eth::EthProviderPool;
 use core::channels::vrpc::VrpcProviderPool;
 use core::{
-    CoinRegistry, GuardSessionManager, PreflightStore, SessionManager, StrongholdStore,
-    UpdateEngine, WalletManager,
+    AccountStateStore, CoinRegistry, GuardSessionManager, PreflightStore,
+    ProvisioningSignatureStore, SessionManager, StrongholdStore, UpdateEngine, WalletManager,
 };
 use std::path::Path;
 use std::sync::Arc;
 use tauri::Manager;
+#[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex;
 
 #[cfg(debug_assertions)]
@@ -95,18 +98,19 @@ pub fn run() {
     configure_stronghold_encrypt_work_factor();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_stronghold::Builder::new(|password| {
-                // Password hash function for Stronghold
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(password);
-                hasher.finalize().to_vec()
-            })
-            .build(),
-        )
         .setup(|app| {
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.deep_link().register_all()?;
+
             // Initialize wallet manager with app data dir (unified with Stronghold storage)
             let app_dir = app.path().app_data_dir().map_err(|e| {
                 eprintln!("[APP] Failed to get app data directory: {:?}", e);
@@ -118,7 +122,34 @@ pub fn run() {
                 e
             })?;
             let wallet_manager = WalletManager::new(wallet_data_dir.clone());
+            let any_current_kdf_accounts = wallet_manager
+                .has_account_with_key_derivation_version(
+                    StrongholdStore::current_key_derivation_version_static(),
+                )
+                .map_err(|e| {
+                    eprintln!(
+                        "[APP] Failed to inspect wallet key derivation versions: {:?}",
+                        e
+                    );
+                    e
+                })?;
+            let app_local_dir = app.path().app_local_data_dir().map_err(|e| {
+                eprintln!("[APP] Failed to get app local data directory: {:?}", e);
+                e
+            })?;
+            let argon2_salt_path = core::auth::kdf::argon2_salt_path(&app_local_dir);
+            let allow_create_salt = !any_current_kdf_accounts;
+            app.handle().plugin(
+                tauri_plugin_stronghold::Builder::new(move |password| {
+                    derive_current_argon2id(password, &argon2_salt_path, allow_create_salt)
+                        .expect("failed to derive Stronghold Argon2id hash")
+                })
+                .build(),
+            )?;
             app.manage(wallet_manager);
+
+            let account_state_store = AccountStateStore::new(wallet_data_dir.clone());
+            app.manage(account_state_store);
 
             // Initialize Stronghold store and session manager
             let app_handle = app.handle();
@@ -138,6 +169,9 @@ pub fn run() {
             let preflight_store = PreflightStore::new();
             app.manage(preflight_store);
             println!("[APP] Preflight store initialized");
+
+            app.manage(ProvisioningSignatureStore::new());
+            println!("[APP] Provisioning signature store initialized");
 
             let guard_session_manager = Arc::new(Mutex::new(GuardSessionManager::new()));
             app.manage(guard_session_manager);
@@ -190,6 +224,7 @@ pub fn run() {
             wallet::get_dlight_prover_status,
             wallet::get_session_timeout_minutes,
             wallet::set_session_timeout_minutes,
+            wallet::touch_session_activity,
             wallet::get_watched_vrpc_addresses,
             wallet::set_watched_vrpc_addresses,
             wallet::is_unlocked,
@@ -221,6 +256,20 @@ pub fn run() {
             identity::unlink_identity,
             identity::set_linked_identity_favorite,
             identity::get_identity_details,
+            generic_request::verify_generic_request_signature,
+            generic_request::sign_generic_response,
+            generic_request::build_and_sign_generic_response,
+            generic_request::post_generic_response_callback,
+            generic_request::open_generic_request_callback,
+            generic_request::prepare_provisioning_signature,
+            generic_request::confirm_provisioning_signature,
+            generic_request::verify_identity_signature_hash,
+            generic_request::review_generic_identity_update,
+            generic_request::preflight_generic_identity_update,
+            generic_request::store_generic_provisioning_job,
+            generic_request::list_identity_provisioning_jobs,
+            generic_request::refresh_identity_provisioning_jobs,
+            generic_request::link_ready_identity_provisioning,
             guard::begin_guard_session,
             guard::end_guard_session,
             guard::lookup_guard_target_identity,

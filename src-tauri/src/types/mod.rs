@@ -5,6 +5,7 @@
 pub mod address_book;
 pub mod bridge;
 pub mod errors;
+pub mod generic_request;
 pub mod guard;
 pub mod identity;
 pub mod transaction;
@@ -24,6 +25,15 @@ pub use bridge::{
     BridgeTransferRoute,
 };
 pub use errors::WalletError;
+pub use generic_request::{
+    BuildAndSignGenericResponseRequest, BuildAndSignGenericResponseResult,
+    GenericAuthenticationResponseInput, GenericIdentityAuthorities,
+    GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
+    GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
+    GenericIdentityUpdateResponseInput, GenericIdentityUpdateReviewResult,
+    GenericRequestVerificationResult, GenericResponseSignerInput, LinkReadyProvisioningJobResult,
+    ProvisioningJobRecord,
+};
 pub use guard::{
     BeginGuardSessionRequest, BeginGuardSessionResult, EndGuardSessionRequest,
     EndGuardSessionResult, GuardIdentityLookupRequest, GuardIdentityLookupResult,
@@ -45,8 +55,7 @@ pub use wallet::{
     AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressResponse, CoinScope,
     CoinScopesResult, CreateWalletRequest, CreateWalletResult, DlightProverFileStatusResult,
     DlightProverStatusResult, DlightRecoverySecretKind, DlightRuntimeStatusResult,
-    DlightSeedStatusResult,
-    GenerateMnemonicRequest, ImportWalletTextRequest, MnemonicResult, ScopeKind,
-    SetupDlightSeedRequest, SetupDlightSeedResult, RecoverySecretKind, WalletListItem,
+    DlightSeedStatusResult, GenerateMnemonicRequest, ImportWalletTextRequest, MnemonicResult,
+    RecoverySecretKind, ScopeKind, SetupDlightSeedRequest, SetupDlightSeedResult, WalletListItem,
     WalletMetadata, WalletRecoverySecretsResult, WalletSecretKind,
 };

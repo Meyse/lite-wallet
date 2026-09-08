@@ -19,6 +19,8 @@ Plans are first-class artifacts for multi-step work.
   [`./active/eth-erc20-desktop-core.md`](./active/eth-erc20-desktop-core.md)
 - ETH/ERC20 bridge backend and command surface:
   [`./active/eth-erc20-bridge-backend-surface.md`](./active/eth-erc20-bridge-backend-surface.md)
+- Peekaboo desktop smoke tests:
+  [`./active/peekaboo-desktop-smoke-tests.md`](./active/peekaboo-desktop-smoke-tests.md)
 - Core and wallet security hardening:
   [`./active/security-hardening-core-wallet.md`](./active/security-hardening-core-wallet.md)
 

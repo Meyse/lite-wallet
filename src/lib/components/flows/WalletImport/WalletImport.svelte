@@ -20,9 +20,9 @@
 
   const TOTAL_STEPS = 4;
 
-  /* eslint-disable prefer-const */
+   
   let { initialMethod = 'seed24', onGoHome = () => {} }: WalletImportProps = $props();
-  /* eslint-enable prefer-const */
+   
   const selectedMethod = $derived(initialMethod === 'text' ? 'text' : 'seed24');
 
   let currentStep = $state(1);
@@ -183,7 +183,9 @@
       await goto('/wallet');
     } catch (error) {
       const errorType = extractWalletErrorType(error);
-      if (errorType === 'InvalidPassword' || errorType === 'OperationFailed') {
+      if (errorType === 'SecureStorageUnavailable') {
+        openWalletError = i18n.t('common.error.secureStorageUnavailable');
+      } else if (errorType === 'InvalidPassword' || errorType === 'OperationFailed') {
         openWalletError = i18n.t('walletImport.error.openFailed');
       } else if (errorType === 'InvalidArgs') {
         openWalletError = i18n.t('walletImport.error.openInvalidArgs');

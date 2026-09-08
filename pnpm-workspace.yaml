@@ -1,0 +1,25 @@
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeExcludePrune: true
+trustLockfile: false
+blockExoticSubdeps: true
+
+overrides:
+  'bs58@3.1.0>base-x': 3.0.11
+  'verusd-rpc-ts-client@0.1.0>axios': 1.20.0
+  'verusid-ts-client@0.1.0>axios': 1.20.0
+  yaml: ^2.8.1
+
+allowBuilds:
+  '@bitgo/utxo-lib@https://codeload.github.com/VerusCoin/BitGoJS/tar.gz/f39bb2206bac9c3fbf199f7496e495e3a427c771': false
+  esbuild: true
+  verus-typescript-primitives@https://codeload.github.com/VerusCoin/verus-typescript-primitives/tar.gz/30c951804228a285546a45457be57ead39d90888: false
+  verusd-rpc-ts-client@https://codeload.github.com/VerusCoin/verusd-rpc-ts-client/tar.gz/fd2c6b0d35d468ee6174bcdd569f5aa990b05282: false
+  verusid-ts-client@https://codeload.github.com/VerusCoin/verusid-ts-client/tar.gz/48a1d48a5d076f313022a5891986339851ad7c0c: false
+
+patchedDependencies:
+  # The pinned commit contains evals.json, but its package files allowlist omits it.
+  # Source: VerusCoin/bitcoin-ops@a5f8f56; evals.json SHA-256 c631cc581e36db9d2c20b675f941e815932ce7c855090f8e70506b3e3a0f33d2.
+  # pnpm keys patches by name/version, so the same inert JSON is also added to the registry copy.
+  bitcoin-ops@1.4.1: patches/bitcoin-ops@1.4.1.patch

@@ -10,11 +10,13 @@ use tauri::State;
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::identity as vrpc_identity;
 use crate::core::channels::vrpc::{self, VrpcProviderPool};
 use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
+use crate::core::identity_display::{ensure_identity_handle_suffix, format_identity_display_name};
+use crate::core::wallet::AccountStateStore;
 use crate::core::StrongholdStore;
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
@@ -26,12 +28,14 @@ use crate::types::{
 const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
-struct IdentitySessionContext {
-    account_id: String,
-    network: WalletNetwork,
-    primary_address: String,
-    password_hash: Zeroizing<Vec<u8>>,
-    stronghold_store: StrongholdStore,
+pub(crate) struct IdentitySessionContext {
+    pub(crate) session_id: String,
+    pub(crate) account_id: String,
+    pub(crate) network: WalletNetwork,
+    pub(crate) primary_address: String,
+    pub(crate) password_hash: Zeroizing<Vec<u8>>,
+    pub(crate) stronghold_store: StrongholdStore,
+    pub(crate) account_state_store: AccountStateStore,
 }
 
 #[derive(Clone)]
@@ -42,14 +46,14 @@ struct DiscoveryCandidate {
     status: Option<String>,
 }
 
-struct ParsedGetIdentityPayload {
-    status: Option<String>,
-    identity: Value,
-    fully_qualified_name: Option<String>,
-    friendly_name: Option<String>,
+pub(crate) struct ParsedGetIdentityPayload {
+    pub(crate) status: Option<String>,
+    pub(crate) identity: Value,
+    pub(crate) fully_qualified_name: Option<String>,
+    pub(crate) friendly_name: Option<String>,
 }
 
-fn normalize_non_empty(value: &str) -> Option<String> {
+pub(crate) fn normalize_non_empty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -70,45 +74,6 @@ fn first_non_empty_field(value: &Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn ensure_identity_handle_suffix(value: &str) -> Option<String> {
-    let normalized = normalize_non_empty(value)?;
-    if normalized.ends_with('@') {
-        return Some(normalized);
-    }
-    Some(format!("{normalized}@"))
-}
-
-fn looks_like_identity_system_suffix(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
-}
-
-fn format_fully_qualified_name_for_display(raw_fqn: &str) -> Option<String> {
-    let with_at = ensure_identity_handle_suffix(raw_fqn)?;
-    let without_at = with_at.trim_end_matches('@');
-
-    let Some(last_dot_index) = without_at.rfind('.') else {
-        return Some(with_at);
-    };
-    if last_dot_index == 0 {
-        return Some(with_at);
-    }
-
-    let suffix = &without_at[last_dot_index + 1..];
-    if !looks_like_identity_system_suffix(suffix) {
-        return Some(with_at);
-    }
-
-    let without_system = without_at[..last_dot_index].trim();
-    if without_system.is_empty() {
-        return Some(with_at);
-    }
-
-    Some(format!("{without_system}@"))
-}
-
 fn resolve_identity_display_name(
     identity: &Value,
     payload_fully_qualified_name: Option<&str>,
@@ -121,12 +86,8 @@ fn resolve_identity_display_name(
     let identity_fqn =
         first_non_empty_field(identity, &["fullyqualifiedname", "fullyQualifiedName"])
             .or_else(|| payload_fully_qualified_name.and_then(normalize_non_empty));
-
-    if let Some(identity_fqn) = identity_fqn {
-        return format_fully_qualified_name_for_display(&identity_fqn);
-    }
-
-    first_non_empty_field(identity, &["name"]).and_then(|name| ensure_identity_handle_suffix(&name))
+    let identity_name = first_non_empty_field(identity, &["name"]);
+    format_identity_display_name(identity_fqn.as_deref(), identity_name.as_deref())
 }
 
 fn dedupe_case_insensitive(values: Vec<String>) -> Vec<String> {
@@ -174,7 +135,7 @@ fn extract_identity_address(identity: &Value, fallback: Option<&str>) -> Option<
     .or_else(|| fallback.and_then(normalize_non_empty))
 }
 
-fn map_identity_lookup_error(err: WalletError) -> WalletError {
+pub(crate) fn map_identity_lookup_error(err: WalletError) -> WalletError {
     match err {
         WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
         WalletError::NetworkError => WalletError::NetworkError,
@@ -185,7 +146,9 @@ fn map_identity_lookup_error(err: WalletError) -> WalletError {
     }
 }
 
-fn parse_getidentity_payload(raw: Value) -> Result<ParsedGetIdentityPayload, WalletError> {
+pub(crate) fn parse_getidentity_payload(
+    raw: Value,
+) -> Result<ParsedGetIdentityPayload, WalletError> {
     let status = value_as_non_empty_string(raw.get("status"));
     let fully_qualified_name =
         first_non_empty_field(&raw, &["fullyqualifiedname", "fullyQualifiedName"]);
@@ -252,7 +215,7 @@ fn build_identity_warnings(
     warnings
 }
 
-fn build_identity_details_from_payload(
+pub(crate) fn build_identity_details_from_payload(
     identity: &Value,
     status: Option<String>,
     session_primary_address: &str,
@@ -267,6 +230,7 @@ fn build_identity_details_from_payload(
         first_non_empty_field(identity, &["revocationauthority", "revocationAuthority"]);
     let recovery_authority =
         first_non_empty_field(identity, &["recoveryauthority", "recoveryAuthority"]);
+    let parent = first_non_empty_field(identity, &["parent", "parentid", "parentID"]);
     let owned_by_primary_address = is_owned_by_primary(&primary_addresses, session_primary_address);
 
     let warnings = build_identity_warnings(
@@ -286,7 +250,8 @@ fn build_identity_details_from_payload(
             payload_friendly_name,
         ),
         status,
-        system: first_non_empty_field(identity, &["systemid", "system", "parent"]),
+        system: first_non_empty_field(identity, &["systemid", "system"]),
+        parent,
         revocation_authority,
         recovery_authority,
         primary_addresses,
@@ -296,7 +261,7 @@ fn build_identity_details_from_payload(
     })
 }
 
-fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
+pub(crate) fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
     LinkedIdentity {
         identity_address: details.identity_address.clone(),
         name: details.name.clone(),
@@ -307,7 +272,7 @@ fn linked_identity_from_details(details: &IdentityDetails) -> LinkedIdentity {
     }
 }
 
-fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdentity> {
+pub(crate) fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdentity> {
     let mut seen = HashSet::<String>::new();
     let mut out = Vec::<LinkedIdentity>::new();
     let mut favorite_count = 0usize;
@@ -356,7 +321,7 @@ fn normalize_linked_identities(records: Vec<LinkedIdentity>) -> Vec<LinkedIdenti
     out
 }
 
-fn upsert_linked_identity(
+pub(crate) fn upsert_linked_identity(
     mut records: Vec<LinkedIdentity>,
     incoming: LinkedIdentity,
 ) -> Vec<LinkedIdentity> {
@@ -523,34 +488,25 @@ fn parse_discovery_candidates(raw: Value) -> Vec<DiscoveryCandidate> {
     dedupe_discovery_candidates(collected)
 }
 
-async fn identity_session_context(
+pub(crate) async fn identity_session_context(
     session_manager: &Arc<Mutex<SessionManager>>,
+    account_state_store: &AccountStateStore,
 ) -> Result<IdentitySessionContext, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .cloned()
-        .ok_or(WalletError::WalletLocked)?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let (primary_address, _, _) = session.get_addresses()?;
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    let password_hash = Zeroizing::new(context.password_hash().to_vec());
 
     Ok(IdentitySessionContext {
-        account_id,
-        network,
-        primary_address,
+        session_id: context.session_id,
+        account_id: context.account_id,
+        network: context.wallet_network,
+        primary_address: context.vrsc_address,
         password_hash,
-        stronghold_store,
+        stronghold_store: context.stronghold_store,
+        account_state_store: account_state_store.clone(),
     })
 }
 
-async fn load_linked_for_context(
+pub(crate) async fn load_linked_for_context(
     context: &IdentitySessionContext,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     context
@@ -563,7 +519,7 @@ async fn load_linked_for_context(
         .await
 }
 
-async fn store_linked_for_context(
+pub(crate) async fn store_linked_for_context(
     context: &IdentitySessionContext,
     records: &[LinkedIdentity],
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
@@ -598,6 +554,10 @@ pub async fn preflight_identity_update(
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?
         .to_string();
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let (session_vrpc_address, _, _) = session.get_addresses()?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     drop(session);
@@ -622,6 +582,7 @@ pub async fn preflight_identity_update(
         params,
         &preflight_store,
         &account_id,
+        &session_id,
         &resolved.address,
         &canonical_channel_id,
         vrpc_provider_pool.for_network(network),
@@ -656,9 +617,11 @@ pub async fn send_identity_update(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn discover_linkable_identities(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Vec<LinkableIdentity>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let discovery_raw = vrpc_provider_pool
         .for_network(context.network)
@@ -737,8 +700,10 @@ pub async fn discover_linkable_identities(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_linked_identities(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     load_linked_for_context(&context).await
 }
 
@@ -747,12 +712,14 @@ pub async fn get_linked_identities(
 pub async fn link_identity(
     request: LinkIdentityRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let raw_identity = vrpc_provider_pool
         .for_network(context.network)
@@ -785,11 +752,13 @@ pub async fn link_identity(
 pub async fn unlink_identity(
     request: UnlinkIdentityRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let current = load_linked_for_context(&context).await?;
     let updated = remove_linked_identity(current, &requested_identity_address);
 
@@ -801,11 +770,13 @@ pub async fn unlink_identity(
 pub async fn set_linked_identity_favorite(
     request: SetLinkedIdentityFavoriteRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<LinkedIdentity>, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&request.identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
     let current = load_linked_for_context(&context).await?;
     let updated =
         apply_linked_identity_favorite(current, &requested_identity_address, request.favorite)?;
@@ -818,12 +789,14 @@ pub async fn set_linked_identity_favorite(
 pub async fn get_identity_details(
     identity_address: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<IdentityDetails, WalletError> {
     let requested_identity_address =
         normalize_non_empty(&identity_address).ok_or(WalletError::InvalidAddress)?;
 
-    let context = identity_session_context(session_manager.inner()).await?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
     let raw_identity = vrpc_provider_pool
         .for_network(context.network)

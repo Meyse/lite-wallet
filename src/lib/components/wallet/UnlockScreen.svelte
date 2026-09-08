@@ -29,6 +29,7 @@
   import { getWalletColorHex } from '$lib/constants/walletColors';
   import { buildNeedHelpContent } from '$lib/utils/helpContent';
   import { cn } from '$lib/utils.js';
+  import * as walletService from '$lib/services/walletService.js';
 
   export type WalletListItem = {
     account_id: string;
@@ -170,17 +171,26 @@
     isLoading = true;
     errorMessage = '';
     try {
-      await invoke('unlock_wallet', {
+      await walletService.unlockWallet({
         account_id: effectiveAccountId,
         password
       });
-      await goto('/wallet');
-      password = '';
+
+      try {
+        await goto('/wallet');
+        password = '';
+      } catch (navigationError) {
+        console.error('[UNLOCK] Wallet unlocked but dashboard navigation failed', navigationError);
+        await walletService.lockWallet().catch(() => {});
+        errorMessage = i18n.t('unlock.error.openFailed');
+      }
     } catch (error) {
       const errorType = extractWalletErrorType(error);
       if (errorType === 'InvalidPassword') {
         errorMessage = i18n.t('unlock.error.invalidPassword');
         await triggerWrongPasswordShake();
+      } else if (errorType === 'SecureStorageUnavailable') {
+        errorMessage = i18n.t('common.error.secureStorageUnavailable');
       } else if (errorType === 'OperationFailed') {
         errorMessage = i18n.t('unlock.error.operationFailed');
       } else if (errorType === 'InvalidArgs') {
@@ -205,7 +215,7 @@
 </script>
 
 <main class="bg-background relative flex min-h-screen overflow-hidden">
-  <div class="absolute inset-0 bg-[#fbfbfb] dark:bg-[#111111]"></div>
+  <div class="bg-app-canvas absolute inset-0"></div>
   <div
     class="absolute top-0 right-0 left-0 z-20 h-11"
     data-tauri-drag-region
@@ -243,7 +253,7 @@
             <div class="flex items-center justify-between">
               <div class="min-w-0 flex items-center gap-3">
                 <div
-                  class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl leading-none text-white"
+                  class="flex h-12 w-12 shrink-0 cursor-default select-none items-center justify-center rounded-xl text-2xl leading-none text-white"
                   style={`background-color: ${walletColorHex(selectedWallet.color)};`}
                 >
                   {walletEmoji(selectedWallet.emoji)}
@@ -309,7 +319,7 @@
             </Button>
           </div>
 
-          <div class="text-muted-foreground text-xs">
+          <div class="pt-2 text-muted-foreground text-xs">
             <HelpDrawerLink
               linkText={i18n.t('help.link.needHelp')}
               title={i18n.t('help.sheet.title')}
@@ -348,7 +358,7 @@
       >
         <div class="flex items-center gap-3">
           <div
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base text-white"
+            class="flex h-9 w-9 shrink-0 cursor-default select-none items-center justify-center rounded-lg text-base text-white"
             style={`background-color: ${walletColorHex(wallet.color)};`}
           >
             {walletEmoji(wallet.emoji)}
@@ -371,12 +381,12 @@
     <div class="space-y-3">
       <button
         type="button"
-        class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+        class="group selection-card-button selection-card-button--neutral"
         onclick={handleStartNewWalletFlow}
       >
         <div class="flex items-start gap-3">
           <CirclePlusIcon
-            class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+            class="selection-card-icon"
             absoluteStrokeWidth
             stroke-linecap="butt"
             aria-hidden="true"
@@ -392,12 +402,12 @@
 
       <button
         type="button"
-        class="group w-full rounded-lg bg-muted/65 p-4 text-left transition-colors hover:bg-muted/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:bg-muted/55 dark:hover:bg-muted/65"
+        class="group selection-card-button selection-card-button--neutral"
         onclick={handleShowImportMethods}
       >
         <div class="flex items-start gap-3">
           <DownloadIcon
-            class="mt-0.5 h-6 w-6 shrink-0 text-foreground opacity-30 transition-opacity duration-150 group-hover:opacity-100 dark:opacity-45 dark:group-hover:opacity-100"
+            class="selection-card-icon"
             absoluteStrokeWidth
             stroke-linecap="butt"
             aria-hidden="true"

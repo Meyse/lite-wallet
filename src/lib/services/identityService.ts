@@ -3,18 +3,18 @@
  * Security: send accepts only preflight_id.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import type {
   IdentityPreflightParams,
   IdentityPreflightResult,
   IdentitySendRequest,
   IdentitySendResult
 } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export async function preflightIdentityUpdate(
   params: IdentityPreflightParams
 ): Promise<IdentityPreflightResult> {
-  return invoke<IdentityPreflightResult>('preflight_identity_update', {
+  return invokeWalletCommand<IdentityPreflightResult>('preflight_identity_update', {
     params: {
       coinId: params.coinId,
       channelId: params.channelId,
@@ -34,7 +34,7 @@ export async function preflightIdentityUpdate(
 }
 
 export async function sendIdentityUpdate(request: IdentitySendRequest): Promise<IdentitySendResult> {
-  return invoke<IdentitySendResult>('send_identity_update', {
+  return invokeWalletCommand<IdentitySendResult>('send_identity_update', {
     request: { preflightId: request.preflightId }
   });
 }

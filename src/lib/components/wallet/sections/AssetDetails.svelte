@@ -9,10 +9,10 @@
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -34,6 +34,7 @@
     setSelectedScopeAddress,
     setSelectedScopeSystem
   } from '$lib/stores/coinScopes.js';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { formatFiatAmount, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import * as walletService from '$lib/services/walletService.js';
@@ -59,15 +60,15 @@
     scopeFilterMode?: ScopeKind;
     entryDisplayName?: string;
     onNavigateToReceive?: () => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onNavigateToSend?: (_context: TransferEntryContext) => void;
-    // eslint-disable-next-line no-unused-vars
+     
     onNavigateToConvert?: (_context: TransferEntryContext) => void;
   };
 
   const noop = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let {
     coinId,
     walletEntryKind = 'coin',
@@ -77,7 +78,7 @@
     onNavigateToSend = noop,
     onNavigateToConvert = noop
   }: AssetDetailsProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const coins = $derived($coinsStore);
@@ -117,7 +118,8 @@
   let loadingSelectedBalance = $state(false);
   let showScopeSheet = $state(false);
   let addressSearchTerm = $state('');
-  let copiedAddressKey = $state<string | null>(null);
+  const copiedAddressState = new TimedValueState<string>();
+  const copiedAddressKey = $derived(copiedAddressState.current);
   let dlightRuntimeStatus = $state<DlightRuntimeStatusResult | null>(null);
   let spendRateBlocksPerSec = $state<number | null>(null);
   let spendRateSample = $state<{ scannedHeight: number; updatedAt: number } | null>(null);
@@ -632,7 +634,7 @@
 
   function updateScopeTxPageState(
     scopePageKey: string,
-    // eslint-disable-next-line no-unused-vars
+     
     updater: (_state: ScopeTransactionPageState) => ScopeTransactionPageState
   ): void {
     const previous = txPagesByScopeKey[scopePageKey] ?? createEmptyPageState();
@@ -787,15 +789,11 @@
 
   async function copyAddress(address: string, key: string): Promise<void> {
     if (!address) return;
-    try {
-      await globalThis.navigator.clipboard.writeText(address);
-      copiedAddressKey = key;
-      setTimeout(() => {
-        if (copiedAddressKey === key) copiedAddressKey = null;
-      }, 1800);
-    } catch {
-      copiedAddressKey = null;
+    if (await writeClipboardText(address)) {
+      copiedAddressState.set(key, 1800);
+      return;
     }
+    copiedAddressState.clear();
   }
 
   function updateTxScrollAffordance(): void {
@@ -1111,19 +1109,14 @@
                 <p class="identifier-text truncate text-sm font-medium text-foreground">
                   {truncateMiddle(selectedScopeDisplayAddress || '—', 10, 10)}
                 </p>
-                <button
-                  type="button"
-                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 h-8 w-8 shrink-0 rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+                <CopyButton
+                  copied={copiedAddressKey === 'selected-static'}
+                  size="sm"
+                  class="-mr-0.5"
                   onclick={() => copyAddress(selectedScopeDisplayAddress, 'selected-static')}
                   title={i18n.t('wallet.receive.copy')}
                   aria-label={i18n.t('wallet.receive.copy')}
-                >
-                  {#if copiedAddressKey === 'selected-static'}
-                    <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-400" />
-                  {:else}
-                    <CopyIcon class="size-4" />
-                  {/if}
-                </button>
+                />
               </div>
             {:else}
               <div class="bg-primary flex h-[52px] min-w-0 flex-1 items-center gap-1 rounded-md pl-1.5 pr-1">
@@ -1147,19 +1140,16 @@
                   </div>
                   <ChevronDownIcon class="h-4 w-4 shrink-0 text-primary-foreground/80" />
                 </button>
-                <button
-                  type="button"
-                  class="text-primary-foreground/75 hover:text-primary-foreground focus-visible:ring-primary-foreground/60 -mr-0.5 h-8 w-8 shrink-0 rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+                <CopyButton
+                  copied={copiedAddressKey === 'selected-interactive'}
+                  variant="inverse"
+                  size="sm"
+                  class="-mr-0.5"
                   onclick={() => copyAddress(selectedScopeDisplayAddress, 'selected-interactive')}
                   title={i18n.t('wallet.receive.copy')}
                   aria-label={i18n.t('wallet.receive.copy')}
-                >
-                  {#if copiedAddressKey === 'selected-interactive'}
-                    <CheckIcon class="size-4 text-emerald-300 dark:text-emerald-200" />
-                  {:else}
-                    <CopyIcon class="size-4" />
-                  {/if}
-                </button>
+                  copiedIconClass="size-4 text-emerald-300 dark:text-emerald-200"
+                />
               </div>
             {/if}
 
@@ -1324,7 +1314,7 @@
 
           {#if canScrollTxDown}
             <div
-              class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-[#111111]"
+              class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
             ></div>
           {/if}
         </div>
@@ -1370,19 +1360,14 @@
                       {/if}
                     </div>
                   </button>
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 h-8 w-8 shrink-0 rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+                  <CopyButton
+                    copied={copiedAddressKey === `scope:${scopeOption.channelId}`}
+                    size="sm"
+                    class="-mr-0.5"
                     onclick={() => copyAddress(preferredScopeDisplayValue(scopeOption), `scope:${scopeOption.channelId}`)}
                     title={i18n.t('wallet.receive.copy')}
                     aria-label={i18n.t('wallet.receive.copy')}
-                  >
-                    {#if copiedAddressKey === `scope:${scopeOption.channelId}`}
-                      <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-400" />
-                    {:else}
-                      <CopyIcon class="size-4" />
-                    {/if}
-                  </button>
+                  />
                 </div>
               </li>
             {/each}

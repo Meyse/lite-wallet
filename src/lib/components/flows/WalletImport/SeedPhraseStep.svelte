@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
+  import { Textarea } from '$lib/components/ui/textarea';
   import * as Tabs from '$lib/components/ui/tabs';
   import { i18nStore } from '$lib/i18n';
 
@@ -30,7 +31,6 @@
     void valid;
   };
 
-  /* eslint-disable prefer-const */
   let {
     seedPhraseInput = '',
     entryMode: controlledEntryMode = undefined,
@@ -39,7 +39,6 @@
     onNormalizedChanged = defaultOnNormalizedChanged,
     onValidityChanged = defaultOnValidityChanged
   }: SeedPhraseStepProps = $props();
-  /* eslint-enable prefer-const */
 
   let entryMode = $state<EntryMode>('paste');
   let words = $state<string[]>(Array(REQUIRED_WORDS).fill(''));
@@ -443,10 +442,11 @@
     {/if}
 
     <Tabs.Content value="paste" class={showEntryModeTabs ? 'mt-4 space-y-3' : 'space-y-3'}>
-      <textarea
+      <Textarea
         id="wallet-import-seed-paste"
+        variant="default"
         value={pasteInput}
-        oninput={(event) => {
+        oninput={(event: Event) => {
           handlePastePhraseInput((event.target as HTMLTextAreaElement).value);
         }}
         onblur={() => {
@@ -456,8 +456,7 @@
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        class="bg-muted/90 dark:bg-muted/65 text-foreground selection:bg-primary selection:text-primary-foreground ring-offset-background placeholder:text-foreground/55 dark:placeholder:text-foreground/60 min-h-24 w-full min-w-0 rounded-md border border-transparent px-4 py-3 text-sm shadow-none transition-[border-color,box-shadow,background-color] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
-      ></textarea>
+      ></Textarea>
     </Tabs.Content>
 
     <Tabs.Content value="manual" class={showEntryModeTabs ? 'mt-4 space-y-4' : 'space-y-4'}>

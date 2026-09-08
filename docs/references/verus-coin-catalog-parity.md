@@ -5,16 +5,16 @@ last_reviewed: 2026-02-14
 
 # Verus coin catalog parity
 
-This document defines how desktop `lite-wallet` imports coin display metadata and
-iconography from `valu-mobile` (`newsend3`) without changing backend operational
-coin registry scope.
+This document defines how desktop `lite-wallet` imports coin display metadata
+and iconography from `valu-mobile` (`newsend3`) without changing backend
+operational coin registry scope.
 
 ## Source inputs
 
 - Coin metadata source:
   `/Users/maxtheyse/dev/valu-mobile/src/utils/CoinData/CoinsList.js`
-- CoinPaprika override source:
-  `coinsList[*].rate_url_params.coin_paprika` from the same `CoinsList.js`
+- CoinPaprika override source: `coinsList[*].rate_url_params.coin_paprika` from
+  the same `CoinsList.js`
 - Coin logo mapping source:
   `/Users/maxtheyse/dev/valu-mobile/src/utils/CoinData/CoinData.js`
 - Icon family indices:
@@ -35,9 +35,9 @@ Catalog entries may include `coinPaprikaId` when Valu defines
 ## Sync commands
 
 - Regenerate:
-  - `yarn sync:verus-coins`
+  - `pnpm sync:verus-coins`
 - Validate drift + parity invariants:
-  - `yarn check:verus-coins`
+  - `pnpm check:verus-coins`
 
 ## Runtime fallback rules
 
@@ -59,9 +59,9 @@ for the active account + network:
 
 1. Additional chains appear only when an asset on that chain is activated.
 2. The selected coin's root system is always included.
-3. Chain labels prefer native system definitions (`currency_id == system_id`) when
-   present, avoiding token-derived labels (for example, no `DAI` label for the
-   `vETH` system).
+3. Chain labels prefer native system definitions (`currency_id == system_id`)
+   when present, avoiding token-derived labels (for example, no `DAI` label for
+   the `vETH` system).
 
 ## Expected parity invariants
 

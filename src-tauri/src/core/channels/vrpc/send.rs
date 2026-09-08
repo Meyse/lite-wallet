@@ -1,5 +1,5 @@
 //
-// Module 5: VRPC send — load preflight record, sign with session WIF, broadcast. No sensitive data in logs.
+// Module 5: VRPC send — load preflight record, fetch key from Stronghold on demand, sign, broadcast.
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -11,7 +11,10 @@ use bitcoin::ScriptBuf;
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::store::PreflightStore;
 use crate::core::channels::vrpc::identity::verus_tx::codec::{
     decode_hex as decode_verus_tx, encode_hex as encode_verus_tx_hex,
@@ -27,49 +30,39 @@ use crate::core::channels::vrpc::identity::verus_tx::smart_sig::build_single_sig
 use crate::core::channels::vrpc::parse_vrpc_channel_id;
 use crate::core::channels::vrpc::preflight::VrpcPreflightPayload;
 use crate::core::channels::vrpc::provider::VrpcProviderPool;
-use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::transaction::SendResult;
-use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 const SIGHASH_ALL: u32 = 1u32;
 
-/// Sign and broadcast a VRPC preflight. Uses WIF from session; never logs hex or keys.
+/// Sign and broadcast a VRPC preflight. Never logs transaction hex or keys.
 pub async fn send(
     preflight_id: &str,
     preflight_store: &PreflightStore,
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &VrpcProviderPool,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
-    let session = session_manager.lock().await;
-    let active_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?;
-    if active_id.as_str() != record.account_id {
+    if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
-    let wif = session.get_wif_for_signing()?;
-    let wallet_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
+    let wallet_network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let payload: VrpcPreflightPayload = serde_json::from_value(record.payload.clone())
         .map_err(|_| WalletError::InvalidPreflight)?;
 
-    let wif_network = match wallet_network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    };
-    let priv_key = decode_wif(&wif, wif_network)?;
     let secp = Secp256k1::new();
-    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&priv_key)
+    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&*private_key)
         .map_err(|_| WalletError::OperationFailed)?;
     let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
 
     let signed_hex = sign_payload(&payload, &secp, &secret_key, &public_key)?;
+    ensure_active_wallet_session(session_manager, &context.session_id).await?;
 
     let resolved_channel = parse_vrpc_channel_id(&record.channel_id, Some(&payload.from_address))?;
     let provider = provider_pool.for_system(wallet_network, &resolved_channel.system_id);

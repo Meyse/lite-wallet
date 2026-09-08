@@ -27,9 +27,9 @@ use crate::types::{
 };
 
 const SATOSHIS_PER_COIN: i64 = 100_000_000;
-const DEFAULT_FEE_SAT: i64 = 10_000;
+pub(crate) const DEFAULT_FEE_SAT: i64 = 10_000;
 const DUST_SAT: i64 = 546;
-const IDENTITY_PREFLIGHT_TTL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const IDENTITY_PREFLIGHT_TTL: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,22 +69,22 @@ pub struct IdentityPreflightPayload {
 }
 
 #[derive(Debug, Clone)]
-struct TargetIdentityState {
-    status: String,
-    txid: String,
-    vout: u32,
-    identity: Value,
+pub(crate) struct TargetIdentityState {
+    pub(crate) status: String,
+    pub(crate) txid: String,
+    pub(crate) vout: u32,
+    pub(crate) identity: Value,
 }
 
 #[derive(Debug, Clone)]
-struct FundingUtxo {
+pub(crate) struct FundingUtxo {
     txid: String,
     vout: u32,
     satoshis: i64,
     script_pub_key: String,
 }
 
-fn sat_to_decimal_string(sat: i64) -> String {
+pub(crate) fn sat_to_decimal_string(sat: i64) -> String {
     format!("{:.8}", sat as f64 / SATOSHIS_PER_COIN as f64)
 }
 
@@ -115,7 +115,7 @@ fn parse_string(value: Option<&Value>) -> Option<String> {
     value?.as_str().map(ToString::to_string)
 }
 
-fn parse_target_identity(raw: Value) -> Result<TargetIdentityState, WalletError> {
+pub(crate) fn parse_target_identity(raw: Value) -> Result<TargetIdentityState, WalletError> {
     let status = parse_string(raw.get("status")).ok_or(WalletError::IdentityNotFound)?;
     let txid = parse_string(raw.get("txid")).ok_or(WalletError::IdentityNotFound)?;
     let vout = parse_u32(raw.get("vout")).ok_or(WalletError::IdentityNotFound)?;
@@ -132,7 +132,7 @@ fn parse_target_identity(raw: Value) -> Result<TargetIdentityState, WalletError>
     })
 }
 
-fn map_identity_lookup_error(err: WalletError) -> WalletError {
+pub(crate) fn map_identity_lookup_error(err: WalletError) -> WalletError {
     match err {
         WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
         WalletError::NetworkError => WalletError::NetworkError,
@@ -153,11 +153,11 @@ fn parse_raw_tx_hex(raw: Value) -> Result<String, WalletError> {
     Err(WalletError::IdentityBuildFailed)
 }
 
-fn parse_updateidentity_hex(raw: Value) -> Result<String, WalletError> {
+pub(crate) fn parse_updateidentity_hex(raw: Value) -> Result<String, WalletError> {
     parse_raw_tx_hex(raw).map_err(|_| WalletError::IdentityBuildFailed)
 }
 
-fn parse_funding_utxos(raw: &Value) -> Vec<FundingUtxo> {
+pub(crate) fn parse_funding_utxos(raw: &Value) -> Vec<FundingUtxo> {
     let Some(arr) = raw.as_array() else {
         return vec![];
     };
@@ -182,7 +182,7 @@ fn parse_funding_utxos(raw: &Value) -> Vec<FundingUtxo> {
         .collect()
 }
 
-fn total_satoshis(utxos: &[FundingUtxo]) -> i64 {
+pub(crate) fn total_satoshis(utxos: &[FundingUtxo]) -> i64 {
     utxos.iter().map(|utxo| utxo.satoshis).sum()
 }
 
@@ -196,7 +196,7 @@ fn classify_sign_mode(script_hex: &str) -> Result<IdentitySignMode, WalletError>
     Ok(mode.into())
 }
 
-fn build_unsigned_identity_tx(
+pub(crate) fn build_unsigned_identity_tx(
     template_tx: &mut VerusTx,
     identity_txid: &str,
     identity_vout: u32,
@@ -322,7 +322,7 @@ fn add_operation_warnings(
     }
 }
 
-async fn fetch_identity_prevout(
+pub(crate) async fn fetch_identity_prevout(
     provider: &VrpcProvider,
     identity_txid: &str,
     identity_vout: u32,
@@ -346,6 +346,7 @@ pub async fn preflight(
     params: IdentityPreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     from_address: &str,
     channel_id: &str,
     provider: &VrpcProvider,
@@ -447,15 +448,18 @@ pub async fn preflight(
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;
 
-    preflight_store.put_with_ttl(
+    if !preflight_store.put_with_ttl(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: payload_value,
         },
         Some(IDENTITY_PREFLIGHT_TTL),
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     Ok(IdentityPreflightResult {
         preflight_id,

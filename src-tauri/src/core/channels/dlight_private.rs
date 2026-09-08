@@ -276,22 +276,18 @@ pub fn derive_spending_key(
         bip39::Mnemonic::parse(normalized).map_err(|_| WalletError::InvalidSeedPhrase)?;
     let seed_bytes = mnemonic.to_seed_normalized("").to_vec();
     let extsk = match network {
-        WalletNetwork::Mainnet => UnifiedSpendingKey::from_seed(
-            &MainNetwork,
-            seed_bytes.as_slice(),
-            AccountId::ZERO,
-        )
-        .map_err(|_| WalletError::InvalidSeedPhrase)?
-        .sapling()
-        .clone(),
-        WalletNetwork::Testnet => UnifiedSpendingKey::from_seed(
-            &TestNetwork,
-            seed_bytes.as_slice(),
-            AccountId::ZERO,
-        )
-        .map_err(|_| WalletError::InvalidSeedPhrase)?
-        .sapling()
-        .clone(),
+        WalletNetwork::Mainnet => {
+            UnifiedSpendingKey::from_seed(&MainNetwork, seed_bytes.as_slice(), AccountId::ZERO)
+                .map_err(|_| WalletError::InvalidSeedPhrase)?
+                .sapling()
+                .clone()
+        }
+        WalletNetwork::Testnet => {
+            UnifiedSpendingKey::from_seed(&TestNetwork, seed_bytes.as_slice(), AccountId::ZERO)
+                .map_err(|_| WalletError::InvalidSeedPhrase)?
+                .sapling()
+                .clone()
+        }
     };
 
     Ok(encode_extended_spending_key(hrp, &extsk))

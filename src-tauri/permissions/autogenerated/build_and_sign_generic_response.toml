@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-build-and-sign-generic-response"
+description = "Enables the build_and_sign_generic_response command without any pre-configured scope."
+commands.allow = ["build_and_sign_generic_response"]
+
+[[permission]]
+identifier = "deny-build-and-sign-generic-response"
+description = "Denies the build_and_sign_generic_response command without any pre-configured scope."
+commands.deny = ["build_and_sign_generic_response"]

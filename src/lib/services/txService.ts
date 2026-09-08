@@ -3,11 +3,11 @@
  * Security: No tx hex or signing data; send by preflight_id only.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import type { PreflightParams, PreflightResult, SendRequest, SendResult } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export async function preflightSend(params: PreflightParams): Promise<PreflightResult> {
-  return invoke<PreflightResult>('preflight_send', {
+  return invokeWalletCommand<PreflightResult>('preflight_send', {
     params: {
       coinId: params.coinId,
       channelId: params.channelId,
@@ -19,7 +19,7 @@ export async function preflightSend(params: PreflightParams): Promise<PreflightR
 }
 
 export async function sendTransaction(request: SendRequest): Promise<SendResult> {
-  return invoke<SendResult>('send_transaction', {
+  return invokeWalletCommand<SendResult>('send_transaction', {
     request: { preflightId: request.preflightId }
   });
 }

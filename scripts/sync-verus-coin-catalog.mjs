@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile as execFileCallback } from 'node:child_process';
-import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
@@ -483,14 +483,14 @@ async function main() {
 
   if (checkMode) {
     await checkOutputs(payload);
-    console.log(
+    console.info(
       `verus coin catalog up-to-date (${payload.counts.totalCoins} coins, ${payload.counts.directLogoHits} direct logo hits, ${payload.counts.generatedIcons} generated fallbacks).`
     );
     return;
   }
 
   await writeOutputs(payload);
-  console.log(
+  console.info(
     `verus coin catalog synced (${payload.counts.totalCoins} coins, ${payload.counts.directLogoHits} direct logo hits, ${payload.counts.generatedIcons} generated fallbacks).`
   );
 }

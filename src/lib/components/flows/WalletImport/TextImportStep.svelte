@@ -18,7 +18,7 @@
     helperKey?: string;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     importTextInput = '',
     onInputChanged = defaultOnInputChanged,
@@ -26,7 +26,7 @@
     placeholderKey = 'walletImport.text.placeholder',
     helperKey = 'walletImport.text.helper'
   }: TextImportStepProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   let localValue = $state('');
   const i18n = $derived($i18nStore);

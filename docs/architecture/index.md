@@ -27,7 +27,8 @@ details.
 ## Key code entry points
 
 - Wallet page startup and event bridge setup: `src/routes/wallet/+page.svelte`
-- Send flow state machine: `src/lib/machines/txMachine.ts`
+- Send flow orchestration:
+  `src/lib/components/wallet/sections/TransferWizard.svelte`
 - Event bridge: `src/lib/services/eventBridge.ts`
 - Transaction commands: `src-tauri/src/commands/transaction.rs`
 - Preflight store: `src-tauri/src/core/channels/store.rs`

@@ -140,24 +140,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .coin-icon-surface--private-muted {
-    filter: grayscale(1) saturate(0.05);
-    opacity: 0.72;
-    -webkit-mask-image: linear-gradient(
-      145deg,
-      rgba(0, 0, 0, 1) 0%,
-      rgba(0, 0, 0, 0.62) 46%,
-      rgba(0, 0, 0, 0.1) 78%,
-      rgba(0, 0, 0, 0) 100%
-    );
-    mask-image: linear-gradient(
-      145deg,
-      rgba(0, 0, 0, 1) 0%,
-      rgba(0, 0, 0, 0.62) 46%,
-      rgba(0, 0, 0, 0.1) 78%,
-      rgba(0, 0, 0, 0) 100%
-    );
-  }
-</style>

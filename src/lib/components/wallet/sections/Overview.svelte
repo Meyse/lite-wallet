@@ -60,7 +60,7 @@
     onNavigateToConvert = () => {}
   }: {
     walletData: WalletData;
-    // eslint-disable-next-line no-unused-vars
+     
     onOpenAssetDetails?: (_entry: WalletEntrySelection) => void;
     onNavigateToSend?: () => void;
     onNavigateToReceive?: () => void;
@@ -503,9 +503,7 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pb-6 pt-0 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div
-      class={`z-10 bg-background pb-4 pt-3 sm:pt-4 dark:bg-[#111111] ${
-        hasOverviewScroll ? 'shadow-[0_10px_22px_-18px_rgba(0,0,0,0.72)]' : ''
-      }`}
+      class={`z-10 bg-background pb-4 pt-3 sm:pt-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
       <div class="flex items-start justify-between gap-4">
         <div class="relative z-20 min-w-0">
@@ -701,7 +699,7 @@
 
       {#if !isBootstrapping && canScrollDown}
         <div
-          class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-[#111111]"
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
         ></div>
       {/if}
 

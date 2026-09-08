@@ -1,14 +1,14 @@
 <script lang="ts">
   import AlertTriangleIcon from '@lucide/svelte/icons/alert-triangle';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-  import CheckIcon from '@lucide/svelte/icons/check';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import Link2OffIcon from '@lucide/svelte/icons/link-2-off';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import { i18nStore } from '$lib/i18n';
   import type { IdentityDetails } from '$lib/types/wallet.js';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
 
   const noop = (): void => {};
@@ -20,13 +20,14 @@
     onUnlink?: () => void;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { details, unlinking = false, onBack = noop, onUnlink = noop }: IdentityDetailViewProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
 
-  let copiedKey = $state<string | null>(null);
+  const copiedKeyState = new TimedValueState<string>();
+  const copiedKey = $derived(copiedKeyState.current);
 
   const displayName = $derived(formatIdentityDisplayName(details));
 
@@ -46,16 +47,14 @@
   async function copyValue(value: string | null | undefined, key: string) {
     if (!value || !value.trim()) return;
 
-    try {
-      await globalThis.navigator.clipboard.writeText(value);
-      copiedKey = key;
+    if (await writeClipboardText(value)) {
+      copiedKeyState.set(key, 1500);
       toast.success(i18n.t('wallet.identity.detail.copySuccess'));
-      setTimeout(() => {
-        if (copiedKey === key) copiedKey = null;
-      }, 1500);
-    } catch {
-      toast.error(i18n.t('wallet.identity.detail.copyFailed'));
+      return;
     }
+
+    copiedKeyState.clear();
+    toast.error(i18n.t('wallet.identity.detail.copyFailed'));
   }
 
   const revokeAuthorityExternal = $derived(
@@ -114,18 +113,12 @@
           <p class="text-xs text-muted-foreground">{i18n.t('wallet.identity.detail.fields.iAddress')}</p>
           <p class="truncate font-mono text-foreground">{details.identityAddress}</p>
         </div>
-        <button
-          type="button"
-          class="text-muted-foreground hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+        <CopyButton
+          copied={copiedKey === 'iAddress'}
           onclick={() => copyValue(details.identityAddress, 'iAddress')}
           aria-label={i18n.t('wallet.identity.detail.copy')}
-        >
-          {#if copiedKey === 'iAddress'}
-            <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-300" />
-          {:else}
-            <CopyIcon class="size-4" />
-          {/if}
-        </button>
+          copiedIconClass="size-4 text-emerald-600 dark:text-emerald-300"
+        />
       </div>
 
       <div class="flex items-center justify-between gap-3 rounded-md bg-background/55 px-3 py-2 dark:bg-background/40">
@@ -154,18 +147,12 @@
           <p class="truncate text-foreground">{showValue(details.revocationAuthority)}</p>
         </div>
         {#if details.revocationAuthority}
-          <button
-            type="button"
-            class="text-muted-foreground hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+          <CopyButton
+            copied={copiedKey === 'revocationAuthority'}
             onclick={() => copyValue(details.revocationAuthority, 'revocationAuthority')}
             aria-label={i18n.t('wallet.identity.detail.copy')}
-          >
-            {#if copiedKey === 'revocationAuthority'}
-              <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-300" />
-            {:else}
-              <CopyIcon class="size-4" />
-            {/if}
-          </button>
+            copiedIconClass="size-4 text-emerald-600 dark:text-emerald-300"
+          />
         {/if}
       </div>
 
@@ -175,18 +162,12 @@
           <p class="truncate text-foreground">{showValue(details.recoveryAuthority)}</p>
         </div>
         {#if details.recoveryAuthority}
-          <button
-            type="button"
-            class="text-muted-foreground hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+          <CopyButton
+            copied={copiedKey === 'recoveryAuthority'}
             onclick={() => copyValue(details.recoveryAuthority, 'recoveryAuthority')}
             aria-label={i18n.t('wallet.identity.detail.copy')}
-          >
-            {#if copiedKey === 'recoveryAuthority'}
-              <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-300" />
-            {:else}
-              <CopyIcon class="size-4" />
-            {/if}
-          </button>
+            copiedIconClass="size-4 text-emerald-600 dark:text-emerald-300"
+          />
         {/if}
       </div>
     </div>
@@ -204,18 +185,12 @@
         {#each details.primaryAddresses as address, index (address)}
           <div class="flex items-center justify-between gap-3 rounded-md bg-background/55 px-3 py-2 dark:bg-background/40">
             <p class="truncate font-mono text-sm text-foreground">{address}</p>
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+            <CopyButton
+              copied={copiedKey === `primary-${index}`}
               onclick={() => copyValue(address, `primary-${index}`)}
               aria-label={i18n.t('wallet.identity.detail.copy')}
-            >
-              {#if copiedKey === `primary-${index}`}
-                <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-300" />
-              {:else}
-                <CopyIcon class="size-4" />
-              {/if}
-            </button>
+              copiedIconClass="size-4 text-emerald-600 dark:text-emerald-300"
+            />
           </div>
         {/each}
       </div>
@@ -227,18 +202,12 @@
       <h3 class="text-sm font-semibold text-foreground">{i18n.t('wallet.identity.detail.sections.privateAddress')}</h3>
       <div class="flex items-center justify-between gap-3 rounded-md bg-background/55 px-3 py-2 dark:bg-background/40">
         <p class="truncate font-mono text-sm text-foreground">{details.privateAddress}</p>
-        <button
-          type="button"
-          class="text-muted-foreground hover:text-foreground inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+        <CopyButton
+          copied={copiedKey === 'privateAddress'}
           onclick={() => copyValue(details.privateAddress, 'privateAddress')}
           aria-label={i18n.t('wallet.identity.detail.copy')}
-        >
-          {#if copiedKey === 'privateAddress'}
-            <CheckIcon class="size-4 text-emerald-600 dark:text-emerald-300" />
-          {:else}
-            <CopyIcon class="size-4" />
-          {/if}
-        </button>
+          copiedIconClass="size-4 text-emerald-600 dark:text-emerald-300"
+        />
       </div>
     </section>
   {/if}

@@ -1,4 +1,7 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use ethers::abi::Abi;
 use ethers::contract::Contract;
@@ -9,7 +12,11 @@ use ethers::types::Bytes;
 use ethers::types::{Address, Eip1559TransactionRequest, U256};
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::session::ActiveWalletAccessContext;
+use crate::core::auth::{
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager, SessionSubmissionGuard,
+};
 use crate::core::channels::eth::bridge::delegator::{
     CcurrencyValueMap, CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
 };
@@ -17,7 +24,6 @@ use crate::core::channels::eth::preflight::EthPreflightPayload;
 use crate::core::channels::eth::provider::EthProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
-use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 const ERC20_TRANSFER_ABI: &str = r#"[
@@ -46,40 +52,120 @@ const ERC20_APPROVE_ABI: &str = r#"[
   }
 ]"#;
 
+struct SessionBoundSubmission<F> {
+    future: Pin<Box<F>>,
+    guard: SessionSubmissionGuard,
+}
+
+impl<F> SessionBoundSubmission<F> {
+    fn new(future: F, guard: SessionSubmissionGuard) -> Self {
+        Self {
+            future: Box::pin(future),
+            guard,
+        }
+    }
+}
+
+impl<T, F> Future for SessionBoundSubmission<F>
+where
+    F: Future<Output = Result<T, WalletError>>,
+{
+    type Output = Result<T, WalletError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        let guard = this.guard.clone();
+        guard.poll_admitted(|| this.future.as_mut().poll(cx))
+    }
+}
+
+#[derive(Clone)]
+struct SessionBoundEthOperation {
+    session_manager: Arc<Mutex<SessionManager>>,
+    session_id: String,
+    submission_guard: SessionSubmissionGuard,
+}
+
+impl SessionBoundEthOperation {
+    fn new(
+        session_manager: &Arc<Mutex<SessionManager>>,
+        context: &ActiveWalletAccessContext,
+    ) -> Self {
+        Self {
+            session_manager: Arc::clone(session_manager),
+            session_id: context.session_id.clone(),
+            submission_guard: context.session_submission_guard(),
+        }
+    }
+
+    /// Await reversible network work and verify the same unlock instance both
+    /// before and after the await. The main session mutex is never held while
+    /// the network future is pending.
+    async fn wait<T, F>(&self, future: F) -> Result<T, WalletError>
+    where
+        F: Future<Output = Result<T, WalletError>>,
+    {
+        ensure_active_wallet_session(&self.session_manager, &self.session_id).await?;
+        let cancellation = self.submission_guard.cancellation();
+        let value = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Err(WalletError::WalletLocked),
+            result = future => result?,
+        };
+        ensure_active_wallet_session(&self.session_manager, &self.session_id).await?;
+        Ok(value)
+    }
+
+    async fn submit<T, F>(&self, future: F) -> Result<T, WalletError>
+    where
+        F: Future<Output = Result<T, WalletError>>,
+    {
+        ensure_active_wallet_session(&self.session_manager, &self.session_id).await?;
+        self.submit_after_validation(future).await
+    }
+
+    /// Atomically orders invalidation against every poll of the submission
+    /// future. Invalidation first means the provider future cannot advance.
+    /// A poll admitted first may already transmit the RPC request before it
+    /// returns; cancellation cannot undo that submitted request, so its broadcast
+    /// outcome must be reconciled before any retry.
+    async fn submit_after_validation<T, F>(&self, future: F) -> Result<T, WalletError>
+    where
+        F: Future<Output = Result<T, WalletError>>,
+    {
+        let cancellation = self.submission_guard.cancellation();
+        let submission = SessionBoundSubmission::new(future, self.submission_guard.clone());
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(WalletError::WalletLocked),
+            result = submission => result,
+        }
+    }
+}
+
 pub async fn send(
     preflight_id: &str,
     preflight_store: &PreflightStore,
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &EthProviderPool,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
     let payload: EthPreflightPayload =
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
 
-    let session = session_manager.lock().await;
-    let active_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?;
-    if active_id.as_str() != record.account_id {
+    if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
 
-    let wallet_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let eth_private_key = session.get_eth_private_key_for_signing()?;
-    drop(session);
+    let wallet_network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let network_provider = provider_pool.for_network(wallet_network)?;
-    let private_hex = if eth_private_key.starts_with("0x") {
-        eth_private_key
-    } else {
-        format!("0x{}", eth_private_key)
-    };
-
-    let wallet = private_hex
-        .parse::<LocalWallet>()
+    let wallet = LocalWallet::from_bytes(&*private_key)
         .map_err(|_| WalletError::OperationFailed)?
         .with_chain_id(network_provider.chain_id);
 
@@ -87,6 +173,8 @@ pub async fn send(
         network_provider.rpc_provider.clone(),
         wallet,
     ));
+    ensure_active_wallet_session(session_manager, &context.session_id).await?;
+    let session_operation = SessionBoundEthOperation::new(session_manager, &context);
 
     match payload {
         EthPreflightPayload::Eth {
@@ -120,10 +208,14 @@ pub async fn send(
                 .max_priority_fee_per_gas(max_priority_fee_per_gas)
                 .chain_id(network_provider.chain_id);
 
-            let pending = signer
-                .send_transaction(tx, None)
-                .await
-                .map_err(|_| WalletError::NetworkError)?;
+            let pending = session_operation
+                .submit(async {
+                    signer
+                        .send_transaction(tx, None)
+                        .await
+                        .map_err(|_| WalletError::NetworkError)
+                })
+                .await?;
 
             Ok(SendResult {
                 txid: format!("{:#x}", pending.tx_hash()),
@@ -161,11 +253,15 @@ pub async fn send(
             let max_priority_fee_per_gas = parse_u256(&max_priority_fee_per_gas)?;
             let max_fee_cap = parse_u256(&max_fee_cap)?;
 
-            let fee_data = network_provider
-                .rpc_provider
-                .estimate_eip1559_fees(None)
-                .await
-                .map_err(|_| WalletError::NetworkError)?;
+            let fee_data = session_operation
+                .wait(async {
+                    network_provider
+                        .rpc_provider
+                        .estimate_eip1559_fees(None)
+                        .await
+                        .map_err(|_| WalletError::NetworkError)
+                })
+                .await?;
             let current_max_fee = fee_data.0;
 
             if fee_drift_exceeds_cap(gas_limit, current_max_fee, max_fee_cap) {
@@ -185,10 +281,14 @@ pub async fn send(
                 .gas(gas_limit)
                 .gas_price(max_fee_per_gas.max(max_priority_fee_per_gas));
 
-            let pending = configured_call
-                .send()
-                .await
-                .map_err(|_| WalletError::NetworkError)?;
+            let pending = session_operation
+                .submit(async {
+                    configured_call
+                        .send()
+                        .await
+                        .map_err(|_| WalletError::NetworkError)
+                })
+                .await?;
 
             Ok(SendResult {
                 txid: format!("{:#x}", pending.tx_hash()),
@@ -263,11 +363,15 @@ pub async fn send(
             let max_priority_fee_per_gas = parse_u256(&max_priority_fee_per_gas)?;
             let max_fee_cap = parse_u256(&max_fee_cap)?;
 
-            let fee_data = network_provider
-                .rpc_provider
-                .estimate_eip1559_fees(None)
-                .await
-                .map_err(|_| WalletError::NetworkError)?;
+            let fee_data = session_operation
+                .wait(async {
+                    network_provider
+                        .rpc_provider
+                        .estimate_eip1559_fees(None)
+                        .await
+                        .map_err(|_| WalletError::NetworkError)
+                })
+                .await?;
             let current_max_fee = fee_data.0;
             if fee_drift_exceeds_cap(gas_limit, current_max_fee, max_fee_cap) {
                 return Err(WalletError::BridgeGasDriftExceeded);
@@ -293,11 +397,17 @@ pub async fn send(
                         .from(parsed_from)
                         .gas(approval_gas_limit)
                         .gas_price(approval_gas_price);
-                    let zero_pending = zero_call
-                        .send()
-                        .await
-                        .map_err(|_| WalletError::NetworkError)?;
-                    let zero_receipt = zero_pending.await.map_err(|_| WalletError::NetworkError)?;
+                    let zero_pending = session_operation
+                        .submit(async {
+                            zero_call
+                                .send()
+                                .await
+                                .map_err(|_| WalletError::NetworkError)
+                        })
+                        .await?;
+                    let zero_receipt = session_operation
+                        .wait(async { zero_pending.await.map_err(|_| WalletError::NetworkError) })
+                        .await?;
                     let zero_ok = zero_receipt
                         .and_then(|receipt| receipt.status)
                         .map(|status| status.as_u64() == 1)
@@ -314,13 +424,21 @@ pub async fn send(
                     .from(parsed_from)
                     .gas(approval_gas_limit)
                     .gas_price(approval_gas_price);
-                let approval_pending = approval_call
-                    .send()
-                    .await
-                    .map_err(|_| WalletError::NetworkError)?;
-                let approval_receipt = approval_pending
-                    .await
-                    .map_err(|_| WalletError::NetworkError)?;
+                let approval_pending = session_operation
+                    .submit(async {
+                        approval_call
+                            .send()
+                            .await
+                            .map_err(|_| WalletError::NetworkError)
+                    })
+                    .await?;
+                let approval_receipt = session_operation
+                    .wait(async {
+                        approval_pending
+                            .await
+                            .map_err(|_| WalletError::NetworkError)
+                    })
+                    .await?;
                 let approval_ok = approval_receipt
                     .and_then(|receipt| receipt.status)
                     .map(|status| status.as_u64() == 1)
@@ -355,10 +473,14 @@ pub async fn send(
                 .gas(transfer_gas_limit)
                 .gas_price(max_fee_per_gas.max(max_priority_fee_per_gas))
                 .value(transfer_value_wei);
-            let pending = send_transfer_call
-                .send()
-                .await
-                .map_err(|_| WalletError::NetworkError)?;
+            let pending = session_operation
+                .submit(async {
+                    send_transfer_call
+                        .send()
+                        .await
+                        .map_err(|_| WalletError::NetworkError)
+                })
+                .await?;
 
             Ok(SendResult {
                 txid: format!("{:#x}", pending.tx_hash()),
@@ -398,8 +520,85 @@ fn fee_drift_exceeds_cap(
 
 #[cfg(test)]
 mod tests {
-    use super::fee_drift_exceeds_cap;
+    use super::{fee_drift_exceeds_cap, SessionBoundEthOperation, SessionBoundSubmission};
+    use crate::core::auth::{
+        capture_active_wallet_access_context, ensure_active_wallet_session, SessionManager,
+    };
+    use crate::core::crypto::{derive_public_profile_from_material, Network};
+    use crate::core::StrongholdStore;
+    use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+    use crate::types::WalletError;
     use ethers::types::U256;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Waker};
+    use tokio::sync::{Mutex, Notify};
+    use zeroize::Zeroizing;
+
+    async fn test_operation() -> (Arc<Mutex<SessionManager>>, SessionBoundEthOperation) {
+        let path = std::env::temp_dir().join(format!(
+            "lite_wallet_eth_send_session_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(path),
+        )));
+        unlock(&session, "initial unlock").await;
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .expect("active context");
+        let operation = SessionBoundEthOperation::new(&session, &context);
+        (session, operation)
+    }
+
+    async fn unlock(session: &Arc<Mutex<SessionManager>>, material: &str) {
+        let profile = derive_public_profile_from_material(
+            material,
+            WalletSecretKind::SeedText,
+            Network::Mainnet,
+        )
+        .expect("public profile");
+        session.lock().await.unlock_with_profile(
+            "account-1".to_string(),
+            WalletNetwork::Mainnet,
+            WalletSecretKind::SeedText,
+            profile,
+            Zeroizing::new(vec![1, 2, 3]),
+        );
+    }
+
+    async fn lock_and_reunlock_same_account(session: &Arc<Mutex<SessionManager>>) {
+        session.lock().await.lock();
+        unlock(session, "replacement unlock").await;
+    }
+
+    struct BroadcastOnSecondPoll {
+        polls: Arc<AtomicUsize>,
+        broadcasts: Arc<AtomicUsize>,
+    }
+
+    impl Future for BroadcastOnSecondPoll {
+        type Output = Result<(), WalletError>;
+
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            if self.polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Poll::Pending
+            } else {
+                self.broadcasts.fetch_add(1, Ordering::SeqCst);
+                Poll::Ready(Ok(()))
+            }
+        }
+    }
+
+    struct DropMarker(Arc<AtomicBool>);
+
+    impl Drop for DropMarker {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
 
     #[test]
     fn fee_drift_exceeds_cap_returns_true_when_current_fee_is_higher_than_preflight_cap() {
@@ -417,5 +616,182 @@ mod tests {
         let cap = U256::from(3_900_000u64);
 
         assert!(!fee_drift_exceeds_cap(gas_limit, current_fee, cap));
+    }
+
+    #[tokio::test]
+    async fn eth_lock_after_final_validation_prevents_submission_admission() {
+        let (session, operation) = test_operation().await;
+        ensure_active_wallet_session(&session, &operation.session_id)
+            .await
+            .expect("final validation");
+        lock_and_reunlock_same_account(&session).await;
+
+        let polls = Arc::new(AtomicUsize::new(0));
+        let submission_polls = Arc::clone(&polls);
+        let result = operation
+            .submit_after_validation(async move {
+                submission_polls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .await;
+
+        assert!(matches!(result, Err(WalletError::WalletLocked)));
+        assert_eq!(polls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn eth_invalidation_between_pending_polls_prevents_later_broadcast() {
+        let (session, operation) = test_operation().await;
+        let polls = Arc::new(AtomicUsize::new(0));
+        let broadcasts = Arc::new(AtomicUsize::new(0));
+        let future = BroadcastOnSecondPoll {
+            polls: Arc::clone(&polls),
+            broadcasts: Arc::clone(&broadcasts),
+        };
+        let mut submission = Box::pin(SessionBoundSubmission::new(
+            future,
+            operation.submission_guard.clone(),
+        ));
+
+        {
+            let waker = Waker::noop();
+            let mut context = Context::from_waker(waker);
+            assert!(submission.as_mut().poll(&mut context).is_pending());
+        }
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+        assert_eq!(broadcasts.load(Ordering::SeqCst), 0);
+
+        lock_and_reunlock_same_account(&session).await;
+
+        let result = {
+            let waker = Waker::noop();
+            let mut context = Context::from_waker(waker);
+            submission.as_mut().poll(&mut context)
+        };
+        assert!(matches!(
+            result,
+            Poll::Ready(Err(WalletError::WalletLocked))
+        ));
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+        assert_eq!(broadcasts.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn erc20_lock_during_fee_wait_prevents_transfer_submission() {
+        let (session, operation) = test_operation().await;
+        let fee_wait_started = Arc::new(Notify::new());
+        let transfer_submissions = Arc::new(AtomicUsize::new(0));
+        let task = tokio::spawn({
+            let fee_wait_started = Arc::clone(&fee_wait_started);
+            let transfer_submissions = Arc::clone(&transfer_submissions);
+            async move {
+                operation
+                    .wait(async move {
+                        fee_wait_started.notify_one();
+                        std::future::pending::<Result<(), WalletError>>().await
+                    })
+                    .await?;
+                operation
+                    .submit(async move {
+                        transfer_submissions.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await
+            }
+        });
+
+        fee_wait_started.notified().await;
+        lock_and_reunlock_same_account(&session).await;
+
+        let result = task.await.expect("fee wait task");
+        assert!(matches!(result, Err(WalletError::WalletLocked)));
+        assert_eq!(transfer_submissions.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn bridge_lock_during_approval_receipt_prevents_final_submission() {
+        let (session, operation) = test_operation().await;
+        let receipt_wait_started = Arc::new(Notify::new());
+        let approval_submissions = Arc::new(AtomicUsize::new(0));
+        let final_submissions = Arc::new(AtomicUsize::new(0));
+        let task = tokio::spawn({
+            let receipt_wait_started = Arc::clone(&receipt_wait_started);
+            let approval_submissions = Arc::clone(&approval_submissions);
+            let final_submissions = Arc::clone(&final_submissions);
+            async move {
+                operation
+                    .submit(async move {
+                        approval_submissions.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await?;
+                operation
+                    .wait(async move {
+                        receipt_wait_started.notify_one();
+                        std::future::pending::<Result<(), WalletError>>().await
+                    })
+                    .await?;
+                operation
+                    .submit(async move {
+                        final_submissions.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await
+            }
+        });
+
+        receipt_wait_started.notified().await;
+        lock_and_reunlock_same_account(&session).await;
+
+        let result = task.await.expect("approval receipt task");
+        assert!(matches!(result, Err(WalletError::WalletLocked)));
+        assert_eq!(approval_submissions.load(Ordering::SeqCst), 1);
+        assert_eq!(final_submissions.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn invalidation_drops_a_pending_submission_future() {
+        let (session, operation) = test_operation().await;
+        let submission_started = Arc::new(Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let task = tokio::spawn({
+            let submission_started = Arc::clone(&submission_started);
+            let dropped = Arc::clone(&dropped);
+            async move {
+                operation
+                    .submit(async move {
+                        let _drop_marker = DropMarker(dropped);
+                        submission_started.notify_one();
+                        std::future::pending::<Result<(), WalletError>>().await
+                    })
+                    .await
+            }
+        });
+
+        submission_started.notified().await;
+        lock_and_reunlock_same_account(&session).await;
+
+        let result = task.await.expect("pending submission task");
+        assert!(matches!(result, Err(WalletError::WalletLocked)));
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn session_bound_wait_and_submission_complete_for_active_session() {
+        let (_session, operation) = test_operation().await;
+        assert_eq!(
+            operation
+                .wait(async { Ok::<_, WalletError>(7) })
+                .await
+                .expect("reversible wait"),
+            7
+        );
+        assert_eq!(
+            operation
+                .submit(async { Ok::<_, WalletError>(11) })
+                .await
+                .expect("submission"),
+            11
+        );
     }
 }

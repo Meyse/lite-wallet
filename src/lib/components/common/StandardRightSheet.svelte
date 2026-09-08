@@ -18,7 +18,7 @@
     children?: Snippet;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     isOpen = $bindable(false),
     title,
@@ -28,7 +28,7 @@
     bodyClass = '',
     children
   }: StandardRightSheetProps = $props();
-  /* eslint-enable prefer-const */
+   
 </script>
 
 <Sheet.Root bind:open={isOpen}>

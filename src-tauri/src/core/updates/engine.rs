@@ -38,7 +38,6 @@ pub const EVENT_TRANSACTIONS_UPDATED: &str = "wallet://transactions-updated";
 pub const EVENT_INFO_UPDATED: &str = "wallet://info-updated";
 pub const EVENT_RATES_UPDATED: &str = "wallet://rates-updated";
 pub const EVENT_BOOTSTRAP_UPDATED: &str = "wallet://bootstrap-updated";
-pub const EVENT_SESSION_EXPIRED: &str = "wallet://session-expired";
 pub const EVENT_TX_SEND_PROGRESS: &str = "wallet://tx-send-progress";
 pub const EVENT_ERROR: &str = "wallet://error";
 const BOOTSTRAP_BALANCE_CONCURRENCY: usize = 4;
@@ -96,6 +95,7 @@ impl UpdateEngine {
     pub async fn start(
         &self,
         app_handle: AppHandle,
+        session_id: String,
         session_manager: Arc<Mutex<SessionManager>>,
         coin_registry: Arc<CoinRegistry>,
         vrpc_provider_pool: Arc<VrpcProviderPool>,
@@ -113,6 +113,7 @@ impl UpdateEngine {
             run_update_loop(
                 child,
                 app_handle,
+                session_id,
                 session_manager,
                 coin_registry,
                 vrpc_provider_pool,
@@ -648,12 +649,6 @@ fn emit_bootstrap_updated(app_handle: &AppHandle, in_progress: bool) {
     }
 }
 
-fn emit_session_expired(app_handle: &AppHandle) {
-    if let Err(err) = app_handle.emit(EVENT_SESSION_EXPIRED, ()) {
-        println!("[UPDATE] Emit session-expired failed: {:?}", err);
-    }
-}
-
 fn supports_info_polling(channel_id: &str) -> bool {
     channel_id.starts_with("vrpc.") || channel_id.starts_with("dlight_private.")
 }
@@ -1039,6 +1034,7 @@ async fn run_bootstrap_rate_fetches(
 async fn run_update_loop(
     cancel_token: CancellationToken,
     app_handle: AppHandle,
+    session_id: String,
     session_manager: Arc<Mutex<SessionManager>>,
     coin_registry: Arc<CoinRegistry>,
     vrpc_provider_pool: Arc<VrpcProviderPool>,
@@ -1066,19 +1062,10 @@ async fn run_update_loop(
             break;
         }
 
-        let mut session = session_manager.lock().await;
-        if session.is_expired() && session.active_account_id().is_some() {
-            println!("[UPDATE] Session expired; locking in-memory state");
-            session.lock();
-            drop(session);
-            emit_session_expired(&app_handle);
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {}
-            }
-            continue;
+        let session = session_manager.lock().await;
+        if session.active_session_id() != Some(session_id.as_str()) {
+            break;
         }
-
         if !session.is_unlocked() {
             drop(session);
             tokio::select! {

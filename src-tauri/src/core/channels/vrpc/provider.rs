@@ -26,7 +26,9 @@ const TTL_DELTAS: u64 = 10;
 const TTL_MEMPOOL: u64 = 10;
 const TTL_UTXOS: u64 = 5;
 const TTL_GETINFO: u64 = 1;
+const TTL_GETBLOCK: u64 = 600;
 const TTL_GETIDENTITY: u64 = 5;
+const TTL_GETIDENTITYCONTENT: u64 = 5;
 const TTL_GETIDENTITIES_WITH_ADDRESS: u64 = 5;
 const TTL_CURRENCY: u64 = 60;
 const TTL_LISTCURRENCIES: u64 = 600;
@@ -687,6 +689,16 @@ impl VrpcProvider {
             .await
     }
 
+    /// getblock: load a block by height or hash.
+    pub async fn getblock(&self, hash_or_height: &str) -> Result<Value, WalletError> {
+        if hash_or_height.trim().is_empty() {
+            return Err(WalletError::OperationFailed);
+        }
+
+        let params = serde_json::json!([hash_or_height]);
+        self.call("getblock", params, TTL_GETBLOCK).await
+    }
+
     /// getcurrency: resolve by i-address or fully-qualified currency name.
     pub async fn getcurrency(&self, currency: &str) -> Result<Value, WalletError> {
         if currency.trim().is_empty() {
@@ -823,6 +835,16 @@ impl VrpcProvider {
         }
         let params = serde_json::json!([identity]);
         self.call("getidentity", params, TTL_GETIDENTITY).await
+    }
+
+    /// getidentitycontent: resolve identity content and history by i-address or name.
+    pub async fn getidentitycontent(&self, identity: &str) -> Result<Value, WalletError> {
+        if identity.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        let params = serde_json::json!([identity]);
+        self.call("getidentitycontent", params, TTL_GETIDENTITYCONTENT)
+            .await
     }
 
     /// getidentitieswithaddress: discover identities associated with an R-address.

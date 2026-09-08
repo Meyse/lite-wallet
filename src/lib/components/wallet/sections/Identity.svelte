@@ -4,34 +4,67 @@
 -->
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import StarIcon from '@lucide/svelte/icons/star';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+  import Link2Icon from '@lucide/svelte/icons/link-2';
   import { toast } from 'svelte-sonner';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
+  import { queueGenericRequest } from '$lib/stores/genericRequest.js';
+  import * as genericRequestService from '$lib/services/genericRequestService.js';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
-  import type { IdentityDetails, LinkedIdentity } from '$lib/types/wallet.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
+  import type { IdentityDetails, LinkedIdentity, ProvisioningJobRecord } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import IdentityDetailView from './identity/IdentityDetailView.svelte';
+  import IdentityListSkeleton from './identity/IdentityListSkeleton.svelte';
   import LinkIdentitySheet from './identity/LinkIdentitySheet.svelte';
   import LinkedIdentityCard from './identity/LinkedIdentityCard.svelte';
   import LinkedIdentityRow from './identity/LinkedIdentityRow.svelte';
+  import {
+    createIdentitySectionSessionState,
+    type IdentitySectionSessionState
+  } from './identity/identitySectionSessionState.js';
 
-  /* eslint-disable prefer-const */
-  let { walletNetwork = 'mainnet' }: { walletNetwork?: 'mainnet' | 'testnet' } = $props();
-  /* eslint-enable prefer-const */
+   
+  const IDENTITY_SKELETON_DELAY_MS = 240;
+
+  const noop = (_nextState?: IdentitySectionSessionState): void => {};
+
+  let {
+    walletNetwork = 'mainnet',
+    sessionState = createIdentitySectionSessionState(),
+    onSessionStateChange = noop
+  }: {
+    walletNetwork?: 'mainnet' | 'testnet';
+    sessionState?: IdentitySectionSessionState;
+    onSessionStateChange?: (nextState: IdentitySectionSessionState) => void;
+  } = $props();
+   
 
   const i18n = $derived($i18nStore);
+  const initialSessionState = untrack(() => sessionState);
 
-  let loading = $state(true);
-  let error = $state('');
-  let linkedIdentities = $state<LinkedIdentity[]>([]);
+  let loading = $state(!initialSessionState.hasLoadedLinkedIdentitiesOnce);
+  let hasLoadedLinkedIdentitiesOnce = $state(initialSessionState.hasLoadedLinkedIdentitiesOnce);
+  let showDelayedIdentitySkeleton = $state(false);
+  let error = $state(initialSessionState.linkedIdentityError);
+  let linkedIdentities = $state<LinkedIdentity[]>([...initialSessionState.linkedIdentities]);
   let linkSheetOpen = $state(false);
+  let provisioningJobs = $state<ProvisioningJobRecord[]>([...initialSessionState.provisioningJobs]);
+  let provisioningLoading = $state(!initialSessionState.hasLoadedProvisioningOnce);
+  let provisioningError = $state(initialSessionState.provisioningError);
+  let hasLoadedProvisioningOnce = $state(initialSessionState.hasLoadedProvisioningOnce);
+  let provisioningBusyJobId = $state<string | null>(null);
+  let provisioningRefreshBusy = $state(false);
 
   let selectedIdentityAddress = $state<string | null>(null);
   let detailsLoading = $state(false);
@@ -91,6 +124,25 @@
   const hasVisibleIdentities = $derived(
     filteredFavoriteIdentities.length + filteredNonFavoriteIdentities.length > 0
   );
+  const showingInitialIdentityLoad = $derived(loading && !hasLoadedLinkedIdentitiesOnce);
+  const showBlockingIdentityError = $derived(
+    Boolean(error) && !hasLoadedLinkedIdentitiesOnce && linkedIdentities.length === 0
+  );
+  const showInlineIdentityError = $derived(Boolean(error) && !showBlockingIdentityError);
+  const visibleProvisioningJobs = $derived(
+    provisioningJobs.filter((job) => job.status !== 'linked')
+  );
+
+  $effect(() => {
+    onSessionStateChange({
+      linkedIdentities,
+      linkedIdentityError: error,
+      hasLoadedLinkedIdentitiesOnce,
+      provisioningJobs,
+      provisioningError,
+      hasLoadedProvisioningOnce
+    });
+  });
 
   $effect(() => {
     const query = listSearchInput;
@@ -101,16 +153,43 @@
     return () => clearTimeout(timer);
   });
 
-  onMount(async () => {
-    await loadLinkedIdentities();
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    if (!showingInitialIdentityLoad || linkedIdentities.length > 0) {
+      showDelayedIdentitySkeleton = false;
+    } else {
+      showDelayedIdentitySkeleton = false;
+      timer = setTimeout(() => {
+        showDelayedIdentitySkeleton = true;
+      }, IDENTITY_SKELETON_DELAY_MS);
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  });
+
+  onMount(() => {
+    if (hasLoadedLinkedIdentitiesOnce) {
+      void loadLinkedIdentities({ background: true });
+    } else {
+      void loadLinkedIdentities();
+    }
+
+    if (!hasLoadedProvisioningOnce) {
+      void loadProvisioningJobs(false);
+    }
   });
 
   function mapIdentityError(errorValue: unknown, fallbackKey: string): string {
+    if (isForcedWalletLockError(errorValue)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(errorValue);
 
     switch (errorType) {
-      case 'WalletLocked':
-        return i18n.t('wallet.identity.error.walletLocked');
       case 'IdentityOwnershipMismatch':
         return i18n.t('wallet.identity.error.ownershipMismatch');
       case 'IdentityNotFound':
@@ -129,12 +208,13 @@
     return i18n.t(fallbackKey);
   }
 
-  async function loadLinkedIdentities() {
+  async function loadLinkedIdentities({ background = false }: { background?: boolean } = {}) {
     loading = true;
     error = '';
 
     try {
       linkedIdentities = normalizeLinkedIdentities(await identityLinkService.getLinkedIdentities());
+      hasLoadedLinkedIdentitiesOnce = true;
     } catch (errorValue) {
       error = mapIdentityError(errorValue, 'wallet.identity.error.load');
     } finally {
@@ -144,6 +224,8 @@
 
   function applyLinkedIdentities(updatedLinked: LinkedIdentity[]) {
     linkedIdentities = normalizeLinkedIdentities(updatedLinked);
+    hasLoadedLinkedIdentitiesOnce = true;
+    error = '';
     if (!selectedIdentityAddress) return;
 
     const stillExists = linkedIdentities.some(
@@ -169,7 +251,10 @@
       });
       applyLinkedIdentities(updated);
     } catch (errorValue) {
-      toast.error(mapIdentityError(errorValue, 'wallet.identity.error.load'));
+      const message = mapIdentityError(errorValue, 'wallet.identity.error.load');
+      if (message) {
+        toast.error(message);
+      }
     } finally {
       favoriteBusyIdentityAddress = null;
     }
@@ -218,6 +303,118 @@
       unlinking = false;
     }
   }
+
+  function mapProvisioningError(errorValue: unknown): string {
+    if (isForcedWalletLockError(errorValue)) {
+      return '';
+    }
+
+    const errorType = extractWalletErrorType(errorValue);
+
+    switch (errorType) {
+      case 'IdentityOwnershipMismatch':
+        return i18n.t('wallet.identity.error.ownershipMismatch');
+      default:
+        break;
+    }
+
+    const extractedMessage = extractWalletErrorMessage(errorValue);
+    if (extractedMessage) return extractedMessage;
+
+    return i18n.t('wallet.identity.provisioning.errorLoad');
+  }
+
+  async function loadProvisioningJobs(refresh: boolean): Promise<void> {
+    if (refresh) {
+      provisioningRefreshBusy = true;
+    } else {
+      provisioningLoading = true;
+    }
+    provisioningError = '';
+
+    try {
+      provisioningJobs = refresh
+        ? await genericRequestService.refreshIdentityProvisioningJobs()
+        : await genericRequestService.listIdentityProvisioningJobs();
+      hasLoadedProvisioningOnce = true;
+    } catch (errorValue) {
+      provisioningError = mapProvisioningError(errorValue);
+    } finally {
+      provisioningLoading = false;
+      provisioningRefreshBusy = false;
+    }
+  }
+
+  function provisioningStatusLabel(status: string): string {
+    switch (status) {
+      case 'ready':
+        return i18n.t('wallet.identity.provisioning.status.ready');
+      case 'expired':
+        return i18n.t('wallet.identity.provisioning.status.expired');
+      case 'linked':
+        return i18n.t('wallet.identity.provisioning.status.linked');
+      default:
+        return i18n.t('wallet.identity.provisioning.status.pending');
+    }
+  }
+
+  function provisioningStatusBadgeClass(status: string): string {
+    switch (status) {
+      case 'ready':
+        return 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
+      case 'expired':
+        return 'bg-destructive/10 text-destructive';
+      case 'linked':
+        return 'bg-primary/10 text-primary';
+      default:
+        return 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300';
+    }
+  }
+
+  async function openProvisioningInfo(url: string): Promise<void> {
+    try {
+      await openUrl(url);
+    } catch (errorValue) {
+      const message = mapProvisioningError(errorValue);
+      if (message) {
+        toast.error(message);
+      }
+    }
+  }
+
+  async function handleLinkProvisioningJob(job: ProvisioningJobRecord): Promise<void> {
+    if (provisioningBusyJobId) return;
+
+    provisioningBusyJobId = job.jobId;
+    provisioningError = '';
+
+    try {
+      const result = await genericRequestService.linkReadyIdentityProvisioning(job.jobId);
+      applyLinkedIdentities(result.linkedIdentities);
+      provisioningJobs = provisioningJobs.map((entry) =>
+        entry.jobId === result.job.jobId ? result.job : entry
+      );
+
+      if (job.hasResponseUris) {
+        queueGenericRequest({
+          input: job.requestHex,
+          passthroughAutoLinkFqn: job.requestedFqn,
+          source: 'provisioning'
+        });
+        toast.success(i18n.t('wallet.identity.provisioning.linkAndContinueQueued'));
+      } else {
+        toast.success(i18n.t('wallet.identity.provisioning.linked'));
+      }
+    } catch (errorValue) {
+      const message = mapProvisioningError(errorValue);
+      provisioningError = message;
+      if (message) {
+        toast.error(message);
+      }
+    } finally {
+      provisioningBusyJobId = null;
+    }
+  }
 </script>
 
 {#if showingDetail}
@@ -256,118 +453,241 @@
     />
   {/if}
 {:else}
-  <div class="mx-auto flex h-full w-full max-w-5xl flex-col p-6">
+  <div class="mx-auto flex h-full w-full max-w-5xl flex-col p-6" aria-busy={loading}>
     {#if loading}
-      <p class="text-sm text-muted-foreground">{i18n.t('wallet.identity.loading')}</p>
-    {:else if error}
-      <div class="space-y-3">
-        <p class="rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">{error}</p>
-        <Button variant="secondary" class="w-fit" onclick={loadLinkedIdentities}>
-          {i18n.t('common.retry')}
-        </Button>
-      </div>
-    {:else if linkedIdentities.length === 0}
-      <div class="-mt-6 flex h-full flex-col items-center justify-center px-6 py-12 text-center">
-        <div class="bg-background/70 text-primary inline-flex size-14 items-center justify-center rounded-full dark:bg-background/40">
-          <VerusIdAtIcon class="size-6" inverted />
+      <p class="sr-only" role="status">{i18n.t('wallet.identity.loading')}</p>
+    {/if}
+
+    {#if provisioningLoading || provisioningError || visibleProvisioningJobs.length > 0}
+      <section class={`${linkedIdentities.length === 0 ? 'mb-8' : 'mb-6'} rounded-2xl border border-border/70 bg-muted/18 p-4`}>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-sm font-semibold text-foreground">{i18n.t('wallet.identity.provisioning.title')}</p>
+            <p class="mt-1 text-sm text-muted-foreground">
+              {i18n.t('wallet.identity.provisioning.description')}
+            </p>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            class="shrink-0 gap-2"
+            onclick={() => void loadProvisioningJobs(true)}
+            disabled={provisioningRefreshBusy || provisioningBusyJobId !== null}
+          >
+            <RefreshCwIcon class={`size-4 ${provisioningRefreshBusy ? 'animate-spin' : ''}`} />
+            {i18n.t('wallet.identity.provisioning.refresh')}
+          </Button>
         </div>
-        <h2 class="mt-4 text-xl font-semibold text-foreground">{i18n.t('wallet.identity.empty.title')}</h2>
-        <p class="mt-2 max-w-lg text-sm text-muted-foreground">
-          {i18n.t('wallet.identity.empty.description')}
-        </p>
-        <Button class="mt-5" onclick={() => (linkSheetOpen = true)}>
-          {i18n.t('wallet.identity.empty.cta')}
-        </Button>
+
+        {#if provisioningError}
+          <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">
+            {provisioningError}
+          </p>
+        {/if}
+
+        {#if provisioningLoading}
+          <p class="mt-3 rounded-lg bg-background/80 px-3 py-2.5 text-sm text-muted-foreground">
+            {i18n.t('wallet.identity.provisioning.loading')}
+          </p>
+        {:else if visibleProvisioningJobs.length > 0}
+          <div class="mt-4 space-y-3">
+            {#each visibleProvisioningJobs as job (job.jobId)}
+              <div class="rounded-xl border border-border/70 bg-background/85 p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${provisioningStatusBadgeClass(job.status)}`}>
+                        {provisioningStatusLabel(job.status)}
+                      </span>
+                      {#if job.hasResponseUris}
+                        <span class="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                          {i18n.t('wallet.identity.provisioning.callbackPending')}
+                        </span>
+                      {/if}
+                    </div>
+
+                    <p class="mt-3 truncate text-sm font-semibold text-foreground">{job.requestedFqn}</p>
+
+                    {#if job.signingId}
+                      <p class="mt-1 break-all text-xs text-muted-foreground">
+                        {i18n.t('wallet.identity.provisioning.serviceLabel', { value: job.signingId })}
+                      </p>
+                    {/if}
+
+                    {#if job.infoUri}
+                      <button
+                        type="button"
+                        class="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                        onclick={() => void openProvisioningInfo(job.infoUri ?? '')}
+                      >
+                        <ExternalLinkIcon class="size-3.5" />
+                        {i18n.t('wallet.identity.provisioning.info')}
+                      </button>
+                    {/if}
+
+                    {#if job.error}
+                      <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-xs text-destructive">
+                        {job.error}
+                      </p>
+                    {/if}
+                  </div>
+
+                  <div class="flex shrink-0 items-start gap-2">
+                    {#if job.status === 'ready'}
+                      <Button
+                        size="sm"
+                        class="gap-2"
+                        onclick={() => void handleLinkProvisioningJob(job)}
+                        disabled={provisioningBusyJobId !== null}
+                      >
+                        <Link2Icon class="size-4" />
+                        {job.hasResponseUris
+                          ? i18n.t('wallet.identity.provisioning.linkAndContinue')
+                          : i18n.t('wallet.identity.provisioning.linkIdentity')}
+                      </Button>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    {#if showingInitialIdentityLoad && linkedIdentities.length === 0}
+      <IdentityListSkeleton
+        revealed={showDelayedIdentitySkeleton}
+        onOpenLinkSheet={() => (linkSheetOpen = true)}
+      />
+    {:else if showBlockingIdentityError}
+      <div class="space-y-4">
+        <IdentityListSkeleton revealed={false} onOpenLinkSheet={() => (linkSheetOpen = true)} />
+
+        <div class="space-y-3">
+          <p class="rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">{error}</p>
+          <Button variant="secondary" class="w-fit" onclick={loadLinkedIdentities}>
+            {i18n.t('common.retry')}
+          </Button>
+        </div>
       </div>
     {:else}
-      <div class="flex min-w-0 items-center gap-3">
-        <div class="min-w-0 flex-[3]">
-          <SearchInput
-            bind:value={listSearchInput}
-            placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
-          />
+      {#if linkedIdentities.length > 0}
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="min-w-0 flex-[3]">
+            <SearchInput
+              bind:value={listSearchInput}
+              placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
+            />
+          </div>
+
+          <Button
+            variant="secondary"
+            size="lg"
+            class="h-10 min-w-[12rem] flex-1 justify-center gap-1.5 rounded-md px-3"
+            onclick={() => (linkSheetOpen = true)}
+          >
+            <PlusIcon class="size-4" />
+            {i18n.t('wallet.identity.list.linkButton')}
+          </Button>
         </div>
 
-        <Button
-          variant="secondary"
-          size="lg"
-          class="h-10 min-w-[12rem] flex-1 justify-center gap-1.5 rounded-md px-3"
-          onclick={() => (linkSheetOpen = true)}
-        >
-          <PlusIcon class="size-4" />
-          {i18n.t('wallet.identity.list.linkButton')}
-        </Button>
-      </div>
+      {/if}
 
-      {#if !hasVisibleIdentities}
-        <p class="mt-4 rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground dark:bg-muted/50">
-          {i18n.t('wallet.identity.sheet.emptySearch')}
-        </p>
+      {#if showInlineIdentityError}
+        <div class={linkedIdentities.length > 0 ? 'mt-4 space-y-3' : 'space-y-3'}>
+          <p class="rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">{error}</p>
+          <Button variant="secondary" class="w-fit" onclick={loadLinkedIdentities}>
+            {i18n.t('common.retry')}
+          </Button>
+        </div>
+      {/if}
+
+      {#if linkedIdentities.length === 0}
+        <div class="-mt-6 flex h-full flex-col items-center justify-center px-6 py-12 text-center">
+          <div class="bg-background/70 text-primary inline-flex size-14 items-center justify-center rounded-full dark:bg-background/40">
+            <VerusIdAtIcon class="size-6" inverted />
+          </div>
+          <h2 class="mt-4 text-xl font-semibold text-foreground">{i18n.t('wallet.identity.empty.title')}</h2>
+          <p class="mt-2 max-w-lg text-sm text-muted-foreground">
+            {i18n.t('wallet.identity.empty.description')}
+          </p>
+          <Button class="mt-5" onclick={() => (linkSheetOpen = true)}>
+            {i18n.t('wallet.identity.empty.cta')}
+          </Button>
+        </div>
       {:else}
-        <div class="mt-4 min-h-0 flex-1">
-          <ScrollArea.Root class="h-full" type="scroll">
-            <ScrollArea.Viewport class="h-full pr-1">
-              {#if filteredFavoriteIdentities.length > 0}
-                <section>
-                  <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <StarIcon class="size-3.5 fill-current text-amber-500" />
-                    <span>{i18n.t('wallet.identity.list.favorites')}</span>
-                    <span class="text-[11px] text-muted-foreground/80">{favoriteIdentities.length}/2</span>
-                  </div>
+        {#if !hasVisibleIdentities}
+          <p class="mt-4 rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground dark:bg-muted/50">
+            {i18n.t('wallet.identity.sheet.emptySearch')}
+          </p>
+        {:else}
+          <div class="mt-4 min-h-0 flex-1">
+            <ScrollArea.Root class="h-full" type="scroll">
+              <ScrollArea.Viewport class="h-full pr-1">
+                {#if filteredFavoriteIdentities.length > 0}
+                  <section>
+                    <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <StarIcon class="size-3.5 fill-current text-amber-500" />
+                      <span>{i18n.t('wallet.identity.list.favorites')}</span>
+                      <span class="text-[11px] text-muted-foreground/80">{favoriteIdentities.length}/2</span>
+                    </div>
 
-                  <div class={`${compactMode ? 'mt-2 space-y-2' : 'mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
-                    {#each filteredFavoriteIdentities as identity (identity.identityAddress)}
-                      {#if compactMode}
-                        <LinkedIdentityRow
-                          {identity}
-                          onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      {:else}
-                        <LinkedIdentityCard
-                          {identity}
-                          onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      {/if}
-                    {/each}
-                  </div>
-                </section>
-              {/if}
+                    <div class={`${compactMode ? 'mt-2 space-y-2' : 'mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
+                      {#each filteredFavoriteIdentities as identity (identity.identityAddress)}
+                        {#if compactMode}
+                          <LinkedIdentityRow
+                            {identity}
+                            onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
+                            onToggleFavorite={toggleFavorite}
+                          />
+                        {:else}
+                          <LinkedIdentityCard
+                            {identity}
+                            onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
+                            onToggleFavorite={toggleFavorite}
+                          />
+                        {/if}
+                      {/each}
+                    </div>
+                  </section>
+                {/if}
 
-              {#if filteredNonFavoriteIdentities.length > 0}
-                <section class={`${filteredFavoriteIdentities.length > 0 ? 'mt-5' : ''}`}>
-                  {#if filteredFavoriteIdentities.length > 0}
-                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {i18n.t('wallet.identity.list.all')}
-                    </p>
-                  {/if}
+                {#if filteredNonFavoriteIdentities.length > 0}
+                  <section class={`${filteredFavoriteIdentities.length > 0 ? 'mt-5' : ''}`}>
+                    {#if filteredFavoriteIdentities.length > 0}
+                      <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {i18n.t('wallet.identity.list.all')}
+                      </p>
+                    {/if}
 
-                  <div class={`${filteredFavoriteIdentities.length > 0 ? 'mt-2' : ''} ${compactMode
-                    ? 'space-y-2'
-                    : 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
-                    {#each filteredNonFavoriteIdentities as identity (identity.identityAddress)}
-                      {#if compactMode}
-                        <LinkedIdentityRow
-                          {identity}
-                          onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      {:else}
-                        <LinkedIdentityCard
-                          {identity}
-                          onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      {/if}
-                    {/each}
-                  </div>
-                </section>
-              {/if}
-            </ScrollArea.Viewport>
-            <ScrollArea.Scrollbar orientation="vertical" />
-          </ScrollArea.Root>
-        </div>
+                    <div class={`${filteredFavoriteIdentities.length > 0 ? 'mt-2' : ''} ${compactMode
+                      ? 'space-y-2'
+                      : 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
+                      {#each filteredNonFavoriteIdentities as identity (identity.identityAddress)}
+                        {#if compactMode}
+                          <LinkedIdentityRow
+                            {identity}
+                            onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
+                            onToggleFavorite={toggleFavorite}
+                          />
+                        {:else}
+                          <LinkedIdentityCard
+                            {identity}
+                            onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
+                            onToggleFavorite={toggleFavorite}
+                          />
+                        {/if}
+                      {/each}
+                    </div>
+                  </section>
+                {/if}
+              </ScrollArea.Viewport>
+              <ScrollArea.Scrollbar orientation="vertical" />
+            </ScrollArea.Root>
+          </div>
+        {/if}
       {/if}
     {/if}
   </div>

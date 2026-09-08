@@ -6,12 +6,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import PasswordConfirmOverlay from '$lib/components/common/PasswordConfirmOverlay.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { CopyActionButton } from '$lib/components/ui/copy-action-button';
   import { i18nStore } from '$lib/i18n';
+  import { TimedRecordState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors';
   import * as walletService from '$lib/services/walletService';
   import type {
     DlightRecoverySecretKind,
@@ -39,9 +41,8 @@
   let passwordInput = $state('');
   let passwordError = $state('');
   let visibleSecretById = $state<Record<string, boolean>>({});
-  let copyFeedbackById = $state<Record<string, string>>({});
-
-  const copyFeedbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const copyFeedbackState = new TimedRecordState<'copied' | 'failed'>();
+  const copyStatusById = $derived(copyFeedbackState.values);
 
   const primaryEntries = $derived<SecretEntry[]>(
     secrets
@@ -133,20 +134,12 @@
 
   const shouldShowDlightSection = $derived(Boolean(secrets?.dlightSecret));
 
-  function clearCopyFeedbackTimers(): void {
-    for (const timer of copyFeedbackTimers.values()) {
-      clearTimeout(timer);
-    }
-    copyFeedbackTimers.clear();
-  }
-
   function clearSecrets(): void {
     secrets = null;
     passwordInput = '';
     passwordError = '';
     visibleSecretById = {};
-    copyFeedbackById = {};
-    clearCopyFeedbackTimers();
+    copyFeedbackState.clearAll();
   }
 
   function handleBack(): void {
@@ -195,39 +188,12 @@
   async function copyValue(entry: SecretEntry): Promise<void> {
     const value = entry.value.trim();
     if (!value) {
-      copyFeedbackById = {
-        ...copyFeedbackById,
-        [entry.id]: i18n.t('wallet.settings.recovery.copyFailed')
-      };
+      copyFeedbackState.set(entry.id, 'failed', 2000);
       return;
     }
 
-    try {
-      await globalThis.navigator.clipboard.writeText(value);
-      copyFeedbackById = {
-        ...copyFeedbackById,
-        [entry.id]: i18n.t('wallet.settings.recovery.copySuccess')
-      };
-    } catch {
-      copyFeedbackById = {
-        ...copyFeedbackById,
-        [entry.id]: i18n.t('wallet.settings.recovery.copyFailed')
-      };
-    }
-
-    const existingTimer = copyFeedbackTimers.get(entry.id);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-      const next = { ...copyFeedbackById };
-      delete next[entry.id];
-      copyFeedbackById = next;
-      copyFeedbackTimers.delete(entry.id);
-    }, 2000);
-
-    copyFeedbackTimers.set(entry.id, timer);
+    const feedbackState = (await writeClipboardText(value)) ? 'copied' : 'failed';
+    copyFeedbackState.set(entry.id, feedbackState, 2000);
   }
 
   async function revealSecrets(): Promise<void> {
@@ -240,10 +206,15 @@
       const result = await walletService.getWalletRecoverySecrets(passwordInput.trim());
       secrets = result;
       visibleSecretById = {};
-      copyFeedbackById = {};
+      copyFeedbackState.clearAll();
       closePasswordDialog();
-    } catch {
-      passwordError = i18n.t('wallet.settings.recovery.passwordInvalid');
+    } catch (error) {
+      const errorType = extractWalletErrorType(error);
+      if (errorType === 'SecureStorageUnavailable') {
+        passwordError = i18n.t('common.error.secureStorageUnavailable');
+      } else {
+        passwordError = i18n.t('wallet.settings.recovery.passwordInvalid');
+      }
     } finally {
       isLoading = false;
     }
@@ -311,15 +282,15 @@
                           {i18n.t('wallet.settings.recovery.reveal')}
                         {/if}
                       </Button>
-                      <Button size="sm" variant="secondary" onclick={() => copyValue(entry)}>
-                        <CopyIcon class="mr-1 size-3.5" />
-                        {i18n.t('wallet.settings.recovery.copy')}
-                      </Button>
-                      {#if copyFeedbackById[entry.id]}
-                        <p class="text-muted-foreground text-xs" aria-live="polite">
-                          {copyFeedbackById[entry.id]}
-                        </p>
-                      {/if}
+                      <CopyActionButton
+                        state={copyStatusById[entry.id] ?? 'idle'}
+                        variant="secondary"
+                        size="sm"
+                        onclick={() => copyValue(entry)}
+                        label={i18n.t('wallet.settings.recovery.copy')}
+                        copiedLabel={i18n.t('wallet.settings.recovery.copySuccess')}
+                        failedLabel={i18n.t('wallet.settings.recovery.copyFailed')}
+                      />
                     </div>
                   </div>
                 {/each}
@@ -347,15 +318,15 @@
                           {i18n.t('wallet.settings.recovery.reveal')}
                         {/if}
                       </Button>
-                      <Button size="sm" variant="secondary" onclick={() => copyValue(entry)}>
-                        <CopyIcon class="mr-1 size-3.5" />
-                        {i18n.t('wallet.settings.recovery.copy')}
-                      </Button>
-                      {#if copyFeedbackById[entry.id]}
-                        <p class="text-muted-foreground text-xs" aria-live="polite">
-                          {copyFeedbackById[entry.id]}
-                        </p>
-                      {/if}
+                      <CopyActionButton
+                        state={copyStatusById[entry.id] ?? 'idle'}
+                        variant="secondary"
+                        size="sm"
+                        onclick={() => copyValue(entry)}
+                        label={i18n.t('wallet.settings.recovery.copy')}
+                        copiedLabel={i18n.t('wallet.settings.recovery.copySuccess')}
+                        failedLabel={i18n.t('wallet.settings.recovery.copyFailed')}
+                      />
                     </div>
                   </div>
                 {/each}
@@ -370,15 +341,15 @@
                     <p class="text-xs font-medium">{entry.label}</p>
                     <p class="rounded px-2 py-1.5 font-mono text-xs break-all">{renderedEntryValue(entry)}</p>
                     <div class="flex items-center gap-2">
-                      <Button size="sm" variant="secondary" onclick={() => copyValue(entry)}>
-                        <CopyIcon class="mr-1 size-3.5" />
-                        {i18n.t('wallet.settings.recovery.copy')}
-                      </Button>
-                      {#if copyFeedbackById[entry.id]}
-                        <p class="text-muted-foreground text-xs" aria-live="polite">
-                          {copyFeedbackById[entry.id]}
-                        </p>
-                      {/if}
+                      <CopyActionButton
+                        state={copyStatusById[entry.id] ?? 'idle'}
+                        variant="secondary"
+                        size="sm"
+                        onclick={() => copyValue(entry)}
+                        label={i18n.t('wallet.settings.recovery.copy')}
+                        copiedLabel={i18n.t('wallet.settings.recovery.copySuccess')}
+                        failedLabel={i18n.t('wallet.settings.recovery.copyFailed')}
+                      />
                     </div>
                   </div>
                 {/each}
@@ -414,15 +385,15 @@
                           </Button>
                         {/if}
                         {#if entry.value.trim()}
-                          <Button size="sm" variant="secondary" onclick={() => copyValue(entry)}>
-                            <CopyIcon class="mr-1 size-3.5" />
-                            {i18n.t('wallet.settings.recovery.copy')}
-                          </Button>
-                        {/if}
-                        {#if copyFeedbackById[entry.id]}
-                          <p class="text-muted-foreground text-xs" aria-live="polite">
-                            {copyFeedbackById[entry.id]}
-                          </p>
+                          <CopyActionButton
+                            state={copyStatusById[entry.id] ?? 'idle'}
+                            variant="secondary"
+                            size="sm"
+                            onclick={() => copyValue(entry)}
+                            label={i18n.t('wallet.settings.recovery.copy')}
+                            copiedLabel={i18n.t('wallet.settings.recovery.copySuccess')}
+                            failedLabel={i18n.t('wallet.settings.recovery.copyFailed')}
+                          />
                         {/if}
                       </div>
                     </div>

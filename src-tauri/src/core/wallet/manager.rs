@@ -5,13 +5,10 @@
 
 use bip39::{Language, Mnemonic};
 use rand::rngs::OsRng;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::types::{
-    AccountRecord, CreateWalletRequest, WalletError, WalletListItem, WalletMetadata,
-};
+use crate::types::{AccountRecord, WalletError, WalletListItem};
 
 pub struct WalletManager {
     data_directory: PathBuf,
@@ -39,6 +36,10 @@ impl WalletManager {
     /// and Stronghold vaults share the same root.
     pub fn new(data_directory: PathBuf) -> Self {
         Self { data_directory }
+    }
+
+    pub fn data_directory(&self) -> PathBuf {
+        self.data_directory.clone()
     }
 
     /// Generate a new BIP39 mnemonic phrase
@@ -81,43 +82,6 @@ impl WalletManager {
             .iter()
             .map(|word| (*word).to_string())
             .collect())
-    }
-
-    /// Create a new wallet (simplified implementation for now)
-    /// TODO: Implement full Stronghold integration using frontend API
-    pub async fn create_wallet(
-        &self,
-        request: &CreateWalletRequest,
-        _password: &str,
-    ) -> Result<String, WalletError> {
-        // Validate seed phrase
-        let _mnemonic =
-            Mnemonic::parse_in(Language::English, &request.seed_phrase).map_err(|e| {
-                println!("[WALLET] Invalid seed phrase format: {}", e);
-                WalletError::InvalidSeedPhrase
-            })?;
-
-        // Check if wallet already exists
-        if self.wallet_exists(&request.wallet_name).await? {
-            return Err(WalletError::WalletExists);
-        }
-
-        println!("[WALLET] Creating wallet: {}", request.wallet_name);
-
-        // Create wallet metadata file (simplified for now)
-        let metadata = WalletMetadata::new(request.wallet_name.clone());
-        let metadata_path = self.get_metadata_path(&request.wallet_name)?;
-
-        let metadata_json = serde_json::to_string_pretty(&metadata)?;
-        std::fs::write(metadata_path, metadata_json).map_err(|e| {
-            println!("[WALLET] Failed to write metadata: {}", e);
-            WalletError::OperationFailed
-        })?;
-
-        println!("[WALLET] Wallet created successfully (simplified)");
-        println!("[WALLET] TODO: Integrate Stronghold for secure seed storage");
-
-        Ok(request.wallet_name.clone())
     }
 
     /// List available wallets with account_id for unlock flow.
@@ -261,6 +225,74 @@ impl WalletManager {
         Ok(None)
     }
 
+    pub async fn save_account_record_by_account_id(
+        &self,
+        account_id: &str,
+        updated: &AccountRecord,
+    ) -> Result<(), WalletError> {
+        if let Ok(entries) = std::fs::read_dir(&self.data_directory) {
+            for entry in entries.flatten() {
+                let Some(name) = entry.file_name().to_str().map(|value| value.to_string()) else {
+                    continue;
+                };
+                if !name.ends_with("_metadata.json") {
+                    continue;
+                }
+
+                let path = self.data_directory.join(name);
+                let Ok(content) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(account) = serde_json::from_str::<AccountRecord>(&content) else {
+                    continue;
+                };
+                if account.id != account_id {
+                    continue;
+                }
+
+                let bytes = serde_json::to_vec_pretty(updated)?;
+                std::fs::write(path, bytes).map_err(|error| {
+                    println!(
+                        "[WALLET] Failed to write metadata for account {}: {}",
+                        account_id, error
+                    );
+                    WalletError::OperationFailed
+                })?;
+                return Ok(());
+            }
+        }
+
+        Err(WalletError::OperationFailed)
+    }
+
+    pub fn has_account_with_key_derivation_version(
+        &self,
+        version: u8,
+    ) -> Result<bool, WalletError> {
+        if let Ok(entries) = std::fs::read_dir(&self.data_directory) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let Some(name) = file_name.to_str() else {
+                    continue;
+                };
+                if !name.ends_with("_metadata.json") {
+                    continue;
+                }
+                let path = self.data_directory.join(name);
+                let Ok(content) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(account) = serde_json::from_str::<AccountRecord>(&content) else {
+                    continue;
+                };
+                if account.key_derivation_version == version {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// Returns true if a wallet with the given name already exists (used to prevent duplicate names).
     pub async fn wallet_exists(&self, wallet_name: &str) -> Result<bool, WalletError> {
         let metadata_path = self.get_metadata_path(wallet_name)?;
@@ -275,13 +307,6 @@ impl WalletManager {
         Ok(self
             .data_directory
             .join(format!("{}_metadata.json", wallet_name)))
-    }
-
-    #[allow(dead_code)]
-    fn hash_password(password: &str) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(password.as_bytes());
-        hasher.finalize().to_vec()
     }
 }
 

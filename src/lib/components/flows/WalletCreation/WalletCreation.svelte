@@ -134,7 +134,9 @@
       await goto('/wallet');
     } catch (error) {
       const errorType = extractWalletErrorType(error);
-      if (errorType === 'InvalidPassword' || errorType === 'OperationFailed') {
+      if (errorType === 'SecureStorageUnavailable') {
+        openWalletError = i18n.t('common.error.secureStorageUnavailable');
+      } else if (errorType === 'InvalidPassword' || errorType === 'OperationFailed') {
         openWalletError = i18n.t('walletCreation.error.openFailed');
       } else if (errorType === 'InvalidArgs') {
         openWalletError = i18n.t('walletCreation.error.openInvalidArgs');
@@ -264,7 +266,6 @@
       <VerifyStep
         seedPhrase={seedPhrase}
         verificationIndices={verificationIndices}
-        onVerified={nextStep}
         onSetupVerification={(indices: number[]) => {
           verificationIndices = indices;
         }}

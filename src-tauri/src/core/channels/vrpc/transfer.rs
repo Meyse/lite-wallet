@@ -509,6 +509,7 @@ pub async fn preflight_transfer(
     params: VrpcTransferPreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     from_address: &str,
     channel_id: &str,
     provider: &VrpcProvider,
@@ -630,15 +631,18 @@ pub async fn preflight_transfer(
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
 
-    preflight_store.put_with_ttl(
+    if !preflight_store.put_with_ttl(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: payload_value,
         },
         Some(TRANSFER_PREFLIGHT_TTL),
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     Ok(VrpcTransferPreflightResult {
         preflight_id,

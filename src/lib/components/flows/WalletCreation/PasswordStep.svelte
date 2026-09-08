@@ -7,6 +7,7 @@
 
 <script lang="ts">
   import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
   import { getPasswordStrength, MIN_PASS_SCORE, scorePassword } from '$lib/utils/auth/scorePassword';
 
@@ -24,14 +25,11 @@
     onCanCreateChanged?: any;
   };
 
-  // Props
-  /* eslint-disable prefer-const */
   let {
     walletData = { name: '', emoji: '💰', color: 'blue', password: '', network: 'mainnet' },
     onUpdate = () => {},
     onCanCreateChanged = () => {}
   }: PasswordStepProps = $props();
-  /* eslint-enable prefer-const */
 
   const i18n = $derived($i18nStore);
 
@@ -69,9 +67,9 @@
 <div class="mx-auto w-full max-w-[360px] space-y-5">
   <!-- Password Input with Strength Indicator -->
   <div class="space-y-2">
-    <label for="wallet-password" class="text-sm font-medium text-card-foreground">
+    <Label for="wallet-password" class="text-card-foreground">
       {i18n.t('walletCreation.password.choose')}
-    </label>
+    </Label>
     <Input
       id="wallet-password"
       type="password"
@@ -123,9 +121,9 @@
   {#if showConfirmField}
     <!-- Confirm Password -->
     <div class="space-y-2">
-      <label for="confirm-password" class="text-sm font-medium text-card-foreground">
+      <Label for="confirm-password" class="text-card-foreground">
         {i18n.t('walletCreation.password.confirm')}
-      </label>
+      </Label>
       <Input
         id="confirm-password"
         type="password"

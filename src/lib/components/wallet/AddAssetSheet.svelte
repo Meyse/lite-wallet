@@ -5,6 +5,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
+  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import AddAssetRow from '$lib/components/wallet/AddAssetRow.svelte';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
@@ -14,6 +15,7 @@
   import { coinsStore } from '$lib/stores/coins.js';
   import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
   import * as coinsService from '$lib/services/coinsService.js';
+  import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import {
     type AddAssetEntry,
@@ -24,10 +26,11 @@
     pbaasLookupValue
   } from '$lib/stores/addAssetCatalog.js';
   import type { ActiveAssetsState, CoinDefinition, PbaasCandidate, WalletNetwork } from '$lib/types/wallet.js';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
 
-  /* eslint-disable prefer-const */
+   
   let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const walletChannels = $derived($walletChannelsStore);
@@ -175,41 +178,11 @@
     manualCandidates = [];
   }
 
-  function extractWalletErrorType(error: unknown): string | null {
-    if (typeof error === 'string') {
-      try {
-        const parsed = JSON.parse(error) as unknown;
-        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
-          const typed = (parsed as { type?: unknown }).type;
-          if (typeof typed === 'string') return typed;
-        }
-      } catch {
-        return null;
-      }
-      return null;
-    }
-
-    if (!error || typeof error !== 'object') return null;
-
-    const obj = error as { type?: unknown; data?: unknown; message?: unknown };
-    if (typeof obj.type === 'string') return obj.type;
-    if (obj.data && typeof obj.data === 'object') {
-      const data = obj.data as { type?: unknown };
-      if (typeof data.type === 'string') return data.type;
-    }
-    if (typeof obj.message === 'string') {
-      try {
-        const parsed = JSON.parse(obj.message) as { type?: unknown };
-        if (typeof parsed.type === 'string') return parsed.type;
-      } catch {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
   function translateAssetError(error: unknown, fallbackKey: string): string {
+    if (isForcedWalletLockError(error)) {
+      return '';
+    }
+
     const errorType = extractWalletErrorType(error);
 
     switch (errorType) {
@@ -226,8 +199,6 @@
         return i18n.t('wallet.addAsset.error.unsupportedNetwork');
       case 'EthNotConfigured':
         return i18n.t('wallet.addAsset.error.ethNotConfigured');
-      case 'WalletLocked':
-        return i18n.t('wallet.addAsset.error.walletLocked');
       default:
         break;
     }
@@ -445,15 +416,13 @@
       <div class="pr-8 pt-4">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold text-foreground">{i18n.t('wallet.addAsset.title')}</h2>
-          <button
-            type="button"
-            class="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
+          <InlineTextActionButton
             onclick={() => {
               view = 'manual';
             }}
           >
             {i18n.t('wallet.addAsset.cantFindTitle')}
-          </button>
+          </InlineTextActionButton>
         </div>
       </div>
     {/if}

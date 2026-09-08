@@ -11,9 +11,9 @@
     context: 'welcome' | 'unlock';
   };
 
-  /* eslint-disable prefer-const */
+   
   let { defaultNetwork = 'mainnet', context }: VerusIdGuardDockProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   let sheetOpen = $state(false);
   let activeMode = $state<GuardFlowMode | null>(null);

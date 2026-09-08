@@ -18,6 +18,7 @@ import type {
   WalletNetwork,
   WalletRecoverySecretsResult
 } from '$lib/types/wallet.js';
+import { invokeWalletCommand } from './invokeWalletCommand.js';
 
 export interface UnlockWalletPayload {
   account_id: string;
@@ -60,7 +61,7 @@ export async function startUpdateEngine(options: StartUpdateEngineOptions | bool
       ? { includeTransactions: options }
       : options;
 
-  await invoke('start_update_engine', {
+  await invokeWalletCommand('start_update_engine', {
     request: {
       include_transactions: resolvedOptions.includeTransactions ?? false,
       priority_coin_ids: resolvedOptions.priorityCoinIds ?? [],
@@ -81,42 +82,46 @@ export async function setSessionTimeoutMinutes(minutes: number): Promise<number>
   return invoke<number>('set_session_timeout_minutes', { minutes });
 }
 
+export async function touchSessionActivity(): Promise<void> {
+  await invokeWalletCommand('touch_session_activity');
+}
+
 export async function getActiveWallet(): Promise<ActiveWalletResponse | null> {
   return invoke<ActiveWalletResponse | null>('get_active_wallet');
 }
 
 export async function getAddresses(): Promise<AddressResponse> {
-  return invoke<AddressResponse>('get_addresses');
+  return invokeWalletCommand<AddressResponse>('get_addresses');
 }
 
 export async function getCoinScopes(coinId: string): Promise<CoinScopesResult> {
-  return invoke<CoinScopesResult>('get_coin_scopes', { coin_id: coinId });
+  return invokeWalletCommand<CoinScopesResult>('get_coin_scopes', { coin_id: coinId });
 }
 
 export async function getWatchedVrpcAddresses(): Promise<string[]> {
-  return invoke<string[]>('get_watched_vrpc_addresses');
+  return invokeWalletCommand<string[]>('get_watched_vrpc_addresses');
 }
 
 export async function setWatchedVrpcAddresses(addresses: string[]): Promise<string[]> {
-  return invoke<string[]>('set_watched_vrpc_addresses', { addresses });
+  return invokeWalletCommand<string[]>('set_watched_vrpc_addresses', { addresses });
 }
 
 export async function getActiveAssets(): Promise<ActiveAssetsState> {
-  return invoke<ActiveAssetsState>('get_active_assets');
+  return invokeWalletCommand<ActiveAssetsState>('get_active_assets');
 }
 
 export async function setActiveAssets(coinIds: string[]): Promise<ActiveAssetsState> {
-  return invoke<ActiveAssetsState>('set_active_assets', { coin_ids: coinIds });
+  return invokeWalletCommand<ActiveAssetsState>('set_active_assets', { coin_ids: coinIds });
 }
 
 export async function getDlightSeedStatus(): Promise<DlightSeedStatusResult> {
-  return invoke<DlightSeedStatusResult>('get_dlight_seed_status');
+  return invokeWalletCommand<DlightSeedStatusResult>('get_dlight_seed_status');
 }
 
 export async function setupDlightSeed(
   request: SetupDlightSeedRequest
 ): Promise<SetupDlightSeedResult> {
-  return invoke<SetupDlightSeedResult>('setup_dlight_seed', {
+  return invokeWalletCommand<SetupDlightSeedResult>('setup_dlight_seed', {
     request: {
       mode: request.mode,
       import_text: request.importText ?? null
@@ -127,7 +132,7 @@ export async function setupDlightSeed(
 export async function getWalletRecoverySecrets(
   password: string
 ): Promise<WalletRecoverySecretsResult> {
-  return invoke<WalletRecoverySecretsResult>('get_wallet_recovery_secrets', {
+  return invokeWalletCommand<WalletRecoverySecretsResult>('get_wallet_recovery_secrets', {
     password
   });
 }
@@ -136,7 +141,7 @@ export async function getDlightRuntimeStatus(
   channelId: string,
   coinId?: string
 ): Promise<DlightRuntimeStatusResult> {
-  return invoke<DlightRuntimeStatusResult>('get_dlight_runtime_status', {
+  return invokeWalletCommand<DlightRuntimeStatusResult>('get_dlight_runtime_status', {
     channel_id: channelId,
     ...(coinId ? { coin_id: coinId } : {})
   });
@@ -151,14 +156,14 @@ export async function readClipboardText(): Promise<string> {
 }
 
 export async function getBalances(channelId: string, coinId?: string): Promise<BalanceResult> {
-  return invoke<BalanceResult>('get_balances', {
+  return invokeWalletCommand<BalanceResult>('get_balances', {
     channel_id: channelId,
     ...(coinId ? { coin_id: coinId } : {})
   });
 }
 
 export async function getTransactionHistory(channelId: string, coinId?: string): Promise<Transaction[]> {
-  return invoke<Transaction[]>('get_transaction_history', {
+  return invokeWalletCommand<Transaction[]>('get_transaction_history', {
     channel_id: channelId,
     ...(coinId ? { coin_id: coinId } : {})
   });
@@ -170,7 +175,7 @@ export async function getTransactionHistoryPage(
   cursor?: string,
   limit = 50
 ): Promise<TransactionHistoryPage> {
-  return invoke<TransactionHistoryPage>('get_transaction_history_page', {
+  return invokeWalletCommand<TransactionHistoryPage>('get_transaction_history_page', {
     request: {
       channelId,
       ...(coinId ? { coinId } : {}),

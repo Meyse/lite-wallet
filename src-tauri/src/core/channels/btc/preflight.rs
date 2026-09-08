@@ -140,6 +140,7 @@ pub async fn preflight(
     params: PreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     from_address: &str,
     channel_id: &str,
     provider: &BtcProvider,
@@ -235,11 +236,14 @@ pub async fn preflight(
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
     let record = PreflightRecord {
+        session_id: session_id.to_string(),
         channel_id: channel_id.to_string(),
         account_id: account_id.to_string(),
         payload: payload_value,
     };
-    preflight_store.put(preflight_id.clone(), record);
+    if !preflight_store.put(preflight_id.clone(), record) {
+        return Err(WalletError::WalletLocked);
+    }
 
     let warnings: Vec<PreflightWarning> = if change > 0 && change < DUST_SATOSHI {
         vec![PreflightWarning {

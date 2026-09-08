@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sign-identity-signature-hash"
+description = "Enables the sign_identity_signature_hash command without any pre-configured scope."
+commands.allow = ["sign_identity_signature_hash"]
+
+[[permission]]
+identifier = "deny-sign-identity-signature-hash"
+description = "Denies the sign_identity_signature_hash command without any pre-configured scope."
+commands.deny = ["sign_identity_signature_hash"]

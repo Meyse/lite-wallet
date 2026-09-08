@@ -14,9 +14,9 @@
 
   const defaultCloseHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let { entryContext = null, onClose = defaultCloseHandler }: SendProps = $props();
-  /* eslint-enable prefer-const */
+   
 </script>
 
 <TransferWizard entryIntent="send" {entryContext} {onClose} />

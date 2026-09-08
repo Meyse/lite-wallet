@@ -1,5 +1,5 @@
 //
-// Module 5d: BTC send — load preflight record, sign with session WIF, broadcast. No sensitive data in logs.
+// Module 5d: BTC send — load preflight record, fetch key from Stronghold on demand, sign, broadcast.
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -10,13 +10,14 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin::ScriptBuf;
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::btc::preflight::BtcPreflightPayload;
 use crate::core::channels::btc::provider::BtcProviderPool;
 use crate::core::channels::store::PreflightStore;
-use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::transaction::SendResult;
-use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 const SIGHASH_ALL: u32 = 1u32;
@@ -86,38 +87,29 @@ fn push_slice_from_vec(script: &mut ScriptBuf, bytes: &[u8]) -> Result<(), Walle
     Ok(())
 }
 
-/// Sign and broadcast a BTC preflight. Uses same WIF from session as VRPC (same key).
+/// Sign and broadcast a BTC preflight using on-demand Stronghold key access.
 pub async fn send(
     preflight_id: &str,
     preflight_store: &PreflightStore,
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &BtcProviderPool,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
-    let session = session_manager.lock().await;
-    let active_id = session
-        .active_account_id()
-        .ok_or(WalletError::WalletLocked)?;
-    if active_id.as_str() != record.account_id {
+    if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
-    let wif = session.get_wif_for_signing()?;
-    let wallet_network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
+    let wallet_network = context.wallet_network;
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
 
     let payload: BtcPreflightPayload = serde_json::from_value(record.payload.clone())
         .map_err(|_| WalletError::InvalidPreflight)?;
 
-    let wif_network = match wallet_network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    };
-    let priv_key = decode_wif(&wif, wif_network)?;
     let secp = Secp256k1::new();
-    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&priv_key)
+    let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&*private_key)
         .map_err(|_| WalletError::OperationFailed)?;
     let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
     let script_pubkey = p2pkh_script(&public_key.serialize());
@@ -155,6 +147,7 @@ pub async fn send(
         .map_err(|_| WalletError::OperationFailed)?;
     let signed_hex = hex::encode(&signed);
 
+    ensure_active_wallet_session(session_manager, &context.session_id).await?;
     let provider = provider_pool.for_network(wallet_network);
     let txid = provider.broadcast(&signed_hex).await?;
     if txid.is_empty() {

@@ -22,13 +22,13 @@
     class?: string;
   };
 
-  /* eslint-disable prefer-const */
+   
   let {
     rows,
     warnings = [],
     class: className = ''
   }: TransferSummaryRailProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const labels = $derived(getTransferSummaryLabels(i18n.t));

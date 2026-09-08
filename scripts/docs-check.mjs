@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const requiredPaths = [
@@ -166,7 +166,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`docs:check passed (${markdownFiles.length} markdown files validated).`);
+  console.info(`docs:check passed (${markdownFiles.length} markdown files validated).`);
 }
 
 await main();

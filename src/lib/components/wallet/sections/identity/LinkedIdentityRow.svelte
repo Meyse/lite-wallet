@@ -16,9 +16,9 @@
     onToggleFavorite?: typeof noop;
   };
 
-  /* eslint-disable prefer-const */
+   
   let { identity, onSelect = noop, onToggleFavorite = noop }: LinkedIdentityRowProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const displayName = $derived(formatIdentityDisplayName(identity));

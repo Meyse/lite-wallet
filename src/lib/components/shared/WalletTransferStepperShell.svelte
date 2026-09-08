@@ -12,6 +12,7 @@
     steps?: { id: string; label: string; status: StepStatus }[];
     onClose?: () => void;
     closeDisabled?: boolean;
+    showCloseButton?: boolean;
     dirty?: boolean;
     showAside?: boolean;
     mobileAsideLabel?: string;
@@ -24,13 +25,14 @@
 
   const defaultCloseHandler = () => {};
 
-  /* eslint-disable prefer-const */
+   
   let {
     currentStep,
     totalSteps,
     steps = [],
     onClose = defaultCloseHandler,
     closeDisabled = false,
+    showCloseButton = true,
     dirty = false,
     showAside = true,
     mobileAsideLabel = '',
@@ -40,7 +42,7 @@
     footer,
     footerAside
   }: WalletTransferStepperShellProps = $props();
-  /* eslint-enable prefer-const */
+   
 
   const i18n = $derived($i18nStore);
   const asideSnippet = $derived(aside);
@@ -73,6 +75,7 @@
   {steps}
   onClose={requestClose}
   {closeDisabled}
+  {showCloseButton}
   {showAside}
   {mobileAsideLabel}
   {mobileAsideTitle}
