@@ -9,6 +9,10 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
+use crate::core::channels::vrpc::common::{
+    parse_result_string, parse_string, parse_u32, parse_utxo_entry,
+    sat_to_decimal_string as shared_sat_to_decimal_string, VrpcUtxo,
+};
 use crate::core::channels::vrpc::identity::validate::{
     apply_identity_operation, classify_high_risk_changes, validate_operation_authority,
     validate_target_state,
@@ -26,7 +30,6 @@ use crate::types::{
     WalletError,
 };
 
-const SATOSHIS_PER_COIN: i64 = 100_000_000;
 pub(crate) const DEFAULT_FEE_SAT: i64 = 10_000;
 const DUST_SAT: i64 = 546;
 pub(crate) const IDENTITY_PREFLIGHT_TTL: Duration = Duration::from_secs(15 * 60);
@@ -76,45 +79,6 @@ pub(crate) struct TargetIdentityState {
     pub(crate) identity: Value,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct FundingUtxo {
-    txid: String,
-    vout: u32,
-    satoshis: i64,
-    script_pub_key: String,
-}
-
-pub(crate) fn sat_to_decimal_string(sat: i64) -> String {
-    format!("{:.8}", sat as f64 / SATOSHIS_PER_COIN as f64)
-}
-
-fn parse_i64(value: Option<&Value>) -> Option<i64> {
-    let v = value?;
-    if let Some(x) = v.as_i64() {
-        return Some(x);
-    }
-    if let Some(x) = v.as_u64() {
-        return i64::try_from(x).ok();
-    }
-    if let Some(x) = v.as_f64() {
-        return Some(x as i64);
-    }
-    if let Some(x) = v.as_str() {
-        if let Ok(parsed) = x.parse::<i64>() {
-            return Some(parsed);
-        }
-    }
-    None
-}
-
-fn parse_u32(value: Option<&Value>) -> Option<u32> {
-    parse_i64(value).and_then(|x| (x >= 0).then_some(x as u32))
-}
-
-fn parse_string(value: Option<&Value>) -> Option<String> {
-    value?.as_str().map(ToString::to_string)
-}
-
 pub(crate) fn parse_target_identity(raw: Value) -> Result<TargetIdentityState, WalletError> {
     let status = parse_string(raw.get("status")).ok_or(WalletError::IdentityNotFound)?;
     let txid = parse_string(raw.get("txid")).ok_or(WalletError::IdentityNotFound)?;
@@ -144,45 +108,34 @@ pub(crate) fn map_identity_lookup_error(err: WalletError) -> WalletError {
 }
 
 fn parse_raw_tx_hex(raw: Value) -> Result<String, WalletError> {
-    if let Some(hex) = raw.as_str() {
-        return Ok(hex.to_string());
-    }
-    if let Some(hex) = raw.get("hex").and_then(|v| v.as_str()) {
-        return Ok(hex.to_string());
-    }
-    Err(WalletError::IdentityBuildFailed)
+    parse_result_string(&raw, &["hex"]).ok_or(WalletError::IdentityBuildFailed)
 }
 
 pub(crate) fn parse_updateidentity_hex(raw: Value) -> Result<String, WalletError> {
     parse_raw_tx_hex(raw).map_err(|_| WalletError::IdentityBuildFailed)
 }
 
-pub(crate) fn parse_funding_utxos(raw: &Value) -> Vec<FundingUtxo> {
+pub(crate) fn sat_to_decimal_string(sat: i64) -> String {
+    shared_sat_to_decimal_string(sat)
+}
+
+pub(crate) fn parse_funding_utxos(raw: &Value) -> Vec<VrpcUtxo> {
     let Some(arr) = raw.as_array() else {
         return vec![];
     };
 
     arr.iter()
         .filter_map(|entry| {
-            let txid = parse_string(entry.get("txid").or(entry.get("outputTxId")))?;
-            let vout = parse_u32(entry.get("outputIndex").or(entry.get("vout")))?;
-            let satoshis = parse_i64(entry.get("satoshis").or(entry.get("amount"))).unwrap_or(0);
-            let script_pub_key = parse_string(entry.get("script").or(entry.get("scriptPubKey")))?;
-            let is_spendable = parse_i64(entry.get("isspendable")).unwrap_or(1) != 0;
-            if !is_spendable || satoshis <= 0 {
+            let utxo = parse_utxo_entry(entry)?;
+            if !utxo.is_spendable || utxo.satoshis <= 0 || utxo.script_pub_key.is_none() {
                 return None;
             }
-            Some(FundingUtxo {
-                txid,
-                vout,
-                satoshis,
-                script_pub_key,
-            })
+            Some(utxo)
         })
         .collect()
 }
 
-pub(crate) fn total_satoshis(utxos: &[FundingUtxo]) -> i64 {
+pub(crate) fn total_satoshis(utxos: &[VrpcUtxo]) -> i64 {
     utxos.iter().map(|utxo| utxo.satoshis).sum()
 }
 
@@ -202,7 +155,7 @@ pub(crate) fn build_unsigned_identity_tx(
     identity_vout: u32,
     identity_script_hex: &str,
     identity_satoshis: i64,
-    funding_candidates: &[FundingUtxo],
+    funding_candidates: &[VrpcUtxo],
     fee_sat: i64,
 ) -> Result<(String, Vec<IdentitySignableInput>, bool), WalletError> {
     let identity_txid_le = txid_hex_to_le_bytes(identity_txid)?;
@@ -227,7 +180,7 @@ pub(crate) fn build_unsigned_identity_tx(
     });
     let required_total = outputs_total_sat.saturating_add(fee_sat);
 
-    let mut selected: Vec<&FundingUtxo> = Vec::new();
+    let mut selected: Vec<&VrpcUtxo> = Vec::new();
     let mut selected_total: i64 = 0;
     for utxo in funding_candidates {
         if existing_inputs.contains(&txid_vout_key(&utxo.txid, utxo.vout)) {
@@ -259,9 +212,16 @@ pub(crate) fn build_unsigned_identity_tx(
             txid: utxo.txid.clone(),
             vout: utxo.vout,
             satoshis: utxo.satoshis,
-            script_pub_key: utxo.script_pub_key.clone(),
+            script_pub_key: utxo
+                .script_pub_key
+                .clone()
+                .ok_or(WalletError::IdentityBuildFailed)?,
             input_index: template_inputs + idx,
-            sign_mode: classify_sign_mode(&utxo.script_pub_key)?,
+            sign_mode: classify_sign_mode(
+                utxo.script_pub_key
+                    .as_deref()
+                    .ok_or(WalletError::IdentityBuildFailed)?,
+            )?,
         });
     }
 
@@ -277,8 +237,13 @@ pub(crate) fn build_unsigned_identity_tx(
     let change_sat = selected_total.saturating_sub(required_total);
     let mut dropped_dust_change = false;
     if change_sat >= DUST_SAT {
-        let change_script = hex::decode(&selected[0].script_pub_key)
-            .map_err(|_| WalletError::IdentityBuildFailed)?;
+        let change_script = hex::decode(
+            selected[0]
+                .script_pub_key
+                .as_deref()
+                .ok_or(WalletError::IdentityBuildFailed)?,
+        )
+        .map_err(|_| WalletError::IdentityBuildFailed)?;
         template_tx.outputs.push(VerusTxOut {
             value: change_sat as u64,
             script_pub_key: change_script,

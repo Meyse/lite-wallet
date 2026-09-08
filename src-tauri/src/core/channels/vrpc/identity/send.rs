@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use bitcoin::secp256k1::{Message, Secp256k1};
-use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::core::auth::{
@@ -12,6 +11,7 @@ use crate::core::auth::{
     load_primary_private_scalar_for_context, SessionManager,
 };
 use crate::core::channels::store::PreflightStore;
+use crate::core::channels::vrpc::common::parse_txid_from_result;
 use crate::core::channels::vrpc::identity::preflight::{
     IdentityPreflightPayload, IdentitySignMode,
 };
@@ -29,13 +29,6 @@ use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::wallet::WalletNetwork;
 use crate::types::{IdentitySendResult, WalletError};
-
-fn parse_txid_from_result(v: &Value) -> Option<String> {
-    if let Some(s) = v.as_str() {
-        return Some(s.to_string());
-    }
-    v.get("txid")?.as_str().map(ToString::to_string)
-}
 
 pub async fn send(
     preflight_id: &str,

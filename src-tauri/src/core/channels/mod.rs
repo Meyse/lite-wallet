@@ -492,8 +492,7 @@ pub async fn route_preflight(
                 return Err(WalletError::InvalidAddress);
             }
 
-            let canonical_channel_id =
-                vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id);
+            let canonical_channel_id = resolved.canonical_channel_id();
             if !vrpc_provider_pool.has_system_provider(network, &resolved.system_id) {
                 println!(
                     "[VRPC] Missing system-specific endpoint for {}. Falling back to network default.",
@@ -525,6 +524,7 @@ pub async fn route_preflight(
                     &session_id,
                     &resolved.address,
                     &canonical_channel_id,
+                    &resolved.system_id,
                     vrpc_provider_pool.for_system(network, &resolved.system_id),
                 )
                 .await?;
@@ -554,6 +554,7 @@ pub async fn route_preflight(
                 &session_id,
                 &resolved.address,
                 &canonical_channel_id,
+                &resolved.system_id,
                 vrpc_provider_pool.for_system(network, &resolved.system_id),
             )
             .await

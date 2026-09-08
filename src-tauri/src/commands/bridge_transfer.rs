@@ -656,9 +656,9 @@ async fn preflight_bridge_vrpc(
         );
     }
 
+    let canonical_channel_id = resolved.canonical_channel_id();
     let mut vrpc_params = to_vrpc_bridge_params(&params);
-    vrpc_params.channel_id =
-        vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id);
+    vrpc_params.channel_id = canonical_channel_id.clone();
 
     let vrpc_result = vrpc::preflight_transfer(
         vrpc_params,
@@ -666,7 +666,8 @@ async fn preflight_bridge_vrpc(
         &account_id,
         &session_id,
         &effective_source,
-        &vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id),
+        &canonical_channel_id,
+        &resolved.system_id,
         vrpc_provider_pool.for_system(network, &resolved.system_id),
     )
     .await?;

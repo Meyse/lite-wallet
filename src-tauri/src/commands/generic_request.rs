@@ -1739,8 +1739,7 @@ pub async fn preflight_generic_identity_update(
         &watched_addresses,
     )?;
 
-    let canonical_channel_id =
-        vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id);
+    let canonical_channel_id = resolved.canonical_channel_id();
     let provider = vrpc_provider_pool.for_system(network, &resolved.system_id);
     ensure_identity_update_request_not_expired(&provider, request_meta.as_ref()).await?;
 
