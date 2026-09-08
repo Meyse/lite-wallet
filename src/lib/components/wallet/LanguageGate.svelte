@@ -8,6 +8,7 @@
   import { Button } from '$lib/components/ui/button';
   import LocaleSelector from '$lib/components/common/LocaleSelector.svelte';
   import { i18nStore } from '$lib/i18n';
+  import WalletHeroBackground from '$lib/components/wallet/WalletHeroBackground.svelte';
 
   const { onContinue = () => {} }: { onContinue?: () => void } = $props();
   const i18n = $derived($i18nStore);
@@ -19,25 +20,7 @@
 
   <div class="relative z-10 flex min-h-screen w-full">
     <section class="relative hidden w-[clamp(320px,38vw,500px)] shrink-0 overflow-hidden md:block">
-      <img
-        src="/images/seedling-sky.png"
-        alt=""
-        aria-hidden="true"
-        class="h-full w-full object-cover dark:hidden"
-      />
-      <img
-        src="/images/seedling-sky-dark.png"
-        alt=""
-        aria-hidden="true"
-        class="hidden h-full w-full object-cover dark:block"
-      />
-      <div class="absolute inset-0 flex flex-col items-center pt-24">
-        <img
-          src="/images/verus-logo-white.svg"
-          alt="Verus"
-          class="h-8 w-auto cursor-default select-none"
-        />
-      </div>
+      <WalletHeroBackground />
     </section>
 
     <section class="flex min-w-0 flex-1 flex-col">
