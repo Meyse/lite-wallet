@@ -76,7 +76,7 @@
   {/if}
 
   <div class="absolute inset-0 flex flex-col items-start px-8 pt-24 pb-8 lg:px-12 lg:pb-12">
-    <p class="text-foreground max-w-sm text-left text-3xl leading-tight font-medium tracking-tight">
+    <p class="text-foreground max-w-sm select-none text-left text-3xl leading-tight font-medium tracking-tight">
       {i18n.t('wallet.hero.ownership')}
     </p>
     <Button
