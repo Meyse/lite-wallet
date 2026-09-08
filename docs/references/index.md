@@ -20,6 +20,7 @@ External references and source repos used for parity or implementation checks.
 - GitHub Actions CI/release runbook:
   [`./release-pipeline.md`](./release-pipeline.md)
 - Wallet storage policy: [`./storage-policy.md`](./storage-policy.md)
+- Disposable testnet wallet automation: [`./test-wallet-keychain.md`](./test-wallet-keychain.md)
 
 ## Notes
 

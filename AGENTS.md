@@ -30,6 +30,13 @@ Use this file as a table of contents, not as an encyclopedia.
 - Document assumptions near the code that depends on them.
 - Review changes with a focus on regressions.
 
+## Disposable testnet automation
+
+- For the user-designated disposable `mijn app` wallet, use the
+  [Keychain helper runbook](docs/references/test-wallet-keychain.md).
+- Never request or print its password in chat, arguments, environment variables,
+  logs, or screenshots. Use the native setup dialog and guarded helper commands.
+
 ## Primary maps
 
 - Repo knowledge map: [`docs/index.md`](docs/index.md)
