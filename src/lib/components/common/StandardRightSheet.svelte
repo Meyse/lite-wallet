@@ -34,7 +34,7 @@
 <Sheet.Root bind:open={isOpen}>
   <Sheet.Content
     side="right"
-    class="w-[378px] max-w-[92vw] p-6"
+    class="w-[378px] max-w-[92vw] p-6 data-[state=open]:duration-200 data-[state=closed]:duration-150"
     {onOpenAutoFocus}
   >
     {#snippet children()}
