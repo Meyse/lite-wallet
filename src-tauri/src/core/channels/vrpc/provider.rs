@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde_json::Value;
-use tokio::sync::{Mutex as AsyncMutex, Notify};
+use tokio::sync::watch;
 
 use crate::core::runtime_config;
 use crate::types::wallet::WalletNetwork;
@@ -87,6 +87,10 @@ struct CachedEntry {
     expires_at: Instant,
 }
 
+struct InFlightCall {
+    result: watch::Sender<Option<Result<Value, WalletError>>>,
+}
+
 #[derive(Clone, Copy)]
 enum RpcErrorMode {
     Default,
@@ -99,7 +103,35 @@ pub struct VrpcProvider {
     client: Client,
     base_url: String,
     cache: Mutex<HashMap<String, CachedEntry>>,
-    in_flight: AsyncMutex<HashMap<String, Arc<Notify>>>,
+    in_flight: Mutex<HashMap<String, Arc<InFlightCall>>>,
+}
+
+struct InFlightLeader<'a> {
+    provider: &'a VrpcProvider,
+    key: String,
+    call: Arc<InFlightCall>,
+    completed: bool,
+}
+
+impl InFlightLeader<'_> {
+    fn complete(mut self, result: Result<Value, WalletError>) {
+        self.call.result.send_replace(Some(result));
+        self.provider.remove_in_flight(&self.key, &self.call);
+        self.completed = true;
+    }
+}
+
+impl Drop for InFlightLeader<'_> {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+
+        self.call
+            .result
+            .send_replace(Some(Err(WalletError::NetworkError)));
+        self.provider.remove_in_flight(&self.key, &self.call);
+    }
 }
 
 impl VrpcProvider {
@@ -121,7 +153,7 @@ impl VrpcProvider {
             client: Self::build_http_client(),
             base_url: base_url.to_string(),
             cache: Mutex::new(HashMap::new()),
-            in_flight: AsyncMutex::new(HashMap::new()),
+            in_flight: Mutex::new(HashMap::new()),
         }
     }
 
@@ -188,6 +220,17 @@ impl VrpcProvider {
                     expires_at: now + Duration::from_secs(ttl_secs),
                 },
             );
+        }
+    }
+
+    fn remove_in_flight(&self, key: &str, expected: &Arc<InFlightCall>) {
+        if let Ok(mut in_flight) = self.in_flight.lock() {
+            if in_flight
+                .get(key)
+                .is_some_and(|current| Arc::ptr_eq(current, expected))
+            {
+                in_flight.remove(key);
+            }
         }
     }
 
@@ -495,46 +538,48 @@ impl VrpcProvider {
         }
 
         let stale = self.get_stale_cached(&key);
-        let notify = {
-            let mut in_flight = self.in_flight.lock().await;
+        let (call, is_leader) = {
+            let mut in_flight = self
+                .in_flight
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if let Some(existing) = in_flight.get(&key) {
-                Some(existing.clone())
+                (existing.clone(), false)
             } else {
-                in_flight.insert(key.clone(), Arc::new(Notify::new()));
-                None
+                let (result, _) = watch::channel(None);
+                let call = Arc::new(InFlightCall { result });
+                in_flight.insert(key.clone(), call.clone());
+                (call, true)
             }
         };
 
-        if let Some(wait_for) = notify {
-            wait_for.notified().await;
-            if let Some(cached) = self.get_cached(&key) {
-                return Ok(cached);
+        if !is_leader {
+            let mut result = call.result.subscribe();
+            if result.borrow().is_none() && result.changed().await.is_err() {
+                return Err(WalletError::NetworkError);
             }
-            if let Some(stale_cached) = self.get_stale_cached(&key) {
-                println!(
-                    "[VRPC] {} using stale cached response after joined in-flight request failed",
-                    method
-                );
-                return Ok(stale_cached);
-            }
-            return Err(WalletError::NetworkError);
+
+            return result
+                .borrow()
+                .clone()
+                .unwrap_or(Err(WalletError::NetworkError));
         }
+
+        let leader = InFlightLeader {
+            provider: self,
+            key: key.clone(),
+            call,
+            completed: false,
+        };
 
         let result = self
             .fetch_result_with_retry(method, &body, READ_RETRY_ATTEMPTS, RpcErrorMode::Default)
             .await;
 
-        let waiters = {
-            let mut in_flight = self.in_flight.lock().await;
-            in_flight.remove(&key)
-        };
-        if let Some(waiters) = waiters {
-            waiters.notify_waiters();
-        }
-
-        match result {
+        let delivered_result = match result {
             Ok(value) => {
-                self.set_cached(key, value.clone(), ttl_secs);
+                // Publish to the cache before waking joined callers.
+                self.set_cached(key.clone(), value.clone(), ttl_secs);
                 Ok(value)
             }
             Err(err) => {
@@ -543,11 +588,14 @@ impl VrpcProvider {
                         "[VRPC] {} using stale cached response after retries exhausted",
                         method
                     );
-                    return Ok(stale_cached);
+                    Ok(stale_cached)
+                } else {
+                    Err(err)
                 }
-                Err(err)
             }
-        }
+        };
+        leader.complete(delivered_result.clone());
+        delivered_result
     }
 
     /// getaddressbalance: params [{"addresses": ["R..."], "friendlynames": true}]
@@ -964,6 +1012,135 @@ impl Default for VrpcProviderPool {
 mod tests {
     use super::*;
     use crate::types::wallet::WalletNetwork;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn success_rpc_server() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let server_request_count = request_count.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let request_count = server_request_count.clone();
+                tokio::spawn(async move {
+                    let mut request = vec![0_u8; 4096];
+                    let _ = socket.read(&mut request).await;
+                    request_count.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(75)).await;
+                    let body = r#"{"result":{"ok":true},"error":null}"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        (format!("http://{}", address), request_count, task)
+    }
+
+    #[tokio::test]
+    async fn concurrent_cached_calls_share_one_request() {
+        let (base_url, request_count, server) = success_rpc_server().await;
+        let provider = Arc::new(VrpcProvider::new_with_base_url(&base_url));
+
+        let first_provider = provider.clone();
+        let first = tokio::spawn(async move {
+            first_provider
+                .call("display-read", serde_json::json!([]), 5)
+                .await
+        });
+        tokio::task::yield_now().await;
+        let second_provider = provider.clone();
+        let second = tokio::spawn(async move {
+            second_provider
+                .call("display-read", serde_json::json!([]), 5)
+                .await
+        });
+
+        assert_eq!(
+            first.await.expect("first task").expect("first result"),
+            serde_json::json!({"ok": true})
+        );
+        assert_eq!(
+            second.await.expect("second task").expect("second result"),
+            serde_json::json!({"ok": true})
+        );
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn cancelled_leader_releases_key_and_wakes_waiters() {
+        let provider = VrpcProvider::new_with_base_url("http://127.0.0.1:1");
+        let key = "cancelled".to_string();
+        let (result, _) = watch::channel(None);
+        let call = Arc::new(InFlightCall { result });
+        provider
+            .in_flight
+            .lock()
+            .expect("in-flight lock")
+            .insert(key.clone(), call.clone());
+        let waiter = call.result.subscribe();
+
+        let leader = InFlightLeader {
+            provider: &provider,
+            key: key.clone(),
+            call,
+            completed: false,
+        };
+        drop(leader);
+
+        assert!(matches!(
+            waiter.borrow().clone(),
+            Some(Err(WalletError::NetworkError))
+        ));
+        assert!(!provider
+            .in_flight
+            .lock()
+            .expect("in-flight lock")
+            .contains_key(&key));
+    }
+
+    #[tokio::test]
+    async fn leader_failure_is_delivered_to_joined_callers() {
+        let provider = VrpcProvider::new_with_base_url("http://127.0.0.1:1");
+        let key = "failure".to_string();
+        let (result, _) = watch::channel(None);
+        let call = Arc::new(InFlightCall { result });
+        provider
+            .in_flight
+            .lock()
+            .expect("in-flight lock")
+            .insert(key.clone(), call.clone());
+        let waiter = call.result.subscribe();
+
+        InFlightLeader {
+            provider: &provider,
+            key: key.clone(),
+            call,
+            completed: false,
+        }
+        .complete(Err(WalletError::OperationFailed));
+
+        assert!(matches!(
+            waiter.borrow().clone(),
+            Some(Err(WalletError::OperationFailed))
+        ));
+        assert!(!provider
+            .in_flight
+            .lock()
+            .expect("in-flight lock")
+            .contains_key(&key));
+    }
 
     #[test]
     fn getaddressbalance_params_are_object_form() {

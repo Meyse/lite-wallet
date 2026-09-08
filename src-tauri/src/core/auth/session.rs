@@ -4,9 +4,11 @@
 // Last Updated: Signing secrets now load from Stronghold on demand instead of living in session
 
 use crate::core::auth::stronghold_store::StrongholdStore;
+use crate::core::channels::dlight_private;
 use crate::core::crypto::{derive_private_scalar_from_material, DerivedPublicProfile};
 use crate::types::errors::WalletError;
 use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+use crate::types::LinkedIdentity;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -31,6 +33,18 @@ struct SessionSubmissionState {
     admission: StdMutex<()>,
     invalidated: AtomicBool,
     cancellation: CancellationToken,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DlightPublicMetadata {
+    pub(crate) configured: bool,
+    pub(crate) shielded_address: Option<String>,
+}
+
+#[derive(Default)]
+struct SessionPublicMetadataCache {
+    linked_identities: Mutex<Option<Vec<LinkedIdentity>>>,
+    dlight: Mutex<Option<DlightPublicMetadata>>,
 }
 
 /// Coordinates transaction-future admission with session invalidation.
@@ -103,6 +117,7 @@ pub struct ActiveWalletAccessContext {
     session_submission_guard: SessionSubmissionGuard,
     stronghold_password_hash: Zeroizing<Vec<u8>>,
     pub stronghold_store: StrongholdStore,
+    public_metadata_cache: Arc<SessionPublicMetadataCache>,
 }
 
 impl ActiveWalletAccessContext {
@@ -112,6 +127,73 @@ impl ActiveWalletAccessContext {
 
     pub(crate) fn session_submission_guard(&self) -> SessionSubmissionGuard {
         self.session_submission_guard.clone()
+    }
+
+    /// Load non-secret linked identity metadata once per unlock session.
+    /// Holding this mutex across the storage read coalesces concurrent callers.
+    pub(crate) async fn load_linked_identities_cached(
+        &self,
+    ) -> Result<Vec<LinkedIdentity>, WalletError> {
+        let mut cached = self.public_metadata_cache.linked_identities.lock().await;
+        if let Some(records) = cached.as_ref() {
+            return Ok(records.clone());
+        }
+
+        let records = self
+            .stronghold_store
+            .load_linked_identities(&self.account_id, self.password_hash(), self.wallet_network)
+            .await?;
+        *cached = Some(records.clone());
+        Ok(records)
+    }
+
+    pub(crate) async fn store_linked_identities_cached(
+        &self,
+        records: &[LinkedIdentity],
+    ) -> Result<(), WalletError> {
+        let mut cached = self.public_metadata_cache.linked_identities.lock().await;
+        self.stronghold_store
+            .store_linked_identities(
+                &self.account_id,
+                self.password_hash(),
+                self.wallet_network,
+                records,
+            )
+            .await?;
+        *cached = Some(records.to_vec());
+        Ok(())
+    }
+
+    /// Cache only public dlight metadata. Secret material is dropped immediately.
+    pub(crate) async fn load_dlight_public_metadata_cached(
+        &self,
+    ) -> Result<DlightPublicMetadata, WalletError> {
+        let mut cached = self.public_metadata_cache.dlight.lock().await;
+        if let Some(metadata) = cached.as_ref() {
+            return Ok(metadata.clone());
+        }
+
+        let seed = self
+            .stronghold_store
+            .load_dlight_seed(&self.account_id, self.password_hash(), self.wallet_network)
+            .await?;
+        let shielded_address = seed.as_deref().and_then(|value| {
+            dlight_private::derive_scope_address(value, self.wallet_network)
+                .map_err(|error| {
+                    println!(
+                        "[SESSION] Failed to derive cached dlight scope address: {:?}",
+                        error
+                    );
+                    error
+                })
+                .ok()
+        });
+        let metadata = DlightPublicMetadata {
+            configured: seed.is_some() && shielded_address.is_some(),
+            shielded_address,
+        };
+        *cached = Some(metadata.clone());
+        Ok(metadata)
     }
 }
 
@@ -169,6 +251,7 @@ pub struct SessionManager {
     active_addresses: Option<SessionAddresses>,
     active_submission_guard: Option<SessionSubmissionGuard>,
     active_expiry_changes: Option<watch::Sender<u64>>,
+    active_public_metadata_cache: Option<Arc<SessionPublicMetadataCache>>,
     stronghold_password_hash: Option<Zeroizing<Vec<u8>>>,
     stronghold_store: StrongholdStore,
 }
@@ -189,6 +272,7 @@ impl SessionManager {
             active_addresses: None,
             active_submission_guard: None,
             active_expiry_changes: None,
+            active_public_metadata_cache: None,
             stronghold_password_hash: None,
             stronghold_store,
         }
@@ -212,6 +296,7 @@ impl SessionManager {
         let (expiry_changes, _) = watch::channel(0);
         self.active_submission_guard = Some(SessionSubmissionGuard::new());
         self.active_expiry_changes = Some(expiry_changes);
+        self.active_public_metadata_cache = Some(Arc::new(SessionPublicMetadataCache::default()));
         self.active_session_id = Some(session_id.clone());
         self.active_account_id = Some(account_id);
         self.active_network = Some(wallet_network);
@@ -237,6 +322,7 @@ impl SessionManager {
             guard.invalidate();
         }
         self.active_expiry_changes = None;
+        self.active_public_metadata_cache = None;
         self.active_account_id = None;
         self.active_session_id = None;
         self.active_network = None;
@@ -385,6 +471,11 @@ impl SessionManager {
             .as_ref()
             .ok_or(WalletError::WalletLocked)?
             .clone();
+        let public_metadata_cache = self
+            .active_public_metadata_cache
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .clone();
 
         Ok(ActiveWalletAccessContext {
             session_id,
@@ -397,6 +488,7 @@ impl SessionManager {
             session_submission_guard,
             stronghold_password_hash: Zeroizing::new(stronghold_password_hash),
             stronghold_store: self.stronghold_store.clone(),
+            public_metadata_cache,
         })
     }
 

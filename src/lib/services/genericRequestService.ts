@@ -11,6 +11,10 @@ import type {
   StoreGenericProvisioningJobRequest,
 } from '$lib/types/wallet.js';
 import { invokeWalletCommand } from './invokeWalletCommand.js';
+import {
+  invalidateWalletDisplayHistory,
+  invalidateWalletDisplayScopes,
+} from './walletDisplayService.js';
 
 export async function verifyGenericRequestSignature(
   requestHex: string
@@ -135,7 +139,13 @@ export async function refreshIdentityProvisioningJobs(): Promise<ProvisioningJob
 export async function linkReadyIdentityProvisioning(
   jobId: string
 ): Promise<LinkReadyProvisioningJobResult> {
-  return invokeWalletCommand<LinkReadyProvisioningJobResult>('link_ready_identity_provisioning', {
-    job_id: jobId,
-  });
+  const result = await invokeWalletCommand<LinkReadyProvisioningJobResult>(
+    'link_ready_identity_provisioning',
+    {
+      job_id: jobId,
+    }
+  );
+  invalidateWalletDisplayScopes();
+  invalidateWalletDisplayHistory();
+  return result;
 }

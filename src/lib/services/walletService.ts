@@ -16,9 +16,10 @@ import type {
   Transaction,
   TransactionHistoryPage,
   WalletNetwork,
-  WalletRecoverySecretsResult
+  WalletRecoverySecretsResult,
 } from '$lib/types/wallet.js';
 import { invokeWalletCommand } from './invokeWalletCommand.js';
+import { invalidateWalletDisplayScopes } from './walletDisplayService.js';
 
 export interface UnlockWalletPayload {
   account_id: string;
@@ -47,7 +48,7 @@ export interface StartUpdateEngineOptions {
 export async function unlockWallet(payload: UnlockWalletPayload): Promise<void> {
   await invoke('unlock_wallet', {
     account_id: payload.account_id,
-    password: payload.password
+    password: payload.password,
   });
 }
 
@@ -55,18 +56,17 @@ export async function lockWallet(): Promise<void> {
   await invoke('lock_wallet');
 }
 
-export async function startUpdateEngine(options: StartUpdateEngineOptions | boolean = false): Promise<void> {
-  const resolvedOptions =
-    typeof options === 'boolean'
-      ? { includeTransactions: options }
-      : options;
+export async function startUpdateEngine(
+  options: StartUpdateEngineOptions | boolean = false
+): Promise<void> {
+  const resolvedOptions = typeof options === 'boolean' ? { includeTransactions: options } : options;
 
   await invokeWalletCommand('start_update_engine', {
     request: {
       include_transactions: resolvedOptions.includeTransactions ?? false,
       priority_coin_ids: resolvedOptions.priorityCoinIds ?? [],
-      priority_channel_ids: resolvedOptions.priorityChannelIds ?? []
-    }
+      priority_channel_ids: resolvedOptions.priorityChannelIds ?? [],
+    },
   });
 }
 
@@ -103,7 +103,9 @@ export async function getWatchedVrpcAddresses(): Promise<string[]> {
 }
 
 export async function setWatchedVrpcAddresses(addresses: string[]): Promise<string[]> {
-  return invokeWalletCommand<string[]>('set_watched_vrpc_addresses', { addresses });
+  const updated = await invokeWalletCommand<string[]>('set_watched_vrpc_addresses', { addresses });
+  invalidateWalletDisplayScopes();
+  return updated;
 }
 
 export async function getActiveAssets(): Promise<ActiveAssetsState> {
@@ -111,7 +113,11 @@ export async function getActiveAssets(): Promise<ActiveAssetsState> {
 }
 
 export async function setActiveAssets(coinIds: string[]): Promise<ActiveAssetsState> {
-  return invokeWalletCommand<ActiveAssetsState>('set_active_assets', { coin_ids: coinIds });
+  const updated = await invokeWalletCommand<ActiveAssetsState>('set_active_assets', {
+    coin_ids: coinIds,
+  });
+  invalidateWalletDisplayScopes();
+  return updated;
 }
 
 export async function getDlightSeedStatus(): Promise<DlightSeedStatusResult> {
@@ -121,19 +127,21 @@ export async function getDlightSeedStatus(): Promise<DlightSeedStatusResult> {
 export async function setupDlightSeed(
   request: SetupDlightSeedRequest
 ): Promise<SetupDlightSeedResult> {
-  return invokeWalletCommand<SetupDlightSeedResult>('setup_dlight_seed', {
+  const result = await invokeWalletCommand<SetupDlightSeedResult>('setup_dlight_seed', {
     request: {
       mode: request.mode,
-      import_text: request.importText ?? null
-    }
+      import_text: request.importText ?? null,
+    },
   });
+  invalidateWalletDisplayScopes();
+  return result;
 }
 
 export async function getWalletRecoverySecrets(
   password: string
 ): Promise<WalletRecoverySecretsResult> {
   return invokeWalletCommand<WalletRecoverySecretsResult>('get_wallet_recovery_secrets', {
-    password
+    password,
   });
 }
 
@@ -143,7 +151,7 @@ export async function getDlightRuntimeStatus(
 ): Promise<DlightRuntimeStatusResult> {
   return invokeWalletCommand<DlightRuntimeStatusResult>('get_dlight_runtime_status', {
     channel_id: channelId,
-    ...(coinId ? { coin_id: coinId } : {})
+    ...(coinId ? { coin_id: coinId } : {}),
   });
 }
 
@@ -158,14 +166,17 @@ export async function readClipboardText(): Promise<string> {
 export async function getBalances(channelId: string, coinId?: string): Promise<BalanceResult> {
   return invokeWalletCommand<BalanceResult>('get_balances', {
     channel_id: channelId,
-    ...(coinId ? { coin_id: coinId } : {})
+    ...(coinId ? { coin_id: coinId } : {}),
   });
 }
 
-export async function getTransactionHistory(channelId: string, coinId?: string): Promise<Transaction[]> {
+export async function getTransactionHistory(
+  channelId: string,
+  coinId?: string
+): Promise<Transaction[]> {
   return invokeWalletCommand<Transaction[]>('get_transaction_history', {
     channel_id: channelId,
-    ...(coinId ? { coin_id: coinId } : {})
+    ...(coinId ? { coin_id: coinId } : {}),
   });
 }
 
@@ -180,7 +191,7 @@ export async function getTransactionHistoryPage(
       channelId,
       ...(coinId ? { coinId } : {}),
       ...(cursor ? { cursor } : {}),
-      limit
-    }
+      limit,
+    },
   });
 }

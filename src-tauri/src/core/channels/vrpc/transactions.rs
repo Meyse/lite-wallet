@@ -14,13 +14,11 @@ use crate::types::WalletError;
 
 const RESERVE_TRANSFER_DESTINATION_ADDRESS: &str = "RTqQe58LSj2yr5CrwYFwcsAQ1edQwmrkUU";
 const VRPC_WINDOW_BLOCK_COUNT: u64 = 2000;
-const MAX_VRPC_WINDOW_REQUESTS: usize = 24;
+const VRPC_WINDOWS_PER_PAGE: usize = 1;
 const SATOSHIS_PER_COIN: f64 = 100_000_000.0;
 const MEMPOOL_UNAVAILABLE_WARNING: &str = "Mempool temporarily unavailable";
 const CHAIN_INFO_UNAVAILABLE_WARNING: &str = "Chain info unavailable";
-const PAGED_HISTORY_UNAVAILABLE_WARNING: &str =
-    "Paged history unavailable for this endpoint. Falling back to first page.";
-const WINDOWED_PAGING_UNSUPPORTED_WARNING: &str = "VRPC endpoint does not support windowed paging.";
+const PAGED_HISTORY_UNAVAILABLE_WARNING: &str = "Paged history unavailable for this endpoint.";
 
 #[derive(Debug, Clone, Copy)]
 pub struct VrpcHistoryCursor {
@@ -104,10 +102,28 @@ pub async fn get_transactions_page(
         });
     }
 
-    let mut warning_messages = Vec::<String>::new();
-    let longest_chain = fetch_longest_chain(provider, &mut warning_messages).await;
-
     let include_pending = cursor.map(|value| value.include_pending).unwrap_or(true);
+    let mut warning_messages = Vec::<String>::new();
+    let mut ordered_entries = Vec::<HistoryEntry>::new();
+    let longest_chain = if include_pending {
+        let mut chain_warnings = Vec::<String>::new();
+        let mut mempool_warnings = Vec::<String>::new();
+        let (longest_chain, _) = tokio::join!(
+            fetch_longest_chain(provider, &mut chain_warnings),
+            append_mempool_entries(
+                provider,
+                addresses,
+                &mut ordered_entries,
+                &mut mempool_warnings,
+            )
+        );
+        warning_messages.extend(chain_warnings);
+        warning_messages.extend(mempool_warnings);
+        longest_chain
+    } else {
+        fetch_longest_chain(provider, &mut warning_messages).await
+    };
+
     let mut current_end_block = cursor
         .map(|value| value.end_block)
         .or(longest_chain)
@@ -123,23 +139,22 @@ pub async fn get_transactions_page(
         }
 
         warning_messages.push(PAGED_HISTORY_UNAVAILABLE_WARNING.to_string());
-        return fallback_to_first_page(provider, addresses, coin, safe_limit, warning_messages)
-            .await;
-    }
-
-    let mut ordered_entries = Vec::<HistoryEntry>::new();
-    if include_pending {
-        append_mempool_entries(
-            provider,
-            addresses,
-            &mut ordered_entries,
-            &mut warning_messages,
-        )
-        .await;
+        let transactions = aggregate_transactions(ordered_entries, addresses, coin, longest_chain)
+            .into_iter()
+            .take(safe_limit)
+            .collect();
+        return Ok(VrpcTransactionsPage {
+            transactions,
+            next_cursor: None,
+            has_more: false,
+            warning: build_warning(&warning_messages),
+        });
     }
 
     let mut reached_oldest_window = false;
-    for _ in 0..MAX_VRPC_WINDOW_REQUESTS {
+    // Each user-visible page performs a bounded amount of chain work. Empty
+    // windows retain a cursor so the user can deliberately continue farther back.
+    for _ in 0..VRPC_WINDOWS_PER_PAGE {
         if current_end_block == 0 {
             reached_oldest_window = true;
             break;
@@ -153,20 +168,7 @@ pub async fn get_transactions_page(
             .await
         {
             Ok(value) => value,
-            Err(error) => {
-                if cursor.is_none() {
-                    warning_messages.push(WINDOWED_PAGING_UNSUPPORTED_WARNING.to_string());
-                    return fallback_to_first_page(
-                        provider,
-                        addresses,
-                        coin,
-                        safe_limit,
-                        warning_messages,
-                    )
-                    .await;
-                }
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
 
         push_history_entries(&mut ordered_entries, deltas.as_array(), false);
@@ -175,7 +177,15 @@ pub async fn get_transactions_page(
             aggregate_transactions_with_meta(&ordered_entries, addresses, coin, longest_chain);
 
         if aggregated.len() > safe_limit {
-            let page = paginate_aggregated_transactions(aggregated, safe_limit, current_end_block);
+            let mut page =
+                paginate_aggregated_transactions(aggregated, safe_limit, current_end_block);
+            if !page.has_more && start_block > 1 {
+                page.has_more = true;
+                page.next_cursor = Some(VrpcHistoryCursor {
+                    end_block: start_block.saturating_sub(1),
+                    include_pending: false,
+                });
+            }
             return Ok(VrpcTransactionsPage {
                 transactions: page.transactions,
                 next_cursor: page.next_cursor,
@@ -199,21 +209,28 @@ pub async fn get_transactions_page(
         .into_iter()
         .map(|item| item.transaction)
         .collect::<Vec<_>>();
-    let has_more = !reached_oldest_window && !transactions.is_empty();
-    let next_cursor = if has_more {
-        Some(VrpcHistoryCursor {
-            end_block: current_end_block,
-            include_pending: false,
-        })
-    } else {
-        None
-    };
+    let next_cursor = continuation_cursor(current_end_block, reached_oldest_window);
+    let has_more = next_cursor.is_some();
 
     Ok(VrpcTransactionsPage {
         transactions,
         next_cursor,
         has_more,
         warning: build_warning(&warning_messages),
+    })
+}
+
+fn continuation_cursor(
+    current_end_block: u64,
+    reached_oldest_window: bool,
+) -> Option<VrpcHistoryCursor> {
+    if reached_oldest_window || current_end_block == 0 {
+        return None;
+    }
+
+    Some(VrpcHistoryCursor {
+        end_block: current_end_block,
+        include_pending: false,
     })
 }
 
@@ -266,30 +283,6 @@ fn append_delta_entries(
     let entries = deltas.as_array().ok_or(WalletError::OperationFailed)?;
     push_history_entries(ordered_entries, Some(entries), false);
     Ok(())
-}
-
-async fn fallback_to_first_page(
-    provider: &VrpcProvider,
-    addresses: &[String],
-    coin: &VrpcCoinContext,
-    safe_limit: usize,
-    mut warning_messages: Vec<String>,
-) -> Result<VrpcTransactionsPage, WalletError> {
-    let fallback = get_transactions(provider, addresses, coin).await?;
-    let mut transactions = fallback.transactions;
-    if transactions.len() > safe_limit {
-        transactions.truncate(safe_limit);
-    }
-    if let Some(warning) = fallback.warning {
-        warning_messages.push(warning);
-    }
-
-    Ok(VrpcTransactionsPage {
-        transactions,
-        next_cursor: None,
-        has_more: false,
-        warning: build_warning(&warning_messages),
-    })
 }
 
 fn build_warning(messages: &[String]) -> Option<String> {
@@ -957,6 +950,19 @@ mod tests {
         assert_eq!(page.transactions.len(), 2);
         assert!(page.has_more);
         assert_eq!(page.next_cursor.expect("cursor").end_block, 19);
+    }
+
+    #[test]
+    fn empty_bounded_window_keeps_older_history_cursor() {
+        let cursor = continuation_cursor(8_000, false).expect("older history cursor");
+        assert_eq!(cursor.end_block, 8_000);
+        assert!(!cursor.include_pending);
+    }
+
+    #[test]
+    fn oldest_bounded_window_has_no_continuation() {
+        assert!(continuation_cursor(0, true).is_none());
+        assert!(continuation_cursor(1, true).is_none());
     }
 
     #[test]
