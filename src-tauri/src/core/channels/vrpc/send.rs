@@ -8,7 +8,6 @@ use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::ScriptBuf;
-use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::core::auth::{
@@ -16,6 +15,9 @@ use crate::core::auth::{
     load_primary_private_scalar_for_context, SessionManager,
 };
 use crate::core::channels::store::PreflightStore;
+use crate::core::channels::vrpc::common::{
+    parse_txid_from_result, VrpcInputRef, VrpcPreflightPayload,
+};
 use crate::core::channels::vrpc::identity::verus_tx::codec::{
     decode_hex as decode_verus_tx, encode_hex as encode_verus_tx_hex,
 };
@@ -27,8 +29,6 @@ use crate::core::channels::vrpc::identity::verus_tx::sighash::{
     signature_hash as zcash_signature_hash, SIGHASH_ALL as ZCASH_SIGHASH_ALL,
 };
 use crate::core::channels::vrpc::identity::verus_tx::smart_sig::build_single_signature_chunk;
-use crate::core::channels::vrpc::parse_vrpc_channel_id;
-use crate::core::channels::vrpc::preflight::VrpcPreflightPayload;
 use crate::core::channels::vrpc::provider::VrpcProviderPool;
 use crate::types::transaction::SendResult;
 use crate::types::WalletError;
@@ -64,8 +64,7 @@ pub async fn send(
     let signed_hex = sign_payload(&payload, &secp, &secret_key, &public_key)?;
     ensure_active_wallet_session(session_manager, &context.session_id).await?;
 
-    let resolved_channel = parse_vrpc_channel_id(&record.channel_id, Some(&payload.from_address))?;
-    let provider = provider_pool.for_system(wallet_network, &resolved_channel.system_id);
+    let provider = provider_pool.for_system(wallet_network, &payload.system_id);
     let txid_value = provider.sendrawtransaction(&signed_hex).await?;
     let txid = parse_txid_from_result(&txid_value).unwrap_or_default();
     if txid.is_empty() {
@@ -248,13 +247,6 @@ fn push_slice_from_vec(script: &mut ScriptBuf, bytes: &[u8]) -> Result<(), Walle
     Ok(())
 }
 
-fn parse_txid_from_result(v: &Value) -> Option<String> {
-    if let Some(s) = v.as_str() {
-        return Some(s.to_string());
-    }
-    v.get("txid")?.as_str().map(String::from)
-}
-
 fn p2pkh_script(pubkey: &[u8]) -> ScriptBuf {
     use bitcoin::blockdata::opcodes::all::*;
     use bitcoin::blockdata::script::Builder;
@@ -279,10 +271,10 @@ fn hash160(data: &[u8]) -> [u8; 20] {
 }
 
 fn find_payload_input<'a>(
-    inputs: &'a [crate::core::channels::vrpc::preflight::VrpcInputRef],
+    inputs: &'a [VrpcInputRef],
     txid: &str,
     vout: u32,
-) -> Option<&'a crate::core::channels::vrpc::preflight::VrpcInputRef> {
+) -> Option<&'a VrpcInputRef> {
     inputs
         .iter()
         .find(|input| input.txid == txid && input.vout == vout)

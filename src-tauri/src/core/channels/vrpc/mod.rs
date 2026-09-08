@@ -2,6 +2,7 @@
 // Module 5: VRPC channel — balance, transactions, preflight, send for Verus (VRSC/VRSCTEST). Runtime-configured endpoints.
 
 mod balance;
+mod common;
 pub mod identity;
 mod preflight;
 mod provider;
@@ -37,6 +38,12 @@ pub struct ResolvedVrpcChannel {
     pub address: String,
     pub system_id: String,
     pub used_legacy_fallback: bool,
+}
+
+impl ResolvedVrpcChannel {
+    pub fn canonical_channel_id(&self) -> String {
+        canonical_vrpc_channel_id(&self.address, &self.system_id)
+    }
 }
 
 /// Basic heuristic for legacy-vs-canonical VRPC channel middle segment.

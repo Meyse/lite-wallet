@@ -215,8 +215,7 @@ pub async fn preflight_guard_identity_update(
         return Err(WalletError::UnsupportedChannel);
     }
 
-    let canonical_channel_id =
-        vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id);
+    let canonical_channel_id = resolved.canonical_channel_id();
     let guard_account_id = format!("guard:{}", request.guard_session_id);
 
     vrpc_identity::preflight(

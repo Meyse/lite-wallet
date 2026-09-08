@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
+use crate::core::channels::vrpc::common::{value_as_f64, HistoryEntry};
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::core::channels::vrpc::{VrpcCoinContext, VrpcTransactionsResult};
 use crate::types::transaction::Transaction;
@@ -15,6 +16,11 @@ const RESERVE_TRANSFER_DESTINATION_ADDRESS: &str = "RTqQe58LSj2yr5CrwYFwcsAQ1edQ
 const VRPC_WINDOW_BLOCK_COUNT: u64 = 2000;
 const MAX_VRPC_WINDOW_REQUESTS: usize = 24;
 const SATOSHIS_PER_COIN: f64 = 100_000_000.0;
+const MEMPOOL_UNAVAILABLE_WARNING: &str = "Mempool temporarily unavailable";
+const CHAIN_INFO_UNAVAILABLE_WARNING: &str = "Chain info unavailable";
+const PAGED_HISTORY_UNAVAILABLE_WARNING: &str =
+    "Paged history unavailable for this endpoint. Falling back to first page.";
+const WINDOWED_PAGING_UNSUPPORTED_WARNING: &str = "VRPC endpoint does not support windowed paging.";
 
 #[derive(Debug, Clone, Copy)]
 pub struct VrpcHistoryCursor {
@@ -59,46 +65,21 @@ pub async fn get_transactions(
         });
     }
 
-    let deltas = provider.getaddressdeltas(addresses).await?;
     let mut warning_messages: Vec<String> = Vec::new();
-
-    let mempool = match provider.getaddressmempool(addresses).await {
-        Ok(v) => Some(v),
-        Err(_) => {
-            warning_messages.push("Mempool temporarily unavailable".to_string());
-            None
-        }
-    };
-
-    let longest_chain = match provider.getinfo().await {
-        Ok(info) => info
-            .get("longestchain")
-            .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|i| i as u64))),
-        Err(_) => {
-            warning_messages.push("Chain info unavailable".to_string());
-            None
-        }
-    };
-
-    let mut ordered_entries: Vec<(Value, bool)> = Vec::new();
-    if let Some(Value::Array(arr)) = mempool {
-        for entry in arr {
-            ordered_entries.push((entry, true));
-        }
-    }
-
-    let deltas_arr = deltas.as_array().ok_or(WalletError::OperationFailed)?;
-    for entry in deltas_arr {
-        ordered_entries.push((entry.clone(), false));
-    }
+    let longest_chain = fetch_longest_chain(provider, &mut warning_messages).await;
+    let mut ordered_entries = Vec::<HistoryEntry>::new();
+    append_mempool_entries(
+        provider,
+        addresses,
+        &mut ordered_entries,
+        &mut warning_messages,
+    )
+    .await;
+    let deltas = provider.getaddressdeltas(addresses).await?;
+    append_delta_entries(&mut ordered_entries, &deltas)?;
 
     let txs = aggregate_transactions(ordered_entries, addresses, coin, longest_chain);
-
-    let warning = if warning_messages.is_empty() {
-        None
-    } else {
-        Some(warning_messages.join("; "))
-    };
+    let warning = build_warning(&warning_messages);
 
     Ok(VrpcTransactionsResult {
         transactions: txs,
@@ -124,15 +105,7 @@ pub async fn get_transactions_page(
     }
 
     let mut warning_messages = Vec::<String>::new();
-    let longest_chain = match provider.getinfo().await {
-        Ok(info) => info
-            .get("longestchain")
-            .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|i| i as u64))),
-        Err(_) => {
-            warning_messages.push("Chain info unavailable".to_string());
-            None
-        }
-    };
+    let longest_chain = fetch_longest_chain(provider, &mut warning_messages).await;
 
     let include_pending = cursor.map(|value| value.include_pending).unwrap_or(true);
     let mut current_end_block = cursor
@@ -145,40 +118,24 @@ pub async fn get_transactions_page(
                 transactions: vec![],
                 next_cursor: None,
                 has_more: false,
-                warning: build_warning(warning_messages),
+                warning: build_warning(&warning_messages),
             });
         }
 
-        warning_messages.push(
-            "Paged history unavailable for this endpoint. Falling back to first page.".to_string(),
-        );
-        let fallback = get_transactions(provider, addresses, coin).await?;
-        let mut transactions = fallback.transactions;
-        if transactions.len() > safe_limit {
-            transactions.truncate(safe_limit);
-        }
-        if let Some(warning) = fallback.warning {
-            warning_messages.push(warning);
-        }
-        return Ok(VrpcTransactionsPage {
-            transactions,
-            next_cursor: None,
-            has_more: false,
-            warning: build_warning(warning_messages),
-        });
+        warning_messages.push(PAGED_HISTORY_UNAVAILABLE_WARNING.to_string());
+        return fallback_to_first_page(provider, addresses, coin, safe_limit, warning_messages)
+            .await;
     }
 
-    let mut ordered_entries: Vec<(Value, bool)> = Vec::new();
+    let mut ordered_entries = Vec::<HistoryEntry>::new();
     if include_pending {
-        match provider.getaddressmempool(addresses).await {
-            Ok(Value::Array(arr)) => {
-                for entry in arr {
-                    ordered_entries.push((entry, true));
-                }
-            }
-            Ok(_) => {}
-            Err(_) => warning_messages.push("Mempool temporarily unavailable".to_string()),
-        }
+        append_mempool_entries(
+            provider,
+            addresses,
+            &mut ordered_entries,
+            &mut warning_messages,
+        )
+        .await;
     }
 
     let mut reached_oldest_window = false;
@@ -198,32 +155,21 @@ pub async fn get_transactions_page(
             Ok(value) => value,
             Err(error) => {
                 if cursor.is_none() {
-                    warning_messages
-                        .push("VRPC endpoint does not support windowed paging.".to_string());
-                    let fallback = get_transactions(provider, addresses, coin).await?;
-                    let mut transactions = fallback.transactions;
-                    if transactions.len() > safe_limit {
-                        transactions.truncate(safe_limit);
-                    }
-                    if let Some(warning) = fallback.warning {
-                        warning_messages.push(warning);
-                    }
-                    return Ok(VrpcTransactionsPage {
-                        transactions,
-                        next_cursor: None,
-                        has_more: false,
-                        warning: build_warning(warning_messages),
-                    });
+                    warning_messages.push(WINDOWED_PAGING_UNSUPPORTED_WARNING.to_string());
+                    return fallback_to_first_page(
+                        provider,
+                        addresses,
+                        coin,
+                        safe_limit,
+                        warning_messages,
+                    )
+                    .await;
                 }
                 return Err(error);
             }
         };
 
-        if let Some(entries) = deltas.as_array() {
-            for entry in entries {
-                ordered_entries.push((entry.clone(), false));
-            }
-        }
+        push_history_entries(&mut ordered_entries, deltas.as_array(), false);
 
         let aggregated =
             aggregate_transactions_with_meta(&ordered_entries, addresses, coin, longest_chain);
@@ -234,7 +180,7 @@ pub async fn get_transactions_page(
                 transactions: page.transactions,
                 next_cursor: page.next_cursor,
                 has_more: page.has_more,
-                warning: build_warning(warning_messages),
+                warning: build_warning(&warning_messages),
             });
         }
 
@@ -267,11 +213,86 @@ pub async fn get_transactions_page(
         transactions,
         next_cursor,
         has_more,
-        warning: build_warning(warning_messages),
+        warning: build_warning(&warning_messages),
     })
 }
 
-fn build_warning(messages: Vec<String>) -> Option<String> {
+async fn fetch_longest_chain(
+    provider: &VrpcProvider,
+    warning_messages: &mut Vec<String>,
+) -> Option<u64> {
+    match provider.getinfo().await {
+        Ok(info) => info
+            .get("longestchain")
+            .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|i| i as u64))),
+        Err(_) => {
+            warning_messages.push(CHAIN_INFO_UNAVAILABLE_WARNING.to_string());
+            None
+        }
+    }
+}
+
+fn push_history_entries(
+    ordered_entries: &mut Vec<HistoryEntry>,
+    entries: Option<&Vec<Value>>,
+    pending: bool,
+) {
+    if let Some(entries) = entries {
+        ordered_entries.extend(
+            entries
+                .iter()
+                .cloned()
+                .map(|raw| HistoryEntry { raw, pending }),
+        );
+    }
+}
+
+async fn append_mempool_entries(
+    provider: &VrpcProvider,
+    addresses: &[String],
+    ordered_entries: &mut Vec<HistoryEntry>,
+    warning_messages: &mut Vec<String>,
+) {
+    match provider.getaddressmempool(addresses).await {
+        Ok(value) => push_history_entries(ordered_entries, value.as_array(), true),
+        Err(_) => warning_messages.push(MEMPOOL_UNAVAILABLE_WARNING.to_string()),
+    }
+}
+
+fn append_delta_entries(
+    ordered_entries: &mut Vec<HistoryEntry>,
+    deltas: &Value,
+) -> Result<(), WalletError> {
+    let entries = deltas.as_array().ok_or(WalletError::OperationFailed)?;
+    push_history_entries(ordered_entries, Some(entries), false);
+    Ok(())
+}
+
+async fn fallback_to_first_page(
+    provider: &VrpcProvider,
+    addresses: &[String],
+    coin: &VrpcCoinContext,
+    safe_limit: usize,
+    mut warning_messages: Vec<String>,
+) -> Result<VrpcTransactionsPage, WalletError> {
+    let fallback = get_transactions(provider, addresses, coin).await?;
+    let mut transactions = fallback.transactions;
+    if transactions.len() > safe_limit {
+        transactions.truncate(safe_limit);
+    }
+    if let Some(warning) = fallback.warning {
+        warning_messages.push(warning);
+    }
+
+    Ok(VrpcTransactionsPage {
+        transactions,
+        next_cursor: None,
+        has_more: false,
+        warning: build_warning(&warning_messages),
+    })
+}
+
+fn build_warning(messages: &[String]) -> Option<String> {
     if messages.is_empty() {
         None
     } else {
@@ -336,7 +357,7 @@ fn paginate_aggregated_transactions(
 }
 
 fn aggregate_transactions(
-    ordered_entries: Vec<(Value, bool)>,
+    ordered_entries: Vec<HistoryEntry>,
     owner_addresses: &[String],
     coin: &VrpcCoinContext,
     longest_chain: Option<u64>,
@@ -348,7 +369,7 @@ fn aggregate_transactions(
 }
 
 fn aggregate_transactions_with_meta(
-    ordered_entries: &[(Value, bool)],
+    ordered_entries: &[HistoryEntry],
     owner_addresses: &[String],
     coin: &VrpcCoinContext,
     longest_chain: Option<u64>,
@@ -359,8 +380,8 @@ fn aggregate_transactions_with_meta(
         .collect();
     let mut by_txid: HashMap<String, TxAggregate> = HashMap::new();
 
-    for (entry, is_mempool) in ordered_entries {
-        let Some(obj) = entry.as_object() else {
+    for entry in ordered_entries {
+        let Some(obj) = entry.raw.as_object() else {
             continue;
         };
 
@@ -393,7 +414,7 @@ fn aggregate_transactions_with_meta(
 
         let agg = by_txid.entry(txid).or_default();
         agg.delta += delta;
-        agg.pending = agg.pending || *is_mempool || raw_height.unwrap_or(0) <= 0;
+        agg.pending = agg.pending || entry.pending || raw_height.unwrap_or(0) <= 0;
         if let Some(height) = raw_height.and_then(|h| u64::try_from(h).ok()) {
             if height > 0 {
                 agg.height = Some(agg.height.map_or(height, |prev| prev.max(height)));
@@ -601,22 +622,6 @@ fn output_addresses_contains(addresses: Option<&Value>, candidate: &str) -> bool
     }
 }
 
-fn value_as_f64(v: &Value) -> Option<f64> {
-    if let Some(f) = v.as_f64() {
-        return Some(f);
-    }
-    if let Some(i) = v.as_i64() {
-        return Some(i as f64);
-    }
-    if let Some(u) = v.as_u64() {
-        return Some(u as f64);
-    }
-    if let Some(s) = v.as_str() {
-        return s.parse::<f64>().ok();
-    }
-    None
-}
-
 fn extract_sent_output_addresses(
     obj: &serde_json::Map<String, Value>,
     coin: &VrpcCoinContext,
@@ -713,6 +718,10 @@ fn select_sent_counterparty(
 mod tests {
     use super::*;
 
+    fn history_entry(raw: Value, pending: bool) -> HistoryEntry {
+        HistoryEntry { raw, pending }
+    }
+
     #[test]
     fn aggregates_same_txid_deltas_and_drops_zero_net() {
         let coin = VrpcCoinContext {
@@ -724,7 +733,7 @@ mod tests {
         let owner_addresses = vec!["Rwallet".to_string()];
 
         let entries = vec![
-            (
+            history_entry(
                 serde_json::json!({
                     "txid": "tx-1",
                     "satoshis": 100000000,
@@ -732,7 +741,7 @@ mod tests {
                 }),
                 false,
             ),
-            (
+            history_entry(
                 serde_json::json!({
                     "txid": "tx-1",
                     "satoshis": -50000000,
@@ -740,7 +749,7 @@ mod tests {
                 }),
                 false,
             ),
-            (
+            history_entry(
                 serde_json::json!({
                     "txid": "tx-zero",
                     "satoshis": 1000,
@@ -748,7 +757,7 @@ mod tests {
                 }),
                 false,
             ),
-            (
+            history_entry(
                 serde_json::json!({
                     "txid": "tx-zero",
                     "satoshis": -1000,
@@ -774,7 +783,7 @@ mod tests {
             seconds_per_block: 60,
         };
         let owner_addresses = vec!["Rwallet".to_string()];
-        let entries = vec![(
+        let entries = vec![history_entry(
             serde_json::json!({
                 "txid": "tx-mempool",
                 "satoshis": 100000,
@@ -798,7 +807,7 @@ mod tests {
             seconds_per_block: 60,
         };
         let owner_addresses = vec!["Rwallet".to_string()];
-        let entries = vec![(
+        let entries = vec![history_entry(
             serde_json::json!({
                 "txid": "tx-sent",
                 "satoshis": -100000000,
@@ -835,7 +844,7 @@ mod tests {
             seconds_per_block: 60,
         };
         let owner_addresses = vec!["Rwallet".to_string()];
-        let entries = vec![(
+        let entries = vec![history_entry(
             serde_json::json!({
                 "txid": "tx-reserve",
                 "satoshis": -50000000,
@@ -872,7 +881,7 @@ mod tests {
             seconds_per_block: 60,
         };
         let owner_addresses = vec!["Rwallet".to_string()];
-        let entries = vec![(
+        let entries = vec![history_entry(
             serde_json::json!({
                 "txid": "tx-zero-counterparty",
                 "satoshis": -100000000,
