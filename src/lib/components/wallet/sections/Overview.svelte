@@ -552,13 +552,20 @@
           {/if}
         </Button>
       </div>
-      <div class="min-w-0">
+      <!-- Reserve both localized notice shapes so arrivals never move the actions. -->
+      <div class="mt-0.5 grid min-w-0 text-xs text-muted-foreground">
+        <p class="invisible col-start-1 row-start-1" aria-hidden="true">
+          {i18n.t('wallet.overview.partialBalancesNotice')}
+        </p>
+        <p class="invisible col-start-1 row-start-1" aria-hidden="true">
+          {i18n.t('wallet.overview.partialRatesNotice')}
+        </p>
         {#if heroSummary.hasPartialBalances}
-          <p class="mt-0.5 text-xs text-muted-foreground">
+          <p class="overview-notice col-start-1 row-start-1">
             {i18n.t('wallet.overview.partialBalancesNotice')}
           </p>
         {:else if heroSummary.hasPartialRates}
-          <p class="mt-0.5 text-xs text-muted-foreground">
+          <p class="overview-notice col-start-1 row-start-1">
             {i18n.t('wallet.overview.partialRatesNotice')}
           </p>
         {/if}
@@ -761,6 +768,20 @@
 <AddAssetSheet bind:isOpen={showAddAssetSheet} network={walletNetwork} />
 
 <style>
+  /* Fast requests should not flash a notice; persistent partial data stays visible. */
+  .overview-notice {
+    animation: reveal-notice 0s 400ms both;
+  }
+
+  @keyframes reveal-notice {
+    from {
+      visibility: hidden;
+    }
+    to {
+      visibility: visible;
+    }
+  }
+
   .overview-list-scroll {
     scrollbar-gutter: stable;
   }

@@ -25,6 +25,7 @@
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import IdentityDetailView from './identity/IdentityDetailView.svelte';
+  import IdentityDetailSkeleton from './identity/IdentityDetailSkeleton.svelte';
   import IdentityListSkeleton from './identity/IdentityListSkeleton.svelte';
   import LinkIdentitySheet from './identity/LinkIdentitySheet.svelte';
   import LinkedIdentityCard from './identity/LinkedIdentityCard.svelte';
@@ -419,9 +420,7 @@
 
 {#if showingDetail}
   {#if detailsLoading}
-    <div class="mx-auto flex h-full w-full max-w-4xl flex-col gap-3 p-6">
-      <p class="text-sm text-muted-foreground">{i18n.t('wallet.identity.detail.loading')}</p>
-    </div>
+    <IdentityDetailSkeleton identity={selectedLinkedIdentity} />
   {:else if detailsError}
     <div class="mx-auto flex h-full w-full max-w-4xl flex-col gap-3 p-6">
       <button
