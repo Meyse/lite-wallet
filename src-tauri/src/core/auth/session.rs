@@ -10,8 +10,9 @@ use crate::types::wallet::{WalletNetwork, WalletSecretKind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::{watch, Mutex};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -41,6 +42,12 @@ struct SessionSubmissionState {
 #[derive(Clone)]
 pub(crate) struct SessionSubmissionGuard {
     state: Arc<SessionSubmissionState>,
+}
+
+pub(crate) struct SessionExpiryRegistration {
+    pub(crate) session_id: String,
+    pub(crate) cancellation: CancellationToken,
+    pub(crate) changes: watch::Receiver<u64>,
 }
 
 impl SessionSubmissionGuard {
@@ -161,6 +168,7 @@ pub struct SessionManager {
     active_secret_kind: Option<WalletSecretKind>,
     active_addresses: Option<SessionAddresses>,
     active_submission_guard: Option<SessionSubmissionGuard>,
+    active_expiry_changes: Option<watch::Sender<u64>>,
     stronghold_password_hash: Option<Zeroizing<Vec<u8>>>,
     stronghold_store: StrongholdStore,
 }
@@ -180,6 +188,7 @@ impl SessionManager {
             active_secret_kind: None,
             active_addresses: None,
             active_submission_guard: None,
+            active_expiry_changes: None,
             stronghold_password_hash: None,
             stronghold_store,
         }
@@ -200,7 +209,9 @@ impl SessionManager {
             guard.invalidate();
         }
         let session_id = Uuid::new_v4().to_string();
+        let (expiry_changes, _) = watch::channel(0);
         self.active_submission_guard = Some(SessionSubmissionGuard::new());
+        self.active_expiry_changes = Some(expiry_changes);
         self.active_session_id = Some(session_id.clone());
         self.active_account_id = Some(account_id);
         self.active_network = Some(wallet_network);
@@ -225,6 +236,7 @@ impl SessionManager {
         if let Some(guard) = self.active_submission_guard.take() {
             guard.invalidate();
         }
+        self.active_expiry_changes = None;
         self.active_account_id = None;
         self.active_session_id = None;
         self.active_network = None;
@@ -244,7 +256,7 @@ impl SessionManager {
         }
 
         if let Some(last_activity_at) = self.last_activity_at {
-            last_activity_at.elapsed() > self.timeout_duration
+            Instant::now().duration_since(last_activity_at) >= self.timeout_duration
         } else {
             true
         }
@@ -296,6 +308,7 @@ impl SessionManager {
     /// Set session timeout duration.
     pub fn set_timeout(&mut self, duration: Duration) {
         self.timeout_duration = duration;
+        self.notify_expiry_change();
     }
 
     /// Set timeout from minute granularity with strict allowlist normalization.
@@ -312,6 +325,7 @@ impl SessionManager {
         }
 
         self.last_activity_at = Some(Instant::now());
+        self.notify_expiry_change();
         Ok(())
     }
 
@@ -384,6 +398,54 @@ impl SessionManager {
             stronghold_password_hash: Zeroizing::new(stronghold_password_hash),
             stronghold_store: self.stronghold_store.clone(),
         })
+    }
+
+    pub(crate) fn expiry_monitor_registration(
+        &self,
+    ) -> Result<SessionExpiryRegistration, WalletError> {
+        if !self.is_unlocked || self.is_expired() {
+            return Err(WalletError::WalletLocked);
+        }
+
+        let session_id = self
+            .active_session_id
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .clone();
+        let cancellation = self
+            .active_submission_guard
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .cancellation();
+        let changes = self
+            .active_expiry_changes
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .subscribe();
+
+        Ok(SessionExpiryRegistration {
+            session_id,
+            cancellation,
+            changes,
+        })
+    }
+
+    pub(crate) fn expiry_deadline_for(&self, session_id: &str) -> Option<Instant> {
+        if !self.is_unlocked || self.active_session_id() != Some(session_id) {
+            return None;
+        }
+
+        Some(
+            self.last_activity_at
+                .and_then(|last_activity| last_activity.checked_add(self.timeout_duration))
+                .unwrap_or_else(Instant::now),
+        )
+    }
+
+    fn notify_expiry_change(&self) {
+        if let Some(changes) = &self.active_expiry_changes {
+            changes.send_modify(|revision| *revision = revision.wrapping_add(1));
+        }
     }
 }
 

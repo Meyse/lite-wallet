@@ -60,5 +60,8 @@ jubjub = "0.10"
 zip32 = { version = "0.2", default-features = false }
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-webpki-roots"] }
 
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["test-util"] }
+
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

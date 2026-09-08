@@ -12,17 +12,12 @@ use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::core::auth::{
-    clear_wallet_session_if_current, GuardSessionManager, ProvisioningSignatureStore,
-    SessionManager,
-};
+use crate::core::auth::SessionManager;
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
-use crate::core::channels::{
-    route_get_balances, route_get_info, route_get_transactions, PreflightStore,
-};
+use crate::core::channels::{route_get_balances, route_get_info, route_get_transactions};
 use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
 use crate::core::rates::{build_rates_http_client, coinpaprika, ecb, pbaas};
 use crate::core::updates::events::{
@@ -43,7 +38,6 @@ pub const EVENT_TRANSACTIONS_UPDATED: &str = "wallet://transactions-updated";
 pub const EVENT_INFO_UPDATED: &str = "wallet://info-updated";
 pub const EVENT_RATES_UPDATED: &str = "wallet://rates-updated";
 pub const EVENT_BOOTSTRAP_UPDATED: &str = "wallet://bootstrap-updated";
-pub const EVENT_SESSION_EXPIRED: &str = "wallet://session-expired";
 pub const EVENT_TX_SEND_PROGRESS: &str = "wallet://tx-send-progress";
 pub const EVENT_ERROR: &str = "wallet://error";
 const BOOTSTRAP_BALANCE_CONCURRENCY: usize = 4;
@@ -103,9 +97,6 @@ impl UpdateEngine {
         app_handle: AppHandle,
         session_id: String,
         session_manager: Arc<Mutex<SessionManager>>,
-        guard_session_manager: Arc<Mutex<GuardSessionManager>>,
-        preflight_store: PreflightStore,
-        provisioning_signature_store: ProvisioningSignatureStore,
         coin_registry: Arc<CoinRegistry>,
         vrpc_provider_pool: Arc<VrpcProviderPool>,
         btc_provider_pool: Arc<BtcProviderPool>,
@@ -124,9 +115,6 @@ impl UpdateEngine {
                 app_handle,
                 session_id,
                 session_manager,
-                guard_session_manager,
-                preflight_store,
-                provisioning_signature_store,
                 coin_registry,
                 vrpc_provider_pool,
                 btc_provider_pool,
@@ -661,12 +649,6 @@ fn emit_bootstrap_updated(app_handle: &AppHandle, in_progress: bool) {
     }
 }
 
-fn emit_session_expired(app_handle: &AppHandle) {
-    if let Err(err) = app_handle.emit(EVENT_SESSION_EXPIRED, ()) {
-        println!("[UPDATE] Emit session-expired failed: {:?}", err);
-    }
-}
-
 fn supports_info_polling(channel_id: &str) -> bool {
     channel_id.starts_with("vrpc.") || channel_id.starts_with("dlight_private.")
 }
@@ -1054,9 +1036,6 @@ async fn run_update_loop(
     app_handle: AppHandle,
     session_id: String,
     session_manager: Arc<Mutex<SessionManager>>,
-    guard_session_manager: Arc<Mutex<GuardSessionManager>>,
-    preflight_store: PreflightStore,
-    provisioning_signature_store: ProvisioningSignatureStore,
     coin_registry: Arc<CoinRegistry>,
     vrpc_provider_pool: Arc<VrpcProviderPool>,
     btc_provider_pool: Arc<BtcProviderPool>,
@@ -1087,24 +1066,6 @@ async fn run_update_loop(
         if session.active_session_id() != Some(session_id.as_str()) {
             break;
         }
-        if session.is_expired() && session.active_account_id().is_some() {
-            println!("[UPDATE] Session expired; clearing session state");
-            drop(session);
-            if clear_wallet_session_if_current(
-                Some(&session_id),
-                &session_manager,
-                &guard_session_manager,
-                &preflight_store,
-                &provisioning_signature_store,
-                &coin_registry,
-            )
-            .await
-            {
-                emit_session_expired(&app_handle);
-            }
-            break;
-        }
-
         if !session.is_unlocked() {
             drop(session);
             tokio::select! {

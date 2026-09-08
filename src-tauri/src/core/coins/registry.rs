@@ -85,6 +85,14 @@ impl CoinRegistry {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_account_id_for_tests(&self) -> Option<String> {
+        self.active_account_id
+            .lock()
+            .expect("coin registry lock")
+            .clone()
+    }
+
     /// Find a coin by system ID and network.
     pub fn find_by_system_id(&self, system_id: &str, is_testnet: bool) -> Option<CoinDefinition> {
         self.get_all()

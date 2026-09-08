@@ -17,8 +17,8 @@ use zeroize::Zeroizing;
 use crate::core::address_book::manager as address_book_manager;
 use crate::core::auth::{
     capture_active_wallet_access_context, clear_wallet_session_if_current,
-    load_primary_secret_material_for_context, stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION,
-    SessionManager,
+    load_primary_secret_material_for_context, spawn_session_expiry_monitor,
+    stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
 };
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
@@ -780,6 +780,7 @@ pub async fn unlock_wallet(
     preflight_store: State<'_, PreflightStore>,
     provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     update_engine: State<'_, Arc<UpdateEngine>>,
+    app_handle: AppHandle,
 ) -> Result<(), WalletError> {
     println!("[WALLET] Unlock wallet requested");
 
@@ -845,6 +846,16 @@ pub async fn unlock_wallet(
     preflight_store.activate_wallet_session(&session_id);
     provisioning_signature_store.activate_wallet_session(&session_id);
     coin_registry.set_active_account(Some(account_id.clone()));
+    let expiry_registration = session.expiry_monitor_registration()?;
+    spawn_session_expiry_monitor(
+        app_handle,
+        expiry_registration,
+        session_manager.inner().clone(),
+        guard_session_manager.inner().clone(),
+        preflight_store.inner().clone(),
+        provisioning_signature_store.inner().clone(),
+        coin_registry.inner().clone(),
+    );
     drop(session);
     if let Err(error) = wallet_manager.mark_wallet_last_unlocked(&account_id).await {
         println!(
@@ -861,9 +872,6 @@ pub async fn unlock_wallet(
 pub async fn start_update_engine(
     request: Option<StartUpdateEngineRequest>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
-    preflight_store: State<'_, PreflightStore>,
-    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
     btc_provider_pool: State<'_, Arc<BtcProviderPool>>,
@@ -893,9 +901,6 @@ pub async fn start_update_engine(
             app_handle,
             session_id,
             session_manager.inner().clone(),
-            guard_session_manager.inner().clone(),
-            preflight_store.inner().clone(),
-            provisioning_signature_store.inner().clone(),
             coin_registry.inner().clone(),
             vrpc_provider_pool.inner().clone(),
             btc_provider_pool.inner().clone(),
