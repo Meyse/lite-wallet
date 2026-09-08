@@ -18,6 +18,7 @@ export const de: Record<string, string> = {
   'welcome.cta.existing': 'Bestehende Wallet verwenden',
 
   'unlock.switch': 'Wechseln',
+  'unlock.switchLabel': 'Wallet wechseln, aktuelle Wallet: {name}',
   'unlock.password': 'Passwort',
   'unlock.button.unlocking': 'Wird entsperrt…',
   'unlock.button.unlock': 'Entsperren',

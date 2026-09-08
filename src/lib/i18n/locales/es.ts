@@ -18,6 +18,7 @@ export const es: Record<string, string> = {
   'welcome.cta.existing': 'Usar una cartera existente',
 
   'unlock.switch': 'Cambiar',
+  'unlock.switchLabel': 'Cambiar cartera, cartera actual: {name}',
   'unlock.password': 'Contrasena',
   'unlock.button.unlocking': 'Desbloqueando…',
   'unlock.button.unlock': 'Desbloquear',

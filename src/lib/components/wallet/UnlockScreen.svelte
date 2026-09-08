@@ -7,6 +7,7 @@
 
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CirclePlusIcon from '@lucide/svelte/icons/circle-plus';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import { onDestroy, tick } from 'svelte';
@@ -17,7 +18,6 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { Spinner } from '$lib/components/ui/spinner';
-  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { i18nStore, networkLocaleKey } from '$lib/i18n';
   import HelpDrawerLink from '$lib/components/common/HelpDrawerLink.svelte';
@@ -232,31 +232,39 @@
     <section class="flex min-w-0 flex-1 items-center justify-center px-6 py-10 sm:px-8">
       <div class="w-full max-w-[360px] space-y-5">
         {#if selectedWallet}
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="min-w-0 flex items-center gap-3">
-                <div
-                  class="flex h-12 w-12 shrink-0 cursor-default select-none items-center justify-center rounded-xl text-2xl leading-none text-white"
-                  style={`background-color: ${walletColorHex(selectedWallet.color)};`}
-                >
-                  {walletEmoji(selectedWallet.emoji)}
-                </div>
-                <div class="min-w-0">
-                  <p class="text-foreground truncate text-xl font-semibold leading-tight">{selectedWallet.wallet_name}</p>
-                </div>
+          {#snippet walletIdentity()}
+            <span
+              class="flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-xl text-2xl leading-none text-white"
+              style={`background-color: ${walletColorHex(selectedWallet.color)};`}
+              aria-hidden="true"
+            >
+              {walletEmoji(selectedWallet.emoji)}
+            </span>
+            <span class="text-foreground min-w-0 truncate text-xl font-semibold leading-tight">
+              {selectedWallet.wallet_name}
+            </span>
+          {/snippet}
+
+          <div>
+            {#if wallets.length > 1}
+              <button
+                type="button"
+                class="hover:bg-muted/60 focus-visible:ring-ring -m-2 flex max-w-[calc(100%+1rem)] cursor-pointer items-center gap-3 rounded-xl p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
+                aria-label={i18n.t('unlock.switchLabel', { name: selectedWallet.wallet_name })}
+                aria-haspopup="dialog"
+                aria-expanded={showWalletSwitcherDrawer}
+                onclick={() => {
+                  showWalletSwitcherDrawer = true;
+                }}
+              >
+                {@render walletIdentity()}
+                <ChevronRightIcon class="text-muted-foreground -ml-1 size-4 shrink-0" aria-hidden="true" />
+              </button>
+            {:else}
+              <div class="flex min-w-0 items-center gap-3">
+                {@render walletIdentity()}
               </div>
-
-              {#if wallets.length > 1}
-                <InlineTextActionButton
-                  onclick={() => {
-                    showWalletSwitcherDrawer = true;
-                  }}
-                >
-                  {i18n.t('unlock.switch')}
-                </InlineTextActionButton>
-              {/if}
-            </div>
-
+            {/if}
           </div>
         {/if}
 

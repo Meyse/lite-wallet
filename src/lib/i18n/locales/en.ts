@@ -20,6 +20,7 @@ export const en: Record<string, string> = {
   'welcome.cta.existing': 'Use an existing wallet',
 
   'unlock.switch': 'Switch',
+  'unlock.switchLabel': 'Switch wallet, current wallet: {name}',
   'unlock.password': 'Password',
   'unlock.button.unlocking': 'Unlocking…',
   'unlock.button.unlock': 'Unlock',

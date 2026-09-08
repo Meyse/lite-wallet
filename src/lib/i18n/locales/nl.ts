@@ -20,6 +20,7 @@ export const nl: Record<string, string> = {
   'welcome.cta.existing': 'Bestaande wallet gebruiken',
 
   'unlock.switch': 'Wisselen',
+  'unlock.switchLabel': 'Wallet wisselen, huidige wallet: {name}',
   'unlock.password': 'Wachtwoord',
   'unlock.button.unlocking': 'Ontgrendelen…',
   'unlock.button.unlock': 'Ontgrendel',
