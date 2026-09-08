@@ -11,6 +11,10 @@ Use this file as a table of contents, not as an encyclopedia.
 - Use sentence case for user-facing UI copy.
 - Always verify both light and dark mode for changed UI.
 - Default to desktop UX over mobile parity.
+- Use the normal arrow cursor (`cursor: default`) for all clickable actions,
+  including buttons, wallet selectors, icons, and external links. Never use a
+  hand/pointer cursor. Keep text-entry, resize, and disabled-state cursors where
+  appropriate; see `docs/ui-style-governance.md`.
 - Use the `frontend-design` skill for frontend UI, layout, styling, and visual
   polish work in this repository.
 - Keep cognitive load low: one primary task at a time and minimal simultaneous

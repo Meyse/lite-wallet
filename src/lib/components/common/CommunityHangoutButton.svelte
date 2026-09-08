@@ -25,7 +25,7 @@
   onclick={() => {
     void openCommunityHangout();
   }}
-  class={`cursor-pointer bg-brand-discord/10 text-brand-discord-foreground hover:bg-brand-discord/18 hover:text-brand-discord-foreground-hover dark:bg-brand-discord/20 justify-center border-0 text-sm dark:hover:bg-brand-discord/30 ${className}`.trim()}
+  class={`cursor-default bg-brand-discord/10 text-brand-discord-foreground hover:bg-brand-discord/18 hover:text-brand-discord-foreground-hover dark:bg-brand-discord/20 justify-center border-0 text-sm dark:hover:bg-brand-discord/30 ${className}`.trim()}
 >
   <DiscordIcon />
   {resolvedLabel}

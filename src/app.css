@@ -226,11 +226,6 @@
   a[href] {
     cursor: default;
   }
-  a[href^='https://'],
-  a[href^='http://'],
-  a[href^='mailto:'] {
-    cursor: pointer;
-  }
 }
 
 @layer utilities {

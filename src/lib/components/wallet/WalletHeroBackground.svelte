@@ -82,7 +82,7 @@
     <Button
       variant="ghost"
       size="icon"
-      class="cursor-pointer text-foreground/70 hover:text-foreground hover:bg-transparent dark:hover:bg-transparent mt-auto -ml-2 size-10"
+      class="cursor-default text-foreground/70 hover:text-foreground hover:bg-transparent dark:hover:bg-transparent mt-auto -ml-2 size-10"
       aria-label={i18n.t('wallet.hero.discord')}
       title={i18n.t('wallet.hero.discord')}
       onclick={() => { void openCommunityHangout(); }}

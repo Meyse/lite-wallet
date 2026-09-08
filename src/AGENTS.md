@@ -8,6 +8,9 @@ This file applies to frontend work under `src/`.
 - Keep sentence case for user-facing text.
 - Validate light and dark mode for all changed UI states.
 - Default to desktop UX decisions for this app.
+- All clickable actions, including external links and icons, use the normal
+  arrow cursor. Do not add `cursor-pointer` or `cursor: pointer`; see
+  `docs/ui-style-governance.md` for the enforced cursor rule.
 - Use the `frontend-design` skill for frontend UI work in `src/`, especially
   layout, hierarchy, spacing, styling, states, and responsiveness.
 - Keep visual patterns consistent with

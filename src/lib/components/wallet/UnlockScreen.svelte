@@ -249,7 +249,7 @@
             {#if wallets.length > 1}
               <button
                 type="button"
-                class="hover:bg-muted/60 focus-visible:ring-ring -m-2 flex max-w-[calc(100%+1rem)] cursor-pointer items-center gap-3 rounded-xl p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
+                class="hover:bg-muted/60 focus-visible:ring-ring -m-2 flex max-w-[calc(100%+1rem)] cursor-default items-center gap-3 rounded-xl p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
                 aria-label={i18n.t('unlock.switchLabel', { name: selectedWallet.wallet_name })}
                 aria-haspopup="dialog"
                 aria-expanded={showWalletSwitcherDrawer}

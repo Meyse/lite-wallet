@@ -30,6 +30,17 @@ appearing without first deciding that they are now part of the style.
   primitive in `src/lib/components/common/InlineTextActionButton.svelte` instead
   of ad hoc underlined buttons or links.
 
+## Native cursor convention
+
+All clickable actions use the normal arrow (`cursor: default`), including
+buttons, wallet selectors, clickable cards, icon actions, and external links
+(such as Discord). Do not use a hand cursor, even for links that open a browser.
+Communicate interactivity through hover, pressed, and visible focus states.
+Preserve text-entry, resize, and disabled-state cursors when appropriate.
+
+The base styles and shared Button implement this convention. `pnpm lint:ui`
+rejects pointer/hand cursor declarations and Tailwind utilities in `src/**`.
+
 ## Semantic tokens in `src/app.css`
 
 | Token                            | Light     | Dark      | Purpose                                      |

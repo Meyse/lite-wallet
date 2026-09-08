@@ -22,6 +22,8 @@ const COLOR_FUNCTION_PATTERN = /\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\([^)
 const NATIVE_CONTROL_PATTERN = new RegExp(`<(${governedNativeControls.join('|')})\\b`, 'g');
 const FORM_PRIMITIVE_PATTERN = new RegExp(`<(${governedFormPrimitives.join('|')})\\b`, 'g');
 
+const HAND_CURSOR_PATTERN = /\bcursor-(?:pointer\b|\[(?:pointer|hand)\])|\bcursor\s*:\s*['"]?(?:pointer|hand)\b/g;
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const violations = [];
 
@@ -62,6 +64,18 @@ function walk(currentPath) {
   const relativePath = toProjectPath(currentPath);
   const source = fs.readFileSync(currentPath, 'utf8');
   const lineStarts = getLineStarts(source);
+
+  for (const match of source.matchAll(HAND_CURSOR_PATTERN)) {
+    pushViolation({
+      file: relativePath,
+      lineStarts,
+      source,
+      index: match.index ?? 0,
+      value: match[0],
+      defaultRule: 'ui/native-arrow-cursor',
+      message: 'Use cursor: default for clickable actions, including external links. See docs/ui-style-governance.md.',
+    });
+  }
 
   if (path.extname(currentPath) === '.svelte' && !relativePath.startsWith(nativeControlUiRoot)) {
     for (const match of source.matchAll(NATIVE_CONTROL_PATTERN)) {
