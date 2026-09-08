@@ -620,7 +620,7 @@
     <div class="relative min-h-0 flex-1">
       <ScrollArea.Root class="h-full" type="scroll">
         <ScrollArea.Viewport
-          class="overview-list-scroll h-full overscroll-contain pr-4"
+          class="h-full overscroll-contain"
           bind:ref={listScrollElement}
           onscroll={onOverviewScroll}
         >
@@ -661,7 +661,7 @@
                 <li>
                   <button
                     type="button"
-                    class="grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                    class="grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none focus-visible:ring-inset"
                     onclick={() =>
                       onOpenAssetDetails({
                         walletEntryKind: row.walletEntryKind,
@@ -780,10 +780,6 @@
     to {
       visibility: visible;
     }
-  }
-
-  .overview-list-scroll {
-    scrollbar-gutter: stable;
   }
 
   .holdings-obscured {
