@@ -622,6 +622,10 @@ async fn preflight_bridge_vrpc(
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?
         .to_string();
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let (session_vrpc_address, _, _) = session.get_addresses()?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     drop(session);
@@ -660,6 +664,7 @@ async fn preflight_bridge_vrpc(
         vrpc_params,
         &preflight_store,
         &account_id,
+        &session_id,
         &effective_source,
         &vrpc::canonical_vrpc_channel_id(&resolved.address, &resolved.system_id),
         vrpc_provider_pool.for_system(network, &resolved.system_id),
@@ -711,6 +716,10 @@ async fn preflight_bridge_eth(
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?
         .to_string();
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let (vrpc_address, eth_address, _) = session.get_addresses()?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     drop(session);
@@ -739,6 +748,7 @@ async fn preflight_bridge_eth(
         params,
         &preflight_store,
         &account_id,
+        &session_id,
         &coin,
         &eth_address,
         &vrpc_address,

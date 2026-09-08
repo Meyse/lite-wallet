@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
 Cargo.lock
+!src-tauri/Cargo.lock
 /build
 /.svelte-kit
 /.cursor

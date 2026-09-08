@@ -8,7 +8,7 @@ import type {
   GenericRequestVerificationResult,
   LinkReadyProvisioningJobResult,
   ProvisioningJobRecord,
-  StoreGenericProvisioningJobRequest
+  StoreGenericProvisioningJobRequest,
 } from '$lib/types/wallet.js';
 import { invokeWalletCommand } from './invokeWalletCommand.js';
 
@@ -51,13 +51,23 @@ export async function openGenericRequestCallback(
   });
 }
 
-export async function signIdentitySignatureHash(
-  hashHex: string,
+export async function prepareProvisioningSignature(
+  requestHex: string,
+  challengeHex: string,
+  signingAddress: string,
   systemId: string
 ): Promise<string> {
-  return invokeWalletCommand<string>('sign_identity_signature_hash', {
-    hash_hex: hashHex,
+  return invokeWalletCommand<string>('prepare_provisioning_signature', {
+    request_hex: requestHex,
+    challenge_hex: challengeHex,
+    signing_address: signingAddress,
     system_id: systemId,
+  });
+}
+
+export async function confirmProvisioningSignature(signingChallengeId: string): Promise<string> {
+  return invokeWalletCommand<string>('confirm_provisioning_signature', {
+    signing_challenge_id: signingChallengeId,
   });
 }
 
@@ -81,12 +91,15 @@ export async function preflightGenericIdentityUpdate(
   sourceChannelId: string,
   requestMeta?: GenericIdentityUpdateRequestMeta | null
 ): Promise<GenericIdentityUpdatePreflightResult> {
-  return invokeWalletCommand<GenericIdentityUpdatePreflightResult>('preflight_generic_identity_update', {
-    requested_identity_json: requestedIdentityJson,
-    target_identity_address: targetIdentityAddress,
-    source_channel_id: sourceChannelId,
-    request_meta: requestMeta ?? null,
-  });
+  return invokeWalletCommand<GenericIdentityUpdatePreflightResult>(
+    'preflight_generic_identity_update',
+    {
+      requested_identity_json: requestedIdentityJson,
+      target_identity_address: targetIdentityAddress,
+      source_channel_id: sourceChannelId,
+      request_meta: requestMeta ?? null,
+    }
+  );
 }
 
 export async function reviewGenericIdentityUpdate(

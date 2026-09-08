@@ -21,7 +21,9 @@ use crate::commands::identity::{
     parse_getidentity_payload, store_linked_for_context, upsert_linked_identity,
 };
 use crate::core::auth::{
-    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, ProvisioningSignatureChallenge,
+    ProvisioningSignatureStore, SessionManager,
 };
 use crate::core::channels::vrpc;
 use crate::core::channels::vrpc::identity::preflight::{
@@ -36,9 +38,9 @@ use crate::core::channels::vrpc::identity::validate::{
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::channels::PreflightRecord;
 use crate::core::crypto::verus_id_signature::{
-    compute_identity_signature_hash, encode_compact_i_address, extract_chain_height,
-    extract_primary_addresses, get_raw_envelope_sha256, parse_generic_envelope_hex,
-    parse_identity_signature, sign_identity_hash_with_private_bytes,
+    compute_identity_signature_hash, decode_compact_address_at, encode_compact_i_address,
+    extract_chain_height, extract_primary_addresses, get_raw_envelope_sha256,
+    parse_generic_envelope_hex, parse_identity_signature, sign_identity_hash_with_private_bytes,
     validate_identity_control_for_active_wallet, verify_generic_request_signature_with_provider,
     verify_identity_signature_against_addresses, write_compact_size, write_var_slice, write_varint,
 };
@@ -82,6 +84,17 @@ const DATA_TYPE_DEFINEDKEY_VDXF_ID: &str = "iD3yzD6KnrSG75d8RzirMD6SyvrAS2HxjH";
 const I_ADDRESS_VERSION: u8 = 102;
 const MAINNET_VERUS_CHAIN_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
 const TESTNET_VERUS_CHAIN_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
+const AUTH_REQUEST_FLAG_HAS_REQUEST_ID: u64 = 1;
+const AUTH_REQUEST_FLAG_HAS_RECIPIENT_CONSTRAINTS: u64 = 2;
+const AUTH_REQUEST_FLAG_HAS_EXPIRY_TIME: u64 = 4;
+const PROVISION_FLAG_HAS_SYSTEM_ID: u64 = 1;
+const PROVISION_FLAG_HAS_PARENT_ID: u64 = 2;
+const PROVISION_FLAG_HAS_IDENTITY_ID: u64 = 4;
+const PROVISION_FLAG_HAS_URI: u64 = 8;
+const PROVISIONING_SIGNATURE_TTL_SECS: u64 = 5 * 60;
+const PROVISIONING_CREATED_AT_CLOCK_SKEW_SECS: u64 = 60;
+const PROVISIONING_CHALLENGE_KEY_HASH_HEX: &str = "bf5b8b3997fe0381a6383fddc8f055c1f0dd6774";
+const LOGIN_CONSENT_CONTEXT_KEY_HASH_HEX: &str = "567b9a87b17131f6eeb2dd0bdd191ece4a5d603b";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -346,6 +359,259 @@ fn read_varint_local(bytes: &[u8], offset: usize) -> Result<(u64, usize), Wallet
             return Err(WalletError::OperationFailed);
         }
     }
+}
+
+fn read_var_slice_local(bytes: &[u8], offset: usize) -> Result<(&[u8], usize), WalletError> {
+    let (len, prefix_len) = read_compact_size_local(bytes, offset)?;
+    let start = offset
+        .checked_add(prefix_len)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let end = start
+        .checked_add(usize::try_from(len).map_err(|_| WalletError::GenericRequestInvalidEnvelope)?)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let value = bytes
+        .get(start..end)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    Ok((value, end))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedAuthenticationSemantics {
+    request_id: Option<String>,
+    expiry_time: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedProvisioningSemantics {
+    system_id: Option<String>,
+    parent_id: Option<String>,
+    identity_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedProvisioningChallenge {
+    challenge_id: String,
+    created_at: u64,
+    name: String,
+    system_id: Option<String>,
+    parent_id: Option<String>,
+    hash: [u8; 32],
+}
+
+fn parse_authentication_semantics(
+    data: &[u8],
+) -> Result<ParsedAuthenticationSemantics, WalletError> {
+    let (flags, mut cursor) = read_compact_size_local(data, 0)?;
+    if flags
+        & !(AUTH_REQUEST_FLAG_HAS_REQUEST_ID
+            | AUTH_REQUEST_FLAG_HAS_RECIPIENT_CONSTRAINTS
+            | AUTH_REQUEST_FLAG_HAS_EXPIRY_TIME)
+        != 0
+    {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let request_id = if flags & AUTH_REQUEST_FLAG_HAS_REQUEST_ID != 0 {
+        let (value, next) = decode_compact_address_at(data, cursor)?;
+        cursor = next;
+        Some(normalize_provisioning_address(&value)?)
+    } else {
+        None
+    };
+
+    if flags & AUTH_REQUEST_FLAG_HAS_RECIPIENT_CONSTRAINTS != 0 {
+        let (count, count_len) = read_compact_size_local(data, cursor)?;
+        cursor += count_len;
+        for _ in 0..count {
+            let (_, type_len) = read_compact_size_local(data, cursor)?;
+            cursor += type_len;
+            let (_, next) = decode_compact_address_at(data, cursor)?;
+            cursor = next;
+        }
+    }
+
+    let expiry_time = if flags & AUTH_REQUEST_FLAG_HAS_EXPIRY_TIME != 0 {
+        let (value, len) = read_compact_size_local(data, cursor)?;
+        cursor += len;
+        Some(value)
+    } else {
+        None
+    };
+    if cursor != data.len() {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    Ok(ParsedAuthenticationSemantics {
+        request_id,
+        expiry_time,
+    })
+}
+
+fn normalize_provisioning_address(value: &str) -> Result<String, WalletError> {
+    let trimmed = value.trim();
+    if from_base58_check_hash160(trimmed).is_some() {
+        return Ok(trimmed.to_string());
+    }
+    fqn_to_i_addr(trimmed).ok_or(WalletError::GenericRequestInvalidEnvelope)
+}
+
+fn parse_provisioning_semantics(data: &[u8]) -> Result<ParsedProvisioningSemantics, WalletError> {
+    let (flags, mut cursor) = read_compact_size_local(data, 0)?;
+    if flags
+        & !(PROVISION_FLAG_HAS_SYSTEM_ID
+            | PROVISION_FLAG_HAS_PARENT_ID
+            | PROVISION_FLAG_HAS_IDENTITY_ID
+            | PROVISION_FLAG_HAS_URI)
+        != 0
+        || flags & PROVISION_FLAG_HAS_IDENTITY_ID == 0
+    {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    if flags & PROVISION_FLAG_HAS_URI != 0 {
+        let (uri_type, type_len) = read_compact_size_local(data, cursor)?;
+        cursor += type_len;
+        if uri_type != 1 {
+            return Err(WalletError::GenericRequestInvalidEnvelope);
+        }
+        let (uri, next) = read_var_slice_local(data, cursor)?;
+        cursor = next;
+        let uri =
+            std::str::from_utf8(uri).map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+        parse_generic_response_post_callback_uri(uri)?;
+    }
+
+    let mut read_address = |present: bool| -> Result<Option<String>, WalletError> {
+        if !present {
+            return Ok(None);
+        }
+        let (value, next) = decode_compact_address_at(data, cursor)?;
+        cursor = next;
+        Ok(Some(normalize_provisioning_address(&value)?))
+    };
+    let system_id = read_address(flags & PROVISION_FLAG_HAS_SYSTEM_ID != 0)?;
+    let parent_id = read_address(flags & PROVISION_FLAG_HAS_PARENT_ID != 0)?;
+    let identity_id = read_address(true)?.ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if cursor != data.len() {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    Ok(ParsedProvisioningSemantics {
+        system_id,
+        parent_id,
+        identity_id,
+    })
+}
+
+fn read_optional_hash160_address(
+    data: &[u8],
+    cursor: &mut usize,
+) -> Result<Option<String>, WalletError> {
+    let (hash, next) = read_var_slice_local(data, *cursor)?;
+    *cursor = next;
+    match hash.len() {
+        0 => Ok(None),
+        20 => {
+            let hash: [u8; 20] = hash
+                .try_into()
+                .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+            Ok(Some(to_base58_check(&hash, I_ADDRESS_VERSION)))
+        }
+        _ => Err(WalletError::GenericRequestInvalidEnvelope),
+    }
+}
+
+fn parse_provisioning_challenge_hex(
+    challenge_hex: &str,
+) -> Result<ParsedProvisioningChallenge, WalletError> {
+    let bytes = hex::decode(challenge_hex.trim())
+        .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+    if bytes.len() > 2_048 {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let challenge_key = bytes
+        .get(..20)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if hex::encode(challenge_key) != PROVISIONING_CHALLENGE_KEY_HASH_HEX {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let (version, version_len) = read_varint_local(&bytes, 20)?;
+    if version != 1 {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let (data, outer_end) = read_var_slice_local(&bytes, 20 + version_len)?;
+    if outer_end != bytes.len() {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let mut cursor = 0usize;
+    let challenge_id = read_optional_hash160_address(data, &mut cursor)?
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let created_at_bytes = data
+        .get(cursor..cursor + 8)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let created_at = u64::from_le_bytes(
+        created_at_bytes
+            .try_into()
+            .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?,
+    );
+    cursor += 8;
+    if read_optional_hash160_address(data, &mut cursor)?.is_some() {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let context_key = data
+        .get(cursor..cursor + 20)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if hex::encode(context_key) != LOGIN_CONSENT_CONTEXT_KEY_HASH_HEX {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    cursor += 20;
+    let (context_version, context_version_len) = read_varint_local(data, cursor)?;
+    cursor += context_version_len;
+    if context_version != 1 {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let (context_data, next) = read_var_slice_local(data, cursor)?;
+    cursor = next;
+    if context_data != [0] {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let (name, next) = read_var_slice_local(data, cursor)?;
+    cursor = next;
+    let name = std::str::from_utf8(name)
+        .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?
+        .to_string();
+    if name.trim().is_empty() || name.len() > 256 {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let system_id = read_optional_hash160_address(data, &mut cursor)?;
+    let parent_id = read_optional_hash160_address(data, &mut cursor)?;
+    if cursor != data.len() {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let challenge_digest = Sha256::digest(&bytes);
+    let mut signature_hash = Sha256::new();
+    signature_hash.update(b"\x13Verus signed data:\n");
+    signature_hash.update(challenge_digest);
+
+    Ok(ParsedProvisioningChallenge {
+        challenge_id,
+        created_at,
+        name,
+        system_id,
+        parent_id,
+        hash: signature_hash.finalize().into(),
+    })
+}
+
+fn provisioning_challenge_name(identity_id: &str) -> String {
+    identity_id
+        .split(['.', '@'])
+        .next()
+        .unwrap_or(identity_id)
+        .to_string()
 }
 
 fn decode_defined_key_label(
@@ -1026,32 +1292,136 @@ pub async fn open_generic_request_callback(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn sign_identity_signature_hash(
-    hash_hex: String,
+pub async fn prepare_provisioning_signature(
+    request_hex: String,
+    challenge_hex: String,
+    signing_address: String,
     system_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<String, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let network = context.wallet_network;
-    let private_key = load_primary_private_scalar_for_context(&context).await?;
-
-    let trimmed_system_id = system_id.trim();
-    if trimmed_system_id.is_empty() {
-        return Err(WalletError::OperationFailed);
+    if !signing_address
+        .trim()
+        .eq_ignore_ascii_case(&context.vrsc_address)
+    {
+        return Err(WalletError::InvalidAddress);
     }
 
-    let decoded_hash = hex::decode(hash_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
-    let hash_bytes: [u8; 32] = decoded_hash
-        .as_slice()
-        .try_into()
-        .map_err(|_| WalletError::OperationFailed)?;
+    let parsed_request = parse_generic_envelope_hex(request_hex.trim())?;
+    if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
+        return Err(WalletError::UnsupportedNetwork);
+    }
+    validate_supported_request_grouping(
+        &parsed_request
+            .details
+            .iter()
+            .map(|detail| detail.ordinal)
+            .collect::<Vec<_>>(),
+    )?;
 
-    let provider = vrpc_provider_pool.for_system(network, trimmed_system_id);
+    let request_provider =
+        vrpc_provider_pool.for_system(network, &parsed_request.signature_data.signer_system_id);
+    if !verify_generic_request_signature_with_provider(
+        request_provider,
+        &parsed_request,
+        wallet_network_to_crypto_network(network),
+    )
+    .await?
+    {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let authentication = parsed_request
+        .details
+        .iter()
+        .find(|detail| detail.ordinal == VDXF_ORDINAL_AUTHENTICATION_REQUEST)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)
+        .and_then(|detail| parse_authentication_semantics(&detail.data))?;
+    let provisioning = parsed_request
+        .details
+        .iter()
+        .find(|detail| detail.ordinal == VDXF_ORDINAL_PROVISION_IDENTITY)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)
+        .and_then(|detail| parse_provisioning_semantics(&detail.data))?;
+    let challenge = parse_provisioning_challenge_hex(&challenge_hex)?;
+    let request_id = authentication
+        .request_id
+        .or(parsed_request.request_id)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if !challenge.challenge_id.eq_ignore_ascii_case(&request_id)
+        || challenge.name != provisioning_challenge_name(&provisioning.identity_id)
+        || challenge.system_id != provisioning.system_id
+        || challenge.parent_id != provisioning.parent_id
+    {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let expected_system_id = provisioning
+        .system_id
+        .as_deref()
+        .unwrap_or(&parsed_request.signature_data.signer_system_id);
+    if !system_id.trim().eq_ignore_ascii_case(expected_system_id) {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let now = now_unix_seconds();
+    if challenge.created_at > now.saturating_add(PROVISIONING_CREATED_AT_CLOCK_SKEW_SECS)
+        || now.saturating_sub(challenge.created_at) > PROVISIONING_SIGNATURE_TTL_SECS
+        || authentication
+            .expiry_time
+            .is_some_and(|expiry| expiry < now || challenge.created_at > expiry)
+    {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+    let expires_at = authentication
+        .expiry_time
+        .unwrap_or_else(|| now.saturating_add(PROVISIONING_SIGNATURE_TTL_SECS))
+        .min(now.saturating_add(PROVISIONING_SIGNATURE_TTL_SECS));
+    let signing_challenge_id = Uuid::new_v4().to_string();
+    if !provisioning_signature_store.put(
+        signing_challenge_id.clone(),
+        ProvisioningSignatureChallenge {
+            session_id: context.session_id,
+            account_id: context.account_id,
+            network,
+            system_id: expected_system_id.to_string(),
+            challenge_hash: challenge.hash,
+            expires_at,
+        },
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
+
+    Ok(signing_challenge_id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn confirm_provisioning_signature(
+    signing_challenge_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<String, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let challenge = provisioning_signature_store
+        .take(signing_challenge_id.trim(), &context.session_id)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if challenge.account_id != context.account_id || challenge.network != context.wallet_network {
+        return Err(WalletError::GenericRequestInvalidEnvelope);
+    }
+
+    let private_key = load_primary_private_scalar_for_context(&context).await?;
+    let provider = vrpc_provider_pool.for_system(challenge.network, &challenge.system_id);
     let info = provider.getinfo().await?;
     let signed_block_height = extract_chain_height(&info)?;
-    let signature_as_vch =
-        sign_identity_hash_with_private_bytes(hash_bytes, signed_block_height, &private_key)?;
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+    let signature_as_vch = sign_identity_hash_with_private_bytes(
+        challenge.challenge_hash,
+        signed_block_height,
+        &private_key,
+    )?;
 
     Ok(BASE64_STANDARD.encode(signature_as_vch))
 }
@@ -1446,15 +1816,18 @@ pub async fn preflight_generic_identity_update(
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;
 
-    preflight_store.put_with_ttl(
+    if !preflight_store.put_with_ttl(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: context.session_id,
             channel_id: canonical_channel_id,
             account_id,
             payload: payload_value,
         },
         Some(IDENTITY_PREFLIGHT_TTL),
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     if dropped_dust_change {
         review.warnings.push(IdentityWarning {
@@ -1873,16 +2246,16 @@ mod tests {
     use super::{
         build_and_sign_generic_response_internal, build_generic_response_redirect_url,
         build_unsigned_generic_response_hex, decode_defined_key_label, merge_identity_update_patch,
-        parse_generic_response_post_callback_uri, post_generic_response_callback,
-        resolve_signer_cmm_key_labels_from_identity, validate_generic_request_funding_source,
-        wallet_network_to_crypto_network, BuildAndSignGenericResponseRequest, WalletNetwork,
-        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
-        GENERIC_RESPONSE_FLAG_HAS_CREATED_AT, GENERIC_RESPONSE_FLAG_IS_TESTNET,
-        GENERIC_RESPONSE_FLAG_MULTI_DETAILS, GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256,
-        MAINNET_VERUS_CHAIN_ID, VDXF_ORDINAL_AUTHENTICATION_REQUEST,
-        VDXF_ORDINAL_AUTHENTICATION_RESPONSE, VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST,
-        VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE, VDXF_ORDINAL_PROVISION_IDENTITY,
-        VERIFIABLE_SIGNATURE_VERSION_V2,
+        parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
+        post_generic_response_callback, resolve_signer_cmm_key_labels_from_identity,
+        validate_generic_request_funding_source, wallet_network_to_crypto_network,
+        BuildAndSignGenericResponseRequest, WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID,
+        GENERIC_RESPONSE_DEEPLINK_VDXF_ID, GENERIC_RESPONSE_FLAG_HAS_CREATED_AT,
+        GENERIC_RESPONSE_FLAG_IS_TESTNET, GENERIC_RESPONSE_FLAG_MULTI_DETAILS,
+        GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256, MAINNET_VERUS_CHAIN_ID,
+        VDXF_ORDINAL_AUTHENTICATION_REQUEST, VDXF_ORDINAL_AUTHENTICATION_RESPONSE,
+        VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST, VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE,
+        VDXF_ORDINAL_PROVISION_IDENTITY, VERIFIABLE_SIGNATURE_VERSION_V2,
     };
     use crate::core::crypto::verus_id_signature::{
         compute_identity_signature_hash, encode_compact_i_address, get_raw_envelope_sha256,
@@ -1904,6 +2277,24 @@ mod tests {
     const TEST_AUTH_REQUEST_ID: &str = "iBxsUePVWyf4QuM1b8wP7Np1SUJhszwyin";
     const FIXED_CREATED_AT: u64 = 1_700_000_000;
     const FIXED_SIGNED_BLOCK_HEIGHT: u32 = 965_771;
+
+    #[test]
+    fn provisioning_challenge_hash_matches_typescript_primitives() {
+        let challenge = parse_provisioning_challenge_hex(
+            "bf5b8b3997fe0381a6383fddc8f055c1f0dd67740165141af5b8015c64d39ab44c60ead8317f9f5a9b6c4c00f153650000000000567b9a87b17131f6eeb2dd0bdd191ece4a5d603b01010005616c696365141af5b8015c64d39ab44c60ead8317f9f5a9b6c4c14a6ef9ea235635e328124ff3429db9f9e91b64e2d",
+        )
+        .expect("challenge parses");
+
+        assert_eq!(challenge.challenge_id, MAINNET_VERUS_CHAIN_ID);
+        assert_eq!(challenge.created_at, FIXED_CREATED_AT);
+        assert_eq!(challenge.name, "alice");
+        assert_eq!(challenge.system_id.as_deref(), Some(MAINNET_VERUS_CHAIN_ID));
+        assert_eq!(challenge.parent_id.as_deref(), Some(TEST_SYSTEM_ID));
+        assert_eq!(
+            hex::encode(challenge.hash),
+            "35d3bef3d19528f98c4edeebba920d50438ca346d38257aa1c91b53805bd5c31"
+        );
+    }
 
     fn build_test_request_detail(ordinal: u64, payload: &[u8]) -> Vec<u8> {
         let mut detail = Vec::new();

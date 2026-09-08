@@ -477,6 +477,35 @@ fn parse_compact_address(
     ))
 }
 
+pub(crate) fn decode_compact_address_at(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<(String, usize), WalletError> {
+    let mut cursor = offset;
+    let (_, version_len) = read_compact_size(bytes, cursor)?;
+    cursor += version_len;
+    let (address_type, address_type_len) = read_compact_size(bytes, cursor)?;
+    cursor += address_type_len;
+
+    match address_type {
+        COMPACT_ADDRESS_TYPE_I_ADDRESS => {
+            let hash = read_fixed_hash160(bytes, &mut cursor)?;
+            Ok((to_base58_check(&hash, I_ADDRESS_VERSION), cursor))
+        }
+        COMPACT_ADDRESS_TYPE_X_ADDRESS => {
+            let hash = read_fixed_hash160(bytes, &mut cursor)?;
+            Ok((to_base58_check(&hash, X_ADDRESS_VERSION), cursor))
+        }
+        COMPACT_ADDRESS_TYPE_FQN => {
+            let (raw, next) = read_var_slice(bytes, cursor)?;
+            let value =
+                std::str::from_utf8(raw).map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+            Ok((value.to_string(), next))
+        }
+        _ => Err(WalletError::GenericRequestInvalidEnvelope),
+    }
+}
+
 fn parse_generic_detail(
     bytes: &[u8],
     offset: usize,

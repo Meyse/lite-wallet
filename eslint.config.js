@@ -7,6 +7,7 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import svelte from 'eslint-plugin-svelte';
 import svelteParser from 'svelte-eslint-parser';
+import globals from 'globals';
 
 export default [
   js.configs.recommended,
@@ -17,7 +18,6 @@ export default [
     languageOptions: {
       parser: tsparser,
       parserOptions: {
-        project: './tsconfig.json',
         extraFileExtensions: ['.svelte'],
       },
     },
@@ -44,11 +44,25 @@ export default [
     },
   },
 
+  // CommonJS scripts used by pnpm and Node's built-in test runner.
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        module: 'readonly',
+        require: 'readonly',
+      },
+    },
+  },
+
   // All JavaScript/TypeScript files
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx,svelte}'],
     languageOptions: {
       globals: {
+        ...globals.browser,
+
         // Browser globals
         console: 'readonly',
         setTimeout: 'readonly',
@@ -139,7 +153,6 @@ export default [
       parser: svelteParser,
       parserOptions: {
         parser: tsparser,
-        project: './tsconfig.json',
         extraFileExtensions: ['.svelte'],
       },
     },

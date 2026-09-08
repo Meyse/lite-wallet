@@ -16,8 +16,9 @@ use zeroize::Zeroizing;
 
 use crate::core::address_book::manager as address_book_manager;
 use crate::core::auth::{
-    capture_active_wallet_access_context, load_primary_secret_material_for_context,
-    stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
+    capture_active_wallet_access_context, clear_wallet_session_if_current,
+    load_primary_secret_material_for_context, stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION,
+    SessionManager,
 };
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
@@ -32,7 +33,9 @@ use crate::core::crypto::{
 use crate::core::identity_display::format_identity_display_name_or_fallback;
 use crate::core::updates::UpdateEngineStartConfig;
 use crate::core::wallet::{AccountStateStore, WalletManager};
-use crate::core::{GuardSessionManager, PreflightStore, StrongholdStore, UpdateEngine};
+use crate::core::{
+    GuardSessionManager, PreflightStore, ProvisioningSignatureStore, StrongholdStore, UpdateEngine,
+};
 use crate::types::wallet::{DlightSeedSetupMode, ScopeKind, WalletNetwork};
 use crate::types::{
     AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressEndpointKind, AddressResponse,
@@ -119,7 +122,6 @@ async fn capture_active_wallet_state(
     if !session.is_unlocked() {
         return Err(WalletError::WalletLocked);
     }
-
     let account_id = session
         .active_account_id()
         .cloned()
@@ -774,6 +776,10 @@ pub async fn unlock_wallet(
     account_state_store: State<'_, AccountStateStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
+    guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
+    update_engine: State<'_, Arc<UpdateEngine>>,
 ) -> Result<(), WalletError> {
     println!("[WALLET] Unlock wallet requested");
 
@@ -817,14 +823,28 @@ pub async fn unlock_wallet(
     )
     .map_err(|_| WalletError::OperationFailed)?;
 
+    update_engine.stop().await;
+    clear_wallet_session_if_current(
+        None,
+        session_manager.inner(),
+        guard_session_manager.inner(),
+        preflight_store.inner(),
+        provisioning_signature_store.inner(),
+        coin_registry.inner(),
+    )
+    .await;
+
     let mut session = session_manager.lock().await;
-    session.unlock_with_profile(
+    let session_id = session.unlock_with_profile(
         account_id.clone(),
         wallet.network,
         wallet.secret_kind,
         public_profile,
         password_hash,
     );
+    preflight_store.activate_wallet_session(&session_id);
+    provisioning_signature_store.activate_wallet_session(&session_id);
+    coin_registry.set_active_account(Some(account_id.clone()));
     drop(session);
     if let Err(error) = wallet_manager.mark_wallet_last_unlocked(&account_id).await {
         println!(
@@ -832,8 +852,6 @@ pub async fn unlock_wallet(
             error
         );
     }
-    coin_registry.set_active_account(Some(account_id));
-
     println!("[WALLET] Wallet unlocked successfully");
     Ok(())
 }
@@ -843,6 +861,9 @@ pub async fn unlock_wallet(
 pub async fn start_update_engine(
     request: Option<StartUpdateEngineRequest>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
     btc_provider_pool: State<'_, Arc<BtcProviderPool>>,
@@ -854,6 +875,10 @@ pub async fn start_update_engine(
     if !session.is_unlocked() {
         return Err(WalletError::WalletLocked);
     }
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     drop(session);
 
     let request = request.unwrap_or_default();
@@ -866,7 +891,11 @@ pub async fn start_update_engine(
     update_engine
         .start(
             app_handle,
+            session_id,
             session_manager.inner().clone(),
+            guard_session_manager.inner().clone(),
+            preflight_store.inner().clone(),
+            provisioning_signature_store.inner().clone(),
             coin_registry.inner().clone(),
             vrpc_provider_pool.inner().clone(),
             btc_provider_pool.inner().clone(),
@@ -884,22 +913,22 @@ pub async fn lock_wallet(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
     preflight_store: State<'_, PreflightStore>,
+    provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     update_engine: State<'_, Arc<UpdateEngine>>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<(), WalletError> {
     println!("[WALLET] Lock wallet requested");
 
     update_engine.stop().await;
-    dlight_private::stop_all_runtimes().await;
-
-    let mut session = session_manager.lock().await;
-    session.lock();
-    coin_registry.set_active_account(None);
-    preflight_store.clear();
-    drop(session);
-
-    let mut guard = guard_session_manager.lock().await;
-    guard.clear();
+    clear_wallet_session_if_current(
+        None,
+        session_manager.inner(),
+        guard_session_manager.inner(),
+        preflight_store.inner(),
+        provisioning_signature_store.inner(),
+        coin_registry.inner(),
+    )
+    .await;
 
     println!("[WALLET] Wallet locked successfully");
     Ok(())

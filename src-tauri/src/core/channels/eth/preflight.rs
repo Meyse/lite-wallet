@@ -111,6 +111,7 @@ pub async fn preflight_eth(
     params: PreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     from_address: &str,
     channel_id: &str,
     provider: &EthNetworkProvider,
@@ -163,14 +164,17 @@ pub async fn preflight_eth(
     };
 
     let preflight_id = Uuid::new_v4().to_string();
-    preflight_store.put(
+    if !preflight_store.put(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: serde_json::to_value(payload).map_err(|_| WalletError::OperationFailed)?,
         },
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     Ok(PreflightResult {
         preflight_id,
@@ -191,6 +195,7 @@ pub async fn preflight_erc20(
     params: PreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     from_address: &str,
     channel_id: &str,
     coin: &CoinDefinition,
@@ -265,14 +270,17 @@ pub async fn preflight_erc20(
     };
 
     let preflight_id = Uuid::new_v4().to_string();
-    preflight_store.put(
+    if !preflight_store.put(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: serde_json::to_value(payload).map_err(|_| WalletError::OperationFailed)?,
         },
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     Ok(PreflightResult {
         preflight_id,

@@ -26,5 +26,5 @@ External references and source repos used for parity or implementation checks.
 - Prefer primary source code over stale copied notes.
 - When parity behavior changes, update both references and local product-spec
   docs.
-- Regenerate coin catalog artifacts with `yarn sync:verus-coins`.
-- Verify catalog parity and drift with `yarn check:verus-coins`.
+- Regenerate coin catalog artifacts with `pnpm sync:verus-coins`.
+- Verify catalog parity and drift with `pnpm check:verus-coins`.

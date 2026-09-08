@@ -8,7 +8,8 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::core::auth::{
-    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager,
 };
 use crate::core::channels::store::PreflightStore;
 use crate::core::channels::vrpc::identity::preflight::{
@@ -51,8 +52,10 @@ pub async fn send(
         preflight_id,
         preflight_store,
         &account_id,
+        &context.session_id,
         &private_key,
         wallet_network,
+        Some(session_manager),
         provider_pool,
     )
     .await
@@ -62,6 +65,7 @@ pub async fn send_with_signing_material(
     preflight_id: &str,
     preflight_store: &PreflightStore,
     expected_account_id: &str,
+    expected_session_id: &str,
     wif: &str,
     wallet_network: WalletNetwork,
     provider_pool: &VrpcProviderPool,
@@ -76,8 +80,10 @@ pub async fn send_with_signing_material(
         preflight_id,
         preflight_store,
         expected_account_id,
+        expected_session_id,
         &private_key,
         wallet_network,
+        None,
         provider_pool,
     )
     .await
@@ -87,12 +93,14 @@ pub async fn send_with_private_key_material(
     preflight_id: &str,
     preflight_store: &PreflightStore,
     expected_account_id: &str,
+    expected_session_id: &str,
     private_key: &[u8; 32],
     wallet_network: WalletNetwork,
+    session_manager: Option<&Arc<Mutex<SessionManager>>>,
     provider_pool: &VrpcProviderPool,
 ) -> Result<IdentitySendResult, WalletError> {
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, expected_session_id)
         .ok_or(WalletError::InvalidPreflight)?;
     if !record.channel_id.starts_with("vrpc.") || record.account_id != expected_account_id {
         return Err(WalletError::InvalidPreflight);
@@ -101,6 +109,9 @@ pub async fn send_with_private_key_material(
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
 
     let signed_hex = sign_payload(&payload, private_key)?;
+    if let Some(session_manager) = session_manager {
+        ensure_active_wallet_session(session_manager, expected_session_id).await?;
+    }
     let provider = provider_pool.for_network(wallet_network);
     let txid_raw = provider.sendrawtransaction(&signed_hex).await?;
     let txid = parse_txid_from_result(&txid_raw).ok_or(WalletError::IdentityBuildFailed)?;

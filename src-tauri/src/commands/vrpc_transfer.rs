@@ -31,6 +31,10 @@ pub async fn preflight_vrpc_transfer(
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?
         .to_string();
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let (session_vrpc_address, _, _) = session.get_addresses()?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     drop(session);
@@ -68,6 +72,7 @@ pub async fn preflight_vrpc_transfer(
         params,
         &preflight_store,
         &account_id,
+        &session_id,
         &effective_source,
         &canonical_channel_id,
         vrpc_provider_pool.for_system(network, &resolved.system_id),

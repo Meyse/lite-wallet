@@ -16,8 +16,8 @@ use core::channels::btc::BtcProviderPool;
 use core::channels::eth::EthProviderPool;
 use core::channels::vrpc::VrpcProviderPool;
 use core::{
-    AccountStateStore, CoinRegistry, GuardSessionManager, PreflightStore, SessionManager,
-    StrongholdStore, UpdateEngine, WalletManager,
+    AccountStateStore, CoinRegistry, GuardSessionManager, PreflightStore,
+    ProvisioningSignatureStore, SessionManager, StrongholdStore, UpdateEngine, WalletManager,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -170,6 +170,9 @@ pub fn run() {
             app.manage(preflight_store);
             println!("[APP] Preflight store initialized");
 
+            app.manage(ProvisioningSignatureStore::new());
+            println!("[APP] Provisioning signature store initialized");
+
             let guard_session_manager = Arc::new(Mutex::new(GuardSessionManager::new()));
             app.manage(guard_session_manager);
             println!("[APP] Guard session manager initialized");
@@ -258,7 +261,8 @@ pub fn run() {
             generic_request::build_and_sign_generic_response,
             generic_request::post_generic_response_callback,
             generic_request::open_generic_request_callback,
-            generic_request::sign_identity_signature_hash,
+            generic_request::prepare_provisioning_signature,
+            generic_request::confirm_provisioning_signature,
             generic_request::verify_identity_signature_hash,
             generic_request::review_generic_identity_update,
             generic_request::preflight_generic_identity_update,

@@ -8,7 +8,6 @@
   "bracketSpacing": true,
   "arrowParens": "always",
   "endOfLine": "lf",
-  "svelteStrictMode": false,
   "svelteAllowShorthand": true,
   "svelteIndentScriptAndStyle": true,
   "htmlWhitespaceSensitivity": "css",
@@ -35,5 +34,5 @@
     }
   ],
   "tailwindFunctions": ["cn", "cva", "tv"],
-  "tailwindConfig": "./tailwind.config.js"
+  "tailwindStylesheet": "./src/app.css"
 }

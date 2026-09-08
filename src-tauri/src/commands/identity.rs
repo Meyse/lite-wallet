@@ -29,6 +29,7 @@ const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
 pub(crate) struct IdentitySessionContext {
+    pub(crate) session_id: String,
     pub(crate) account_id: String,
     pub(crate) network: WalletNetwork,
     pub(crate) primary_address: String,
@@ -495,6 +496,7 @@ pub(crate) async fn identity_session_context(
     let password_hash = Zeroizing::new(context.password_hash().to_vec());
 
     Ok(IdentitySessionContext {
+        session_id: context.session_id,
         account_id: context.account_id,
         network: context.wallet_network,
         primary_address: context.vrsc_address,
@@ -552,6 +554,10 @@ pub async fn preflight_identity_update(
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?
         .to_string();
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let (session_vrpc_address, _, _) = session.get_addresses()?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
     drop(session);
@@ -576,6 +582,7 @@ pub async fn preflight_identity_update(
         params,
         &preflight_store,
         &account_id,
+        &session_id,
         &resolved.address,
         &canonical_channel_id,
         vrpc_provider_pool.for_network(network),

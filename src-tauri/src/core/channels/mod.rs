@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
@@ -471,6 +471,10 @@ pub async fn route_preflight(
                 .active_account_id()
                 .ok_or(WalletError::WalletLocked)?
                 .to_string();
+            let session_id = session
+                .active_session_id()
+                .ok_or(WalletError::WalletLocked)?
+                .to_string();
             let (session_vrpc_address, _, _) = session.get_addresses()?;
             let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
             drop(session);
@@ -518,6 +522,7 @@ pub async fn route_preflight(
                     },
                     preflight_store,
                     &account_id,
+                    &session_id,
                     &resolved.address,
                     &canonical_channel_id,
                     vrpc_provider_pool.for_system(network, &resolved.system_id),
@@ -546,6 +551,7 @@ pub async fn route_preflight(
                 params,
                 preflight_store,
                 &account_id,
+                &session_id,
                 &resolved.address,
                 &canonical_channel_id,
                 vrpc_provider_pool.for_system(network, &resolved.system_id),
@@ -556,6 +562,10 @@ pub async fn route_preflight(
             let session = session_manager.lock().await;
             let account_id = session
                 .active_account_id()
+                .ok_or(WalletError::WalletLocked)?
+                .to_string();
+            let session_id = session
+                .active_session_id()
                 .ok_or(WalletError::WalletLocked)?
                 .to_string();
             drop(session);
@@ -573,6 +583,7 @@ pub async fn route_preflight(
                 params,
                 preflight_store,
                 &account_id,
+                &session_id,
                 channel_id,
                 request,
                 provider,
@@ -585,6 +596,10 @@ pub async fn route_preflight(
                 .active_account_id()
                 .ok_or(WalletError::WalletLocked)?
                 .to_string();
+            let session_id = session
+                .active_session_id()
+                .ok_or(WalletError::WalletLocked)?
+                .to_string();
             let (_, _, from_address) = session.get_addresses()?;
             let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
             drop(session);
@@ -592,6 +607,7 @@ pub async fn route_preflight(
                 params,
                 preflight_store,
                 &account_id,
+                &session_id,
                 &from_address,
                 channel_id,
                 btc_provider_pool.for_network(network),
@@ -603,6 +619,10 @@ pub async fn route_preflight(
             let session = session_manager.lock().await;
             let account_id = session
                 .active_account_id()
+                .ok_or(WalletError::WalletLocked)?
+                .to_string();
+            let session_id = session
+                .active_session_id()
                 .ok_or(WalletError::WalletLocked)?
                 .to_string();
             let (_, from_address, _) = session.get_addresses()?;
@@ -623,6 +643,7 @@ pub async fn route_preflight(
                 params,
                 preflight_store,
                 &account_id,
+                &session_id,
                 &from_address,
                 channel_id,
                 eth_provider_pool.for_network(network)?,
@@ -633,6 +654,10 @@ pub async fn route_preflight(
             let session = session_manager.lock().await;
             let account_id = session
                 .active_account_id()
+                .ok_or(WalletError::WalletLocked)?
+                .to_string();
+            let session_id = session
+                .active_session_id()
                 .ok_or(WalletError::WalletLocked)?
                 .to_string();
             let (_, from_address, _) = session.get_addresses()?;
@@ -653,6 +678,7 @@ pub async fn route_preflight(
                 params,
                 preflight_store,
                 &account_id,
+                &session_id,
                 &from_address,
                 channel_id,
                 &coin,
@@ -675,8 +701,9 @@ pub async fn route_send(
     eth_provider_pool: &EthProviderPool,
     app_handle: &AppHandle,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .get(preflight_id)
+        .get(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
     let prefix = record.channel_id.split('.').next().unwrap_or("");
     match prefix {

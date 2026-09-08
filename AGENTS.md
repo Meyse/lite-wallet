@@ -4,14 +4,15 @@ Use this file as a table of contents, not as an encyclopedia.
 
 ## Global rules (always apply)
 
-- Use `yarn` for package-manager commands in this repository.
-- Do not use `npm`.
+- Use the repository-pinned `pnpm` version for package-manager commands.
+- Do not use `npm` or Yarn.
 - Any new user-facing UI text must use translation keys via `i18n.t(...)` from
   `src/lib/i18n`.
 - Use sentence case for user-facing UI copy.
 - Always verify both light and dark mode for changed UI.
 - Default to desktop UX over mobile parity.
-- Use the `frontend-design` skill for frontend UI, layout, styling, and visual polish work in this repository.
+- Use the `frontend-design` skill for frontend UI, layout, styling, and visual
+  polish work in this repository.
 - Keep cognitive load low: one primary task at a time and minimal simultaneous
   UI elements.
 - Keep visual language consistent with existing screens (especially
@@ -20,8 +21,10 @@ Use this file as a table of contents, not as an encyclopedia.
   inline SVG icons when a Lucide equivalent exists.
 - For parity research against `valu-mobile` (`newsend3`), use
   `/Users/maxtheyse/dev/valu-mobile` on branch `newsend3`.
-- Centralize repeated user-facing content definitions instead of duplicating them across screens.
-- For shared help topics, FAQs, and copy blocks used in more than one screen, create a shared helper in `src/lib` and consume it from all screens.
+- Centralize repeated user-facing content definitions instead of duplicating
+  them across screens.
+- For shared help topics, FAQs, and copy blocks used in more than one screen,
+  create a shared helper in `src/lib` and consume it from all screens.
 - Keep changes small and focused when possible.
 - Keep public interfaces stable unless there is a clear reason to change them.
 - Document assumptions near the code that depends on them.

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{ensure_active_wallet_session, SessionManager};
 use crate::core::channels::store::PreflightStore;
 use crate::core::updates::{TxSendProgressPayload, EVENT_TX_SEND_PROGRESS};
 use crate::types::transaction::SendResult;
@@ -21,11 +21,15 @@ pub async fn send(
     request: DlightRuntimeRequest,
     app_handle: &AppHandle,
 ) -> Result<SendResult, WalletError> {
+    let session = session_manager.lock().await;
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
-    let session = session_manager.lock().await;
     let active_id = session
         .active_account_id()
         .ok_or(WalletError::WalletLocked)?;
@@ -65,6 +69,7 @@ pub async fn send(
         }
     };
 
+    ensure_active_wallet_session(session_manager, &session_id).await?;
     let executed = execute_send(
         &request,
         &ExecuteSendParams {

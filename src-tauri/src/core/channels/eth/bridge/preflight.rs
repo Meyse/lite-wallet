@@ -56,6 +56,7 @@ pub async fn preflight(
     params: BridgeTransferPreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     source_coin: &CoinDefinition,
     from_address: &str,
     refund_vrpc_address: &str,
@@ -418,14 +419,17 @@ pub async fn preflight(
     };
 
     let preflight_id = Uuid::new_v4().to_string();
-    preflight_store.put(
+    if !preflight_store.put(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: serde_json::to_value(payload).map_err(|_| WalletError::OperationFailed)?,
         },
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     let mut warnings = Vec::<PreflightWarning>::new();
     if is_conversion {

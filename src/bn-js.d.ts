@@ -1,5 +1,5 @@
 declare module 'bn.js' {
-  const BN: any;
+  const BN: unknown;
   export default BN;
   export { BN };
 }

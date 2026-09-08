@@ -12,12 +12,17 @@ use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::core::auth::SessionManager;
+use crate::core::auth::{
+    clear_wallet_session_if_current, GuardSessionManager, ProvisioningSignatureStore,
+    SessionManager,
+};
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
-use crate::core::channels::{route_get_balances, route_get_info, route_get_transactions};
+use crate::core::channels::{
+    route_get_balances, route_get_info, route_get_transactions, PreflightStore,
+};
 use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
 use crate::core::rates::{build_rates_http_client, coinpaprika, ecb, pbaas};
 use crate::core::updates::events::{
@@ -96,7 +101,11 @@ impl UpdateEngine {
     pub async fn start(
         &self,
         app_handle: AppHandle,
+        session_id: String,
         session_manager: Arc<Mutex<SessionManager>>,
+        guard_session_manager: Arc<Mutex<GuardSessionManager>>,
+        preflight_store: PreflightStore,
+        provisioning_signature_store: ProvisioningSignatureStore,
         coin_registry: Arc<CoinRegistry>,
         vrpc_provider_pool: Arc<VrpcProviderPool>,
         btc_provider_pool: Arc<BtcProviderPool>,
@@ -113,7 +122,11 @@ impl UpdateEngine {
             run_update_loop(
                 child,
                 app_handle,
+                session_id,
                 session_manager,
+                guard_session_manager,
+                preflight_store,
+                provisioning_signature_store,
                 coin_registry,
                 vrpc_provider_pool,
                 btc_provider_pool,
@@ -1039,7 +1052,11 @@ async fn run_bootstrap_rate_fetches(
 async fn run_update_loop(
     cancel_token: CancellationToken,
     app_handle: AppHandle,
+    session_id: String,
     session_manager: Arc<Mutex<SessionManager>>,
+    guard_session_manager: Arc<Mutex<GuardSessionManager>>,
+    preflight_store: PreflightStore,
+    provisioning_signature_store: ProvisioningSignatureStore,
     coin_registry: Arc<CoinRegistry>,
     vrpc_provider_pool: Arc<VrpcProviderPool>,
     btc_provider_pool: Arc<BtcProviderPool>,
@@ -1066,17 +1083,26 @@ async fn run_update_loop(
             break;
         }
 
-        let mut session = session_manager.lock().await;
+        let session = session_manager.lock().await;
+        if session.active_session_id() != Some(session_id.as_str()) {
+            break;
+        }
         if session.is_expired() && session.active_account_id().is_some() {
-            println!("[UPDATE] Session expired; locking in-memory state");
-            session.lock();
+            println!("[UPDATE] Session expired; clearing session state");
             drop(session);
-            emit_session_expired(&app_handle);
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {}
+            if clear_wallet_session_if_current(
+                Some(&session_id),
+                &session_manager,
+                &guard_session_manager,
+                &preflight_store,
+                &provisioning_signature_store,
+                &coin_registry,
+            )
+            .await
+            {
+                emit_session_expired(&app_handle);
             }
-            continue;
+            break;
         }
 
         if !session.is_unlocked() {

@@ -11,7 +11,8 @@ use bitcoin::ScriptBuf;
 use tokio::sync::Mutex;
 
 use crate::core::auth::{
-    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager,
 };
 use crate::core::channels::btc::preflight::BtcPreflightPayload;
 use crate::core::channels::btc::provider::BtcProviderPool;
@@ -93,11 +94,11 @@ pub async fn send(
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &BtcProviderPool,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
-    let context = capture_active_wallet_access_context(session_manager).await?;
     if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
@@ -146,6 +147,7 @@ pub async fn send(
         .map_err(|_| WalletError::OperationFailed)?;
     let signed_hex = hex::encode(&signed);
 
+    ensure_active_wallet_session(session_manager, &context.session_id).await?;
     let provider = provider_pool.for_network(wallet_network);
     let txid = provider.broadcast(&signed_hex).await?;
     if txid.is_empty() {

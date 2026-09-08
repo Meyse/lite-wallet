@@ -12,7 +12,8 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::core::auth::{
-    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+    capture_active_wallet_access_context, ensure_active_wallet_session,
+    load_primary_private_scalar_for_context, SessionManager,
 };
 use crate::core::channels::store::PreflightStore;
 use crate::core::channels::vrpc::identity::verus_tx::codec::{
@@ -41,11 +42,11 @@ pub async fn send(
     session_manager: &Arc<Mutex<SessionManager>>,
     provider_pool: &VrpcProviderPool,
 ) -> Result<SendResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     let record = preflight_store
-        .take(preflight_id)
+        .take(preflight_id, &context.session_id)
         .ok_or(WalletError::InvalidPreflight)?;
 
-    let context = capture_active_wallet_access_context(session_manager).await?;
     if context.account_id != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
@@ -61,6 +62,7 @@ pub async fn send(
     let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
 
     let signed_hex = sign_payload(&payload, &secp, &secret_key, &public_key)?;
+    ensure_active_wallet_session(session_manager, &context.session_id).await?;
 
     let resolved_channel = parse_vrpc_channel_id(&record.channel_id, Some(&payload.from_address))?;
     let provider = provider_pool.for_system(wallet_network, &resolved_channel.system_id);

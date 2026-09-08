@@ -5,12 +5,15 @@ last_reviewed: 2026-02-26
 
 # Release pipeline (GitHub Actions)
 
-This runbook defines CI and release automation for cross-platform desktop builds.
+This runbook defines CI and release automation for cross-platform desktop
+builds.
 
 ## Scope
 
-- In scope: build/test automation and draft release packaging for macOS, Windows, and Linux.
-- Out of scope: updater integration, proxy-based key protection, code signing, and notarization.
+- In scope: build/test automation and draft release packaging for macOS,
+  Windows, and Linux.
+- Out of scope: updater integration, proxy-based key protection, code signing,
+  and notarization.
 
 ## Workflows
 
@@ -21,13 +24,16 @@ This runbook defines CI and release automation for cross-platform desktop builds
 - Runner: `ubuntu-latest`
 - Steps:
   1. Checkout
-  2. Setup Node 20
+  2. Setup Node 22.23.2
   3. Enable Corepack
-  4. Pin Yarn `4.12.0`
-  5. `yarn install --immutable`
-  6. `yarn lint`
-  7. `yarn check`
-  8. `yarn build`
+  4. Activate the `pnpm` version pinned in `package.json`
+  5. `pnpm install --frozen-lockfile`
+  6. `pnpm lint`
+  7. `pnpm check`
+  8. `pnpm test`
+  9. `pnpm build`
+  10. `cargo test --locked`
+  11. `cargo check --locked`
 
 ### Release
 
@@ -50,7 +56,7 @@ The workflow fails before matrix builds unless all checks pass:
 
 #### Target matrix
 
-1. `macos-13` → `x86_64-apple-darwin`
+1. `macos-15-intel` → `x86_64-apple-darwin`
 2. `macos-14` → `aarch64-apple-darwin`
 3. `windows-latest` → `x86_64-pc-windows-msvc`
 4. `ubuntu-22.04` → `x86_64-unknown-linux-gnu`
@@ -83,7 +89,8 @@ Manual trigger option:
 
 ## Key and env policy for this phase
 
-- `INFURA_PROJECT_ID` and `ETHERSCAN_API_KEY` are treated as leakable in this phase.
+- `INFURA_PROJECT_ID` and `ETHERSCAN_API_KEY` are treated as leakable in this
+  phase.
 - No secret-hardening changes are required to ship this pipeline.
 - ETH features may remain disabled at runtime when keys are not configured.
 - Follow-up work can add BYO key UX or a proxy service.
@@ -91,4 +98,5 @@ Manual trigger option:
 ## Notes
 
 - Artifacts are unsigned in this iteration.
-- macOS and Windows trust warnings are expected until signing/notarization is added.
+- macOS and Windows trust warnings are expected until signing/notarization is
+  added.

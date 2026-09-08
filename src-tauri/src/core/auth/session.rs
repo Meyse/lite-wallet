@@ -7,9 +7,13 @@ use crate::core::auth::stronghold_store::StrongholdStore;
 use crate::core::crypto::{derive_private_scalar_from_material, DerivedPublicProfile};
 use crate::types::errors::WalletError;
 use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 pub const ALLOWED_SESSION_TIMEOUT_MINUTES: [u64; 4] = [5, 15, 30, 60];
@@ -22,14 +26,74 @@ struct SessionAddresses {
     btc_address: String,
 }
 
+struct SessionSubmissionState {
+    admission: StdMutex<()>,
+    invalidated: AtomicBool,
+    cancellation: CancellationToken,
+}
+
+/// Coordinates transaction-future admission with session invalidation.
+///
+/// The short synchronous admission mutex is held for each poll of a submission
+/// future and released whenever that poll returns. It establishes a total order:
+/// invalidation first prevents any further polling, while a poll admitted first
+/// may reach its transport and can no longer be guaranteed reversible.
+#[derive(Clone)]
+pub(crate) struct SessionSubmissionGuard {
+    state: Arc<SessionSubmissionState>,
+}
+
+impl SessionSubmissionGuard {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(SessionSubmissionState {
+                admission: StdMutex::new(()),
+                invalidated: AtomicBool::new(false),
+                cancellation: CancellationToken::new(),
+            }),
+        }
+    }
+
+    fn invalidate(&self) {
+        let _admission = self
+            .state
+            .admission
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.state.invalidated.store(true, Ordering::Release);
+        self.state.cancellation.cancel();
+    }
+
+    pub(crate) fn cancellation(&self) -> CancellationToken {
+        self.state.cancellation.clone()
+    }
+
+    pub(crate) fn poll_admitted<T>(
+        &self,
+        poll: impl FnOnce() -> std::task::Poll<Result<T, WalletError>>,
+    ) -> std::task::Poll<Result<T, WalletError>> {
+        let _admission = self
+            .state
+            .admission
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.state.invalidated.load(Ordering::Acquire) {
+            return std::task::Poll::Ready(Err(WalletError::WalletLocked));
+        }
+        poll()
+    }
+}
+
 #[derive(Clone)]
 pub struct ActiveWalletAccessContext {
+    pub session_id: String,
     pub account_id: String,
     pub wallet_network: WalletNetwork,
     pub wallet_secret_kind: WalletSecretKind,
     pub vrsc_address: String,
     pub eth_address: String,
     pub btc_address: String,
+    session_submission_guard: SessionSubmissionGuard,
     stronghold_password_hash: Zeroizing<Vec<u8>>,
     pub stronghold_store: StrongholdStore,
 }
@@ -38,6 +102,10 @@ impl ActiveWalletAccessContext {
     pub fn password_hash(&self) -> &[u8] {
         self.stronghold_password_hash.as_ref()
     }
+
+    pub(crate) fn session_submission_guard(&self) -> SessionSubmissionGuard {
+        self.session_submission_guard.clone()
+    }
 }
 
 pub async fn capture_active_wallet_access_context(
@@ -45,6 +113,17 @@ pub async fn capture_active_wallet_access_context(
 ) -> Result<ActiveWalletAccessContext, WalletError> {
     let session = session_manager.lock().await;
     session.active_wallet_access_context()
+}
+
+pub async fn ensure_active_wallet_session(
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
+) -> Result<(), WalletError> {
+    if session_manager.lock().await.is_current_session(session_id) {
+        Ok(())
+    } else {
+        Err(WalletError::WalletLocked)
+    }
 }
 
 pub async fn load_primary_secret_material_for_context(
@@ -74,12 +153,14 @@ pub fn normalize_session_timeout_minutes(minutes: u64) -> u64 {
 
 pub struct SessionManager {
     is_unlocked: bool,
+    active_session_id: Option<String>,
     active_account_id: Option<String>,
     last_activity_at: Option<Instant>,
     timeout_duration: Duration,
     active_network: Option<WalletNetwork>,
     active_secret_kind: Option<WalletSecretKind>,
     active_addresses: Option<SessionAddresses>,
+    active_submission_guard: Option<SessionSubmissionGuard>,
     stronghold_password_hash: Option<Zeroizing<Vec<u8>>>,
     stronghold_store: StrongholdStore,
 }
@@ -91,12 +172,14 @@ impl SessionManager {
             normalize_session_timeout_minutes(DEFAULT_SESSION_TIMEOUT_MINUTES);
         Self {
             is_unlocked: false,
+            active_session_id: None,
             active_account_id: None,
             last_activity_at: None,
             timeout_duration: Duration::from_secs(default_timeout_minutes * 60),
             active_network: None,
             active_secret_kind: None,
             active_addresses: None,
+            active_submission_guard: None,
             stronghold_password_hash: None,
             stronghold_store,
         }
@@ -110,9 +193,15 @@ impl SessionManager {
         wallet_secret_kind: WalletSecretKind,
         public_profile: DerivedPublicProfile,
         stronghold_password_hash: Zeroizing<Vec<u8>>,
-    ) {
+    ) -> String {
         println!("[SESSION] Unlock requested for account: {}", account_id);
 
+        if let Some(guard) = self.active_submission_guard.take() {
+            guard.invalidate();
+        }
+        let session_id = Uuid::new_v4().to_string();
+        self.active_submission_guard = Some(SessionSubmissionGuard::new());
+        self.active_session_id = Some(session_id.clone());
         self.active_account_id = Some(account_id);
         self.active_network = Some(wallet_network);
         self.active_secret_kind = Some(wallet_secret_kind);
@@ -126,13 +215,18 @@ impl SessionManager {
         self.last_activity_at = Some(Instant::now());
 
         println!("[SESSION] Unlock successful");
+        session_id
     }
 
     /// Lock wallet session and zeroize all session-scoped secrets.
     pub fn lock(&mut self) {
         println!("[SESSION] Locking wallet");
 
+        if let Some(guard) = self.active_submission_guard.take() {
+            guard.invalidate();
+        }
         self.active_account_id = None;
+        self.active_session_id = None;
         self.active_network = None;
         self.active_secret_kind = None;
         self.active_addresses = None;
@@ -182,6 +276,16 @@ impl SessionManager {
     /// Get the active account ID.
     pub fn active_account_id(&self) -> Option<&String> {
         self.active_account_id.as_ref()
+    }
+
+    /// Opaque identifier for the current unlock instance. It changes even when
+    /// the same account is unlocked again.
+    pub fn active_session_id(&self) -> Option<&str> {
+        self.active_session_id.as_deref()
+    }
+
+    pub fn is_current_session(&self, session_id: &str) -> bool {
+        self.is_unlocked() && self.active_session_id() == Some(session_id)
     }
 
     /// Returns the selected wallet network for the active session.
@@ -246,6 +350,11 @@ impl SessionManager {
             .as_ref()
             .ok_or(WalletError::WalletLocked)?
             .clone();
+        let session_id = self
+            .active_session_id
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .clone();
         let wallet_network = self.active_network.ok_or(WalletError::WalletLocked)?;
         let wallet_secret_kind = self.active_secret_kind.ok_or(WalletError::WalletLocked)?;
         let addresses = self
@@ -257,14 +366,21 @@ impl SessionManager {
             .as_ref()
             .ok_or(WalletError::WalletLocked)?
             .to_vec();
+        let session_submission_guard = self
+            .active_submission_guard
+            .as_ref()
+            .ok_or(WalletError::WalletLocked)?
+            .clone();
 
         Ok(ActiveWalletAccessContext {
+            session_id,
             account_id,
             wallet_network,
             wallet_secret_kind,
             vrsc_address: addresses.vrsc_address.clone(),
             eth_address: addresses.eth_address.clone(),
             btc_address: addresses.btc_address.clone(),
+            session_submission_guard,
             stronghold_password_hash: Zeroizing::new(stronghold_password_hash),
             stronghold_store: self.stronghold_store.clone(),
         })

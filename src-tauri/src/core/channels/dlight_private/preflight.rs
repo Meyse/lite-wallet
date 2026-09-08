@@ -28,6 +28,7 @@ pub async fn preflight(
     params: PreflightParams,
     preflight_store: &PreflightStore,
     account_id: &str,
+    session_id: &str,
     channel_id: &str,
     request: DlightRuntimeRequest,
     vrpc_provider: &VrpcProvider,
@@ -78,14 +79,17 @@ pub async fn preflight(
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
 
-    preflight_store.put(
+    if !preflight_store.put(
         preflight_id.clone(),
         PreflightRecord {
+            session_id: session_id.to_string(),
             channel_id: channel_id.to_string(),
             account_id: account_id.to_string(),
             payload: payload_value,
         },
-    );
+    ) {
+        return Err(WalletError::WalletLocked);
+    }
 
     Ok(PreflightResult {
         preflight_id,

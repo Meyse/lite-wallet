@@ -5,7 +5,7 @@ import {
   LoginConsentProvisioningChallenge,
   LoginConsentProvisioningRequest,
   LoginConsentProvisioningResponse,
-  VerusIDSignature
+  VerusIDSignature,
 } from 'verus-typescript-primitives';
 import * as genericRequestService from '$lib/services/genericRequestService.js';
 import type { ProvisioningJobRecord } from '$lib/types/wallet.js';
@@ -13,7 +13,7 @@ import { base64ToBytes, bytesToHex, readUint32LE } from '$lib/utils/bytes.js';
 import type {
   AuthenticationDetailSession,
   GenericRequestFlowSession,
-  ProvisionIdentityDetailSession
+  ProvisionIdentityDetailSession,
 } from './session';
 
 const MAINNET_SYSTEM_ID = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
@@ -44,7 +44,10 @@ function looksLikeIdentityAddress(value: string): boolean {
   return trimmed.startsWith('i') && !trimmed.includes('.');
 }
 
-function extractSignatureBlockHeight(signatureBase64: string): { version: number; blockHeight: number } {
+function extractSignatureBlockHeight(signatureBase64: string): {
+  version: number;
+  blockHeight: number;
+} {
   const signatureBytes = base64ToBytes(signatureBase64);
   if (signatureBytes.length < 6) {
     throw new Error('genericRequest.provisioning.error.invalidResponse');
@@ -59,7 +62,7 @@ function extractSignatureBlockHeight(signatureBase64: string): { version: number
 
   return {
     version,
-    blockHeight: readUint32LE(signatureBytes, blockHeightOffset)
+    blockHeight: readUint32LE(signatureBytes, blockHeightOffset),
   };
 }
 
@@ -100,23 +103,26 @@ export async function submitGenericProvisioningRequest(
       created_at: Math.floor(Date.now() / 1000),
       name: normalizeRequestedName(requestedFqn),
       system_id: provisioningDetail.systemId?.trim() || undefined,
-      parent: provisioningDetail.parent?.trim() || undefined
-    })
+      parent: provisioningDetail.parent?.trim() || undefined,
+    }),
   });
 
-  const requestHashHex = bytesToHex(provisioningRequest.getChallengeHash());
-  const requestSignature = await genericRequestService.signIdentitySignatureHash(
-    requestHashHex,
+  const signingChallengeId = await genericRequestService.prepareProvisioningSignature(
+    session.requestHex,
+    bytesToHex(provisioningRequest.challenge.toBuffer()),
+    signingAddress,
     requestSystemId
   );
+  const requestSignature =
+    await genericRequestService.confirmProvisioningSignature(signingChallengeId);
   provisioningRequest.signature = new VerusIDSignature({ signature: requestSignature });
 
-  const webhookResponse = await fetch(webhookUrl, {
+  const webhookResponse = await globalThis.fetch(webhookUrl, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(provisioningRequest.toJson())
+    body: JSON.stringify(provisioningRequest.toJson()),
   });
 
   if (!webhookResponse.ok) {
@@ -160,7 +166,7 @@ export async function submitGenericProvisioningRequest(
 
   const allowedStates = new Set([
     LOGIN_CONSENT_PROVISIONING_RESULT_STATE_PENDINGAPPROVAL.vdxfid,
-    LOGIN_CONSENT_PROVISIONING_RESULT_STATE_COMPLETE.vdxfid
+    LOGIN_CONSENT_PROVISIONING_RESULT_STATE_COMPLETE.vdxfid,
   ]);
   if (!allowedStates.has(result.state)) {
     throw new Error('genericRequest.provisioning.error.invalidResponse');
@@ -189,6 +195,6 @@ export async function submitGenericProvisioningRequest(
     signingId: requestSignerId,
     hasResponseUris: session.responseUris.length > 0,
     infoUri: result.info_uri ?? null,
-    status: 'pending'
+    status: 'pending',
   });
 }

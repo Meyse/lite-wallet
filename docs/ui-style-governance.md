@@ -27,8 +27,8 @@ appearing without first deciding that they are now part of the style.
 - Standard labeled copy actions should use the local `CopyActionButton`
   primitive in `src/lib/components/ui/copy-action-button`.
 - Standard inline text actions should use the local `InlineTextActionButton`
-  primitive in `src/lib/components/common/InlineTextActionButton.svelte`
-  instead of ad hoc underlined buttons or links.
+  primitive in `src/lib/components/common/InlineTextActionButton.svelte` instead
+  of ad hoc underlined buttons or links.
 
 ## Semantic tokens in `src/app.css`
 
@@ -54,10 +54,10 @@ appearing without first deciding that they are now part of the style.
 
 ## Enforcement
 
-- `yarn lint:ui` scans `src/**` for unapproved hex literals and color functions.
-- `yarn lint:ui` also rejects native `input`, `textarea`, and `select` usage
+- `pnpm lint:ui` scans `src/**` for unapproved hex literals and color functions.
+- `pnpm lint:ui` also rejects native `input`, `textarea`, and `select` usage
   outside `src/lib/components/ui/**`.
-- `yarn lint:ui` rejects raw `<label>` usage in feature code so label styling
+- `pnpm lint:ui` rejects raw `<label>` usage in feature code so label styling
   stays centralized.
 - The linter fails when a color is outside the approved palette or when an
   approved color is declared outside its token or registry source file.

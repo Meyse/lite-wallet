@@ -71,8 +71,8 @@ repository.
 Run these to add the next highest-value missing primitives:
 
 ```bash
-yarn dlx shadcn-svelte@latest add tabs scroll-area alert alert-dialog select switch radio-group
-yarn dlx shadcn-svelte@latest add breadcrumb command table pagination popover progress toggle toggle-group
+pnpm dlx shadcn-svelte@latest add tabs scroll-area alert alert-dialog select switch radio-group
+pnpm dlx shadcn-svelte@latest add breadcrumb command table pagination popover progress toggle toggle-group
 ```
 
 ## First Refactor Slice
