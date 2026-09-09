@@ -5,6 +5,7 @@
 
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import SendIcon from '@lucide/svelte/icons/send';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
@@ -66,6 +67,7 @@
     walletEntryKind?: WalletEntryKind;
     scopeFilterMode?: ScopeKind;
     entryDisplayName?: string;
+    onBack?: () => void;
     onNavigateToReceive?: () => void;
 
     onNavigateToSend?: (_context: TransferEntryContext) => void;
@@ -80,6 +82,7 @@
     walletEntryKind = 'coin',
     scopeFilterMode = 'transparent',
     entryDisplayName,
+    onBack = noop,
     onNavigateToReceive = noop,
     onNavigateToSend = noop,
     onNavigateToConvert = noop,
@@ -987,7 +990,16 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-0 pb-6 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-3 pb-6 sm:px-8">
+  <button
+    type="button"
+    class="mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+    onclick={onBack}
+  >
+    <ArrowLeftIcon class="size-4" aria-hidden="true" />
+    {i18n.t('common.back')}
+  </button>
+
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     {#if scopesLoading}
       <div class="space-y-4 pt-3">

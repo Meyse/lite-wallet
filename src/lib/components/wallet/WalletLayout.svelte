@@ -283,6 +283,9 @@
               walletEntryKind={activeAssetDetailsEntry.walletEntryKind}
               scopeFilterMode={activeAssetDetailsEntry.scopeFilterMode}
               entryDisplayName={activeAssetDetailsEntry.displayName}
+              onBack={() => {
+                activeAssetDetailsEntry = null;
+              }}
               onNavigateToReceive={() => {
                 activeSection = 'receive';
               }}
