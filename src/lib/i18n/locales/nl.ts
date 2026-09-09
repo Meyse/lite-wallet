@@ -7,7 +7,7 @@ export const nl: Record<string, string> = {
   'common.retry': 'Opnieuw proberen',
   'common.unknownError': 'Onbekende fout',
   'common.error.secureStorageUnavailable':
-    'Beveiligde walletopslag is niet beschikbaar op dit apparaat. Herstel vanaf een backup of herstelzin.',
+    'Beveiligde walletopslag is niet beschikbaar op dit apparaat. Herstel vanaf een backup of geheime herstelzin.',
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
 
@@ -36,18 +36,19 @@ export const nl: Record<string, string> = {
   'unlock.switcher.title': 'Kies wallet',
   'unlock.create.title': 'Wallet maken of importeren',
   'unlock.create.newTitle': 'Maak een nieuwe wallet',
-  'unlock.create.newDescription': 'Genereer een nieuwe herstelzin en stel een frisse wallet in.',
+  'unlock.create.newDescription':
+    'Genereer een nieuwe geheime herstelzin en stel een frisse wallet in.',
   'unlock.create.importTitle': 'Importeer een bestaande wallet',
   'unlock.create.importDescription':
-    'Gebruik je bestaande herstelzin om een wallet op dit apparaat te herstellen.',
+    'Gebruik je bestaande geheime herstelzin om een wallet op dit apparaat te herstellen.',
   'unlock.importMethods.title': 'Wallet importeren',
   'unlock.importMethods.back': 'Terug',
-  'unlock.importMethods.seed24Title': 'Importeer 24-woorden-herstelzin',
+  'unlock.importMethods.seed24Title': 'Importeer geheime herstelzin',
   'unlock.importMethods.seed24Description':
-    'Voer je 24 herstelwoorden in om deze wallet te herstellen.',
-  'unlock.importMethods.textTitle': 'Plak private key of seedtekst',
+    'Voer je geheime herstelzin van 24 woorden in om deze wallet te herstellen.',
+  'unlock.importMethods.textTitle': 'Plak private key of aangepaste seed',
   'unlock.importMethods.textDescription':
-    'Plak handmatig een private key, herstelzin of seedtekst.',
+    'Plak handmatig een private key, geheime herstelzin of aangepaste seed.',
 
   'guard.mode.revoke': 'Intrekken',
   'guard.mode.recover': 'Herstellen',
@@ -66,12 +67,12 @@ export const nl: Record<string, string> = {
   'guard.flow.secret.title': 'Importeer {action}-autoriteitssleutel',
   'guard.flow.secret.description':
     'Importeer het geheim dat bevoegd is om deze identiteit te {action}.',
-  'guard.flow.secret.modePastePhrase': 'Plak herstelzin',
+  'guard.flow.secret.modePastePhrase': 'Plak geheime herstelzin',
   'guard.flow.secret.modeTypeOneByOne': 'Typ woord voor woord',
-  'guard.flow.secret.modeWifPrivateSeed': 'WIF, private key of seedtekst',
-  'guard.flow.secret.textPlaceholder': 'Plak WIF, private key hex of seedtekst',
+  'guard.flow.secret.modeWifPrivateSeed': 'WIF, private key of aangepaste seed',
+  'guard.flow.secret.textPlaceholder': 'Plak WIF, private key hex of aangepaste seed',
   'guard.flow.secret.textHelp':
-    'Gebruik deze optie voor WIF, private key hex of seedtekst die geen 24-woorden-herstelzin is.',
+    'Gebruik deze optie voor WIF, private key hex of een aangepaste seed die geen geheime herstelzin van 24 woorden is.',
   'guard.flow.secret.networkLabel': 'Netwerk',
   'guard.flow.secret.continue': 'Doorgaan',
   'guard.flow.secret.continueBusy': 'Guardsessie starten…',
@@ -120,7 +121,7 @@ export const nl: Record<string, string> = {
   'guard.flow.result.copySuccess': 'Gekopieerd',
   'guard.flow.result.copyFailed': 'Kopiëren mislukt',
   'guard.flow.result.tryAgain': 'Opnieuw proberen',
-  'guard.error.invalidImportText': 'Voer een geldige herstelzin, WIF of private key in.',
+  'guard.error.invalidImportText': 'Voer een geldige aangepaste seed, WIF of private key in.',
   'guard.error.guardSessionNotFound': 'Guardsessie verlopen. Start opnieuw.',
   'guard.error.identityNotFound': 'Deze VerusID kon niet worden gevonden.',
   'guard.error.identityInvalidState': 'De status van deze VerusID staat deze actie niet toe.',
@@ -457,22 +458,22 @@ export const nl: Record<string, string> = {
   'wallet.settings.profile.autoLock.option': '{minutes} min',
   'wallet.settings.profile.recovery.title': 'Herstel en sleutels',
   'wallet.settings.profile.recovery.description':
-    'Toon seed en afgeleide sleutels na wachtwoordbevestiging.',
+    'Toon herstelgeheimen en afgeleide sleutels na wachtwoordbevestiging.',
   'wallet.settings.privateVerus.title': 'Privacy',
   'wallet.settings.privateVerus.description':
-    'Configureer shielded privacy voor {label}. Je kunt je primaire 24-woorden-seed hergebruiken of een aparte privacy-seed instellen.',
+    'Configureer shielded privacy voor {label}. Je kunt je primaire geheime herstelzin hergebruiken of een apart privacyherstelgeheim instellen.',
   'wallet.settings.privateVerus.statusConfigured': 'Privacy is geconfigureerd.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is nog niet geconfigureerd.',
   'wallet.settings.privateVerus.statusAddress': 'Shielded adres: {address}',
   'wallet.settings.privateVerus.statusLoadError': 'Kon de privacystatus niet laden.',
-  'wallet.settings.privateVerus.reusePrimary': 'Primaire wallet-seed hergebruiken',
-  'wallet.settings.privateVerus.createNew': 'Nieuwe privacy-seed maken',
-  'wallet.settings.privateVerus.importLabel': 'Privacy-seed of spending key importeren',
+  'wallet.settings.privateVerus.reusePrimary': 'Primaire geheime herstelzin hergebruiken',
+  'wallet.settings.privateVerus.createNew': 'Nieuw privacyherstelgeheim maken',
+  'wallet.settings.privateVerus.importLabel': 'Privacyherstelgeheim of spending key importeren',
   'wallet.settings.privateVerus.importPlaceholder':
-    'Plak een 24-woorden-herstelzin of secret-extended-key-main…',
-  'wallet.settings.privateVerus.importAction': 'Privacy-seed importeren',
+    'Plak een geheime herstelzin of secret-extended-key-main…',
+  'wallet.settings.privateVerus.importAction': 'Privacyherstelgeheim importeren',
   'wallet.settings.privateVerus.settingUp': 'Privacy configureren…',
-  'wallet.settings.privateVerus.generatedSeedTitle': 'Nieuwe privacy-seedzin',
+  'wallet.settings.privateVerus.generatedSeedTitle': 'Nieuwe geheime herstelzin',
   'wallet.settings.privateVerus.setupSuccess': 'Privacy geconfigureerd.',
   'wallet.settings.privateVerus.setupSuccessRelogin':
     'Privacy geconfigureerd. Vergrendel en ontgrendel je wallet om private kanalen te activeren.',
@@ -480,7 +481,7 @@ export const nl: Record<string, string> = {
   'wallet.settings.privateVerus.advancedToggleShow': 'Geavanceerde privacyacties tonen',
   'wallet.settings.privateVerus.advancedToggleHide': 'Geavanceerde privacyacties verbergen',
   'wallet.settings.privateVerus.advancedWarning':
-    'Privacy opnieuw configureren kan je bestaande privacy-seed vervangen.',
+    'Privacy opnieuw configureren kan je bestaande privacyherstelgeheim vervangen.',
   'wallet.settings.about.title': 'Over',
   'wallet.settings.about.description': 'Versiegegevens en supportlinks.',
   'wallet.settings.about.appName': 'Appnaam',
@@ -513,13 +514,13 @@ export const nl: Record<string, string> = {
   'wallet.settings.recovery.field.verusAddress': 'Verus-adres',
   'wallet.settings.recovery.field.btcAddress': 'Bitcoin-adres',
   'wallet.settings.recovery.field.ethAddress': 'Ethereum-adres',
-  'wallet.settings.recovery.field.dlightSecret': 'Privacy-seed of spending key',
+  'wallet.settings.recovery.field.dlightSecret': 'Privacyherstelgeheim of spending key',
   'wallet.settings.recovery.field.dlightShieldedAddress': 'Privacy shielded adres',
   'wallet.settings.recovery.field.dlightDerivedSpendingKey': 'Afgeleide private spending key',
-  'wallet.settings.recovery.kind.seedText': 'Seedtekst',
+  'wallet.settings.recovery.kind.seedText': 'Aangepaste seed',
   'wallet.settings.recovery.kind.wif': 'WIF',
   'wallet.settings.recovery.kind.privateKeyHex': 'Private key (hex)',
-  'wallet.settings.recovery.kind.dlightMnemonic': 'Mnemonic-seed',
+  'wallet.settings.recovery.kind.dlightMnemonic': 'Geheime herstelzin',
   'wallet.settings.recovery.kind.dlightSpendingKey': 'Spending key',
   'wallet.settings.recovery.kind.unknown': 'Onbekend',
   'wallet.session.expired': 'Sessie verlopen. Wallet vergrendeld.',
@@ -931,10 +932,10 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.error.saveFailed': 'Kon adresboekwijzigingen nu niet opslaan.',
 
   'walletImport.step1.title': 'Personaliseer je wallet',
-  'walletImport.step2.seedTitle': 'Voer herstelzin in',
-  'walletImport.step2.textTitle': 'Plak private key of seedtekst',
+  'walletImport.step2.seedTitle': 'Voer geheime herstelzin in',
+  'walletImport.step2.textTitle': 'Plak private key of aangepaste seed',
   'walletImport.step2.textDescription':
-    'Plak je private key of seedtekst om deze wallet te importeren.',
+    'Plak je private key of aangepaste seed om deze wallet te importeren.',
   'walletImport.step3.title': 'Stel lokaal wachtwoord in',
   'walletImport.step3.description':
     'Maak een wachtwoord om deze wallet op dit apparaat te versleutelen.',
@@ -945,9 +946,9 @@ export const nl: Record<string, string> = {
   'walletImport.button.import': 'Wallet importeren',
   'walletImport.button.retryOpen': 'Opnieuw openen',
   'walletImport.button.opening': 'Openen…',
-  'walletImport.seed.modePaste': 'Zin plakken',
+  'walletImport.seed.modePaste': 'Geheime herstelzin plakken',
   'walletImport.seed.modeManual': 'Woord voor woord',
-  'walletImport.seed.pastePlaceholder': 'Plak je herstelzin van 24 woorden',
+  'walletImport.seed.pastePlaceholder': 'Plak je geheime herstelzin van 24 woorden',
   'walletImport.seed.currentWordProgress': 'Woord {current} van {total}',
   'walletImport.seed.currentWordPlaceholder': 'Typ minstens 3 letters…',
   'walletImport.seed.wordCellEmpty': 'Woord {index}, leeg',
@@ -956,20 +957,22 @@ export const nl: Record<string, string> = {
   'walletImport.seed.clearWord': 'Leegmaken',
   'walletImport.seed.wordCountLabel': 'Aantal woorden',
   'walletImport.seed.wordCount': '{current}/{required} woorden',
-  'walletImport.seed.validating': 'Herstelzin wordt gecontroleerd…',
-  'walletImport.seed.error.empty': 'Voer je herstelzin van 24 woorden in om door te gaan.',
+  'walletImport.seed.validating': 'Geheime herstelzin wordt gecontroleerd…',
+  'walletImport.seed.error.empty': 'Voer je geheime herstelzin van 24 woorden in om door te gaan.',
   'walletImport.seed.error.wordCount':
-    'Herstelzin moet precies {required} woorden bevatten. Huidig: {current}.',
-  'walletImport.seed.error.invalid': 'Herstelzin is ongeldig. Controleer spelling en volgorde.',
-  'walletImport.seed.error.invalidWord': '"{word}" is geen geldig herstelwoord.',
+    'Geheime herstelzin moet precies {required} woorden bevatten. Huidig: {current}.',
+  'walletImport.seed.error.invalid':
+    'Geheime herstelzin is ongeldig. Controleer spelling en volgorde.',
+  'walletImport.seed.error.invalidWord':
+    '"{word}" staat niet in de woordenlijst voor geheime herstelzinnen.',
   'walletImport.seed.error.wordlist':
-    'Woordsuggesties zijn nu niet beschikbaar. Je kunt je volledige herstelzin nog steeds plakken.',
-  'walletImport.text.placeholder': 'Plak private key of seedtekst',
+    'Woordsuggesties zijn nu niet beschikbaar. Je kunt je volledige geheime herstelzin nog steeds plakken.',
+  'walletImport.text.placeholder': 'Plak private key of aangepaste seed',
   'walletImport.text.helper': 'Gebruik dit als je backup geen 24-woorden-formaat heeft.',
   'walletImport.error.walletExists': 'Er bestaat al een wallet met deze naam.',
   'walletImport.error.invalidSeed':
-    'Herstelzin is ongeldig. Controleer alle 24 woorden en probeer opnieuw.',
-  'walletImport.error.invalidImportText': 'Voer private key of seedtekst in om door te gaan.',
+    'Geheime herstelzin is ongeldig. Controleer alle 24 woorden en probeer opnieuw.',
+  'walletImport.error.invalidImportText': 'Voer private key of aangepaste seed in om door te gaan.',
   'walletImport.error.invalidName': 'Walletnaam is ongeldig. Pas de naam aan en probeer opnieuw.',
   'walletImport.error.invalidPassword':
     'Wachtwoord voldoet niet aan de eisen. Gebruik minimaal 7 tekens.',
@@ -983,7 +986,7 @@ export const nl: Record<string, string> = {
   'walletImport.error.openInvalidArgs':
     'Wallet-openverzoek was ongeldig. Start de app opnieuw en probeer het nogmaals.',
   'walletImport.error.openGeneric': 'Kan wallet nu niet openen. Probeer opnieuw.',
-  'walletImport.complete.statusSeedValidated': 'Herstelzin gecontroleerd',
+  'walletImport.complete.statusSeedValidated': 'Geheime herstelzin gecontroleerd',
   'walletImport.complete.statusInputValidated': 'Importinvoer gecontroleerd',
   'walletImport.complete.statusImported': 'Wallet geimporteerd',
   'walletImport.complete.statusOpening': 'Wallet openen',
@@ -1005,9 +1008,9 @@ export const nl: Record<string, string> = {
 
   'walletCreation.step3.title': 'Beveiligingsrichtlijnen',
   'walletCreation.step3.checkbox': 'Ik begrijp het',
-  'walletCreation.step3.button': 'Toon herstelzin',
+  'walletCreation.step3.button': 'Toon geheime herstelzin',
 
-  'walletCreation.step4.title': 'Herstelzin',
+  'walletCreation.step4.title': 'Geheime herstelzin',
   'walletCreation.step4.description': 'Schrijf alle 24 woorden in de juiste volgorde op.',
   'walletCreation.step4.button': 'Ik heb alle woorden opgeschreven',
 
@@ -1029,7 +1032,7 @@ export const nl: Record<string, string> = {
 
   'walletCreation.intro.title': 'Wat gebeurt er hierna:',
   'walletCreation.intro.item1': 'Kies je walletnaam en netwerk',
-  'walletCreation.intro.item2': 'Genereer en backup je herstelzin',
+  'walletCreation.intro.item2': 'Genereer en backup je geheime herstelzin',
   'walletCreation.intro.item3': 'Verifieer dat je die goed hebt opgeslagen',
   'walletCreation.intro.item4': 'Stel een lokaal wachtwoord in',
   'walletCreation.intro.item5': 'Je wallet is klaar!',
@@ -1046,12 +1049,14 @@ export const nl: Record<string, string> = {
   'walletCreation.name.colorPicker': 'Kleurkiezer',
   'walletCreation.name.selectColor': 'Selecteer kleur {color}',
 
-  'walletCreation.security.warning': 'Iedereen met je herstelzin heeft toegang tot je tegoeden.',
-  'walletCreation.security.item1': 'Schrijf je herstelzin op papier.',
+  'walletCreation.security.warning':
+    'Iedereen met je geheime herstelzin heeft toegang tot je tegoeden.',
+  'walletCreation.security.item1': 'Schrijf je geheime herstelzin op papier.',
   'walletCreation.security.item2': 'Maak nooit screenshots en bewaar het niet digitaal.',
   'walletCreation.security.item3': 'Bewaar het offline op een veilige plek.',
   'walletCreation.security.item4': 'Deel het nooit met iemand.',
-  'walletCreation.security.privateVerusToggle': 'Private Verus instellen met deze wallet-seed',
+  'walletCreation.security.privateVerusToggle':
+    'Private Verus instellen met deze geheime herstelzin',
   'walletCreation.security.privateVerusHint':
     'Aanbevolen. Als je dit nu overslaat, kun je het later nog instellen in Instellingen.',
 
@@ -1060,7 +1065,7 @@ export const nl: Record<string, string> = {
   'walletCreation.backup.previousGroup': 'Terug',
   'walletCreation.backup.nextGroup': 'Volgende groep',
   'walletCreation.backup.reviewComplete': 'Alle groepen bekeken.',
-  'walletCreation.backup.unable': 'Kan herstelzin niet genereren.',
+  'walletCreation.backup.unable': 'Kan geheime herstelzin niet genereren.',
   'walletCreation.backup.failed': 'Wallet genereren mislukt. Probeer opnieuw.',
 
   'walletCreation.verify.word': 'Woord #{index}',
@@ -1111,14 +1116,14 @@ export const nl: Record<string, string> = {
     'Je hoeft niet te vertrouwen op een bedrijfsbelofte. Je sleutels blijven in je wallet, data wordt voor opslag versleuteld en alles is verifieerbaar.',
   'help.keepSafe.itemsQuestion': 'Wat moet ik precies veilig bewaren?',
   'help.keepSafe.itemsAnswer':
-    'Bewaar je herstelzin en private keys veilig en privé. Iedereen die ze heeft, kan je wallet beheren.',
+    'Bewaar je geheime herstelzin en private keys veilig en privé. Iedereen die ze heeft, kan je wallet beheren.',
   'help.keepSafe.phoneQuestion':
     'Wat gebeurt er als ik van apparaat wissel of mijn apparaat verlies?',
   'help.keepSafe.phoneAnswer':
-    'Herstel je wallet met dezelfde herstelzin en je data komt terug. Je hebt geen herstelmail of back-upcode nodig.',
+    'Herstel je wallet met dezelfde geheime herstelzin en je data komt terug. Je hebt geen herstelmail of back-upcode nodig.',
   'help.keepSafe.compromisedQuestion': 'Wat als mijn sleutels gecompromitteerd zijn?',
   'help.keepSafe.compromisedAnswer':
-    'Gebruik zo snel mogelijk de intrek- en herstelstroom. Stap daarna over op nieuwe sleutels en bewaar de nieuwe herstelzin offline.',
+    'Gebruik zo snel mogelijk de intrek- en herstelstroom. Stap daarna over op nieuwe sleutels en bewaar de nieuwe geheime herstelzin offline.',
   'help.verusIdGuard.overviewQuestion': 'Wat is VerusID Guard?',
   'help.verusIdGuard.overviewAnswer':
     'VerusID Guard is je ingebouwde veiligheidsnet. Elke VerusID heeft twee beschermende autoriteiten die je zelf instelt: één om te intrekken (bevriezen) en één om te herstellen (terugkrijgen). Samen laten ze je je identiteit, tegoeden en gegevens beschermen en weer onder controle krijgen, zonder afhankelijk te zijn van een bedrijf of derde partij.',
@@ -1139,9 +1144,9 @@ export const nl: Record<string, string> = {
     'Je kunt vergeten wachtwoorden niet herstellen bij een self-custody wallet.',
   'help.lostAccess.regainQuestion': 'Hoe krijg ik weer toegang?',
   'help.lostAccess.regainAnswer':
-    'Importeer je wallet opnieuw met je herstelzin en stel daarna een nieuw lokaal wachtwoord in op dit apparaat.',
+    'Importeer je wallet opnieuw met je geheime herstelzin en stel daarna een nieuw lokaal wachtwoord in op dit apparaat.',
   'help.lostAccess.needQuestion': 'Wat heb ik nodig?',
   'help.lostAccess.needAnswer':
-    'Gebruik exact dezelfde 24 woorden in dezelfde volgorde. Zonder herstelzin is herstel niet mogelijk.',
+    'Gebruik exact dezelfde 24 woorden in dezelfde volgorde. Zonder de geheime herstelzin is herstel niet mogelijk.',
   'help.communityHangout': 'Communitykanaal',
 };

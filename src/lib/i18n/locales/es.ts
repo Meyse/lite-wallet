@@ -33,18 +33,18 @@ export const es: Record<string, string> = {
   'unlock.create.title': 'Crear o importar cartera',
   'unlock.create.newTitle': 'Crear una cartera nueva',
   'unlock.create.newDescription':
-    'Genera una nueva frase de recuperacion y configura una cartera nueva.',
+    'Genera una nueva frase secreta de recuperacion y configura una cartera nueva.',
   'unlock.create.importTitle': 'Importar una cartera existente',
   'unlock.create.importDescription':
-    'Usa tu frase semilla existente para restaurar una cartera en este dispositivo.',
+    'Usa tu frase secreta de recuperacion para restaurar una cartera en este dispositivo.',
   'unlock.importMethods.title': 'Importar cartera',
   'unlock.importMethods.back': 'Atras',
-  'unlock.importMethods.seed24Title': 'Importar frase semilla de 24 palabras',
+  'unlock.importMethods.seed24Title': 'Importar frase secreta de recuperacion',
   'unlock.importMethods.seed24Description':
-    'Ingresa tus 24 palabras de recuperacion para restaurar esta cartera.',
-  'unlock.importMethods.textTitle': 'Pegar clave privada o texto semilla',
+    'Ingresa tu frase secreta de recuperacion de 24 palabras para restaurar esta cartera.',
+  'unlock.importMethods.textTitle': 'Pegar clave privada o semilla personalizada',
   'unlock.importMethods.textDescription':
-    'Pega manualmente una clave privada, frase semilla o texto semilla.',
+    'Pega manualmente una clave privada, frase secreta de recuperacion o semilla personalizada.',
 
   'guard.mode.revoke': 'Revocar',
   'guard.mode.recover': 'Recuperar',
@@ -391,23 +391,24 @@ export const es: Record<string, string> = {
   'wallet.settings.profile.autoLock.option': '{minutes} min',
   'wallet.settings.profile.recovery.title': 'Recuperacion y claves',
   'wallet.settings.profile.recovery.description':
-    'Muestra semilla y claves derivadas tras confirmar la contrasena.',
+    'Muestra secretos de recuperacion y claves derivadas tras confirmar la contrasena.',
 
   'wallet.settings.privateVerus.title': 'Privacidad',
   'wallet.settings.privateVerus.description':
-    'Configura privacidad shielded para {label}. Puedes reutilizar la semilla principal de 24 palabras o definir una semilla de privacidad separada.',
+    'Configura privacidad shielded para {label}. Puedes reutilizar tu frase secreta de recuperacion principal o definir un secreto de recuperacion de privacidad separado.',
   'wallet.settings.privateVerus.statusConfigured': 'La privacidad esta configurada.',
   'wallet.settings.privateVerus.statusNotConfigured': 'La privacidad aun no esta configurada.',
   'wallet.settings.privateVerus.statusAddress': 'Direccion shielded: {address}',
   'wallet.settings.privateVerus.statusLoadError': 'No se pudo cargar el estado de privacidad.',
-  'wallet.settings.privateVerus.reusePrimary': 'Reutilizar semilla principal de la cartera',
-  'wallet.settings.privateVerus.createNew': 'Crear nueva semilla de privacidad',
-  'wallet.settings.privateVerus.importLabel': 'Importar semilla de privacidad o spending key',
+  'wallet.settings.privateVerus.reusePrimary': 'Reutilizar frase secreta de recuperacion principal',
+  'wallet.settings.privateVerus.createNew': 'Crear nuevo secreto de recuperacion de privacidad',
+  'wallet.settings.privateVerus.importLabel':
+    'Importar secreto de recuperacion de privacidad o spending key',
   'wallet.settings.privateVerus.importPlaceholder':
-    'Pega un mnemonic de 24 palabras o secret-extended-key-main…',
-  'wallet.settings.privateVerus.importAction': 'Importar semilla de privacidad',
+    'Pega una frase secreta de recuperacion o secret-extended-key-main…',
+  'wallet.settings.privateVerus.importAction': 'Importar secreto de recuperacion de privacidad',
   'wallet.settings.privateVerus.settingUp': 'Configurando privacidad…',
-  'wallet.settings.privateVerus.generatedSeedTitle': 'Nueva frase semilla de privacidad',
+  'wallet.settings.privateVerus.generatedSeedTitle': 'Nueva frase secreta de recuperacion',
   'wallet.settings.privateVerus.setupSuccess': 'Privacidad configurada.',
   'wallet.settings.privateVerus.setupSuccessRelogin':
     'Privacidad configurada. Bloquea y desbloquea tu cartera para activar canales privados.',
@@ -448,13 +449,14 @@ export const es: Record<string, string> = {
   'wallet.settings.recovery.field.verusAddress': 'Direccion Verus',
   'wallet.settings.recovery.field.btcAddress': 'Direccion Bitcoin',
   'wallet.settings.recovery.field.ethAddress': 'Direccion Ethereum',
-  'wallet.settings.recovery.field.dlightSecret': 'Semilla de privacidad o spending key',
+  'wallet.settings.recovery.field.dlightSecret':
+    'Secreto de recuperacion de privacidad o spending key',
   'wallet.settings.recovery.field.dlightShieldedAddress': 'Direccion shielded de privacidad',
   'wallet.settings.recovery.field.dlightDerivedSpendingKey': 'Spending key privada derivada',
-  'wallet.settings.recovery.kind.seedText': 'Texto semilla',
+  'wallet.settings.recovery.kind.seedText': 'Semilla personalizada',
   'wallet.settings.recovery.kind.wif': 'WIF',
   'wallet.settings.recovery.kind.privateKeyHex': 'Clave privada (hex)',
-  'wallet.settings.recovery.kind.dlightMnemonic': 'Semilla mnemonic',
+  'wallet.settings.recovery.kind.dlightMnemonic': 'Frase secreta de recuperacion',
   'wallet.settings.recovery.kind.dlightSpendingKey': 'Spending key',
   'wallet.settings.recovery.kind.unknown': 'Desconocido',
   'wallet.session.expired': 'Sesion expirada. Cartera bloqueada.',

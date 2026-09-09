@@ -34,17 +34,19 @@ export const en: Record<string, string> = {
   'unlock.switcher.title': 'Choose wallet',
   'unlock.create.title': 'Create or import wallet',
   'unlock.create.newTitle': 'Create a brand-new wallet',
-  'unlock.create.newDescription': 'Generate a new recovery phrase and set up a fresh wallet.',
+  'unlock.create.newDescription':
+    'Generate a new Secret Recovery Phrase and set up a fresh wallet.',
   'unlock.create.importTitle': 'Import an existing wallet',
   'unlock.create.importDescription':
-    'Use your existing seed phrase to restore a wallet on this device.',
+    'Use your existing Secret Recovery Phrase to restore a wallet on this device.',
   'unlock.importMethods.title': 'Import wallet',
   'unlock.importMethods.back': 'Back',
-  'unlock.importMethods.seed24Title': 'Import 24-word seed phrase',
-  'unlock.importMethods.seed24Description': 'Enter your 24 recovery words to restore this wallet.',
-  'unlock.importMethods.textTitle': 'Paste private key or seed text',
+  'unlock.importMethods.seed24Title': 'Import Secret Recovery Phrase',
+  'unlock.importMethods.seed24Description':
+    'Enter your 24-word Secret Recovery Phrase to restore this wallet.',
+  'unlock.importMethods.textTitle': 'Paste private key or custom seed',
   'unlock.importMethods.textDescription':
-    'Paste a private key, seed phrase, or seed text manually.',
+    'Paste a private key, Secret Recovery Phrase, or custom seed manually.',
 
   'guard.mode.revoke': 'Revoke',
   'guard.mode.recover': 'Recover',
@@ -63,12 +65,12 @@ export const en: Record<string, string> = {
   'guard.flow.secret.title': 'Import {action} authority key',
   'guard.flow.secret.description':
     'Import the secret that has authority to {action} this identity.',
-  'guard.flow.secret.modePastePhrase': 'Paste phrase',
+  'guard.flow.secret.modePastePhrase': 'Paste Secret Recovery Phrase',
   'guard.flow.secret.modeTypeOneByOne': 'Type one by one',
-  'guard.flow.secret.modeWifPrivateSeed': 'WIF, private key, or seed text',
-  'guard.flow.secret.textPlaceholder': 'Paste WIF, private key hex, or seed text',
+  'guard.flow.secret.modeWifPrivateSeed': 'WIF, private key, or custom seed',
+  'guard.flow.secret.textPlaceholder': 'Paste WIF, private key hex, or custom seed',
   'guard.flow.secret.textHelp':
-    'Use this option for WIF, private key hex, or non-24-word seed text.',
+    'Use this option for WIF, private key hex, or a custom seed that is not a 24-word Secret Recovery Phrase.',
   'guard.flow.secret.networkLabel': 'Network',
   'guard.flow.secret.continue': 'Continue',
   'guard.flow.secret.continueBusy': 'Starting guard session…',
@@ -117,7 +119,7 @@ export const en: Record<string, string> = {
   'guard.flow.result.copySuccess': 'Copied',
   'guard.flow.result.copyFailed': 'Copy failed',
   'guard.flow.result.tryAgain': 'Try again',
-  'guard.error.invalidImportText': 'Enter a valid seed, WIF, or private key.',
+  'guard.error.invalidImportText': 'Enter a valid custom seed, WIF, or private key.',
   'guard.error.guardSessionNotFound': 'Guard session expired. Start again.',
   'guard.error.identityNotFound': 'Could not find that VerusID.',
   'guard.error.identityInvalidState': 'This VerusID state does not allow this operation.',
@@ -452,22 +454,22 @@ export const en: Record<string, string> = {
   'wallet.settings.profile.autoLock.option': '{minutes} min',
   'wallet.settings.profile.recovery.title': 'Recovery and keys',
   'wallet.settings.profile.recovery.description':
-    'Reveal seed and derived keys after password confirmation.',
+    'Reveal recovery secrets and derived keys after password confirmation.',
   'wallet.settings.privateVerus.title': 'Privacy',
   'wallet.settings.privateVerus.description':
-    'Configure shielded privacy for {label}. You can reuse your primary 24-word seed or set a separate privacy seed.',
+    'Configure shielded privacy for {label}. You can reuse your primary Secret Recovery Phrase or set a separate privacy recovery secret.',
   'wallet.settings.privateVerus.statusConfigured': 'Privacy is configured.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is not configured yet.',
   'wallet.settings.privateVerus.statusAddress': 'Shielded address: {address}',
   'wallet.settings.privateVerus.statusLoadError': 'Could not load privacy status.',
-  'wallet.settings.privateVerus.reusePrimary': 'Reuse primary wallet seed',
-  'wallet.settings.privateVerus.createNew': 'Create new privacy seed',
-  'wallet.settings.privateVerus.importLabel': 'Import privacy seed or spending key',
+  'wallet.settings.privateVerus.reusePrimary': 'Reuse primary Secret Recovery Phrase',
+  'wallet.settings.privateVerus.createNew': 'Create new privacy recovery secret',
+  'wallet.settings.privateVerus.importLabel': 'Import privacy recovery secret or spending key',
   'wallet.settings.privateVerus.importPlaceholder':
-    'Paste a 24-word mnemonic or secret-extended-key-main…',
-  'wallet.settings.privateVerus.importAction': 'Import privacy seed',
+    'Paste a Secret Recovery Phrase or secret-extended-key-main…',
+  'wallet.settings.privateVerus.importAction': 'Import privacy recovery secret',
   'wallet.settings.privateVerus.settingUp': 'Configuring privacy…',
-  'wallet.settings.privateVerus.generatedSeedTitle': 'New privacy seed phrase',
+  'wallet.settings.privateVerus.generatedSeedTitle': 'New Secret Recovery Phrase',
   'wallet.settings.privateVerus.setupSuccess': 'Privacy configured.',
   'wallet.settings.privateVerus.setupSuccessRelogin':
     'Privacy configured. Lock and unlock your wallet to activate private channels.',
@@ -475,7 +477,7 @@ export const en: Record<string, string> = {
   'wallet.settings.privateVerus.advancedToggleShow': 'Show advanced privacy actions',
   'wallet.settings.privateVerus.advancedToggleHide': 'Hide advanced privacy actions',
   'wallet.settings.privateVerus.advancedWarning':
-    'Reconfiguring privacy can replace your existing privacy seed.',
+    'Reconfiguring privacy can replace your existing privacy recovery secret.',
   'wallet.settings.about.title': 'About',
   'wallet.settings.about.description': 'Version details and support links.',
   'wallet.settings.about.appName': 'App name',
@@ -508,13 +510,13 @@ export const en: Record<string, string> = {
   'wallet.settings.recovery.field.verusAddress': 'Verus address',
   'wallet.settings.recovery.field.btcAddress': 'Bitcoin address',
   'wallet.settings.recovery.field.ethAddress': 'Ethereum address',
-  'wallet.settings.recovery.field.dlightSecret': 'Privacy seed or spending key',
+  'wallet.settings.recovery.field.dlightSecret': 'Privacy recovery secret or spending key',
   'wallet.settings.recovery.field.dlightShieldedAddress': 'Privacy shielded address',
   'wallet.settings.recovery.field.dlightDerivedSpendingKey': 'Derived private spending key',
-  'wallet.settings.recovery.kind.seedText': 'Seed text',
+  'wallet.settings.recovery.kind.seedText': 'Custom seed',
   'wallet.settings.recovery.kind.wif': 'WIF',
   'wallet.settings.recovery.kind.privateKeyHex': 'Private key (hex)',
-  'wallet.settings.recovery.kind.dlightMnemonic': 'Mnemonic seed',
+  'wallet.settings.recovery.kind.dlightMnemonic': 'Secret Recovery Phrase',
   'wallet.settings.recovery.kind.dlightSpendingKey': 'Spending key',
   'wallet.settings.recovery.kind.unknown': 'Unknown',
   'wallet.session.expired': 'Session expired. Wallet locked.',
@@ -917,10 +919,10 @@ export const en: Record<string, string> = {
   'wallet.addressBook.error.saveFailed': 'Could not save address book changes right now.',
 
   'walletImport.step1.title': 'Personalise your wallet',
-  'walletImport.step2.seedTitle': 'Enter recovery phrase',
-  'walletImport.step2.textTitle': 'Paste private key or seed text',
+  'walletImport.step2.seedTitle': 'Enter Secret Recovery Phrase',
+  'walletImport.step2.textTitle': 'Paste private key or custom seed',
   'walletImport.step2.textDescription':
-    'Paste your private key or seed text to import this wallet.',
+    'Paste your private key or custom seed to import this wallet.',
   'walletImport.step3.title': 'Set local password',
   'walletImport.step3.description': 'Create a password to encrypt this wallet on this device.',
   'walletImport.step3.loadingHint': 'Importing wallet…',
@@ -930,9 +932,9 @@ export const en: Record<string, string> = {
   'walletImport.button.import': 'Import wallet',
   'walletImport.button.retryOpen': 'Retry opening',
   'walletImport.button.opening': 'Opening…',
-  'walletImport.seed.modePaste': 'Paste phrase',
+  'walletImport.seed.modePaste': 'Paste Secret Recovery Phrase',
   'walletImport.seed.modeManual': 'Type one by one',
-  'walletImport.seed.pastePlaceholder': 'Paste your 24-word recovery phrase',
+  'walletImport.seed.pastePlaceholder': 'Paste your 24-word Secret Recovery Phrase',
   'walletImport.seed.currentWordProgress': 'Word {current} of {total}',
   'walletImport.seed.currentWordPlaceholder': 'Type at least 3 letters…',
   'walletImport.seed.wordCellEmpty': 'Word {index}, empty',
@@ -941,19 +943,20 @@ export const en: Record<string, string> = {
   'walletImport.seed.clearWord': 'Clear',
   'walletImport.seed.wordCountLabel': 'Word count',
   'walletImport.seed.wordCount': '{current}/{required} words',
-  'walletImport.seed.validating': 'Validating recovery phrase…',
-  'walletImport.seed.error.empty': 'Enter your 24-word recovery phrase to continue.',
+  'walletImport.seed.validating': 'Validating Secret Recovery Phrase…',
+  'walletImport.seed.error.empty': 'Enter your 24-word Secret Recovery Phrase to continue.',
   'walletImport.seed.error.wordCount':
-    'Recovery phrase must contain exactly {required} words. Current: {current}.',
-  'walletImport.seed.error.invalid': 'Recovery phrase is invalid. Check spelling and order.',
-  'walletImport.seed.error.invalidWord': '"{word}" is not a valid recovery word.',
+    'Secret Recovery Phrase must contain exactly {required} words. Current: {current}.',
+  'walletImport.seed.error.invalid': 'Secret Recovery Phrase is invalid. Check spelling and order.',
+  'walletImport.seed.error.invalidWord': '"{word}" is not in the Secret Recovery Phrase word list.',
   'walletImport.seed.error.wordlist':
-    'Word suggestions are unavailable right now. You can still paste your full phrase.',
-  'walletImport.text.placeholder': 'Paste private key or seed text',
+    'Word suggestions are unavailable right now. You can still paste your full Secret Recovery Phrase.',
+  'walletImport.text.placeholder': 'Paste private key or custom seed',
   'walletImport.text.helper': 'Use this option if your backup is not in the 24-word format.',
   'walletImport.error.walletExists': 'A wallet with this name already exists.',
-  'walletImport.error.invalidSeed': 'Recovery phrase is invalid. Check all 24 words and try again.',
-  'walletImport.error.invalidImportText': 'Enter private key or seed text to continue.',
+  'walletImport.error.invalidSeed':
+    'Secret Recovery Phrase is invalid. Check all 24 words and try again.',
+  'walletImport.error.invalidImportText': 'Enter private key or custom seed to continue.',
   'walletImport.error.invalidName': 'Wallet name is invalid. Update the name and try again.',
   'walletImport.error.invalidPassword':
     'Password does not meet requirements. Use at least 7 characters.',
@@ -966,7 +969,7 @@ export const en: Record<string, string> = {
   'walletImport.error.openInvalidArgs':
     'Wallet open request was malformed. Please restart the app and try again.',
   'walletImport.error.openGeneric': 'Unable to open wallet right now. Please try again.',
-  'walletImport.complete.statusSeedValidated': 'Recovery phrase validated',
+  'walletImport.complete.statusSeedValidated': 'Secret Recovery Phrase validated',
   'walletImport.complete.statusInputValidated': 'Import input validated',
   'walletImport.complete.statusImported': 'Wallet imported',
   'walletImport.complete.statusOpening': 'Opening wallet',
@@ -988,9 +991,9 @@ export const en: Record<string, string> = {
 
   'walletCreation.step3.title': 'Security guidelines',
   'walletCreation.step3.checkbox': 'I understand',
-  'walletCreation.step3.button': 'Show recovery phrase',
+  'walletCreation.step3.button': 'Show Secret Recovery Phrase',
 
-  'walletCreation.step4.title': 'Recovery phrase',
+  'walletCreation.step4.title': 'Secret Recovery Phrase',
   'walletCreation.step4.description': 'Write down all 24 words in order.',
   'walletCreation.step4.button': 'I wrote all words',
 
@@ -1012,7 +1015,7 @@ export const en: Record<string, string> = {
 
   'walletCreation.intro.title': 'What happens next:',
   'walletCreation.intro.item1': 'Choose your wallet name and network',
-  'walletCreation.intro.item2': 'Generate and backup your recovery phrase',
+  'walletCreation.intro.item2': 'Generate and back up your Secret Recovery Phrase',
   'walletCreation.intro.item3': 'Verify you saved it correctly',
   'walletCreation.intro.item4': 'Set a local password',
   'walletCreation.intro.item5': 'Your wallet is ready!',
@@ -1029,12 +1032,14 @@ export const en: Record<string, string> = {
   'walletCreation.name.colorPicker': 'Color picker',
   'walletCreation.name.selectColor': 'Select {color} color',
 
-  'walletCreation.security.warning': 'Anyone with your recovery phrase can access your funds.',
-  'walletCreation.security.item1': 'Write your recovery phrase on paper.',
+  'walletCreation.security.warning':
+    'Anyone with your Secret Recovery Phrase can access your funds.',
+  'walletCreation.security.item1': 'Write your Secret Recovery Phrase on paper.',
   'walletCreation.security.item2': 'Never screenshot or store it digitally.',
   'walletCreation.security.item3': 'Keep it offline in a safe place.',
   'walletCreation.security.item4': 'Never share it with anyone.',
-  'walletCreation.security.privateVerusToggle': 'Set up Private Verus with this wallet seed',
+  'walletCreation.security.privateVerusToggle':
+    'Set up Private Verus with this Secret Recovery Phrase',
   'walletCreation.security.privateVerusHint':
     'Recommended. You can still set this up later in Settings if you skip it now.',
 
@@ -1043,7 +1048,7 @@ export const en: Record<string, string> = {
   'walletCreation.backup.previousGroup': 'Back',
   'walletCreation.backup.nextGroup': 'Next group',
   'walletCreation.backup.reviewComplete': 'All groups viewed.',
-  'walletCreation.backup.unable': 'Unable to generate seed phrase.',
+  'walletCreation.backup.unable': 'Unable to generate Secret Recovery Phrase.',
   'walletCreation.backup.failed': 'Failed to generate wallet. Please try again.',
 
   'walletCreation.verify.word': 'Word #{index}',
@@ -1094,13 +1099,13 @@ export const en: Record<string, string> = {
     "You don't need to trust a company promise. Your keys stay in your wallet, data is encrypted before storage, and behavior is verifiable.",
   'help.keepSafe.itemsQuestion': 'What exactly must I keep safe?',
   'help.keepSafe.itemsAnswer':
-    'Keep your recovery phrase (or private keys) safe and private. Whoever has them can control your wallet.',
+    'Keep your Secret Recovery Phrase (or private keys) safe and private. Whoever has them can control your wallet.',
   'help.keepSafe.phoneQuestion': 'What happens if I switch or lose my device?',
   'help.keepSafe.phoneAnswer':
-    'Restore your wallet with the same recovery phrase and your data comes back. No recovery email or backup code is required.',
+    'Restore your wallet with the same Secret Recovery Phrase and your data comes back. No recovery email or backup code is required.',
   'help.keepSafe.compromisedQuestion': 'What if my keys are compromised?',
   'help.keepSafe.compromisedAnswer':
-    'Use the revoke and recover flow as soon as possible. Then move to fresh keys and keep the new recovery phrase offline.',
+    'Use the revoke and recover flow as soon as possible. Then move to fresh keys and keep the new Secret Recovery Phrase offline.',
   'help.verusIdGuard.overviewQuestion': 'What is VerusID Guard?',
   'help.verusIdGuard.overviewAnswer':
     'VerusID Guard is your built-in safety net. Every VerusID comes with two protective authorities you set yourself: one to revoke (freeze) and one to recover (restore). Together they let you protect and regain control of your identity, funds and data without relying on any company or third party.',
@@ -1121,9 +1126,9 @@ export const en: Record<string, string> = {
     "You can't recover forgotten passwords in a self-custody wallet.",
   'help.lostAccess.regainQuestion': 'How do I regain access?',
   'help.lostAccess.regainAnswer':
-    'Import your wallet again with your recovery seed phrase, then set a new local password on this device.',
+    'Import your wallet again with your Secret Recovery Phrase, then set a new local password on this device.',
   'help.lostAccess.needQuestion': 'What do I need?',
   'help.lostAccess.needAnswer':
-    'Use the exact 24 words in the same order. Without the seed phrase, wallet recovery is not possible.',
+    'Use the exact 24 words in the same order. Without the Secret Recovery Phrase, wallet recovery is not possible.',
   'help.communityHangout': 'Community hangout',
 };

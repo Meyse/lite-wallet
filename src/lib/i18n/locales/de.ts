@@ -33,18 +33,18 @@ export const de: Record<string, string> = {
   'unlock.create.title': 'Wallet erstellen oder importieren',
   'unlock.create.newTitle': 'Neue Wallet erstellen',
   'unlock.create.newDescription':
-    'Erzeuge eine neue Wiederherstellungsphrase und richte eine neue Wallet ein.',
+    'Erzeuge eine neue geheime Wiederherstellungsphrase und richte eine neue Wallet ein.',
   'unlock.create.importTitle': 'Bestehende Wallet importieren',
   'unlock.create.importDescription':
-    'Verwende deine bestehende Seed-Phrase, um eine Wallet auf diesem Gerat wiederherzustellen.',
+    'Verwende deine bestehende geheime Wiederherstellungsphrase, um eine Wallet auf diesem Gerat wiederherzustellen.',
   'unlock.importMethods.title': 'Wallet importieren',
   'unlock.importMethods.back': 'Zuruck',
-  'unlock.importMethods.seed24Title': '24-Wort-Seed-Phrase importieren',
+  'unlock.importMethods.seed24Title': 'Geheime Wiederherstellungsphrase importieren',
   'unlock.importMethods.seed24Description':
-    'Gib deine 24 Wiederherstellungsworter ein, um diese Wallet wiederherzustellen.',
-  'unlock.importMethods.textTitle': 'Private Key oder Seed-Text einfugen',
+    'Gib deine geheime Wiederherstellungsphrase mit 24 Wortern ein, um diese Wallet wiederherzustellen.',
+  'unlock.importMethods.textTitle': 'Private Key oder benutzerdefinierten Seed einfugen',
   'unlock.importMethods.textDescription':
-    'Fuge einen Private Key, eine Seed-Phrase oder einen Seed-Text manuell ein.',
+    'Fuge einen Private Key, eine geheime Wiederherstellungsphrase oder einen benutzerdefinierten Seed manuell ein.',
 
   'guard.mode.revoke': 'Widerrufen',
   'guard.mode.recover': 'Wiederherstellen',
@@ -391,24 +391,26 @@ export const de: Record<string, string> = {
   'wallet.settings.profile.autoLock.option': '{minutes} Min',
   'wallet.settings.profile.recovery.title': 'Wiederherstellung und Schlussel',
   'wallet.settings.profile.recovery.description':
-    'Zeige Seed und abgeleitete Schlussel nach Passwortbestatigung an.',
+    'Zeige Wiederherstellungsgeheimnisse und abgeleitete Schlussel nach Passwortbestatigung an.',
 
   'wallet.settings.privateVerus.title': 'Privatsphare',
   'wallet.settings.privateVerus.description':
-    'Konfiguriere shielded Privatsphare fur {label}. Du kannst den primaren 24-Wort-Seed wiederverwenden oder einen separaten Privacy-Seed setzen.',
+    'Konfiguriere shielded Privatsphare fur {label}. Du kannst deine primare geheime Wiederherstellungsphrase wiederverwenden oder ein separates Privacy-Wiederherstellungsgeheimnis setzen.',
   'wallet.settings.privateVerus.statusConfigured': 'Privatsphare ist konfiguriert.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privatsphare ist noch nicht konfiguriert.',
   'wallet.settings.privateVerus.statusAddress': 'Shielded-Adresse: {address}',
   'wallet.settings.privateVerus.statusLoadError':
     'Privatsphare-Status konnte nicht geladen werden.',
-  'wallet.settings.privateVerus.reusePrimary': 'Primaren Wallet-Seed wiederverwenden',
-  'wallet.settings.privateVerus.createNew': 'Neuen Privacy-Seed erstellen',
-  'wallet.settings.privateVerus.importLabel': 'Privacy-Seed oder Spending Key importieren',
+  'wallet.settings.privateVerus.reusePrimary':
+    'Primare geheime Wiederherstellungsphrase wiederverwenden',
+  'wallet.settings.privateVerus.createNew': 'Neues Privacy-Wiederherstellungsgeheimnis erstellen',
+  'wallet.settings.privateVerus.importLabel':
+    'Privacy-Wiederherstellungsgeheimnis oder Spending Key importieren',
   'wallet.settings.privateVerus.importPlaceholder':
-    '24-Wort-Mnemonic oder secret-extended-key-main einfugen…',
-  'wallet.settings.privateVerus.importAction': 'Privacy-Seed importieren',
+    'Geheime Wiederherstellungsphrase oder secret-extended-key-main einfugen…',
+  'wallet.settings.privateVerus.importAction': 'Privacy-Wiederherstellungsgeheimnis importieren',
   'wallet.settings.privateVerus.settingUp': 'Privatsphare wird konfiguriert…',
-  'wallet.settings.privateVerus.generatedSeedTitle': 'Neue Privacy-Seed-Phrase',
+  'wallet.settings.privateVerus.generatedSeedTitle': 'Neue geheime Wiederherstellungsphrase',
   'wallet.settings.privateVerus.setupSuccess': 'Privatsphare konfiguriert.',
   'wallet.settings.privateVerus.setupSuccessRelogin':
     'Privatsphare konfiguriert. Sperre und entsperre deine Wallet, um private Kanale zu aktivieren.',
@@ -449,13 +451,14 @@ export const de: Record<string, string> = {
   'wallet.settings.recovery.field.verusAddress': 'Verus-Adresse',
   'wallet.settings.recovery.field.btcAddress': 'Bitcoin-Adresse',
   'wallet.settings.recovery.field.ethAddress': 'Ethereum-Adresse',
-  'wallet.settings.recovery.field.dlightSecret': 'Privacy-Seed oder Spending Key',
+  'wallet.settings.recovery.field.dlightSecret':
+    'Privacy-Wiederherstellungsgeheimnis oder Spending Key',
   'wallet.settings.recovery.field.dlightShieldedAddress': 'Privacy shielded Adresse',
   'wallet.settings.recovery.field.dlightDerivedSpendingKey': 'Abgeleiteter privater Spending Key',
-  'wallet.settings.recovery.kind.seedText': 'Seed-Text',
+  'wallet.settings.recovery.kind.seedText': 'Benutzerdefinierter Seed',
   'wallet.settings.recovery.kind.wif': 'WIF',
   'wallet.settings.recovery.kind.privateKeyHex': 'Private Key (hex)',
-  'wallet.settings.recovery.kind.dlightMnemonic': 'Mnemonic-Seed',
+  'wallet.settings.recovery.kind.dlightMnemonic': 'Geheime Wiederherstellungsphrase',
   'wallet.settings.recovery.kind.dlightSpendingKey': 'Spending Key',
   'wallet.settings.recovery.kind.unknown': 'Unbekannt',
   'wallet.session.expired': 'Sitzung abgelaufen. Wallet gesperrt.',

@@ -9,8 +9,8 @@ This spec defines the signed-out `VerusID Guard` UX on desktop-first screens.
 
 ## Goal
 
-Provide an always-available signed-out path to revoke or recover a VerusID
-using temporary in-memory guard sessions.
+Provide an always-available signed-out path to revoke or recover a VerusID using
+temporary in-memory guard sessions.
 
 ## Entry points
 
@@ -38,9 +38,9 @@ Both screens include a fixed bottom-right dock control labeled `VerusID Guard`.
 ## Revoke flow
 
 1. Import authority secret and choose network using one of:
-   - `Paste phrase` (24-word mnemonic)
+   - `Paste Secret Recovery Phrase` (24-word mnemonic)
    - `Type one by one` (24-word mnemonic)
-   - `WIF, private key, or seed text`
+   - `WIF, private key, or custom seed`
 2. Enter target VerusID.
 3. Run preflight with operation `revoke`.
 4. Review warnings/high-risk changes and fee.
@@ -49,9 +49,9 @@ Both screens include a fixed bottom-right dock control labeled `VerusID Guard`.
 ## Recover flow
 
 1. Import authority secret and choose network using one of:
-   - `Paste phrase` (24-word mnemonic)
+   - `Paste Secret Recovery Phrase` (24-word mnemonic)
    - `Type one by one` (24-word mnemonic)
-   - `WIF, private key, or seed text`
+   - `WIF, private key, or custom seed`
 2. Enter target VerusID.
 3. Enter required new primary address and optional advanced patch fields:
    - recovery authority
