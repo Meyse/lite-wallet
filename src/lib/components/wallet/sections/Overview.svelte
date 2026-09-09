@@ -836,6 +836,8 @@
   }
 
   .holdings-obscured {
+    /* Keep WebKit's blur composited at rest, not only during row hover. */
+    transform: translateZ(0);
     filter: blur(12px);
     user-select: none;
     pointer-events: none;
