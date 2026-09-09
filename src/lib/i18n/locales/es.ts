@@ -73,7 +73,7 @@ export const es: Record<string, string> = {
   'wallet.layout.backgroundError.generic':
     'No se pudieron actualizar los datos de la cartera. Vuelve a intentarlo si el problema persiste.',
   'wallet.sidebar.wallet': 'Cartera',
-  'wallet.sidebar.identities': 'Identidades',
+  'wallet.sidebar.identities': 'VerusID',
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Actividad',
   'wallet.sidebar.addressBook': 'Libreta de direcciones',

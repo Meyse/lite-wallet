@@ -74,7 +74,7 @@ export const de: Record<string, string> = {
   'wallet.layout.backgroundError.generic':
     'Die Wallet-Daten konnten nicht aktualisiert werden. Versuche es erneut, falls das Problem weiterhin besteht.',
   'wallet.sidebar.wallet': 'Wallet',
-  'wallet.sidebar.identities': 'Identitaten',
+  'wallet.sidebar.identities': 'VerusID',
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Aktivitat',
   'wallet.sidebar.addressBook': 'Adressbuch',

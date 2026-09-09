@@ -159,7 +159,7 @@ export const nl: Record<string, string> = {
   'wallet.layout.backgroundError.generic':
     'Walletgegevens konden niet worden bijgewerkt. Probeer het opnieuw als dit probleem aanhoudt.',
   'wallet.sidebar.wallet': 'Wallet',
-  'wallet.sidebar.identities': 'Identiteiten',
+  'wallet.sidebar.identities': 'VerusID',
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Activiteit',
   'wallet.sidebar.addressBook': 'Adresboek',

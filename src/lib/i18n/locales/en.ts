@@ -156,7 +156,7 @@ export const en: Record<string, string> = {
   'wallet.layout.backgroundError.generic':
     'Wallet data could not refresh. Try again if this continues.',
   'wallet.sidebar.wallet': 'Wallet',
-  'wallet.sidebar.identities': 'Identities',
+  'wallet.sidebar.identities': 'VerusID',
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Activity',
   'wallet.sidebar.addressBook': 'Address book',
