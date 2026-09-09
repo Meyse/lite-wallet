@@ -9,6 +9,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import * as Tooltip from '$lib/components/ui/tooltip';
   import SendIcon from '@lucide/svelte/icons/send';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
@@ -277,7 +278,7 @@
       };
     })()
   );
-  const visibleRows = $derived<WalletEntryRow[]>(
+  const rankedRows = $derived<WalletEntryRow[]>(
     (() => {
       const rows = [...baseRows];
       if (!privateRow) return rows;
@@ -288,6 +289,30 @@
         rows.push(privateRow);
       }
       return rows;
+    })()
+  );
+  let visibleRowOrder = $state<string[]>([]);
+  $effect(() => {
+    const currentKeys = rankedRows.map((row) => row.key);
+    const currentKeySet = new Set(currentKeys);
+    const retainedKeys = visibleRowOrder.filter((key) => currentKeySet.has(key));
+    const retainedKeySet = new Set(retainedKeys);
+    const nextOrder = [...retainedKeys, ...currentKeys.filter((key) => !retainedKeySet.has(key))];
+    if (
+      nextOrder.length === visibleRowOrder.length &&
+      nextOrder.every((key, index) => key === visibleRowOrder[index])
+    ) {
+      return;
+    }
+    visibleRowOrder = nextOrder;
+  });
+  const visibleRows = $derived<WalletEntryRow[]>(
+    (() => {
+      if (visibleRowOrder.length === 0) return rankedRows;
+      const rowsByKey = new Map(rankedRows.map((row) => [row.key, row]));
+      return visibleRowOrder
+        .map((key) => rowsByKey.get(key))
+        .filter((row): row is WalletEntryRow => row !== undefined);
     })()
   );
   const heroSummary = $derived(
@@ -331,8 +356,31 @@
       };
     })()
   );
+  const heroValueIsLoading = $derived(
+    isBootstrapping && visibleRows.some((row) => !row.hasSnapshot)
+  );
+  const heroTotalIsPartial = $derived(
+    heroSummary.value !== OVERVIEW_UNAVAILABLE_DISPLAY &&
+      (heroSummary.hasPartialRates || heroSummary.hasPartialBalances)
+  );
   const rowIconSize = 34;
-  const overviewSkeletonRows = [0, 1, 2, 3, 4, 5];
+  const partialTotalTooltipId = 'wallet-overview-partial-total-description';
+
+  function isBalanceValueLoading(row: WalletEntryRow): boolean {
+    return isBootstrapping && !row.hasSnapshot;
+  }
+
+  function isRateValueLoading(row: WalletEntryRow): boolean {
+    return walletNetwork === 'mainnet' && isBootstrapping && row.unitRateDisplay === null;
+  }
+
+  function isFiatValueLoading(row: WalletEntryRow): boolean {
+    return (
+      walletNetwork === 'mainnet' &&
+      isBootstrapping &&
+      (!row.hasSnapshot || row.unitRateDisplay === null)
+    );
+  }
 
   function getChangeDirection(
     changePct: number | null
@@ -516,19 +564,46 @@
     >
       <div class="flex items-start justify-between gap-4">
         <div class="relative z-20 min-w-0">
-          <div
-            class={`holdings-obscured-bleed flex items-start ${hideHoldings ? 'holdings-obscured' : ''}`}
-          >
-            {#if heroSummary.symbol}
-              <span class="mt-1 mr-1.5 text-xl font-semibold text-muted-foreground sm:text-2xl">
-                {heroSummary.symbol}
-              </span>
+          <div class="holdings-obscured-bleed flex items-start">
+            {#if heroValueIsLoading}
+              <div class="flex h-[49px] items-center" aria-label={i18n.t('common.loading')}>
+                <Skeleton class="h-9 w-40 rounded-md sm:h-10 sm:w-48" />
+              </div>
+            {:else}
+              <div class={`flex h-[49px] items-start ${hideHoldings ? 'holdings-obscured' : ''}`}>
+                {#if heroSummary.symbol}
+                  <span class="mt-1 mr-1.5 text-xl font-semibold text-muted-foreground sm:text-2xl">
+                    {heroSummary.symbol}
+                  </span>
+                {/if}
+                <p
+                  class="font-google-sans-17pt text-4xl leading-[1.02] font-semibold tracking-tight sm:text-5xl"
+                >
+                  {heroSummary.value}
+                </p>
+              </div>
+              {#if heroTotalIsPartial}
+                <Tooltip.Root>
+                  <Tooltip.Trigger>
+                    {#snippet child({ props })}
+                      <button
+                        {...props}
+                        type="button"
+                        aria-describedby={partialTotalTooltipId}
+                        class="mt-2 ml-2 inline-flex h-5 items-center rounded-sm border border-border/80 bg-muted/60 px-1.5 text-[11px] leading-none font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                      >
+                        {i18n.t('wallet.overview.partialTotalLabel')}
+                      </button>
+                    {/snippet}
+                  </Tooltip.Trigger>
+                  <Tooltip.Content side="bottom" align="start" class="max-w-72 leading-5">
+                    <span id={partialTotalTooltipId} role="tooltip">
+                      {i18n.t('wallet.overview.partialTotalDescription')}
+                    </span>
+                  </Tooltip.Content>
+                </Tooltip.Root>
+              {/if}
             {/if}
-            <p
-              class="font-google-sans-17pt text-4xl leading-[1.02] font-semibold tracking-tight sm:text-5xl"
-            >
-              {heroSummary.value}
-            </p>
           </div>
         </div>
         <Button
@@ -552,25 +627,6 @@
           {/if}
         </Button>
       </div>
-      <!-- Reserve both localized notice shapes so arrivals never move the actions. -->
-      <div class="mt-0.5 grid min-w-0 text-xs text-muted-foreground">
-        <p class="invisible col-start-1 row-start-1" aria-hidden="true">
-          {i18n.t('wallet.overview.partialBalancesNotice')}
-        </p>
-        <p class="invisible col-start-1 row-start-1" aria-hidden="true">
-          {i18n.t('wallet.overview.partialRatesNotice')}
-        </p>
-        {#if heroSummary.hasPartialBalances}
-          <p class="overview-notice col-start-1 row-start-1">
-            {i18n.t('wallet.overview.partialBalancesNotice')}
-          </p>
-        {:else if heroSummary.hasPartialRates}
-          <p class="overview-notice col-start-1 row-start-1">
-            {i18n.t('wallet.overview.partialRatesNotice')}
-          </p>
-        {/if}
-      </div>
-
       <div class="mt-5 w-full">
         <div class="flex w-full gap-2">
           <div class="grid w-full flex-1 grid-cols-3 gap-2">
@@ -624,34 +680,7 @@
           bind:ref={listScrollElement}
           onscroll={onOverviewScroll}
         >
-          {#if isBootstrapping && visibleRows.length === 0}
-            <ul class="space-y-1 pb-3">
-              {#each overviewSkeletonRows as skeletonRow (skeletonRow)}
-                <li
-                  class="grid grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3"
-                >
-                  <div class="flex w-full min-w-0 items-center gap-3.5">
-                    <Skeleton class="h-[34px] w-[34px] rounded-full" />
-                    <div class="flex min-h-8 min-w-0 flex-1 items-center">
-                      <Skeleton class="h-5 w-28 rounded-sm" />
-                    </div>
-                  </div>
-
-                  <div class="justify-self-end pr-4 text-right tabular-nums">
-                    <Skeleton class="ml-auto h-3 w-20 rounded-sm" />
-                    <Skeleton class="mt-1.5 ml-auto h-3 w-14 rounded-sm" />
-                  </div>
-
-                  <div class="text-right tabular-nums">
-                    <Skeleton class="ml-auto h-5 w-20 rounded-sm" />
-                    <Skeleton class="mt-1.5 ml-auto h-4 w-24 rounded-sm" />
-                  </div>
-
-                  <Skeleton class="h-[18px] w-[18px] justify-self-end rounded-sm" />
-                </li>
-              {/each}
-            </ul>
-          {:else if visibleRows.length === 0}
+          {#if visibleRows.length === 0}
             <p class="px-1 py-8 text-sm text-muted-foreground">
               {i18n.t('wallet.overview.noChannel')}
             </p>
@@ -695,9 +724,17 @@
                     </div>
 
                     <div class="justify-self-end pr-4 text-right tabular-nums">
-                      <p class="text-xs font-medium text-foreground/75">{row.marketPriceDisplay}</p>
+                      {#if isRateValueLoading(row)}
+                        <div class="flex h-4 items-center justify-end">
+                          <Skeleton class="h-3 w-20 rounded-sm" />
+                        </div>
+                      {:else}
+                        <p class="h-4 text-xs font-medium text-foreground/75">
+                          {row.marketPriceDisplay}
+                        </p>
+                      {/if}
                       <div
-                        class={`mt-0.5 flex items-center justify-end text-xs ${
+                        class={`mt-0.5 flex h-4 items-center justify-end text-xs ${
                           row.change24hDirection === 'up'
                             ? 'text-emerald-700 dark:text-emerald-300'
                             : row.change24hDirection === 'down'
@@ -705,7 +742,11 @@
                               : 'text-muted-foreground'
                         }`}
                       >
-                        <span>{row.change24hDisplay}</span>
+                        {#if isRateValueLoading(row)}
+                          <Skeleton class="h-3 w-14 rounded-sm" />
+                        {:else}
+                          <span>{row.change24hDisplay}</span>
+                        {/if}
                       </div>
                     </div>
 
@@ -719,16 +760,28 @@
                           {row.syncLabel}
                         </p>
                       {:else}
-                        <p
-                          class={`text-base font-semibold text-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
-                        >
-                          {row.fiatValueDisplay}
-                        </p>
-                        <p
-                          class={`mt-0.5 text-[13px] text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
-                        >
-                          {row.cryptoAmountDisplay}
-                        </p>
+                        {#if isFiatValueLoading(row)}
+                          <div class="flex h-6 items-center justify-end">
+                            <Skeleton class="h-4 w-20 rounded-sm" />
+                          </div>
+                        {:else}
+                          <p
+                            class={`h-6 text-base leading-6 font-semibold text-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                          >
+                            {row.fiatValueDisplay}
+                          </p>
+                        {/if}
+                        {#if isBalanceValueLoading(row)}
+                          <div class="mt-0.5 flex h-5 items-center justify-end">
+                            <Skeleton class="h-3 w-24 rounded-sm" />
+                          </div>
+                        {:else}
+                          <p
+                            class={`mt-0.5 h-5 text-[13px] leading-5 text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                          >
+                            {row.cryptoAmountDisplay}
+                          </p>
+                        {/if}
                       {/if}
                     </div>
 

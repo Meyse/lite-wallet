@@ -61,6 +61,18 @@ export const de: Record<string, string> = {
   'languageGate.option.es': 'Español',
 
   'wallet.layout.dismiss': 'Schliessen',
+  'wallet.layout.noticeTitle': 'Wallet-Hinweis',
+  'wallet.layout.backgroundError.title': 'Aktualisierung verzogert',
+  'wallet.layout.backgroundError.balance':
+    'Einige Guthaben konnten nicht aktualisiert werden. Die angezeigten Werte sind moglicherweise veraltet.',
+  'wallet.layout.backgroundError.info':
+    'Der Netzwerkstatus konnte nicht aktualisiert werden. Versuche es erneut, falls das Problem weiterhin besteht.',
+  'wallet.layout.backgroundError.transactionsWarning':
+    'Moglicherweise fehlen kurzlich erfolgte Aktivitaten.',
+  'wallet.layout.backgroundError.transactions':
+    'Die letzten Aktivitaten konnten nicht aktualisiert werden. Versuche es erneut, falls das Problem weiterhin besteht.',
+  'wallet.layout.backgroundError.generic':
+    'Die Wallet-Daten konnten nicht aktualisiert werden. Versuche es erneut, falls das Problem weiterhin besteht.',
   'wallet.sidebar.wallet': 'Wallet',
   'wallet.sidebar.identities': 'Identitaten',
   'wallet.sidebar.apps': 'Apps',
@@ -461,6 +473,9 @@ export const de: Record<string, string> = {
   'wallet.overview.partialRatesNotice': 'Einige Asset-Kurse sind nicht verfugbar.',
   'wallet.overview.partialBalancesNotice':
     'Einige Bestande werden noch geladen oder sind nicht verfugbar.',
+  'wallet.overview.partialTotalLabel': 'Teilweise',
+  'wallet.overview.partialTotalDescription':
+    'Einige Guthaben oder Wechselkurse sind nicht verfugbar, daher ist diese Summe unvollstandig.',
   'wallet.assetDetails.noTransactionsInRecentRange':
     'Keine Transaktionen im letzten Verlaufsbereich.',
   'wallet.assetDetails.loadOlderTransactions': 'Alteren Verlauf prufen',

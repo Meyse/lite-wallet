@@ -142,6 +142,17 @@ export const en: Record<string, string> = {
   'languageGate.option.es': 'Español',
 
   'wallet.layout.dismiss': 'Dismiss',
+  'wallet.layout.noticeTitle': 'Wallet notice',
+  'wallet.layout.backgroundError.title': 'Update delayed',
+  'wallet.layout.backgroundError.balance':
+    'Some balances could not refresh. Displayed values may be out of date.',
+  'wallet.layout.backgroundError.info':
+    'Network status could not refresh. Try again if this continues.',
+  'wallet.layout.backgroundError.transactionsWarning': 'Some recent activity may be missing.',
+  'wallet.layout.backgroundError.transactions':
+    'Recent activity could not refresh. Try again if this continues.',
+  'wallet.layout.backgroundError.generic':
+    'Wallet data could not refresh. Try again if this continues.',
   'wallet.sidebar.wallet': 'Wallet',
   'wallet.sidebar.identities': 'Identities',
   'wallet.sidebar.apps': 'Apps',
@@ -520,6 +531,9 @@ export const en: Record<string, string> = {
   'wallet.overview.scrollHintMoreAssets': 'Scroll for more assets',
   'wallet.overview.partialRatesNotice': 'Some asset rates are unavailable.',
   'wallet.overview.partialBalancesNotice': 'Some balances are still loading or unavailable.',
+  'wallet.overview.partialTotalLabel': 'Partial',
+  'wallet.overview.partialTotalDescription':
+    'Some balances or exchange rates are unavailable, so this total is incomplete.',
   'wallet.assetDetails.errorLoadScopes': 'Could not load subwallet scopes.',
   'wallet.assetDetails.scopeUnavailable': 'No scope is available for this asset.',
   'wallet.assetDetails.scopePicker': 'Change address and network',

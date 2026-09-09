@@ -12,7 +12,10 @@ import { networkStore } from '$lib/stores/network.js';
 import { ratesStore } from '$lib/stores/rates.js';
 import { walletBootstrapStore } from '$lib/stores/walletBootstrap.js';
 import { walletChannelsStore } from '$lib/stores/walletChannels.js';
-import { pushWalletError } from '$lib/stores/walletErrors.js';
+import {
+  clearMatchingWalletBackgroundError,
+  pushWalletBackgroundError,
+} from '$lib/stores/walletErrors.js';
 import type { BalanceResult, ChainInfo, Transaction } from '$lib/types/wallet.js';
 import { canonicalizeVrpcChannelId } from '$lib/utils/channelId.js';
 import { invalidateWalletDisplayHistory, primeDisplayBalance } from './walletDisplayService.js';
@@ -161,6 +164,11 @@ export async function setupWalletEventBridge(
         pending: p.pending,
         total: p.total,
       };
+      clearMatchingWalletBackgroundError({
+        dataTypes: ['balance'],
+        coinId,
+        channel: key,
+      });
       primeDisplayBalance(key, coinId, value);
       balanceStore.update((m) => ({
         ...m,
@@ -176,6 +184,11 @@ export async function setupWalletEventBridge(
       const key = normalizeChannelKey(txKey(p));
       const coinId = p.coinId ?? DEFAULT_COIN_KEY;
       const list = p.transactions ?? [];
+      clearMatchingWalletBackgroundError({
+        dataTypes: ['transactions', 'transactions_warning'],
+        coinId,
+        channel: key,
+      });
       transactionStore.update((m) => ({
         ...m,
         [key]: {
@@ -201,6 +214,11 @@ export async function setupWalletEventBridge(
         stalled: p.stalled,
         scanRateBlocksPerSec: p.scanRateBlocksPerSec,
       };
+      clearMatchingWalletBackgroundError({
+        dataTypes: ['info'],
+        coinId: p.coinId ?? DEFAULT_COIN_KEY,
+        channel: key,
+      });
       networkStore.update((m) => ({ ...m, [key]: value }));
     });
 
@@ -230,7 +248,11 @@ export async function setupWalletEventBridge(
       const type = p.dataType ?? 'wallet';
       const message = p.message ?? 'Temporarily unavailable';
       const prefix = channel ? `${type} (${channel})` : type;
-      pushWalletError(`${prefix}: ${message}`);
+      pushWalletBackgroundError(`${prefix}: ${message}`, {
+        dataType: type,
+        coinId: p.coinId,
+        channel: channel || undefined,
+      });
     });
 
     await register(SESSION_EXPIRED, () => {

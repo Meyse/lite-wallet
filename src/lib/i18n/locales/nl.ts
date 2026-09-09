@@ -146,6 +146,17 @@ export const nl: Record<string, string> = {
   'languageGate.option.es': 'Español',
 
   'wallet.layout.dismiss': 'Sluiten',
+  'wallet.layout.noticeTitle': 'Walletmelding',
+  'wallet.layout.backgroundError.title': 'Update vertraagd',
+  'wallet.layout.backgroundError.balance':
+    'Een aantal saldi kon niet worden bijgewerkt. De getoonde waarden zijn mogelijk verouderd.',
+  'wallet.layout.backgroundError.info':
+    'De netwerkstatus kon niet worden bijgewerkt. Probeer het opnieuw als dit probleem aanhoudt.',
+  'wallet.layout.backgroundError.transactionsWarning': 'Mogelijk ontbreekt recente activiteit.',
+  'wallet.layout.backgroundError.transactions':
+    'Recente activiteit kon niet worden bijgewerkt. Probeer het opnieuw als dit probleem aanhoudt.',
+  'wallet.layout.backgroundError.generic':
+    'Walletgegevens konden niet worden bijgewerkt. Probeer het opnieuw als dit probleem aanhoudt.',
   'wallet.sidebar.wallet': 'Wallet',
   'wallet.sidebar.identities': 'Identiteiten',
   'wallet.sidebar.apps': 'Apps',
@@ -525,6 +536,9 @@ export const nl: Record<string, string> = {
   'wallet.overview.scrollHintMoreAssets': 'Scroll voor meer assets',
   'wallet.overview.partialRatesNotice': 'Sommige assetkoersen zijn niet beschikbaar.',
   'wallet.overview.partialBalancesNotice': 'Sommige saldi laden nog of zijn niet beschikbaar.',
+  'wallet.overview.partialTotalLabel': 'Gedeeltelijk',
+  'wallet.overview.partialTotalDescription':
+    'Sommige saldi of wisselkoersen zijn niet beschikbaar, waardoor dit totaal onvolledig is.',
   'wallet.assetDetails.errorLoadScopes': 'Subwallet-scopes konden niet worden geladen.',
   'wallet.assetDetails.scopeUnavailable': 'Er is geen scope beschikbaar voor deze asset.',
   'wallet.assetDetails.scopePicker': 'Adres en netwerk wijzigen',

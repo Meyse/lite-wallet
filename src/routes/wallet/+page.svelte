@@ -33,7 +33,11 @@
     walletChannelsStore,
   } from '$lib/stores/walletChannels.js';
   import { clearCoinScopes } from '$lib/stores/coinScopes.js';
-  import { clearWalletErrors, pushWalletError } from '$lib/stores/walletErrors.js';
+  import {
+    clearWalletErrors,
+    pushWalletBackgroundError,
+    pushWalletError,
+  } from '$lib/stores/walletErrors.js';
   import { setAddressBookContacts } from '$lib/stores/addressBook.js';
   import { settingsStore } from '$lib/stores/settings.js';
   import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
@@ -193,7 +197,9 @@
         if (!scope.active) return null;
         console.error('[WALLET_ROUTE] Failed to setup wallet event bridge', error);
         walletBootstrapStore.set(false);
-        pushWalletError(error instanceof Error ? error.message : i18n.t('common.unknownError'));
+        pushWalletBackgroundError(
+          error instanceof Error ? error.message : i18n.t('common.unknownError')
+        );
         return null;
       });
       if (teardownEventBridge) {
@@ -212,7 +218,9 @@
           rethrowForcedWalletLock(error);
           console.error('[WALLET_ROUTE] Failed to start update engine', error);
           walletBootstrapStore.set(false);
-          pushWalletError(error instanceof Error ? error.message : i18n.t('common.unknownError'));
+          pushWalletBackgroundError(
+            error instanceof Error ? error.message : i18n.t('common.unknownError')
+          );
         });
     } catch (error) {
       if (!scope.active) return;
@@ -223,7 +231,7 @@
       console.error('[WALLET_ROUTE] Startup failed', error);
       walletBootstrapStore.set(false);
       const message = error instanceof Error ? error.message : i18n.t('common.unknownError');
-      pushWalletError(message);
+      pushWalletBackgroundError(message);
       if (!walletData) {
         walletData = {
           name: i18n.t('wallet.overview.mainWallet'),

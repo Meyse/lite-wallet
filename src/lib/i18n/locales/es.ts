@@ -61,6 +61,17 @@ export const es: Record<string, string> = {
   'languageGate.option.es': 'Español',
 
   'wallet.layout.dismiss': 'Cerrar',
+  'wallet.layout.noticeTitle': 'Aviso de la cartera',
+  'wallet.layout.backgroundError.title': 'Actualizacion retrasada',
+  'wallet.layout.backgroundError.balance':
+    'No se pudieron actualizar algunos saldos. Es posible que los valores mostrados esten desactualizados.',
+  'wallet.layout.backgroundError.info':
+    'No se pudo actualizar el estado de la red. Vuelve a intentarlo si el problema persiste.',
+  'wallet.layout.backgroundError.transactionsWarning': 'Es posible que falte actividad reciente.',
+  'wallet.layout.backgroundError.transactions':
+    'No se pudo actualizar la actividad reciente. Vuelve a intentarlo si el problema persiste.',
+  'wallet.layout.backgroundError.generic':
+    'No se pudieron actualizar los datos de la cartera. Vuelve a intentarlo si el problema persiste.',
   'wallet.sidebar.wallet': 'Cartera',
   'wallet.sidebar.identities': 'Identidades',
   'wallet.sidebar.apps': 'Apps',
@@ -461,6 +472,9 @@ export const es: Record<string, string> = {
   'wallet.overview.partialRatesNotice': 'Algunas cotizaciones de activos no estan disponibles.',
   'wallet.overview.partialBalancesNotice':
     'Algunos balances aun se estan cargando o no estan disponibles.',
+  'wallet.overview.partialTotalLabel': 'Parcial',
+  'wallet.overview.partialTotalDescription':
+    'Algunos saldos o tipos de cambio no estan disponibles, por lo que este total esta incompleto.',
   'wallet.assetDetails.noTransactionsInRecentRange':
     'No hay transacciones en el historial reciente.',
   'wallet.assetDetails.loadOlderTransactions': 'Consultar historial anterior',

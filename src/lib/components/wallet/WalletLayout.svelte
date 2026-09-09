@@ -7,8 +7,11 @@
 
 <script lang="ts">
   import * as Sidebar from '$lib/components/ui/sidebar';
+  import * as Alert from '$lib/components/ui/alert';
+  import { Button } from '$lib/components/ui/button';
   import GenericRequestImportSheet from '$lib/components/flows/GenericRequest/GenericRequestImportSheet.svelte';
-  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
+  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+  import XIcon from '@lucide/svelte/icons/x';
   import AppSidebar from './AppSidebar.svelte';
   import Overview from './sections/Overview.svelte';
   import AssetDetails from './sections/AssetDetails.svelte';
@@ -22,12 +25,17 @@
   import Settings from './sections/Settings.svelte';
   import {
     createIdentitySectionSessionState,
-    type IdentitySectionSessionState
+    type IdentitySectionSessionState,
   } from './sections/identity/identitySectionSessionState.js';
-  import { dismissWalletError, pushWalletError, walletErrorsStore } from '$lib/stores/walletErrors.js';
+  import {
+    dismissWalletError,
+    pushWalletError,
+    walletErrorsStore,
+  } from '$lib/stores/walletErrors.js';
+  import type { WalletErrorEntry } from '$lib/stores/walletErrors.js';
   import {
     consumeQueuedGenericRequest,
-    genericRequestQueueStore
+    genericRequestQueueStore,
   } from '$lib/stores/genericRequest.js';
   import { i18nStore } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
@@ -66,12 +74,23 @@
   let genericRequestImportError = $state('');
   let genericRequestFlowOpen = $state(false);
   let genericRequestSession = $state<GenericRequestFlowSession | null>(null);
-  let identitySectionSession = $state<IdentitySectionSessionState>(createIdentitySectionSessionState());
+  let identitySectionSession = $state<IdentitySectionSessionState>(
+    createIdentitySectionSessionState()
+  );
   let identitySectionWalletKey = $state('');
-  let GenericRequestFlowHostComponent = $state<null | (typeof import('$lib/components/flows/GenericRequest/GenericRequestFlowHost.svelte').default)>(null);
+  let GenericRequestFlowHostComponent = $state<
+    | null
+    | typeof import('$lib/components/flows/GenericRequest/GenericRequestFlowHost.svelte').default
+  >(null);
   const walletErrors = $derived($walletErrorsStore);
   const latestError = $derived(walletErrors.latest);
   const i18n = $derived($i18nStore);
+  const latestErrorTitle = $derived(
+    latestError?.presentation.kind === 'background-update'
+      ? i18n.t('wallet.layout.backgroundError.title')
+      : i18n.t('wallet.layout.noticeTitle')
+  );
+  const latestErrorMessage = $derived(resolveWalletErrorMessage(latestError));
   const isTransferFocusMode = $derived(activeSection === 'send' || activeSection === 'conversions');
   const queuedGenericRequest = $derived($genericRequestQueueStore);
 
@@ -120,6 +139,26 @@
     return extractWalletErrorMessage(errorValue) || i18n.t('genericRequest.error.generic');
   }
 
+  function resolveWalletErrorMessage(error: WalletErrorEntry | null): string {
+    if (!error) return '';
+    if (error.presentation.kind === 'message') {
+      return error.presentation.message;
+    }
+
+    switch (error.presentation.dataType.toLowerCase()) {
+      case 'balance':
+        return i18n.t('wallet.layout.backgroundError.balance');
+      case 'info':
+        return i18n.t('wallet.layout.backgroundError.info');
+      case 'transactions_warning':
+        return i18n.t('wallet.layout.backgroundError.transactionsWarning');
+      case 'transactions':
+        return i18n.t('wallet.layout.backgroundError.transactions');
+      default:
+        return i18n.t('wallet.layout.backgroundError.generic');
+    }
+  }
+
   async function openGenericRequestFlow(
     input: string,
     passthroughAutoLinkFqn: string | null = null,
@@ -135,7 +174,7 @@
         import('$lib/genericRequest/session'),
         GenericRequestFlowHostComponent
           ? Promise.resolve({ default: GenericRequestFlowHostComponent })
-          : import('$lib/components/flows/GenericRequest/GenericRequestFlowHost.svelte')
+          : import('$lib/components/flows/GenericRequest/GenericRequestFlowHost.svelte'),
       ]);
       GenericRequestFlowHostComponent = flowHostModule.default;
 
@@ -145,7 +184,9 @@
         throw new Error('genericRequest.import.error.networkMismatch');
       }
 
-      const verification = await genericRequestService.verifyGenericRequestSignature(nextSession.requestHex);
+      const verification = await genericRequestService.verifyGenericRequestSignature(
+        nextSession.requestHex
+      );
       if (!verification.valid) {
         throw new Error('genericRequest.error.invalidSignature');
       }
@@ -177,7 +218,11 @@
 
 <div class="relative h-screen overflow-hidden">
   {#if !isTransferFocusMode}
-    <div class="absolute top-0 left-0 z-40 h-11 w-[15.25rem]" data-tauri-drag-region aria-hidden="true"></div>
+    <div
+      class="absolute top-0 left-0 z-40 h-11 w-[15.25rem]"
+      data-tauri-drag-region
+      aria-hidden="true"
+    ></div>
   {/if}
   <Sidebar.Provider class="h-full overflow-hidden">
     {#if !isTransferFocusMode}
@@ -203,19 +248,33 @@
         <div class="h-6 shrink-0" data-tauri-drag-region aria-hidden="true"></div>
       {/if}
       {#if latestError}
-        <div class="mx-6 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          <div class="flex items-start justify-between gap-3">
-            <p class="break-all">{latestError}</p>
-            <InlineTextActionButton class="shrink-0" onclick={dismissWalletError}>
-              {i18n.t('wallet.layout.dismiss')}
-            </InlineTextActionButton>
-          </div>
+        <div class="pointer-events-none absolute right-6 bottom-6 left-6 z-50 flex justify-end">
+          <Alert.Root
+            variant={latestError.presentation.kind === 'background-update'
+              ? 'default'
+              : 'destructive'}
+            class="pointer-events-auto max-w-lg bg-background/95 pr-12 shadow-lg backdrop-blur-sm dark:bg-popover/95"
+          >
+            <CircleAlertIcon aria-hidden="true" />
+            <Alert.Title>{latestErrorTitle}</Alert.Title>
+            <Alert.Description>{latestErrorMessage}</Alert.Description>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="absolute top-2 right-2 rounded-full text-muted-foreground hover:text-foreground"
+              aria-label={i18n.t('wallet.layout.dismiss')}
+              title={i18n.t('wallet.layout.dismiss')}
+              onclick={dismissWalletError}
+            >
+              <XIcon aria-hidden="true" />
+            </Button>
+          </Alert.Root>
         </div>
       {/if}
       <main
         class={isTransferFocusMode || activeSection === 'overview'
-          ? 'flex flex-1 min-h-0 overflow-hidden'
-          : 'flex-1 min-h-0 overflow-auto'}
+          ? 'flex min-h-0 flex-1 overflow-hidden'
+          : 'min-h-0 flex-1 overflow-auto'}
       >
         {#if activeSection === 'overview'}
           {#if activeAssetDetailsEntry}
@@ -290,7 +349,10 @@
         {:else if activeSection === 'address-book'}
           <AddressBook />
         {:else if activeSection === 'settings'}
-          <Settings walletNetwork={walletData.network ?? 'mainnet'} resetSignal={settingsResetSignal} />
+          <Settings
+            walletNetwork={walletData.network ?? 'mainnet'}
+            resetSignal={settingsResetSignal}
+          />
         {/if}
       </main>
     </Sidebar.Inset>
