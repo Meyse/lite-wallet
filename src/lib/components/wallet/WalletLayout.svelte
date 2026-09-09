@@ -243,7 +243,7 @@
         }}
       />
     {/if}
-    <Sidebar.Inset class="h-full min-h-0 dark:bg-app-canvas">
+    <Sidebar.Inset class="h-full min-h-0 min-w-0 dark:bg-app-canvas">
       {#if !isTransferFocusMode}
         <div class="h-6 shrink-0" data-tauri-drag-region aria-hidden="true"></div>
       {/if}

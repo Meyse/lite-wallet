@@ -422,7 +422,7 @@
   {#if detailsLoading}
     <IdentityDetailSkeleton identity={selectedLinkedIdentity} />
   {:else if detailsError}
-    <div class="mx-auto flex h-full w-full max-w-4xl flex-col gap-3 p-6">
+    <div class="mx-auto flex h-full w-full max-w-4xl min-w-0 flex-col gap-3 px-6 pt-3 pb-6">
       <button
         type="button"
         class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"

@@ -8,7 +8,7 @@
 </script>
 
 <!-- Match the detail view's header, card, and row geometry before data arrives. -->
-<div class="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6" aria-busy="true">
+<div class="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-6 pt-3 pb-6" aria-busy="true">
   <p class="sr-only" role="status">{i18n.t('wallet.identity.detail.loading')}</p>
   <div class="flex h-8 items-center justify-between gap-3" aria-hidden="true">
     <div class="placeholder h-4 w-32 rounded bg-muted/50"></div>

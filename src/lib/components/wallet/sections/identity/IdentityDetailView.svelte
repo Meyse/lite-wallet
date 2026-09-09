@@ -69,7 +69,7 @@
   );
 </script>
 
-<div class="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6">
+<div class="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-6 pt-3 pb-6">
   <div class="flex items-center justify-between gap-3">
     <button
       type="button"
