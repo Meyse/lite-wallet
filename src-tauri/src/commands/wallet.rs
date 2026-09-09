@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -173,7 +173,9 @@ async fn persist_new_account(
 ) -> Result<CreateWalletResult, WalletError> {
     let account_id = Uuid::new_v4().to_string();
     let stronghold_store = stronghold_store_for_session(session_manager).await;
-    let password_hash = stronghold_store.derive_current_password_hash(request.password, true)?;
+    let password_hash = stronghold_store
+        .derive_current_password_hash_async(request.password, true)
+        .await?;
 
     stronghold_store
         .store_seed(&account_id, request.secret_material, password_hash.as_ref())
@@ -783,14 +785,21 @@ pub async fn unlock_wallet(
     app_handle: AppHandle,
 ) -> Result<(), WalletError> {
     println!("[WALLET] Unlock wallet requested");
+    let unlock_started_at = Instant::now();
 
+    let account_lookup_started_at = Instant::now();
     let wallet = wallet_manager
         .get_account_record_by_account_id(&account_id)
         .await?
         .ok_or(WalletError::OperationFailed)?;
+    println!(
+        "[WALLET_PERF] unlock phase=account_record elapsed_ms={}",
+        account_lookup_started_at.elapsed().as_millis()
+    );
 
     let stronghold_store = stronghold_store_for_session(session_manager.inner()).await;
 
+    let kdf_started_at = Instant::now();
     let password_hash = resolve_current_password_hash(
         &wallet,
         &password,
@@ -806,6 +815,11 @@ pub async fn unlock_wallet(
             return Err(err);
         }
     };
+    println!(
+        "[WALLET_PERF] unlock phase=password_kdf elapsed_ms={}",
+        kdf_started_at.elapsed().as_millis()
+    );
+    let seed_snapshot_started_at = Instant::now();
     let seed = match stronghold_store
         .load_seed(&account_id, password_hash.as_ref())
         .await
@@ -816,13 +830,27 @@ pub async fn unlock_wallet(
             return Err(err);
         }
     };
+    println!(
+        "[WALLET_PERF] unlock phase=seed_snapshot elapsed_ms={}",
+        seed_snapshot_started_at.elapsed().as_millis()
+    );
 
-    let public_profile = derive_public_profile_from_material(
-        seed.as_str(),
-        wallet.secret_kind,
-        crypto_network_for_wallet(wallet.network),
-    )
-    .map_err(|_| WalletError::OperationFailed)?;
+    let public_profile_started_at = Instant::now();
+    let secret_kind = wallet.secret_kind;
+    let crypto_network = crypto_network_for_wallet(wallet.network);
+    let public_profile = tokio::task::spawn_blocking(move || {
+        derive_public_profile_from_material(seed.as_str(), secret_kind, crypto_network)
+            .map_err(|_| WalletError::OperationFailed)
+    })
+    .await
+    .map_err(|error| {
+        println!("[WALLET] Public-profile worker failed: {}", error);
+        WalletError::OperationFailed
+    })??;
+    println!(
+        "[WALLET_PERF] unlock phase=public_profile elapsed_ms={}",
+        public_profile_started_at.elapsed().as_millis()
+    );
 
     update_engine.stop().await;
     clear_wallet_session_if_current(
@@ -863,7 +891,10 @@ pub async fn unlock_wallet(
             error
         );
     }
-    println!("[WALLET] Wallet unlocked successfully");
+    println!(
+        "[WALLET] Wallet unlocked successfully total_ms={}",
+        unlock_started_at.elapsed().as_millis()
+    );
     Ok(())
 }
 

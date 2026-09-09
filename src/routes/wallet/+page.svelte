@@ -88,6 +88,7 @@
 
   onMount(async () => {
     const scope = new DisposableScope();
+    const dashboardStartedAt = performance.now();
     routeScope = scope;
     resetWalletDisplaySession();
     walletBootstrapStore.set(true);
@@ -106,19 +107,68 @@
         return;
       }
 
+      const handleSessionExpired = async () => {
+        if (!scope.active || handlingSessionExpiry) return;
+        handlingSessionExpiry = true;
+        walletBootstrapStore.set(false);
+        await forceWalletToUnlock();
+      };
+
+      const eventBridgePromise = setupWalletEventBridge({
+        onFirstBalance: () => {
+          console.info(
+            `[WALLET_PERF] dashboard phase=first_balance_event_received elapsed_ms=${Math.round(performance.now() - dashboardStartedAt)}`
+          );
+        },
+        onFirstRates: () => {
+          console.info(
+            `[WALLET_PERF] dashboard phase=first_non_empty_rate_event_received elapsed_ms=${Math.round(performance.now() - dashboardStartedAt)}`
+          );
+        },
+        onSessionExpired: handleSessionExpired,
+      })
+        .then((teardown) => (scope.add(teardown) ? teardown : null))
+        .catch((error) => {
+          if (!scope.active) return null;
+          console.error('[WALLET_ROUTE] Failed to setup wallet event bridge', error);
+          walletBootstrapStore.set(false);
+          pushWalletBackgroundError(
+            error instanceof Error ? error.message : i18n.t('common.unknownError')
+          );
+          return null;
+        });
+
       const resolvedAutoLockMinutes = normalizeAutoLockMinutes(get(settingsStore).autoLockMinutes);
-      await walletService.setSessionTimeoutMinutes(resolvedAutoLockMinutes).catch((error) => {
+      void walletService.setSessionTimeoutMinutes(resolvedAutoLockMinutes).catch((error) => {
         if (!scope.active) return;
         console.error('[WALLET_ROUTE] Failed to apply session timeout', error);
       });
-      if (!scope.active) return;
       scope.add(startWalletActivityMonitor());
 
-      const active = await walletService.getActiveWallet().catch((error) => {
-        if (!scope.active) return null;
-        console.error('[WALLET_ROUTE] Failed to resolve active wallet', error);
-        return null;
-      });
+      const [active, addresses, allCoins, activeAssets] = await Promise.all([
+        walletService.getActiveWallet().catch((error) => {
+          if (!scope.active) return null;
+          console.error('[WALLET_ROUTE] Failed to resolve active wallet', error);
+          return null;
+        }),
+        walletService.getAddresses().catch((error) => {
+          if (!scope.active) return null;
+          rethrowForcedWalletLock(error);
+          console.error('[WALLET_ROUTE] Failed to load wallet addresses', error);
+          return null;
+        }),
+        coinsService.getCoinRegistry().catch((error) => {
+          if (!scope.active) return [];
+          console.error('[WALLET_ROUTE] Failed to load coin registry', error);
+          return [];
+        }),
+        walletService.getActiveAssets().catch((error) => {
+          if (!scope.active) return null;
+          rethrowForcedWalletLock(error);
+          console.error('[WALLET_ROUTE] Failed to load active assets state', error);
+          return null;
+        }),
+      ]);
       if (!scope.active) return;
       const walletNetwork: WalletNetwork = active?.network ?? 'mainnet';
       walletData = active
@@ -136,35 +186,17 @@
           };
       const cacheKey = activeAssetsCacheKey(walletData.name, walletNetwork);
 
-      const addresses = await walletService.getAddresses().catch((error) => {
-        if (!scope.active) return null;
-        rethrowForcedWalletLock(error);
-        console.error('[WALLET_ROUTE] Failed to load wallet addresses', error);
-        return null;
-      });
-      if (!scope.active) return;
       if (!addresses) {
         pushWalletError(i18n.t('wallet.receive.errorLoad'));
       }
 
-      const allCoins = await coinsService.getCoinRegistry().catch((error) => {
-        if (!scope.active) return [];
-        console.error('[WALLET_ROUTE] Failed to load coin registry', error);
-        return [];
-      });
-      if (!scope.active) return;
       const supportedCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, walletNetwork));
 
       let coins: CoinDefinition[] = [];
-      try {
-        const activeAssets = await walletService.getActiveAssets();
-        if (!scope.active) return;
+      if (activeAssets) {
         coins = filterCoinsByActiveIds(supportedCoins, activeAssets.coinIds);
         sessionCoinsByWallet.set(cacheKey, coins);
-      } catch (error) {
-        if (!scope.active) return;
-        rethrowForcedWalletLock(error);
-        console.error('[WALLET_ROUTE] Failed to load active assets state', error);
+      } else {
         const previousSessionCoins = sessionCoinsByWallet.get(cacheKey) ?? get(coinsStore);
         const fallbackCoins = previousSessionCoins.length > 0 ? previousSessionCoins : [];
         coins = fallbackCoins;
@@ -176,36 +208,27 @@
 
       const channels = buildWalletChannels(coins, addresses?.vrsc_address ?? null);
       walletChannelsStore.set(channels);
+      loading = false;
+      console.info(
+        `[WALLET_PERF] dashboard phase=essential_metadata elapsed_ms=${Math.round(performance.now() - dashboardStartedAt)}`
+      );
 
-      const contacts = await addressBookService.listAddressBookContacts().catch((error) => {
-        if (!scope.active) return [];
-        rethrowForcedWalletLock(error);
-        console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
-        return [];
-      });
-      if (!scope.active) return;
-      setAddressBookContacts(contacts);
+      void addressBookService
+        .listAddressBookContacts()
+        .then((contacts) => {
+          if (scope.active) setAddressBookContacts(contacts);
+        })
+        .catch(async (error) => {
+          if (!scope.active) return;
+          if (isForcedWalletLockError(error)) {
+            await handleSessionExpired();
+            return;
+          }
+          console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
+        });
 
-      const teardownEventBridge = await setupWalletEventBridge({
-        onSessionExpired: async () => {
-          if (!scope.active || handlingSessionExpiry) return;
-          handlingSessionExpiry = true;
-          walletBootstrapStore.set(false);
-          await forceWalletToUnlock();
-        },
-      }).catch((error) => {
-        if (!scope.active) return null;
-        console.error('[WALLET_ROUTE] Failed to setup wallet event bridge', error);
-        walletBootstrapStore.set(false);
-        pushWalletBackgroundError(
-          error instanceof Error ? error.message : i18n.t('common.unknownError')
-        );
-        return null;
-      });
-      if (teardownEventBridge) {
-        scope.add(teardownEventBridge);
-      }
-      if (!scope.active) return;
+      const teardownEventBridge = await eventBridgePromise;
+      if (!scope.active || !teardownEventBridge) return;
 
       await walletService
         .startUpdateEngine({

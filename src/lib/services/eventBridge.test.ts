@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: listenMock }));
 
 import { setupWalletEventBridge } from './eventBridge';
 import { balanceStore } from '$lib/stores/balances.js';
+import { ratesStore } from '$lib/stores/rates.js';
 import {
   clearWalletErrors,
   dismissWalletError,
@@ -34,6 +35,7 @@ describe('setupWalletEventBridge', () => {
       }
     );
     balanceStore.set({});
+    ratesStore.set({});
     clearWalletErrors();
     transactionHistoryPagesStore.set({});
   });
@@ -84,6 +86,58 @@ describe('setupWalletEventBridge', () => {
     });
 
     expect(get(balanceStore)).toEqual({});
+    cleanup();
+  });
+
+  it('reports first balance and rates arrival once per bridge lifetime', async () => {
+    const onFirstBalance = vi.fn();
+    const onFirstRates = vi.fn();
+    const cleanup = await setupWalletEventBridge({ onFirstBalance, onFirstRates });
+    const balancePayload = {
+      coinId: 'VRSC',
+      channel: 'vrpc.R.iSystem',
+      confirmed: '1',
+      pending: '0',
+      total: '1',
+    };
+    const ratesPayload = { coinId: 'VRSC', rates: { USD: 1.23 } };
+
+    listeners.get('wallet://balances-updated')?.({ payload: balancePayload });
+    listeners.get('wallet://balances-updated')?.({ payload: balancePayload });
+    listeners.get('wallet://rates-updated')?.({ payload: ratesPayload });
+    listeners.get('wallet://rates-updated')?.({ payload: ratesPayload });
+
+    expect(onFirstBalance).toHaveBeenCalledOnce();
+    expect(onFirstRates).toHaveBeenCalledOnce();
+    cleanup();
+  });
+
+  it('clears an expired fiat rate on an empty update and accepts its later recovery', async () => {
+    ratesStore.set({
+      VRSC: { rates: { USD: 2 }, usdChange24hPct: 4 },
+      PURE: { rates: { USD: 0.5 }, usdChange24hPct: null },
+    });
+    const onFirstRates = vi.fn();
+    const cleanup = await setupWalletEventBridge({ onFirstRates });
+
+    listeners.get('wallet://rates-updated')?.({
+      payload: { coinId: 'VRSC', rates: {}, usdChange24hPct: null },
+    });
+
+    expect(get(ratesStore)).toEqual({
+      VRSC: { rates: {}, usdChange24hPct: null },
+      PURE: { rates: { USD: 0.5 }, usdChange24hPct: null },
+    });
+    expect(onFirstRates).not.toHaveBeenCalled();
+
+    listeners.get('wallet://rates-updated')?.({
+      payload: { coinId: 'VRSC', rates: { USD: 2.1 }, usdChange24hPct: 5 },
+    });
+    expect(get(ratesStore).VRSC).toEqual({
+      rates: { USD: 2.1 },
+      usdChange24hPct: 5,
+    });
+    expect(onFirstRates).toHaveBeenCalledOnce();
     cleanup();
   });
 

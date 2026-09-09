@@ -79,6 +79,8 @@ interface UpdateErrorPayload {
 
 interface SetupWalletEventBridgeOptions {
   onSessionExpired?: () => void | Promise<void>;
+  onFirstBalance?: () => void;
+  onFirstRates?: () => void;
 }
 
 function shouldSuppressWalletError(payload: UpdateErrorPayload): boolean {
@@ -128,6 +130,8 @@ export async function setupWalletEventBridge(
 ): Promise<() => void> {
   const unsubs: (() => void)[] = [];
   let active = true;
+  let receivedBalance = false;
+  let receivedRates = false;
 
   const cleanup = () => {
     if (!active) return;
@@ -164,6 +168,10 @@ export async function setupWalletEventBridge(
         pending: p.pending,
         total: p.total,
       };
+      if (!receivedBalance) {
+        receivedBalance = true;
+        options.onFirstBalance?.();
+      }
       clearMatchingWalletBackgroundError({
         dataTypes: ['balance'],
         coinId,
@@ -226,6 +234,10 @@ export async function setupWalletEventBridge(
       const p = event.payload;
       const coinId = p.coinId ?? 'default';
       const rates = p.rates ?? {};
+      if (!receivedRates && Object.keys(rates).length > 0) {
+        receivedRates = true;
+        options.onFirstRates?.();
+      }
       ratesStore.update((m) => ({
         ...m,
         [coinId]: {

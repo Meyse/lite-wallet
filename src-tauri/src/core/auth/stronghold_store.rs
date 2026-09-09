@@ -535,6 +535,26 @@ impl StrongholdStore {
         derive_current_argon2id(password, &self.salt_path, allow_create_salt).map(Zeroizing::new)
     }
 
+    /// Argon2id deliberately consumes CPU and memory. Keep that fixed cost off Tokio's
+    /// async workers while retaining the password only for the blocking job's lifetime.
+    pub async fn derive_current_password_hash_async(
+        &self,
+        password: &str,
+        allow_create_salt: bool,
+    ) -> Result<Zeroizing<Vec<u8>>, WalletError> {
+        let password = Zeroizing::new(password.to_string());
+        let salt_path = self.salt_path.clone();
+        tokio::task::spawn_blocking(move || {
+            derive_current_argon2id(password.as_str(), &salt_path, allow_create_salt)
+                .map(Zeroizing::new)
+        })
+        .await
+        .map_err(|error| {
+            println!("[AUTH] Password KDF worker failed: {}", error);
+            WalletError::OperationFailed
+        })?
+    }
+
     pub fn derive_legacy_password_hash(password: &str) -> Zeroizing<Vec<u8>> {
         Zeroizing::new(derive_legacy_sha256(password))
     }
@@ -618,47 +638,58 @@ impl StrongholdStore {
             return Err(WalletError::InvalidPassword);
         }
 
-        let keyprovider = Self::keyprovider_from_hash(password_hash)?;
-        let snapshot_path = SnapshotPath::from_path(&path);
-        #[cfg(debug_assertions)]
-        let snapshot_work_factor_before_unlock = Self::read_snapshot_encrypt_work_factor(&path);
+        let account_id = account_id.to_string();
+        let password_hash = Zeroizing::new(password_hash.to_vec());
+        tokio::task::spawn_blocking(move || {
+            let keyprovider = Self::keyprovider_from_hash(password_hash.as_ref())?;
+            let snapshot_path = SnapshotPath::from_path(&path);
+            #[cfg(debug_assertions)]
+            let snapshot_work_factor_before_unlock = Self::read_snapshot_encrypt_work_factor(&path);
 
-        let stronghold = Stronghold::default();
-        let client = stronghold
-            .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
-            .map_err(|e| {
-                println!("[AUTH] Load client from snapshot failed: {}", e);
+            let stronghold = Stronghold::default();
+            let client = stronghold
+                .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
+                .map_err(|e| {
+                    println!("[AUTH] Load client from snapshot failed: {}", e);
+                    WalletError::InvalidPassword
+                })?;
+            let data = client.store().get(SEED_RECORD_KEY).map_err(|e| {
+                println!("[AUTH] Store get failed: {}", e);
+                WalletError::OperationFailed
+            })?;
+            let bytes = data.ok_or_else(|| {
+                println!("[AUTH] Seed record missing for account: {}", account_id);
                 WalletError::InvalidPassword
             })?;
-        let data = client.store().get(SEED_RECORD_KEY).map_err(|e| {
-            println!("[AUTH] Store get failed: {}", e);
-            WalletError::OperationFailed
-        })?;
-        let bytes = data.ok_or_else(|| {
-            println!("[AUTH] Seed record missing for account: {}", account_id);
-            WalletError::InvalidPassword
-        })?;
-        let seed = String::from_utf8(bytes).map_err(|_| WalletError::OperationFailed)?;
+            let seed = String::from_utf8(bytes).map_err(|_| WalletError::OperationFailed)?;
 
-        #[cfg(debug_assertions)]
-        if let Some(existing_work_factor) = snapshot_work_factor_before_unlock {
-            let target_work_factor = iota_stronghold::engine::snapshot::get_encrypt_work_factor();
-            if existing_work_factor > target_work_factor {
-                println!(
-                    "[AUTH] Migrating snapshot work factor for account {} from {} to {}",
-                    account_id, existing_work_factor, target_work_factor
-                );
-                if let Err(error) = stronghold.commit_with_keyprovider(&snapshot_path, &keyprovider)
-                {
+            #[cfg(debug_assertions)]
+            if let Some(existing_work_factor) = snapshot_work_factor_before_unlock {
+                let target_work_factor =
+                    iota_stronghold::engine::snapshot::get_encrypt_work_factor();
+                if existing_work_factor > target_work_factor {
                     println!(
-                        "[AUTH] Snapshot work-factor migration commit failed for account {}: {}",
-                        account_id, error
+                        "[AUTH] Migrating snapshot work factor for account {} from {} to {}",
+                        account_id, existing_work_factor, target_work_factor
                     );
+                    if let Err(error) =
+                        stronghold.commit_with_keyprovider(&snapshot_path, &keyprovider)
+                    {
+                        println!(
+                            "[AUTH] Snapshot work-factor migration commit failed for account {}: {}",
+                            account_id, error
+                        );
+                    }
                 }
             }
-        }
 
-        Ok(seed)
+            Ok(seed)
+        })
+        .await
+        .map_err(|error| {
+            println!("[AUTH] Seed snapshot worker failed: {}", error);
+            WalletError::OperationFailed
+        })?
     }
 
     fn promote_temp_snapshot(
@@ -905,7 +936,9 @@ impl StrongholdStore {
         account_state_store: &AccountStateStore,
     ) -> Result<Zeroizing<Vec<u8>>, WalletError> {
         if account.key_derivation_version >= CURRENT_KEY_DERIVATION_VERSION {
-            return self.derive_current_password_hash(password, false);
+            return self
+                .derive_current_password_hash_async(password, false)
+                .await;
         }
 
         if account.key_derivation_version != LEGACY_KEY_DERIVATION_VERSION {
@@ -916,7 +949,9 @@ impl StrongholdStore {
         let bundle = self
             .read_legacy_migration_bundle(&account.id, legacy_hash.as_ref())
             .await?;
-        let current_hash = self.derive_current_password_hash(password, true)?;
+        let current_hash = self
+            .derive_current_password_hash_async(password, true)
+            .await?;
 
         self.write_migrated_secret_snapshots(&account.id, current_hash.as_ref(), &bundle)?;
         self.migrate_legacy_account_state(&account.id, account_state_store, &bundle)?;

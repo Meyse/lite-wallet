@@ -4,6 +4,7 @@
 
 use reqwest::Client;
 
+pub mod cache;
 pub mod coinpaprika;
 pub mod ecb;
 pub mod pbaas;

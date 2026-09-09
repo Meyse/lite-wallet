@@ -18,6 +18,10 @@ use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::channels::{route_get_balances, route_get_info, route_get_transactions};
 use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
+use crate::core::rates::cache::{
+    unix_timestamp_secs, CachedEcbReferenceRates, CachedMarketRates, PublicRateIdentity,
+    PublicRateSource, PublicRatesCache, ECB_REFERENCE_REFRESH_SECS, MARKET_RATE_REFRESH_SECS,
+};
 use crate::core::rates::{build_rates_http_client, coinpaprika, ecb, pbaas};
 use crate::core::updates::events::{
     BalancesUpdatedPayload, BootstrapUpdatedPayload, InfoUpdatedPayload, RatesUpdatedPayload,
@@ -26,7 +30,7 @@ use crate::core::updates::events::{
 use crate::core::updates::params::{
     jitter_duration, BALANCE_REFRESH_SECS, CHAIN_INFO_REFRESH_SECS, DLIGHT_POST_SYNC_REFRESH_SECS,
     DLIGHT_SYNC_BALANCE_REFRESH_SECS, DLIGHT_SYNC_INFO_REFRESH_SECS,
-    DLIGHT_SYNC_TRANSACTION_REFRESH_SECS, RATES_REFRESH_SECS, TRANSACTION_REFRESH_SECS,
+    DLIGHT_SYNC_TRANSACTION_REFRESH_SECS, TRANSACTION_REFRESH_SECS,
 };
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
@@ -40,10 +44,13 @@ pub const EVENT_BOOTSTRAP_UPDATED: &str = "wallet://bootstrap-updated";
 pub const EVENT_TX_SEND_PROGRESS: &str = "wallet://tx-send-progress";
 pub const EVENT_ERROR: &str = "wallet://error";
 const BOOTSTRAP_BALANCE_CONCURRENCY: usize = 4;
+const BOOTSTRAP_RATE_CONCURRENCY: usize = 4;
 const BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS: u64 = 10;
 const BOOTSTRAP_PBAAS_PROVIDER_TIMEOUT_SECS: u64 = 8;
 const BOOTSTRAP_BRIDGE_VETH_LOOKUP_TIMEOUT_SECS: u64 = 8;
 const BOOTSTRAP_RATE_SLOW_LOG_MS: u128 = 2_000;
+const RATE_FAILURE_RETRY_BASE_SECS: u64 = 30;
+const RATE_FAILURE_RETRY_MAX_SECS: u64 = 5 * 60;
 const VRSC_COIN_ID: &str = "VRSC";
 const VRSCTEST_COIN_ID: &str = "VRSCTEST";
 const ETH_COIN_ID: &str = "ETH";
@@ -72,12 +79,80 @@ struct ChannelState {
     last_info_syncing: Option<bool>,
 }
 
+#[derive(Clone, Debug)]
+struct RateAttemptState {
+    next_attempt_at: Instant,
+    consecutive_failures: u32,
+}
+
+impl RateAttemptState {
+    fn due(now: Instant) -> Self {
+        Self {
+            next_attempt_at: now,
+            consecutive_failures: 0,
+        }
+    }
+
+    fn is_due(&self, now: Instant) -> bool {
+        now >= self.next_attempt_at
+    }
+
+    fn record_cached_success(&mut self, now: Instant, cache_age_secs: u64) {
+        self.consecutive_failures = 0;
+        let remaining = MARKET_RATE_REFRESH_SECS.saturating_sub(cache_age_secs);
+        self.next_attempt_at = now + Duration::from_secs(remaining);
+    }
+
+    fn record_failure(&mut self, now: Instant) {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.next_attempt_at =
+            now + Duration::from_secs(rate_failure_retry_secs(self.consecutive_failures));
+    }
+
+    fn record_unsupported(&mut self, now: Instant) {
+        self.consecutive_failures = 0;
+        self.next_attempt_at = now + Duration::from_secs(MARKET_RATE_REFRESH_SECS);
+    }
+}
+
+fn rate_failure_retry_secs(consecutive_failures: u32) -> u64 {
+    let exponent = consecutive_failures.saturating_sub(1).min(8);
+    RATE_FAILURE_RETRY_BASE_SECS
+        .saturating_mul(1_u64 << exponent)
+        .min(RATE_FAILURE_RETRY_MAX_SECS)
+}
+
+fn session_event_is_allowed(
+    cancelled: bool,
+    active_session_id: Option<&str>,
+    expected_session_id: &str,
+) -> bool {
+    !cancelled && active_session_id == Some(expected_session_id)
+}
+
+async fn update_session_is_current(
+    cancel_token: &CancellationToken,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    expected_session_id: &str,
+) -> bool {
+    if cancel_token.is_cancelled() {
+        return false;
+    }
+    let session = session_manager.lock().await;
+    session_event_is_allowed(
+        cancel_token.is_cancelled(),
+        session.active_session_id(),
+        expected_session_id,
+    ) && session.is_unlocked()
+}
+
 /// Update engine: polls VRPC, BTC, ETH and ERC20 channels when unlocked, emits Tauri events.
 /// Hold in tauri::State; start() from start_update_engine, stop() from lock_wallet.
 pub struct UpdateEngine {
     cancel_token: Mutex<Option<CancellationToken>>,
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     channel_state: Mutex<HashMap<String, ChannelState>>,
+    public_rates_cache: Arc<Mutex<PublicRatesCache>>,
 }
 
 impl UpdateEngine {
@@ -86,6 +161,7 @@ impl UpdateEngine {
             cancel_token: Mutex::new(None),
             task_handle: Mutex::new(None),
             channel_state: Mutex::new(HashMap::new()),
+            public_rates_cache: Arc::new(Mutex::new(PublicRatesCache::default())),
         }
     }
 
@@ -108,6 +184,7 @@ impl UpdateEngine {
         let child = token.child_token();
 
         let session_manager = Arc::clone(&session_manager);
+        let public_rates_cache = Arc::clone(&self.public_rates_cache);
         let task_handle = tokio::spawn(async move {
             run_update_loop(
                 child,
@@ -119,6 +196,7 @@ impl UpdateEngine {
                 btc_provider_pool,
                 eth_provider_pool,
                 start_config,
+                public_rates_cache,
             )
             .await;
         });
@@ -358,12 +436,11 @@ fn derive_vrsc_usd_anchor_from_bridge_currency_result(currency_result: &Value) -
     }
 }
 
-fn emit_and_store_rates(
+fn emit_rates(
     app_handle: &AppHandle,
     coin_id: &str,
-    rates: HashMap<String, f64>,
+    rates: &HashMap<String, f64>,
     usd_change_24h_pct: Option<f64>,
-    latest_rates: &mut HashMap<String, HashMap<String, f64>>,
 ) -> bool {
     let payload = RatesUpdatedPayload {
         coin_id: coin_id.to_string(),
@@ -374,22 +451,53 @@ fn emit_and_store_rates(
         println!("[UPDATE] Emit rates-updated failed: {:?}", err);
         false
     } else {
-        latest_rates.insert(coin_id.to_string(), rates);
         true
     }
 }
 
-async fn maybe_seed_vrsc_anchor_from_bridge_veth(
+async fn emit_session_checked_rates(
     app_handle: &AppHandle,
+    cancel_token: &CancellationToken,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
+    coin_id: &str,
+    rates: &HashMap<String, f64>,
+    usd_change_24h_pct: Option<f64>,
+) -> bool {
+    if !update_session_is_current(cancel_token, session_manager, session_id).await {
+        return false;
+    }
+    emit_rates(app_handle, coin_id, rates, usd_change_24h_pct);
+    true
+}
+
+fn rate_coin_ids_to_invalidate(
+    rate_coins: &[CoinDefinition],
+    previously_available: &HashMap<String, HashMap<String, f64>>,
+    currently_available: &HashMap<String, HashMap<String, f64>>,
+    invalidate_all_missing: bool,
+) -> Vec<String> {
+    let mut seen = HashSet::<String>::new();
+    rate_coins
+        .iter()
+        .filter(|coin| {
+            lookup_rates_case_insensitive(currently_available, &coin.id).is_none()
+                && (invalidate_all_missing
+                    || lookup_rates_case_insensitive(previously_available, &coin.id).is_some())
+        })
+        .filter_map(|coin| {
+            let normalized = coin.id.trim().to_ascii_lowercase();
+            seen.insert(normalized).then(|| coin.id.clone())
+        })
+        .collect()
+}
+
+async fn fetch_vrsc_anchor_from_bridge_veth(
+    cancel_token: &CancellationToken,
     vrpc_provider_pool: &VrpcProviderPool,
     active_network: WalletNetwork,
     usd_reference_rates: &HashMap<String, f64>,
-    latest_rates: &mut HashMap<String, HashMap<String, f64>>,
-) {
-    if lookup_rates_case_insensitive(latest_rates, VRSC_COIN_ID).is_some() {
-        return;
-    }
-
+) -> Option<HashMap<String, f64>> {
     let mut providers = Vec::new();
     providers.push(vrpc_provider_pool.for_network(active_network));
     providers.extend(vrpc_provider_pool.provider_candidates(active_network, Some(VRSC_SYSTEM_ID)));
@@ -403,17 +511,22 @@ async fn maybe_seed_vrsc_anchor_from_bridge_veth(
 
         let lookup_started_at = Instant::now();
         let lookup_timeout = Duration::from_secs(BOOTSTRAP_BRIDGE_VETH_LOOKUP_TIMEOUT_SECS);
-        let payload = match tokio::time::timeout(
-            lookup_timeout,
-            provider.getcurrency(BRIDGE_VETH_CURRENCY_ID),
-        )
-        .await
-        {
+        let payload = match tokio::select! {
+            _ = cancel_token.cancelled() => return None,
+            result = tokio::time::timeout(
+                lookup_timeout,
+                provider.getcurrency(BRIDGE_VETH_CURRENCY_ID),
+            ) => result,
+        } {
             Ok(Ok(payload)) => Some(payload),
             Ok(Err(_)) => {
-                match tokio::time::timeout(lookup_timeout, provider.getcurrency(BRIDGE_VETH_TICKER))
-                    .await
-                {
+                match tokio::select! {
+                    _ = cancel_token.cancelled() => return None,
+                    result = tokio::time::timeout(
+                        lookup_timeout,
+                        provider.getcurrency(BRIDGE_VETH_TICKER),
+                    ) => result,
+                } {
                     Ok(Ok(payload)) => Some(payload),
                     Ok(Err(_)) => None,
                     Err(_) => {
@@ -453,56 +566,10 @@ async fn maybe_seed_vrsc_anchor_from_bridge_veth(
             continue;
         }
 
-        if emit_and_store_rates(app_handle, VRSC_COIN_ID, rates, None, latest_rates) {
-            println!("[UPDATE] Seeded VRSC anchor rate from Bridge.vETH DAI path");
-            return;
-        }
-    }
-}
-
-async fn resolve_rates_for_coin(
-    rates_http_client: &reqwest::Client,
-    usd_reference_rates: &HashMap<String, f64>,
-    vrpc_provider_pool: &VrpcProviderPool,
-    active_network: WalletNetwork,
-    coin: &CoinDefinition,
-    latest_rates: &HashMap<String, HashMap<String, f64>>,
-) -> (Option<HashMap<String, f64>>, Option<f64>, Option<String>) {
-    let mut direct_error: Option<String> = None;
-
-    if should_attempt_coinpaprika(coin) {
-        match coinpaprika::fetch_usd_metrics(rates_http_client, coin).await {
-            Ok(metrics) => {
-                let rates = ecb::build_coin_fiat_rates(metrics.usd_price, usd_reference_rates);
-                if !rates.is_empty() {
-                    return (Some(rates), metrics.usd_change_24h_pct, None);
-                }
-            }
-            Err(err) => direct_error = Some(err),
-        }
-    } else if is_coinpaprika_primary_candidate(coin) && !coinpaprika::has_known_coinpaprika_id(coin)
-    {
-        direct_error = Some(format!("coinpaprika known id missing for {}", coin.id));
+        return Some(rates);
     }
 
-    if pbaas::is_pbaas_derivation_candidate(coin) {
-        if let Some(rates) = derive_pbaas_rates_with_provider_candidates(
-            vrpc_provider_pool,
-            active_network,
-            coin,
-            latest_rates,
-        )
-        .await
-        {
-            return (Some(rates), None, direct_error);
-        }
-    }
-
-    if let Some(rates) = strict_alias_fallback_rates(coin, latest_rates) {
-        return (Some(rates), None, direct_error);
-    }
-
-    (None, None, direct_error)
+    None
 }
 
 fn normalize_priority_entries(entries: &[String]) -> HashSet<String> {
@@ -753,6 +820,7 @@ fn should_use_fast_loop_sleep(
 async fn run_bootstrap_balance_fetches(
     app_handle: &AppHandle,
     cancel_token: &CancellationToken,
+    session_id: &str,
     prioritized_channels: &[(String, String)],
     session_manager: Arc<Mutex<SessionManager>>,
     coin_registry: Arc<CoinRegistry>,
@@ -760,6 +828,8 @@ async fn run_bootstrap_balance_fetches(
     btc_provider_pool: Arc<BtcProviderPool>,
     eth_provider_pool: Arc<EthProviderPool>,
     channel_state: &mut HashMap<String, ChannelState>,
+    first_balance_emitted: &mut bool,
+    engine_started_at: Instant,
 ) {
     if prioritized_channels.is_empty() {
         return;
@@ -781,22 +851,25 @@ async fn run_bootstrap_balance_fetches(
         let vrpc_provider_pool = Arc::clone(&vrpc_provider_pool);
         let btc_provider_pool = Arc::clone(&btc_provider_pool);
         let eth_provider_pool = Arc::clone(&eth_provider_pool);
+        let request_cancel_token = cancel_token.child_token();
 
         join_set.spawn(async move {
             let permit = semaphore.acquire_owned().await;
             let Ok(_permit) = permit else {
                 return (coin_id, channel_id, Err(WalletError::OperationFailed));
             };
-            let result = route_get_balances(
-                &channel_id,
-                Some(coin_id.as_str()),
-                &session_manager,
-                coin_registry.as_ref(),
-                vrpc_provider_pool.as_ref(),
-                btc_provider_pool.as_ref(),
-                eth_provider_pool.as_ref(),
-            )
-            .await;
+            let result = tokio::select! {
+                _ = request_cancel_token.cancelled() => Err(WalletError::WalletLocked),
+                result = route_get_balances(
+                    &channel_id,
+                    Some(coin_id.as_str()),
+                    &session_manager,
+                    coin_registry.as_ref(),
+                    vrpc_provider_pool.as_ref(),
+                    btc_provider_pool.as_ref(),
+                    eth_provider_pool.as_ref(),
+                ) => result,
+            };
             (coin_id, channel_id, result)
         });
     }
@@ -810,6 +883,11 @@ async fn run_bootstrap_balance_fetches(
             }
         };
 
+        if !update_session_is_current(cancel_token, &session_manager, session_id).await {
+            join_set.abort_all();
+            return;
+        }
+
         match result {
             Ok(balance) => {
                 let payload = BalancesUpdatedPayload {
@@ -821,6 +899,12 @@ async fn run_bootstrap_balance_fetches(
                 };
                 if let Err(err) = app_handle.emit(EVENT_BALANCES_UPDATED, &payload) {
                     println!("[UPDATE] Emit balances-updated failed: {:?}", err);
+                } else if !*first_balance_emitted {
+                    *first_balance_emitted = true;
+                    println!(
+                        "[WALLET_PERF] update_engine phase=first_balance_event_emitted elapsed_ms={}",
+                        engine_started_at.elapsed().as_millis()
+                    );
                 }
                 channel_state
                     .entry(format!("{}::{}", channel_id, coin_id))
@@ -849,191 +933,789 @@ async fn run_bootstrap_balance_fetches(
     }
 }
 
-async fn run_bootstrap_rate_fetches(
+async fn publish_rate_result(
     app_handle: &AppHandle,
     cancel_token: &CancellationToken,
-    prioritized_coins: &[crate::core::coins::CoinDefinition],
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
     active_network: WalletNetwork,
-    rates_http_client: reqwest::Client,
-    vrpc_provider_pool: Arc<VrpcProviderPool>,
+    coin: &CoinDefinition,
+    rates: HashMap<String, f64>,
+    usd_change_24h_pct: Option<f64>,
+    source: PublicRateSource,
+    fetched_at_unix_secs: u64,
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
     latest_rates: &mut HashMap<String, HashMap<String, f64>>,
-    coin_rates_state: &mut HashMap<String, Instant>,
-) {
-    if prioritized_coins.is_empty() {
-        return;
+    first_rate_emitted: &mut bool,
+    engine_started_at: Instant,
+) -> bool {
+    if !update_session_is_current(cancel_token, session_manager, session_id).await {
+        return false;
     }
-
-    // Try anchor assets early so we only attempt Bridge.vETH fallback after an actual
-    // direct-price failure for the anchor.
-    let mut ordered_coins = prioritized_coins.to_vec();
-    ordered_coins.sort_by_key(|coin| {
-        if coin.id.trim().eq_ignore_ascii_case(VRSC_COIN_ID)
-            || coin.id.trim().eq_ignore_ascii_case(VRSCTEST_COIN_ID)
-        {
-            0_u8
-        } else {
-            1_u8
-        }
-    });
-
-    let usd_reference_rates = match ecb::fetch_usd_reference_rates(&rates_http_client).await {
-        Ok(rates) => rates,
-        Err(err) => {
-            println!("[UPDATE] ECB rates unavailable during bootstrap: {}", err);
-            HashMap::from([(ecb::USD.to_string(), 1.0)])
-        }
+    let Some(usd_price) = rates
+        .get(ecb::USD)
+        .copied()
+        .filter(|value| value.is_finite() && *value > 0.0)
+    else {
+        return false;
     };
-    let mut bridge_seed_attempted = false;
-    let mut vrsc_direct_rate_failed = false;
 
-    for coin in &ordered_coins {
-        if cancel_token.is_cancelled() {
-            return;
-        }
+    public_rates_cache
+        .lock()
+        .await
+        .store_market_rate(CachedMarketRates {
+            identity: PublicRateIdentity::for_coin(active_network, coin),
+            rates: rates.clone(),
+            usd_price,
+            usd_change_24h_pct,
+            source,
+            fetched_at_unix_secs,
+        });
+    latest_rates.insert(coin.id.clone(), rates.clone());
 
-        let coin_rate_started_at = Instant::now();
-        let resolved_result = tokio::time::timeout(
-            Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS),
-            resolve_rates_for_coin(
-                &rates_http_client,
-                &usd_reference_rates,
-                vrpc_provider_pool.as_ref(),
-                active_network,
-                coin,
-                latest_rates,
-            ),
-        )
-        .await;
-        let coin_rate_elapsed_ms = coin_rate_started_at.elapsed().as_millis();
-        if coin_rate_elapsed_ms > BOOTSTRAP_RATE_SLOW_LOG_MS {
+    if emit_rates(app_handle, &coin.id, &rates, usd_change_24h_pct) {
+        if !*first_rate_emitted {
+            *first_rate_emitted = true;
             println!(
-                "[UPDATE] Bootstrap rate fetch slow: coin={} elapsed_ms={}",
-                coin.id, coin_rate_elapsed_ms
+                "[WALLET_PERF] update_engine phase=first_non_empty_rate_event_emitted elapsed_ms={}",
+                engine_started_at.elapsed().as_millis()
             );
         }
-        let (mut resolved_rates, mut usd_change_24h_pct, mut rate_error) = match resolved_result {
+    }
+    true
+}
+
+async fn publish_cached_rates(
+    app_handle: &AppHandle,
+    cancel_token: &CancellationToken,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
+    active_network: WalletNetwork,
+    coins: &[CoinDefinition],
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
+    latest_rates: &mut HashMap<String, HashMap<String, f64>>,
+    coin_rates_state: &mut HashMap<PublicRateIdentity, RateAttemptState>,
+    first_rate_emitted: &mut bool,
+    engine_started_at: Instant,
+) -> bool {
+    let now_unix_secs = unix_timestamp_secs();
+    let cached_entries =
+        displayable_cached_rate_entries(active_network, coins, now_unix_secs, public_rates_cache)
+            .await;
+
+    for (coin, entry) in cached_entries {
+        if !update_session_is_current(cancel_token, session_manager, session_id).await {
+            return false;
+        }
+        latest_rates.insert(coin.id.clone(), entry.rates.clone());
+        coin_rates_state
+            .entry(entry.identity.clone())
+            .or_insert_with(|| RateAttemptState::due(Instant::now()))
+            .record_cached_success(Instant::now(), entry.age_secs(now_unix_secs));
+        if emit_rates(app_handle, &coin.id, &entry.rates, entry.usd_change_24h_pct)
+            && !*first_rate_emitted
+        {
+            *first_rate_emitted = true;
+            println!(
+                "[WALLET_PERF] update_engine phase=first_non_empty_rate_event_emitted source=cache elapsed_ms={}",
+                engine_started_at.elapsed().as_millis()
+            );
+        }
+        println!(
+            "[UPDATE] Reused public rate cache: coin={} source={} age_secs={}",
+            coin.id,
+            entry.source.label(),
+            entry.age_secs(now_unix_secs)
+        );
+    }
+
+    for coin_id in rate_coin_ids_to_invalidate(coins, latest_rates, latest_rates, true) {
+        if !emit_session_checked_rates(
+            app_handle,
+            cancel_token,
+            session_manager,
+            session_id,
+            &coin_id,
+            &HashMap::new(),
+            None,
+        )
+        .await
+        {
+            return false;
+        }
+        println!(
+            "[UPDATE] Invalidated unavailable public rate on engine start: coin={}",
+            coin_id
+        );
+    }
+    true
+}
+
+async fn displayable_cached_rate_entries(
+    active_network: WalletNetwork,
+    coins: &[CoinDefinition],
+    now_unix_secs: u64,
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
+) -> Vec<(CoinDefinition, CachedMarketRates)> {
+    {
+        let mut cache = public_rates_cache.lock().await;
+        let usd_reference_rates = cache
+            .usable_ecb_reference_rates(now_unix_secs)
+            .map(|entry| entry.rates)
+            .unwrap_or_else(|| HashMap::from([(ecb::USD.to_string(), 1.0)]));
+        let mut entries = coins
+            .iter()
+            .filter_map(|coin| {
+                cache
+                    .market_rate(active_network, coin)
+                    .filter(|entry| entry.is_displayable(now_unix_secs))
+                    .cloned()
+                    .map(|entry| (coin.clone(), entry))
+            })
+            .collect::<Vec<_>>();
+        for (_, entry) in &mut entries {
+            entry.rates = ecb::build_coin_fiat_rates(entry.usd_price, &usd_reference_rates);
+            cache.store_market_rate(entry.clone());
+        }
+        entries
+    }
+}
+
+async fn alias_cache_metadata(
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
+    active_network: WalletNetwork,
+    rate_coins: &[CoinDefinition],
+    counterpart_coin_id: &str,
+) -> (u64, Option<f64>) {
+    let counterpart = rate_coins
+        .iter()
+        .find(|coin| coin.id.trim().eq_ignore_ascii_case(counterpart_coin_id));
+    let Some(counterpart) = counterpart else {
+        return (unix_timestamp_secs(), None);
+    };
+    let cache = public_rates_cache.lock().await;
+    cache
+        .market_rate(active_network, counterpart)
+        .map(|entry| (entry.fetched_at_unix_secs, entry.usd_change_24h_pct))
+        .unwrap_or_else(|| (unix_timestamp_secs(), None))
+}
+
+async fn run_rate_refresh_cycle(
+    app_handle: &AppHandle,
+    cancel_token: &CancellationToken,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
+    active_network: WalletNetwork,
+    due_coins: &[CoinDefinition],
+    rate_coins: &[CoinDefinition],
+    rates_http_client: &reqwest::Client,
+    vrpc_provider_pool: &Arc<VrpcProviderPool>,
+    usd_reference_rates: &HashMap<String, f64>,
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
+    latest_rates: &mut HashMap<String, HashMap<String, f64>>,
+    coin_rates_state: &mut HashMap<PublicRateIdentity, RateAttemptState>,
+    first_rate_emitted: &mut bool,
+    engine_started_at: Instant,
+) -> bool {
+    if due_coins.is_empty() {
+        return true;
+    }
+
+    let cycle_started_at = Instant::now();
+    let semaphore = Arc::new(Semaphore::new(BOOTSTRAP_RATE_CONCURRENCY));
+    let mut direct_tasks = JoinSet::new();
+    let mut attempted = HashSet::<PublicRateIdentity>::new();
+    let mut succeeded = HashSet::<PublicRateIdentity>::new();
+    let mut direct_errors = HashMap::<PublicRateIdentity, String>::new();
+
+    for coin in due_coins
+        .iter()
+        .filter(|coin| should_attempt_coinpaprika(coin))
+    {
+        let coin = coin.clone();
+        let identity = PublicRateIdentity::for_coin(active_network, &coin);
+        attempted.insert(identity);
+        let semaphore = Arc::clone(&semaphore);
+        let client = rates_http_client.clone();
+        let request_cancel_token = cancel_token.child_token();
+        direct_tasks.spawn(async move {
+            let Ok(_permit) = semaphore.acquire_owned().await else {
+                return (coin, Err("rate worker unavailable".to_string()));
+            };
+            let result = tokio::select! {
+                _ = request_cancel_token.cancelled() => Err("rate request cancelled".to_string()),
+                result = tokio::time::timeout(
+                    Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS),
+                    coinpaprika::fetch_usd_metrics(&client, &coin),
+                ) => match result {
+                    Ok(result) => result,
+                    Err(_) => Err(format!(
+                        "rate request timed out after {}s",
+                        BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS
+                    )),
+                },
+            };
+            (coin, result)
+        });
+    }
+
+    while let Some(task_result) = direct_tasks.join_next().await {
+        let (coin, result) = match task_result {
             Ok(result) => result,
-            Err(_) => {
-                println!(
-                    "[UPDATE] Bootstrap rate fetch timed out for {} after {}s",
-                    coin.id, BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS
-                );
-                coin_rates_state.insert(coin.id.clone(), Instant::now());
+            Err(error) => {
+                println!("[UPDATE] Direct rate task join error: {}", error);
                 continue;
             }
         };
-
-        if coin.id.trim().eq_ignore_ascii_case(VRSC_COIN_ID) && rate_error.is_some() {
-            vrsc_direct_rate_failed = true;
+        if !update_session_is_current(cancel_token, session_manager, session_id).await {
+            direct_tasks.abort_all();
+            return false;
         }
 
-        let needs_bridge_seed_for_vrsc = coin.id.trim().eq_ignore_ascii_case(VRSC_COIN_ID)
-            && rate_error.is_some()
-            && lookup_rates_case_insensitive(latest_rates, VRSC_COIN_ID).is_none();
-        let needs_bridge_seed_for_pbaas = pbaas::is_pbaas_derivation_candidate(coin)
-            && vrsc_direct_rate_failed
-            && lookup_rates_case_insensitive(
-                latest_rates,
-                anchor_coin_id_for_pbaas_candidate(coin),
-            )
-            .is_none();
-
-        if resolved_rates.is_none()
-            && (needs_bridge_seed_for_vrsc || needs_bridge_seed_for_pbaas)
-            && !bridge_seed_attempted
-        {
-            println!(
-                "[UPDATE] Attempting on-demand Bridge.vETH seed after direct rate miss: coin={}",
-                coin.id
-            );
-            maybe_seed_vrsc_anchor_from_bridge_veth(
-                app_handle,
-                vrpc_provider_pool.as_ref(),
-                active_network,
-                &usd_reference_rates,
-                latest_rates,
-            )
-            .await;
-            bridge_seed_attempted = true;
-
-            if needs_bridge_seed_for_vrsc
-                && lookup_rates_case_insensitive(latest_rates, VRSC_COIN_ID).is_some()
-            {
-                // Bridge seed already emitted VRSC rates and stored them.
-                coin_rates_state.insert(coin.id.clone(), Instant::now());
-                continue;
-            }
-
-            if needs_bridge_seed_for_pbaas {
-                let retry_started_at = Instant::now();
-                let retry_result = tokio::time::timeout(
-                    Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS),
-                    resolve_rates_for_coin(
-                        &rates_http_client,
-                        &usd_reference_rates,
-                        vrpc_provider_pool.as_ref(),
-                        active_network,
-                        coin,
-                        latest_rates,
-                    ),
+        let identity = PublicRateIdentity::for_coin(active_network, &coin);
+        match result {
+            Ok(metrics) => {
+                let rates = ecb::build_coin_fiat_rates(metrics.usd_price, usd_reference_rates);
+                if publish_rate_result(
+                    app_handle,
+                    cancel_token,
+                    session_manager,
+                    session_id,
+                    active_network,
+                    &coin,
+                    rates,
+                    metrics.usd_change_24h_pct,
+                    PublicRateSource::CoinPaprika,
+                    unix_timestamp_secs(),
+                    public_rates_cache,
+                    latest_rates,
+                    first_rate_emitted,
+                    engine_started_at,
                 )
-                .await;
-                let retry_elapsed_ms = retry_started_at.elapsed().as_millis();
-                if retry_elapsed_ms > BOOTSTRAP_RATE_SLOW_LOG_MS {
-                    println!(
-                        "[UPDATE] Bootstrap rate retry slow: coin={} elapsed_ms={}",
-                        coin.id, retry_elapsed_ms
-                    );
-                }
-                match retry_result {
-                    Ok(result) => {
-                        (resolved_rates, usd_change_24h_pct, rate_error) = result;
-                    }
-                    Err(_) => {
-                        println!(
-                            "[UPDATE] Bootstrap rate retry timed out for {} after {}s",
-                            coin.id, BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS
-                        );
-                        coin_rates_state.insert(coin.id.clone(), Instant::now());
-                        continue;
-                    }
+                .await
+                {
+                    succeeded.insert(identity);
+                } else {
+                    return false;
                 }
             }
-        }
-
-        if let Some(rates) = resolved_rates {
-            if emit_and_store_rates(
-                app_handle,
-                &coin.id,
-                rates,
-                usd_change_24h_pct,
-                latest_rates,
-            ) {
-                coin_rates_state.insert(coin.id.clone(), Instant::now());
+            Err(error) => {
+                direct_errors.insert(identity, error);
             }
-        } else if let Some(rate_error) = rate_error {
-            println!(
-                "[UPDATE] Fiat rate unavailable during bootstrap for {}: {}",
-                coin.id, rate_error
-            );
-        } else {
-            println!(
-                "[UPDATE] Fiat rate unavailable during bootstrap for {}",
-                coin.id
-            );
         }
-
-        // Record attempted-at timestamp so the regular loop does not immediately refetch.
-        coin_rates_state.insert(coin.id.clone(), Instant::now());
     }
 
-    let alias_backfills = pending_strict_alias_backfill(&ordered_coins, latest_rates);
+    let vrsc_coin = rate_coins
+        .iter()
+        .find(|coin| coin.id.trim().eq_ignore_ascii_case(VRSC_COIN_ID));
+    if let Some(vrsc_coin) = vrsc_coin {
+        let vrsc_identity = PublicRateIdentity::for_coin(active_network, vrsc_coin);
+        let direct_failed = direct_errors.contains_key(&vrsc_identity);
+        let anchor_missing = lookup_rates_case_insensitive(latest_rates, VRSC_COIN_ID).is_none();
+        if direct_failed && anchor_missing {
+            println!("[UPDATE] Attempting Bridge.vETH seed after direct VRSC rate miss");
+            if let Some(rates) = fetch_vrsc_anchor_from_bridge_veth(
+                cancel_token,
+                vrpc_provider_pool.as_ref(),
+                active_network,
+                usd_reference_rates,
+            )
+            .await
+            {
+                if publish_rate_result(
+                    app_handle,
+                    cancel_token,
+                    session_manager,
+                    session_id,
+                    active_network,
+                    vrsc_coin,
+                    rates,
+                    None,
+                    PublicRateSource::BridgeVeth,
+                    unix_timestamp_secs(),
+                    public_rates_cache,
+                    latest_rates,
+                    first_rate_emitted,
+                    engine_started_at,
+                )
+                .await
+                {
+                    println!("[UPDATE] Seeded VRSC anchor rate from Bridge.vETH DAI path");
+                    succeeded.insert(vrsc_identity);
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+
+    let latest_snapshot = Arc::new(latest_rates.clone());
+    let mut pbaas_tasks = JoinSet::new();
+    for coin in due_coins.iter().filter(|coin| {
+        let identity = PublicRateIdentity::for_coin(active_network, coin);
+        !succeeded.contains(&identity) && pbaas::is_pbaas_derivation_candidate(coin)
+    }) {
+        let coin = coin.clone();
+        attempted.insert(PublicRateIdentity::for_coin(active_network, &coin));
+        let semaphore = Arc::clone(&semaphore);
+        let provider_pool = Arc::clone(vrpc_provider_pool);
+        let latest_snapshot = Arc::clone(&latest_snapshot);
+        let request_cancel_token = cancel_token.child_token();
+        pbaas_tasks.spawn(async move {
+            let Ok(_permit) = semaphore.acquire_owned().await else {
+                return (coin, None);
+            };
+            let result = tokio::select! {
+                _ = request_cancel_token.cancelled() => None,
+                result = tokio::time::timeout(
+                    Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS),
+                    derive_pbaas_rates_with_provider_candidates(
+                        provider_pool.as_ref(),
+                        active_network,
+                        &coin,
+                        latest_snapshot.as_ref(),
+                    ),
+                ) => result.ok().flatten(),
+            };
+            (coin, result)
+        });
+    }
+
+    while let Some(task_result) = pbaas_tasks.join_next().await {
+        let (coin, rates) = match task_result {
+            Ok(result) => result,
+            Err(error) => {
+                println!("[UPDATE] PBaaS rate task join error: {}", error);
+                continue;
+            }
+        };
+        if !update_session_is_current(cancel_token, session_manager, session_id).await {
+            pbaas_tasks.abort_all();
+            return false;
+        }
+        let identity = PublicRateIdentity::for_coin(active_network, &coin);
+        if let Some(rates) = rates {
+            if publish_rate_result(
+                app_handle,
+                cancel_token,
+                session_manager,
+                session_id,
+                active_network,
+                &coin,
+                rates,
+                None,
+                PublicRateSource::Pbaas,
+                unix_timestamp_secs(),
+                public_rates_cache,
+                latest_rates,
+                first_rate_emitted,
+                engine_started_at,
+            )
+            .await
+            {
+                succeeded.insert(identity);
+            } else {
+                return false;
+            }
+        }
+    }
+
+    let alias_backfills = pending_strict_alias_backfill(due_coins, latest_rates);
     for (coin_id, rates) in alias_backfills {
-        if cancel_token.is_cancelled() {
+        let Some(coin) = due_coins
+            .iter()
+            .find(|coin| coin.id.trim().eq_ignore_ascii_case(&coin_id))
+        else {
+            continue;
+        };
+        let identity = PublicRateIdentity::for_coin(active_network, coin);
+        if succeeded.contains(&identity) {
+            continue;
+        }
+        let Some(counterpart_coin_id) = strict_alias_counterpart_coin_id(coin) else {
+            continue;
+        };
+        let (fetched_at_unix_secs, usd_change_24h_pct) = alias_cache_metadata(
+            public_rates_cache,
+            active_network,
+            rate_coins,
+            counterpart_coin_id,
+        )
+        .await;
+        if publish_rate_result(
+            app_handle,
+            cancel_token,
+            session_manager,
+            session_id,
+            active_network,
+            coin,
+            rates,
+            usd_change_24h_pct,
+            PublicRateSource::StrictAlias {
+                counterpart_coin_id: counterpart_coin_id.to_string(),
+            },
+            fetched_at_unix_secs,
+            public_rates_cache,
+            latest_rates,
+            first_rate_emitted,
+            engine_started_at,
+        )
+        .await
+        {
+            succeeded.insert(identity);
+        } else {
+            return false;
+        }
+    }
+
+    let now = Instant::now();
+    let now_unix_secs = unix_timestamp_secs();
+    for coin in due_coins {
+        let identity = PublicRateIdentity::for_coin(active_network, coin);
+        let state = coin_rates_state
+            .entry(identity.clone())
+            .or_insert_with(|| RateAttemptState::due(now));
+        if succeeded.contains(&identity) {
+            let cache_age_secs = {
+                let cache = public_rates_cache.lock().await;
+                cache
+                    .market_rate(active_network, coin)
+                    .map(|entry| entry.age_secs(now_unix_secs))
+                    .unwrap_or_default()
+            };
+            state.record_cached_success(now, cache_age_secs);
+        } else if attempted.contains(&identity) {
+            state.record_failure(now);
+            if let Some(error) = direct_errors.get(&identity) {
+                println!(
+                    "[UPDATE] Fiat rate unavailable for {}: {}; retry_secs={}",
+                    coin.id,
+                    error,
+                    rate_failure_retry_secs(state.consecutive_failures)
+                );
+            } else {
+                println!(
+                    "[UPDATE] Fiat rate unavailable for {}; retry_secs={}",
+                    coin.id,
+                    rate_failure_retry_secs(state.consecutive_failures)
+                );
+            }
+        } else {
+            state.record_unsupported(now);
+        }
+    }
+
+    println!(
+        "[UPDATE] Rate cycle complete: candidates={} elapsed_ms={}",
+        due_coins.len(),
+        cycle_started_at.elapsed().as_millis()
+    );
+    true
+}
+
+async fn apply_ecb_refresh(
+    app_handle: &AppHandle,
+    cancel_token: &CancellationToken,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    session_id: &str,
+    active_network: WalletNetwork,
+    rate_coins: &[CoinDefinition],
+    snapshot: CachedEcbReferenceRates,
+    public_rates_cache: &Arc<Mutex<PublicRatesCache>>,
+    latest_rates: &mut HashMap<String, HashMap<String, f64>>,
+    first_rate_emitted: &mut bool,
+    engine_started_at: Instant,
+) -> bool {
+    if !update_session_is_current(cancel_token, session_manager, session_id).await {
+        return false;
+    }
+
+    let now_unix_secs = unix_timestamp_secs();
+    let entries = {
+        let mut cache = public_rates_cache.lock().await;
+        cache.store_ecb_reference_rates(snapshot.clone());
+        let entries = cache.displayable_market_rates(active_network, rate_coins, now_unix_secs);
+        for entry in &entries {
+            let mut refreshed = entry.clone();
+            refreshed.rates = ecb::build_coin_fiat_rates(refreshed.usd_price, &snapshot.rates);
+            cache.store_market_rate(refreshed);
+        }
+        entries
+    };
+
+    for entry in entries {
+        if !update_session_is_current(cancel_token, session_manager, session_id).await {
+            return false;
+        }
+        let Some(coin) = rate_coins
+            .iter()
+            .find(|coin| PublicRateIdentity::for_coin(active_network, coin) == entry.identity)
+        else {
+            continue;
+        };
+        let rates = ecb::build_coin_fiat_rates(entry.usd_price, &snapshot.rates);
+        latest_rates.insert(coin.id.clone(), rates.clone());
+        if emit_rates(app_handle, &coin.id, &rates, entry.usd_change_24h_pct)
+            && !*first_rate_emitted
+        {
+            *first_rate_emitted = true;
+            println!(
+                "[WALLET_PERF] update_engine phase=first_non_empty_rate_event_emitted source=ecb_refresh elapsed_ms={}",
+                engine_started_at.elapsed().as_millis()
+            );
+        }
+    }
+    println!(
+        "[UPDATE] ECB reference cache refreshed: published_on={}",
+        snapshot.published_on.as_deref().unwrap_or("unknown")
+    );
+    true
+}
+
+async fn run_rate_schedule(
+    cancel_token: CancellationToken,
+    app_handle: AppHandle,
+    session_id: String,
+    session_manager: Arc<Mutex<SessionManager>>,
+    coin_registry: Arc<CoinRegistry>,
+    vrpc_provider_pool: Arc<VrpcProviderPool>,
+    priority_coin_ids: HashSet<String>,
+    public_rates_cache: Arc<Mutex<PublicRatesCache>>,
+    engine_started_at: Instant,
+) {
+    let access_context = {
+        let session = session_manager.lock().await;
+        if !session_event_is_allowed(
+            cancel_token.is_cancelled(),
+            session.active_session_id(),
+            &session_id,
+        ) || !session.is_unlocked()
+        {
             return;
         }
-        if emit_and_store_rates(app_handle, &coin_id, rates, None, latest_rates) {
-            coin_rates_state.insert(coin_id, Instant::now());
+        match session.active_wallet_access_context() {
+            Ok(context) => context,
+            Err(_) => return,
+        }
+    };
+    let active_network = access_context.wallet_network;
+    let is_testnet = matches!(active_network, WalletNetwork::Testnet);
+    let all_rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
+    let rate_coins = prioritized_rate_coins(&all_rate_coins, &[], &priority_coin_ids);
+    if rate_coins.is_empty() {
+        return;
+    }
+
+    let rates_http_client = build_rates_http_client();
+    let mut latest_rates = HashMap::<String, HashMap<String, f64>>::new();
+    let mut coin_rates_state = rate_coins
+        .iter()
+        .map(|coin| {
+            (
+                PublicRateIdentity::for_coin(active_network, coin),
+                RateAttemptState::due(Instant::now()),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut first_rate_emitted = false;
+    let mut ecb_failures = 0_u32;
+    let mut next_ecb_attempt_at = Instant::now();
+
+    if !publish_cached_rates(
+        &app_handle,
+        &cancel_token,
+        &session_manager,
+        &session_id,
+        active_network,
+        &rate_coins,
+        &public_rates_cache,
+        &mut latest_rates,
+        &mut coin_rates_state,
+        &mut first_rate_emitted,
+        engine_started_at,
+    )
+    .await
+    {
+        return;
+    }
+
+    loop {
+        if !update_session_is_current(&cancel_token, &session_manager, &session_id).await {
+            return;
+        }
+
+        let now = Instant::now();
+        let now_unix_secs = unix_timestamp_secs();
+        let cached_entries = displayable_cached_rate_entries(
+            active_network,
+            &rate_coins,
+            now_unix_secs,
+            &public_rates_cache,
+        )
+        .await;
+        let next_latest_rates = cached_entries
+            .iter()
+            .map(|(coin, entry)| (coin.id.clone(), entry.rates.clone()))
+            .collect::<HashMap<_, _>>();
+
+        for (coin, entry) in &cached_entries {
+            let previously_published = lookup_rates_case_insensitive(&latest_rates, &coin.id);
+            if previously_published == Some(&entry.rates) {
+                continue;
+            }
+            if !emit_session_checked_rates(
+                &app_handle,
+                &cancel_token,
+                &session_manager,
+                &session_id,
+                &coin.id,
+                &entry.rates,
+                entry.usd_change_24h_pct,
+            )
+            .await
+            {
+                return;
+            }
+        }
+        for coin_id in
+            rate_coin_ids_to_invalidate(&rate_coins, &latest_rates, &next_latest_rates, false)
+        {
+            if !emit_session_checked_rates(
+                &app_handle,
+                &cancel_token,
+                &session_manager,
+                &session_id,
+                &coin_id,
+                &HashMap::new(),
+                None,
+            )
+            .await
+            {
+                return;
+            }
+            println!("[UPDATE] Invalidated expired public rate: coin={}", coin_id);
+        }
+        latest_rates = next_latest_rates;
+        let due_coins = rate_coins
+            .iter()
+            .filter(|coin| {
+                coin_rates_state
+                    .get(&PublicRateIdentity::for_coin(active_network, coin))
+                    .map_or(true, |state| state.is_due(now))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let (usd_reference_rates, cache_ecb_refresh_due) = {
+            let cache = public_rates_cache.lock().await;
+            let reference_rates = cache
+                .usable_ecb_reference_rates(now_unix_secs)
+                .map(|entry| entry.rates)
+                .unwrap_or_else(|| HashMap::from([(ecb::USD.to_string(), 1.0)]));
+            (reference_rates, cache.ecb_needs_refresh(now_unix_secs))
+        };
+        let ecb_refresh_due = cache_ecb_refresh_due && now >= next_ecb_attempt_at;
+
+        if !due_coins.is_empty() || ecb_refresh_due {
+            let rate_cycle = run_rate_refresh_cycle(
+                &app_handle,
+                &cancel_token,
+                &session_manager,
+                &session_id,
+                active_network,
+                &due_coins,
+                &rate_coins,
+                &rates_http_client,
+                &vrpc_provider_pool,
+                &usd_reference_rates,
+                &public_rates_cache,
+                &mut latest_rates,
+                &mut coin_rates_state,
+                &mut first_rate_emitted,
+                engine_started_at,
+            );
+            let ecb_refresh = async {
+                if !ecb_refresh_due {
+                    return None;
+                }
+                tokio::select! {
+                    _ = cancel_token.cancelled() => None,
+                    result = ecb::fetch_usd_reference_snapshot(&rates_http_client) => Some(result),
+                }
+            };
+            let (cycle_current, ecb_result) = tokio::join!(rate_cycle, ecb_refresh);
+            if !cycle_current {
+                return;
+            }
+            if let Some(result) = ecb_result {
+                match result {
+                    Ok(snapshot) => {
+                        let fetched_at_unix_secs = unix_timestamp_secs();
+                        let cached_snapshot = CachedEcbReferenceRates {
+                            rates: snapshot.rates,
+                            published_on: snapshot.published_on,
+                            fetched_at_unix_secs,
+                        };
+                        if !cached_snapshot.is_usable(fetched_at_unix_secs) {
+                            ecb_failures = ecb_failures.saturating_add(1);
+                            let retry_secs = rate_failure_retry_secs(ecb_failures);
+                            next_ecb_attempt_at = Instant::now() + Duration::from_secs(retry_secs);
+                            println!(
+                                "[UPDATE] ECB reference refresh rejected: published_on={} publication_age_days={:?}; retry_secs={}",
+                                cached_snapshot.published_on.as_deref().unwrap_or("missing"),
+                                cached_snapshot.publication_age_days(fetched_at_unix_secs),
+                                retry_secs
+                            );
+                        } else {
+                            if !apply_ecb_refresh(
+                                &app_handle,
+                                &cancel_token,
+                                &session_manager,
+                                &session_id,
+                                active_network,
+                                &rate_coins,
+                                cached_snapshot,
+                                &public_rates_cache,
+                                &mut latest_rates,
+                                &mut first_rate_emitted,
+                                engine_started_at,
+                            )
+                            .await
+                            {
+                                return;
+                            }
+                            ecb_failures = 0;
+                            next_ecb_attempt_at =
+                                Instant::now() + Duration::from_secs(ECB_REFERENCE_REFRESH_SECS);
+                        }
+                    }
+                    Err(error) => {
+                        ecb_failures = ecb_failures.saturating_add(1);
+                        let retry_secs = rate_failure_retry_secs(ecb_failures);
+                        next_ecb_attempt_at = Instant::now() + Duration::from_secs(retry_secs);
+                        println!(
+                            "[UPDATE] ECB reference refresh unavailable: {}; retry_secs={}",
+                            error, retry_secs
+                        );
+                    }
+                }
+            }
+        }
+
+        let sleep_secs = coin_rates_state
+            .values()
+            .map(|state| {
+                state
+                    .next_attempt_at
+                    .saturating_duration_since(Instant::now())
+                    .as_secs()
+                    .max(1)
+            })
+            .min()
+            .unwrap_or(30)
+            .min(30);
+        tokio::select! {
+            _ = cancel_token.cancelled() => return,
+            _ = tokio::time::sleep(jitter_duration(sleep_secs)) => {}
         }
     }
 }
@@ -1048,81 +1730,158 @@ async fn run_update_loop(
     btc_provider_pool: Arc<BtcProviderPool>,
     eth_provider_pool: Arc<EthProviderPool>,
     start_config: UpdateEngineStartConfig,
+    public_rates_cache: Arc<Mutex<PublicRatesCache>>,
+) {
+    let engine_started_at = Instant::now();
+    let priority_coin_ids = normalize_priority_entries(&start_config.priority_coin_ids);
+    let balance_schedule = run_balance_schedule(
+        cancel_token.child_token(),
+        app_handle.clone(),
+        session_id.clone(),
+        Arc::clone(&session_manager),
+        Arc::clone(&coin_registry),
+        Arc::clone(&vrpc_provider_pool),
+        btc_provider_pool,
+        eth_provider_pool,
+        start_config,
+        engine_started_at,
+    );
+    let rate_schedule = run_rate_schedule(
+        cancel_token.child_token(),
+        app_handle,
+        session_id,
+        session_manager,
+        coin_registry,
+        vrpc_provider_pool,
+        priority_coin_ids,
+        public_rates_cache,
+        engine_started_at,
+    );
+
+    run_independent_update_schedules(balance_schedule, rate_schedule).await;
+}
+
+async fn run_independent_update_schedules<BalanceSchedule, RateSchedule>(
+    balance_schedule: BalanceSchedule,
+    rate_schedule: RateSchedule,
+) where
+    BalanceSchedule: std::future::Future<Output = ()>,
+    RateSchedule: std::future::Future<Output = ()>,
+{
+    // Both schedules are polled independently: price timeouts never hold the balance cadence.
+    tokio::join!(balance_schedule, rate_schedule);
+}
+
+async fn run_balance_schedule(
+    cancel_token: CancellationToken,
+    app_handle: AppHandle,
+    session_id: String,
+    session_manager: Arc<Mutex<SessionManager>>,
+    coin_registry: Arc<CoinRegistry>,
+    vrpc_provider_pool: Arc<VrpcProviderPool>,
+    btc_provider_pool: Arc<BtcProviderPool>,
+    eth_provider_pool: Arc<EthProviderPool>,
+    start_config: UpdateEngineStartConfig,
+    engine_started_at: Instant,
 ) {
     let mut channel_state: HashMap<String, ChannelState> = HashMap::new();
-    let mut coin_rates_state: HashMap<String, Instant> = HashMap::new();
-    let mut latest_rates: HashMap<String, HashMap<String, f64>> = HashMap::new();
-    let rates_http_client = build_rates_http_client();
     let poll_transactions = start_config.poll_transactions;
     let priority_coin_ids = normalize_priority_entries(&start_config.priority_coin_ids);
     let priority_channel_ids = normalize_priority_entries(&start_config.priority_channel_ids);
     let dlight_fast_updates = dlight_fast_sync_updates_enabled();
     let mut bootstrap_completed = false;
+    let mut first_balance_emitted = false;
     emit_bootstrap_updated(&app_handle, true);
     println!(
         "[UPDATE] dlight fast sync updates enabled={}",
         dlight_fast_updates
     );
 
+    let access_context = {
+        let session = session_manager.lock().await;
+        if !session_event_is_allowed(
+            cancel_token.is_cancelled(),
+            session.active_session_id(),
+            &session_id,
+        ) || !session.is_unlocked()
+        {
+            return;
+        }
+        match session.active_wallet_access_context() {
+            Ok(context) => context,
+            Err(_) => return,
+        }
+    };
+    let session_vrpc_address = access_context.vrsc_address.clone();
+    let active_network = access_context.wallet_network;
+    let is_testnet = matches!(active_network, WalletNetwork::Testnet);
+    let mut channels = dedupe_channel_pairs(&active_channels(
+        &coin_registry,
+        is_testnet,
+        &session_vrpc_address,
+        eth_provider_pool.is_enabled(),
+        None,
+        &priority_coin_ids,
+    ));
+
+    // Shielded metadata opens a separate Stronghold snapshot. It must not delay
+    // transparent balance polling or the independent public-rate schedule.
+    let mut dlight_tasks = JoinSet::new();
+    dlight_tasks.spawn(async move {
+        let account_id = access_context.account_id.clone();
+        let result = access_context.load_dlight_public_metadata_cached().await;
+        (account_id, result)
+    });
+    let mut dlight_resolved = false;
+
     loop {
-        if cancel_token.is_cancelled() {
+        if !update_session_is_current(&cancel_token, &session_manager, &session_id).await {
             break;
         }
 
-        let session = session_manager.lock().await;
-        if session.active_session_id() != Some(session_id.as_str()) {
-            break;
-        }
-        if !session.is_unlocked() {
-            drop(session);
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
+        if !dlight_resolved {
+            if let Some(task_result) = dlight_tasks.try_join_next() {
+                dlight_resolved = true;
+                match task_result {
+                    Ok((_, Ok(metadata))) => {
+                        channels = dedupe_channel_pairs(&active_channels(
+                            &coin_registry,
+                            is_testnet,
+                            &session_vrpc_address,
+                            eth_provider_pool.is_enabled(),
+                            metadata.shielded_address.as_deref(),
+                            &priority_coin_ids,
+                        ));
+                    }
+                    Ok((account_id, Err(error))) => {
+                        println!(
+                            "[UPDATE] Failed to resolve dlight status for {}: {:?}",
+                            account_id, error
+                        );
+                    }
+                    Err(error) => {
+                        println!("[UPDATE] dlight metadata task failed: {}", error);
+                    }
+                }
             }
-            continue;
         }
-        let access_context = match session.active_wallet_access_context() {
-            Ok(context) => context,
-            Err(_) => {
-                drop(session);
+
+        if channels.is_empty() {
+            if !dlight_resolved {
                 tokio::select! {
                     _ = cancel_token.cancelled() => break,
-                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                 }
                 continue;
             }
-        };
-        let session_vrpc_address = access_context.vrsc_address.clone();
-        let active_network = access_context.wallet_network;
-        let is_testnet = matches!(active_network, WalletNetwork::Testnet);
-        drop(session);
-
-        let dlight_scope_address = match access_context.load_dlight_public_metadata_cached().await {
-            Ok(metadata) => metadata.shielded_address,
-            Err(error) => {
-                println!(
-                    "[UPDATE] Failed to resolve dlight status for {}: {:?}",
-                    access_context.account_id, error
-                );
-                None
-            }
-        };
-
-        let raw_channels = active_channels(
-            &coin_registry,
-            is_testnet,
-            &session_vrpc_address,
-            eth_provider_pool.is_enabled(),
-            dlight_scope_address.as_deref(),
-            &priority_coin_ids,
-        );
-        let channels = dedupe_channel_pairs(&raw_channels);
-        if channels.is_empty() {
             if !bootstrap_completed {
                 emit_bootstrap_updated(&app_handle, false);
                 bootstrap_completed = true;
             }
-            tokio::time::sleep(jitter_duration(30)).await;
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                _ = tokio::time::sleep(jitter_duration(30)) => {}
+            }
             continue;
         }
 
@@ -1131,64 +1890,36 @@ async fn run_update_loop(
             let (prioritized_channels, remainder_channels) =
                 partition_bootstrap_channels(&channels, &priority_coin_ids, &priority_channel_ids);
             println!(
-                "[UPDATE] Bootstrap start: prioritized_channels={} remaining_channels={}",
+                "[UPDATE] Balance bootstrap start: prioritized_channels={} remaining_channels={}",
                 prioritized_channels.len(),
                 remainder_channels.len()
             );
 
-            let rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
-            let prioritized_coins =
-                prioritized_rate_coins(&rate_coins, &channels, &priority_coin_ids);
+            run_bootstrap_balance_fetches(
+                &app_handle,
+                &cancel_token,
+                &session_id,
+                &prioritized_channels,
+                Arc::clone(&session_manager),
+                Arc::clone(&coin_registry),
+                Arc::clone(&vrpc_provider_pool),
+                Arc::clone(&btc_provider_pool),
+                Arc::clone(&eth_provider_pool),
+                &mut channel_state,
+                &mut first_balance_emitted,
+                engine_started_at,
+            )
+            .await;
+            if !update_session_is_current(&cancel_token, &session_manager, &session_id).await {
+                return;
+            }
 
-            let balance_bootstrap = async {
-                let started_at = Instant::now();
-                run_bootstrap_balance_fetches(
-                    &app_handle,
-                    &cancel_token,
-                    &prioritized_channels,
-                    Arc::clone(&session_manager),
-                    Arc::clone(&coin_registry),
-                    Arc::clone(&vrpc_provider_pool),
-                    Arc::clone(&btc_provider_pool),
-                    Arc::clone(&eth_provider_pool),
-                    &mut channel_state,
-                )
-                .await;
-
-                // Balances define wallet readiness. Fiat rates continue as
-                // optional enrichment and must not keep known amounts hidden.
-                emit_bootstrap_updated(&app_handle, false);
-                started_at.elapsed()
-            };
-
-            let rate_bootstrap = async {
-                let started_at = Instant::now();
-                run_bootstrap_rate_fetches(
-                    &app_handle,
-                    &cancel_token,
-                    &prioritized_coins,
-                    active_network,
-                    rates_http_client.clone(),
-                    Arc::clone(&vrpc_provider_pool),
-                    &mut latest_rates,
-                    &mut coin_rates_state,
-                )
-                .await;
-                started_at.elapsed()
-            };
-
-            let (balance_bootstrap_elapsed, rate_bootstrap_elapsed) =
-                tokio::join!(balance_bootstrap, rate_bootstrap);
+            emit_bootstrap_updated(&app_handle, false);
             bootstrap_completed = true;
-            let bootstrap_elapsed = bootstrap_started_at.elapsed();
-
             println!(
-                "[UPDATE] Bootstrap complete: prioritized_channels={} prioritized_rates={} balance_ms={} rate_ms={} total_ms={}",
+                "[UPDATE] Balance bootstrap complete: prioritized_channels={} elapsed_ms={}",
                 prioritized_channels.len(),
-                prioritized_coins.len(),
-                balance_bootstrap_elapsed.as_millis(),
-                rate_bootstrap_elapsed.as_millis(),
-                bootstrap_elapsed.as_millis()
+                bootstrap_started_at.elapsed().as_millis()
             );
         }
 
@@ -1217,6 +1948,7 @@ async fn run_update_loop(
         run_bootstrap_balance_fetches(
             &app_handle,
             &cancel_token,
+            &session_id,
             &due_balance_channels,
             Arc::clone(&session_manager),
             Arc::clone(&coin_registry),
@@ -1224,6 +1956,8 @@ async fn run_update_loop(
             Arc::clone(&btc_provider_pool),
             Arc::clone(&eth_provider_pool),
             &mut channel_state,
+            &mut first_balance_emitted,
+            engine_started_at,
         )
         .await;
 
@@ -1249,15 +1983,18 @@ async fn run_update_loop(
             };
 
             if needs_info {
-                match route_get_info(
+                let result = route_get_info(
                     channel_id,
                     Some(coin_id.as_str()),
                     &session_manager,
                     coin_registry.as_ref(),
                     vrpc_provider_pool.as_ref(),
                 )
-                .await
-                {
+                .await;
+                if !update_session_is_current(&cancel_token, &session_manager, &session_id).await {
+                    return;
+                }
+                match result {
                     Ok(info) => {
                         let payload = InfoUpdatedPayload {
                             coin_id: coin_id.clone(),
@@ -1320,7 +2057,7 @@ async fn run_update_loop(
                     .map_or(true, |t| now.duration_since(t).as_secs() >= refresh_secs);
 
                 if needs_tx {
-                    match route_get_transactions(
+                    let result = route_get_transactions(
                         channel_id,
                         Some(coin_id.as_str()),
                         &session_manager,
@@ -1329,8 +2066,13 @@ async fn run_update_loop(
                         btc_provider_pool.as_ref(),
                         eth_provider_pool.as_ref(),
                     )
-                    .await
+                    .await;
+                    if !update_session_is_current(&cancel_token, &session_manager, &session_id)
+                        .await
                     {
+                        return;
+                    }
+                    match result {
                         Ok(txs) => {
                             let payload = TransactionsUpdatedPayload {
                                 coin_id: coin_id.clone(),
@@ -1374,95 +2116,13 @@ async fn run_update_loop(
             }
         }
 
-        let all_rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
-        let rate_coins = prioritized_rate_coins(&all_rate_coins, &channels, &priority_coin_ids);
-
-        let needs_any_rates = rate_coins.iter().any(|coin| {
-            coin_rates_state.get(&coin.id).map_or(true, |t| {
-                now.duration_since(*t).as_secs() >= RATES_REFRESH_SECS
-            })
-        });
-
-        if needs_any_rates {
-            let usd_reference_rates = match ecb::fetch_usd_reference_rates(&rates_http_client).await
-            {
-                Ok(rates) => rates,
-                Err(err) => {
-                    println!("[UPDATE] ECB rates unavailable: {}", err);
-                    HashMap::from([(ecb::USD.to_string(), 1.0)])
-                }
-            };
-
-            maybe_seed_vrsc_anchor_from_bridge_veth(
-                &app_handle,
-                vrpc_provider_pool.as_ref(),
-                active_network,
-                &usd_reference_rates,
-                &mut latest_rates,
-            )
-            .await;
-
-            for coin in &rate_coins {
-                if cancel_token.is_cancelled() {
-                    return;
-                }
-
-                let needs_rates = coin_rates_state.get(&coin.id).map_or(true, |t| {
-                    now.duration_since(*t).as_secs() >= RATES_REFRESH_SECS
-                });
-                if !needs_rates {
-                    continue;
-                }
-
-                let (resolved_rates, usd_change_24h_pct, rate_error) = resolve_rates_for_coin(
-                    &rates_http_client,
-                    &usd_reference_rates,
-                    vrpc_provider_pool.as_ref(),
-                    active_network,
-                    coin,
-                    &latest_rates,
-                )
-                .await;
-
-                if let Some(rates) = resolved_rates {
-                    let _ = emit_and_store_rates(
-                        &app_handle,
-                        &coin.id,
-                        rates,
-                        usd_change_24h_pct,
-                        &mut latest_rates,
-                    );
-                } else if let Some(rate_error) = rate_error {
-                    println!(
-                        "[UPDATE] Fiat rate unavailable for {}: {}",
-                        coin.id, rate_error
-                    );
-                } else {
-                    println!("[UPDATE] Fiat rate unavailable for {}", coin.id);
-                }
-
-                // Throttle retries after both success and failure.
-                coin_rates_state.insert(coin.id.clone(), Instant::now());
-                tokio::time::sleep(jitter_duration(1)).await;
-            }
-
-            let alias_backfills = pending_strict_alias_backfill(&rate_coins, &latest_rates);
-            for (coin_id, rates) in alias_backfills {
-                if cancel_token.is_cancelled() {
-                    return;
-                }
-                if emit_and_store_rates(&app_handle, &coin_id, rates, None, &mut latest_rates) {
-                    coin_rates_state.insert(coin_id, Instant::now());
-                }
-            }
-        }
-
-        let sleep_secs =
-            if should_use_fast_loop_sleep(dlight_fast_updates, &channels, &channel_state) {
-                1
-            } else {
-                60u64.min(BALANCE_REFRESH_SECS / 2)
-            };
+        let sleep_secs = if !dlight_resolved
+            || should_use_fast_loop_sleep(dlight_fast_updates, &channels, &channel_state)
+        {
+            1
+        } else {
+            60u64.min(BALANCE_REFRESH_SECS / 2)
+        };
         tokio::select! {
             _ = cancel_token.cancelled() => break,
             _ = tokio::time::sleep(jitter_duration(sleep_secs)) => {}
@@ -1487,14 +2147,137 @@ fn user_facing_error(e: &WalletError) -> String {
 mod tests {
     use super::{
         active_channels, dedupe_channel_pairs, derive_vrsc_usd_anchor_from_bridge_currency_result,
-        fiat_rate_candidates, is_coinpaprika_primary_candidate, partition_bootstrap_channels,
-        pending_strict_alias_backfill, prioritized_rate_coins, should_attempt_coinpaprika,
-        strict_alias_fallback_rates, BRIDGE_VETH_CURRENCY_ID, DAI_VETH_CURRENCY_ID, VETH_SYSTEM_ID,
-        VRSC_SYSTEM_ID, VUSDC_VETH_CURRENCY_ID,
+        displayable_cached_rate_entries, fiat_rate_candidates, is_coinpaprika_primary_candidate,
+        partition_bootstrap_channels, pending_strict_alias_backfill, prioritized_rate_coins,
+        rate_coin_ids_to_invalidate, rate_failure_retry_secs, run_independent_update_schedules,
+        session_event_is_allowed, should_attempt_coinpaprika, strict_alias_fallback_rates,
+        RateAttemptState, BRIDGE_VETH_CURRENCY_ID, DAI_VETH_CURRENCY_ID,
+        RATE_FAILURE_RETRY_MAX_SECS, VETH_SYSTEM_ID, VRSC_SYSTEM_ID, VUSDC_VETH_CURRENCY_ID,
     };
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
+    use crate::core::rates::cache::{
+        CachedMarketRates, PublicRateIdentity, PublicRateSource, PublicRatesCache,
+        MARKET_RATE_DISPLAY_MAX_AGE_SECS,
+    };
+    use crate::types::wallet::WalletNetwork;
     use serde_json::json;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tokio::sync::Mutex;
+
+    #[test]
+    fn stale_session_and_cancelled_work_cannot_publish() {
+        assert!(session_event_is_allowed(false, Some("current"), "current"));
+        assert!(!session_event_is_allowed(
+            false,
+            Some("replacement"),
+            "current"
+        ));
+        assert!(!session_event_is_allowed(false, None, "current"));
+        assert!(!session_event_is_allowed(true, Some("current"), "current"));
+    }
+
+    #[test]
+    fn transient_rate_retry_uses_bounded_exponential_backoff() {
+        assert_eq!(rate_failure_retry_secs(1), 30);
+        assert_eq!(rate_failure_retry_secs(2), 60);
+        assert_eq!(rate_failure_retry_secs(3), 120);
+        assert_eq!(rate_failure_retry_secs(20), RATE_FAILURE_RETRY_MAX_SECS);
+    }
+
+    #[tokio::test]
+    async fn expired_rate_is_invalidated_when_failed_refresh_does_not_replace_it() {
+        let coin = sample_coin("VRSC", VRSC_SYSTEM_ID, Protocol::Vrsc);
+        let fetched_at_unix_secs = 10_000;
+        let public_rates_cache = Arc::new(Mutex::new(PublicRatesCache::default()));
+        public_rates_cache
+            .lock()
+            .await
+            .store_market_rate(CachedMarketRates {
+                identity: PublicRateIdentity::for_coin(WalletNetwork::Mainnet, &coin),
+                rates: HashMap::from([("USD".to_string(), 2.0)]),
+                usd_price: 2.0,
+                usd_change_24h_pct: Some(1.0),
+                source: PublicRateSource::CoinPaprika,
+                fetched_at_unix_secs,
+            });
+        let previously_available =
+            HashMap::from([(coin.id.clone(), HashMap::from([("USD".to_string(), 2.0)]))]);
+        let expired_at = fetched_at_unix_secs + MARKET_RATE_DISPLAY_MAX_AGE_SECS + 1;
+
+        let displayable = displayable_cached_rate_entries(
+            WalletNetwork::Mainnet,
+            std::slice::from_ref(&coin),
+            expired_at,
+            &public_rates_cache,
+        )
+        .await;
+        let currently_available = displayable
+            .into_iter()
+            .map(|(coin, entry)| (coin.id, entry.rates))
+            .collect::<HashMap<_, _>>();
+        let mut failed_attempt = RateAttemptState::due(Instant::now());
+        failed_attempt.record_failure(Instant::now());
+
+        assert!(currently_available.is_empty());
+        assert_eq!(failed_attempt.consecutive_failures, 1);
+        assert_eq!(
+            rate_coin_ids_to_invalidate(
+                std::slice::from_ref(&coin),
+                &previously_available,
+                &currently_available,
+                false,
+            ),
+            vec![coin.id]
+        );
+    }
+
+    #[test]
+    fn engine_restart_invalidates_a_missing_active_rate_without_local_history() {
+        let coin = sample_coin("VRSC", VRSC_SYSTEM_ID, Protocol::Vrsc);
+        let no_rates = HashMap::new();
+
+        assert_eq!(
+            rate_coin_ids_to_invalidate(std::slice::from_ref(&coin), &no_rates, &no_rates, true),
+            vec![coin.id.clone()]
+        );
+        assert!(rate_coin_ids_to_invalidate(
+            std::slice::from_ref(&coin),
+            &no_rates,
+            &no_rates,
+            false,
+        )
+        .is_empty());
+    }
+
+    #[tokio::test]
+    async fn balance_schedule_progresses_while_rate_schedule_is_pending() {
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_rates_tx, release_rates_rx) = tokio::sync::oneshot::channel::<()>();
+        let balance_schedule = async move {
+            progress_tx.send(1_u8).expect("first balance refresh");
+            tokio::task::yield_now().await;
+            progress_tx.send(2_u8).expect("second balance refresh");
+        };
+        let rate_schedule = async move {
+            let _ = release_rates_rx.await;
+        };
+
+        let schedules = tokio::spawn(run_independent_update_schedules(
+            balance_schedule,
+            rate_schedule,
+        ));
+        assert_eq!(progress_rx.recv().await, Some(1));
+        assert_eq!(progress_rx.recv().await, Some(2));
+        assert!(
+            !schedules.is_finished(),
+            "rate schedule should still be pending"
+        );
+
+        release_rates_tx.send(()).expect("release rate schedule");
+        schedules.await.expect("update schedules complete");
+    }
 
     fn sample_coin(id: &str, system_id: &str, proto: Protocol) -> CoinDefinition {
         CoinDefinition {

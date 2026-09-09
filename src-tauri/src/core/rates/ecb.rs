@@ -10,7 +10,19 @@ const ECB_RATES_URL: &str = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref
 pub const USD: &str = "USD";
 pub const EUR: &str = "EUR";
 
+#[derive(Clone, Debug)]
+pub struct EcbReferenceRates {
+    pub rates: HashMap<String, f64>,
+    pub published_on: Option<String>,
+}
+
 pub async fn fetch_usd_reference_rates(client: &Client) -> Result<HashMap<String, f64>, String> {
+    fetch_usd_reference_snapshot(client)
+        .await
+        .map(|snapshot| snapshot.rates)
+}
+
+pub async fn fetch_usd_reference_snapshot(client: &Client) -> Result<EcbReferenceRates, String> {
     let response = client
         .get(ECB_RATES_URL)
         .send()
@@ -25,7 +37,7 @@ pub async fn fetch_usd_reference_rates(client: &Client) -> Result<HashMap<String
         .await
         .map_err(|e| format!("ecb response decode failed: {}", e))?;
 
-    Ok(parse_usd_reference_rates_from_xml(&xml))
+    Ok(parse_usd_reference_snapshot_from_xml(&xml))
 }
 
 /// Builds fiat prices for a coin given its USD price and USD-relative fiat multipliers.
@@ -53,9 +65,17 @@ pub fn build_coin_fiat_rates(
 }
 
 pub fn parse_usd_reference_rates_from_xml(xml: &str) -> HashMap<String, f64> {
+    parse_usd_reference_snapshot_from_xml(xml).rates
+}
+
+pub fn parse_usd_reference_snapshot_from_xml(xml: &str) -> EcbReferenceRates {
     let mut eur_reference_rates = HashMap::<String, f64>::new();
+    let mut published_on = None;
 
     for line in xml.lines() {
+        if published_on.is_none() && line.contains("time=") {
+            published_on = extract_attr(line, "time").filter(|value| !value.trim().is_empty());
+        }
         if !line.contains("currency=") || !line.contains("rate=") {
             continue;
         }
@@ -100,7 +120,10 @@ pub fn parse_usd_reference_rates_from_xml(xml: &str) -> HashMap<String, f64> {
 
     // Mobile hard-sets USD to 1 after normalization.
     usd_reference_rates.insert(USD.to_string(), 1.0);
-    usd_reference_rates
+    EcbReferenceRates {
+        rates: usd_reference_rates,
+        published_on,
+    }
 }
 
 fn extract_attr(line: &str, attr: &str) -> Option<String> {
@@ -140,6 +163,19 @@ mod tests {
         assert_eq!(rates.get("EUR"), Some(&(1.0 / 1.1862)));
         assert_eq!(rates.get("JPY"), Some(&(176.01 / 1.1862)));
         assert_eq!(rates.get("GBP"), Some(&(0.855 / 1.1862)));
+    }
+
+    #[test]
+    fn parse_snapshot_preserves_ecb_publication_date() {
+        let xml = r#"
+            <Cube time='2026-09-04'>
+              <Cube currency='USD' rate='1.16'/>
+            </Cube>
+        "#;
+
+        let snapshot = parse_usd_reference_snapshot_from_xml(xml);
+        assert_eq!(snapshot.published_on.as_deref(), Some("2026-09-04"));
+        assert_eq!(snapshot.rates.get("USD"), Some(&1.0));
     }
 
     #[test]

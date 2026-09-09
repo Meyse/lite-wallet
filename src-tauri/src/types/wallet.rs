@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum WalletNetwork {
     Mainnet,
