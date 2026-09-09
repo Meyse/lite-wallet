@@ -791,6 +791,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.error.insufficientFunds': 'Onvoldoende saldo voor deze transfer.',
   'wallet.transfer.error.dlightProverUnavailable':
     'Private send-prover is niet beschikbaar. Installeer geldige Sapling-params en probeer opnieuw.',
+  'wallet.transfer.error.dlightBroadcastUncertain':
+    'De verzending kon niet worden bevestigd. Controleer de transactiegeschiedenis voordat je het opnieuw probeert.',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend-cache is nog niet klaar. Laat private sync voltooien en probeer daarna opnieuw.',
   'wallet.transfer.error.network': 'Netwerkfout. Probeer opnieuw.',

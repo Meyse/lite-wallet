@@ -2885,6 +2885,9 @@
     if (errorType === 'DlightProverUnavailable') {
       return i18n.t('wallet.transfer.error.dlightProverUnavailable');
     }
+    if (errorType === 'DlightBroadcastUncertain') {
+      return i18n.t('wallet.transfer.error.dlightBroadcastUncertain');
+    }
     if (errorType === 'DlightSpendCacheNotReady') {
       return i18n.t('wallet.transfer.error.dlightSpendCacheNotReady');
     }

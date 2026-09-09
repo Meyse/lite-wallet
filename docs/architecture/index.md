@@ -42,5 +42,6 @@ details.
 - Plans: [`../plans/index.md`](../plans/index.md)
 - Verus identity signing architecture:
   [`./verus-identity-signing-rust.md`](./verus-identity-signing-rust.md)
-- Wallet loading lifecycle:
-  [`./wallet-loading.md`](./wallet-loading.md)
+- Wallet loading lifecycle: [`./wallet-loading.md`](./wallet-loading.md)
+- Private Sapling wallet state and sending:
+  [`./private-wallet.md`](./private-wallet.md)

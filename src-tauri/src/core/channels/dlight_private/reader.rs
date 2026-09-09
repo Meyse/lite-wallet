@@ -19,7 +19,7 @@ fn satoshis_to_decimal_string(value: i128) -> String {
 }
 
 pub async fn get_balances(request: &DlightRuntimeRequest) -> Result<BalanceResult, WalletError> {
-    let _ = ensure_runtime(request);
+    ensure_runtime(request).await?;
     let snapshot = get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
 
     Ok(BalanceResult {
@@ -32,7 +32,7 @@ pub async fn get_balances(request: &DlightRuntimeRequest) -> Result<BalanceResul
 pub async fn get_transactions(
     request: &DlightRuntimeRequest,
 ) -> Result<Vec<Transaction>, WalletError> {
-    let _ = ensure_runtime(request);
+    ensure_runtime(request).await?;
     let snapshot = get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
     let tip_height = snapshot.chain_tip_height.unwrap_or(0);
 
@@ -40,7 +40,7 @@ pub async fn get_transactions(
         .transactions
         .iter()
         .map(|item| {
-            let confirmations = if tip_height >= item.block_height {
+            let confirmations = if !item.pending && tip_height >= item.block_height {
                 tip_height
                     .saturating_sub(item.block_height)
                     .saturating_add(1)
@@ -59,13 +59,15 @@ pub async fn get_transactions(
                     "shielded".to_string()
                 },
                 to_address: if is_outgoing {
-                    "shielded".to_string()
+                    item.to_address
+                        .clone()
+                        .unwrap_or_else(|| "shielded".to_string())
                 } else {
                     request.scope_address.clone()
                 },
                 confirmations,
                 timestamp: Some(item.block_time),
-                pending: false,
+                pending: item.pending,
             }
         })
         .collect::<Vec<_>>();
@@ -81,7 +83,7 @@ pub async fn get_transactions(
 }
 
 pub async fn get_info(request: &DlightRuntimeRequest) -> Result<DlightInfo, WalletError> {
-    let _ = ensure_runtime(request);
+    ensure_runtime(request).await?;
     let snapshot = get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
     let runtime_tip_hint = snapshot
         .chain_tip_height
@@ -132,7 +134,7 @@ pub async fn get_info(request: &DlightRuntimeRequest) -> Result<DlightInfo, Wall
 pub async fn get_runtime_diagnostics(
     request: &DlightRuntimeRequest,
 ) -> Result<DlightRuntimeDiagnostics, WalletError> {
-    let _ = ensure_runtime(request);
+    ensure_runtime(request).await?;
     let snapshot = get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
     let runtime_tip_hint = snapshot
         .chain_tip_height

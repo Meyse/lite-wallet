@@ -130,7 +130,7 @@ export async function setupDlightSeed(
   const result = await invokeWalletCommand<SetupDlightSeedResult>('setup_dlight_seed', {
     request: {
       mode: request.mode,
-      import_text: request.importText ?? null,
+      importText: request.importText ?? null,
     },
   });
   invalidateWalletDisplayScopes();

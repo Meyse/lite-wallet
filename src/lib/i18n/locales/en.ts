@@ -777,6 +777,8 @@ export const en: Record<string, string> = {
   'wallet.transfer.error.insufficientFunds': 'Insufficient funds for this transfer.',
   'wallet.transfer.error.dlightProverUnavailable':
     'Private send prover is unavailable. Install valid Sapling params and try again.',
+  'wallet.transfer.error.dlightBroadcastUncertain':
+    'Submission could not be confirmed. Check transaction history before trying again.',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend cache is not ready yet. Let private sync complete, then try again.',
   'wallet.transfer.error.network': 'Network error. Try again.',

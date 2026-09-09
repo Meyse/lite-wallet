@@ -81,6 +81,9 @@ pub enum WalletError {
     #[error("dlight spend cache is not ready")]
     DlightSpendCacheNotReady,
 
+    #[error("Private transaction submission could not be confirmed")]
+    DlightBroadcastUncertain,
+
     #[error("{0}")]
     DlightBroadcastRejected(String),
 

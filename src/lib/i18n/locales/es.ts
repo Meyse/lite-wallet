@@ -393,6 +393,8 @@ export const es: Record<string, string> = {
   'wallet.settings.profile.recovery.description':
     'Muestra secretos de recuperacion y claves derivadas tras confirmar la contrasena.',
 
+  'wallet.transfer.error.dlightBroadcastUncertain':
+    'No se pudo confirmar el envío. Revisa el historial de transacciones antes de volver a intentarlo.',
   'wallet.settings.privateVerus.title': 'Privacidad',
   'wallet.settings.privateVerus.description':
     'Configura privacidad shielded para {label}. Puedes reutilizar tu frase secreta de recuperacion principal o definir un secreto de recuperacion de privacidad separado.',

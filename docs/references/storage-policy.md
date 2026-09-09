@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-03-10
+last_reviewed: 2026-09-09
 ---
 
 # Wallet storage policy
@@ -45,6 +45,15 @@ Policy:
 - Keep in Stronghold snapshots.
 - Keep data volume small and low-churn.
 
+Private Sapling notes, recipients, nullifiers, witnesses, transaction history,
+and pending sends also belong to this class. Their frequent writes use an
+authenticated encrypted cache with atomic generations and an exclusive writer,
+as described in [Private Sapling wallet](../architecture/private-wallet.md). The
+cache encryption key derives from the Stronghold-protected spending key;
+plaintext private note databases are not permitted. Creation checkpoints remain
+beside the secret in Stronghold. Pending-send state must survive lock and
+restart.
+
 ### Account state
 
 Account-scoped state that is useful after unlock but is not secret material.
@@ -68,7 +77,6 @@ Rebuildable or fetched state that does not need Stronghold protection.
 - Balances and portfolio snapshots.
 - Update-engine caches.
 - Runtime-derived scope data.
-- dlight runtime files and spend databases.
 
 Policy:
 

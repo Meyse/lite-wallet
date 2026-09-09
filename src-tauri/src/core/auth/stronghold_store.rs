@@ -104,6 +104,10 @@ struct ProvisioningJobsSnapshot {
 struct DlightSeedSnapshot {
     schema_version: u8,
     #[serde(default)]
+    mainnet_metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
+    #[serde(default)]
+    testnet_metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
+    #[serde(default)]
     mainnet: Option<String>,
     #[serde(default)]
     testnet: Option<String>,
@@ -133,6 +137,8 @@ impl Default for DlightSeedSnapshot {
     fn default() -> Self {
         Self {
             schema_version: DLIGHT_SEED_SCHEMA_VERSION,
+            mainnet_metadata: Default::default(),
+            testnet_metadata: Default::default(),
             mainnet: None,
             testnet: None,
         }
@@ -745,15 +751,9 @@ impl StrongholdStore {
             linked_identities: self
                 .load_legacy_linked_identities_snapshot(account_id, legacy_hash)
                 .await,
-            dlight_seed: DlightSeedSnapshot {
-                schema_version: DLIGHT_SEED_SCHEMA_VERSION,
-                mainnet: self
-                    .load_dlight_seed(account_id, legacy_hash, WalletNetwork::Mainnet)
-                    .await?,
-                testnet: self
-                    .load_dlight_seed(account_id, legacy_hash, WalletNetwork::Testnet)
-                    .await?,
-            },
+            dlight_seed: self
+                .load_dlight_seed_snapshot(account_id, legacy_hash)
+                .await?,
             watched_vrpc_addresses: WatchedVrpcAddressesSnapshot {
                 schema_version: WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION,
                 mainnet: self
@@ -1164,12 +1164,59 @@ impl StrongholdStore {
             .filter(|value| !value.is_empty()))
     }
 
+    pub async fn load_dlight_runtime_material(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+    ) -> Result<
+        Option<(
+            zeroize::Zeroizing<String>,
+            crate::core::channels::dlight_private::DlightSeedMetadata,
+        )>,
+        WalletError,
+    > {
+        let snapshot = self
+            .load_dlight_seed_snapshot(account_id, password_hash)
+            .await?;
+        let (seed, metadata) = match network {
+            WalletNetwork::Mainnet => (snapshot.mainnet, snapshot.mainnet_metadata),
+            WalletNetwork::Testnet => (snapshot.testnet, snapshot.testnet_metadata),
+        };
+        seed.filter(|seed| !seed.trim().is_empty())
+            .map(|seed| {
+                let seed = zeroize::Zeroizing::new(seed);
+                let key =
+                    crate::core::channels::dlight_private::runtime_spending_key(&seed, network)?;
+                Ok((key, metadata))
+            })
+            .transpose()
+    }
+
     pub async fn store_dlight_seed(
         &self,
         account_id: &str,
         password_hash: &[u8],
         network: WalletNetwork,
         seed: Option<&str>,
+    ) -> Result<(), WalletError> {
+        self.store_dlight_seed_with_metadata(
+            account_id,
+            password_hash,
+            network,
+            seed,
+            Default::default(),
+        )
+        .await
+    }
+
+    pub async fn store_dlight_seed_with_metadata(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+        seed: Option<&str>,
+        metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
     ) -> Result<(), WalletError> {
         let path = self.dlight_seed_snapshot_path(account_id);
         let mut snapshot = self
@@ -1181,6 +1228,11 @@ impl StrongholdStore {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = normalized_seed;
+        *network_mut(
+            &mut snapshot.mainnet_metadata,
+            &mut snapshot.testnet_metadata,
+            network,
+        ) = metadata;
         self.store_json_snapshot_to_path(
             account_id,
             password_hash,
@@ -1780,5 +1832,83 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(store.base_path);
         let _ = std::fs::remove_dir_all(wallet_data_dir);
+    }
+    #[tokio::test]
+    async fn dlight_birthday_survives_storage_and_phrases_match_mobile() {
+        use crate::core::channels::dlight_private::{self, DlightBirthday, DlightSeedMetadata};
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let password_hash = [7; 32];
+        let phrase = bip39::Mnemonic::from_entropy(&[0; 32]).unwrap().to_string();
+        store
+            .store_dlight_seed(
+                "fixture",
+                &password_hash,
+                WalletNetwork::Mainnet,
+                Some(&phrase),
+            )
+            .await
+            .unwrap();
+        store
+            .store_dlight_seed_with_metadata(
+                "fixture",
+                &password_hash,
+                WalletNetwork::Testnet,
+                Some(&phrase),
+                DlightSeedMetadata {
+                    birthday: Some(DlightBirthday {
+                        height: 123,
+                        block_hash_hex: "ab".repeat(32),
+                        sapling_tree: "000000".into(),
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        let (key, metadata) = store
+            .load_dlight_runtime_material("fixture", &password_hash, WalletNetwork::Testnet)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(metadata.birthday.unwrap().height, 123);
+        assert_eq!(
+            dlight_private::derive_scope_address(&key, WalletNetwork::Testnet).unwrap(),
+            dlight_private::derive_scope_address(&phrase, WalletNetwork::Mainnet).unwrap()
+        );
+        assert_eq!(
+            store
+                .load_dlight_seed("fixture", &password_hash, WalletNetwork::Testnet)
+                .await
+                .unwrap()
+                .unwrap(),
+            phrase
+        );
+        let (_, mainnet_metadata) = store
+            .load_dlight_runtime_material("fixture", &password_hash, WalletNetwork::Mainnet)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(mainnet_metadata.birthday.is_none());
+        let legacy: super::DlightSeedSnapshot =
+            serde_json::from_value(serde_json::json!({"schema_version":1, "testnet": phrase}))
+                .unwrap();
+        assert!(legacy.testnet_metadata.birthday.is_none());
+        // Replacing a secret clears its obsolete checkpoint atomically.
+        store
+            .store_dlight_seed(
+                "fixture",
+                &password_hash,
+                WalletNetwork::Testnet,
+                Some(&phrase),
+            )
+            .await
+            .unwrap();
+        let (_, replaced_metadata) = store
+            .load_dlight_runtime_material("fixture", &password_hash, WalletNetwork::Testnet)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(replaced_metadata.birthday.is_none());
+        std::fs::remove_dir_all(store.base_path).unwrap();
     }
 }

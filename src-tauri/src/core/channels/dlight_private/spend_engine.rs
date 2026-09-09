@@ -1,5 +1,6 @@
 use rand::rngs::OsRng;
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Uri};
 use zcash_client_backend::proto::service::{
@@ -7,7 +8,7 @@ use zcash_client_backend::proto::service::{
 };
 use zcash_primitives::transaction::builder::{BuildConfig, Builder, Error as TxBuildError};
 use zcash_primitives::transaction::fees::fixed;
-use zcash_protocol::consensus::{BlockHeight, NetworkType, NetworkUpgrade, Parameters};
+use zcash_protocol::consensus::{BlockHeight, Parameters};
 use zcash_protocol::memo::MemoBytes;
 use zcash_protocol::value::Zatoshis;
 use zip32::Scope;
@@ -19,8 +20,9 @@ use crate::types::WalletError;
 use super::recipient_resolution::{resolve_dlight_recipient, ResolvedDlightRecipient};
 use super::spend_keys::DlightSpendKeyMaterial;
 use super::spend_params::load_sapling_provers;
-use super::spend_sync::{load_spend_snapshot, mark_notes_spent, SpendableNote};
+use super::spend_sync::SpendableNote;
 use super::{normalize_grpc_endpoint, DlightRuntimeRequest};
+use super::{runtime, state::PendingSend, store::unix_timestamp_secs};
 use crate::core::channels::vrpc::VrpcProvider;
 
 pub const SATOSHIS_PER_COIN: i128 = 100_000_000;
@@ -28,34 +30,6 @@ pub const FIXED_FEE_SATS: i128 = 10_000;
 
 const DIAL_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DIAL_RPC_TIMEOUT_SECS: u64 = 20;
-const VERUS_MAINNET_SAPLING_ACTIVATION_HEIGHT: u64 = 227_520;
-const VERUS_TESTNET_SAPLING_ACTIVATION_HEIGHT: u64 = 1;
-
-#[derive(Debug, Clone, Copy)]
-struct VerusConsensusParams {
-    network_type: NetworkType,
-    sapling_activation_height: BlockHeight,
-}
-
-impl Parameters for VerusConsensusParams {
-    fn network_type(&self) -> NetworkType {
-        self.network_type
-    }
-
-    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
-        match nu {
-            NetworkUpgrade::Overwinter => Some(self.sapling_activation_height),
-            NetworkUpgrade::Sapling => Some(self.sapling_activation_height),
-            NetworkUpgrade::Blossom => None,
-            NetworkUpgrade::Heartwood => None,
-            NetworkUpgrade::Canopy => None,
-            NetworkUpgrade::Nu5 => None,
-            NetworkUpgrade::Nu6 => None,
-            NetworkUpgrade::Nu6_1 => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct DlightPreflightComputation {
     pub resolved_recipient: ResolvedDlightRecipient,
@@ -136,68 +110,166 @@ pub struct ExecutedSend {
     pub txid: String,
 }
 
-pub async fn execute_send(
-    request: &DlightRuntimeRequest,
-    params: &ExecuteSendParams,
-    progress: Option<&(dyn Fn(DlightSendStage) + Send + Sync)>,
-) -> Result<ExecutedSend, WalletError> {
-    let key_material = DlightSpendKeyMaterial::from_seed_material(
-        &request.seed_material,
-        request.network,
-        &request.scope_address,
-    )?;
-    let runtime_snapshot =
-        super::runtime::get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
-    let runtime_tip_hint = runtime_snapshot
-        .chain_tip_height
-        .or(runtime_snapshot.estimated_tip_height)
-        .filter(|tip| *tip > 0);
-    let sync_snapshot = load_spend_snapshot(request, runtime_tip_hint)?;
+type SendProgress = Arc<dyn Fn(DlightSendStage) + Send + Sync>;
 
-    let total_required = params
-        .value_sats
-        .checked_add(params.fee_sats)
-        .ok_or_else(|| {
-            dlight_send_failure("amount calculation", "value plus fee overflowed u64 limits")
-        })?;
-
-    let (selected_notes, selected_total) =
-        select_notes(&sync_snapshot.spendable_notes, total_required)
-            .ok_or(WalletError::InsufficientFunds)?;
-    let change_sats = selected_total.saturating_sub(total_required);
-
-    match request.network {
-        WalletNetwork::Mainnet => {
-            execute_send_for_network(
-                request,
-                params,
-                &key_material,
-                &selected_notes,
-                change_sats,
-                sync_snapshot.chain_tip_height,
-                verus_send_params(WalletNetwork::Mainnet),
-                progress,
-            )
-            .await
-        }
-        WalletNetwork::Testnet => {
-            execute_send_for_network(
-                request,
-                params,
-                &key_material,
-                &selected_notes,
-                change_sats,
-                sync_snapshot.chain_tip_height,
-                verus_send_params(WalletNetwork::Testnet),
-                progress,
-            )
-            .await
+/// Dropping a cancelled build releases only a reservation that has no serialized
+/// transaction. Prepared submissions remain reserved through ambiguous outcomes.
+struct BuildReservation {
+    runtime_key: String,
+    id: String,
+}
+impl Drop for BuildReservation {
+    fn drop(&mut self) {
+        let key = self.runtime_key.clone();
+        let id = self.id.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = runtime::update_pending(&key, false, move |state| {
+                    if state.pending.get(&id).is_some_and(|p| p.txid.is_none()) {
+                        state.pending.remove(&id);
+                    }
+                    Ok(())
+                })
+                .await;
+            });
         }
     }
 }
 
-async fn execute_send_for_network<P: Parameters + Send + Clone>(
+pub async fn execute_send(
     request: &DlightRuntimeRequest,
+    params: &ExecuteSendParams,
+    progress: Option<SendProgress>,
+) -> Result<ExecutedSend, WalletError> {
+    let cancellation = request.submission_guard.cancellation();
+    if cancellation.is_cancelled() {
+        return Err(WalletError::WalletLocked);
+    }
+    let required = params
+        .value_sats
+        .checked_add(params.fee_sats)
+        .ok_or(WalletError::OperationFailed)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let reservation_key = request.runtime_key.clone();
+    let reserve_params = params.clone();
+    let reserve_id = id.clone();
+    let (reservation, selected, change, height, hash) =
+        runtime::update_pending(&request.runtime_key, true, move |state| {
+            let notes = state.available_notes()?;
+            let (selected, total) =
+                select_notes(&notes, required).ok_or(WalletError::InsufficientFunds)?;
+            let change = total - required;
+            state.reserve(PendingSend {
+                id: reserve_id.clone(),
+                nullifiers: selected.iter().map(|n| n.nullifier_hex.clone()).collect(),
+                value_sats: reserve_params.value_sats,
+                fee_sats: reserve_params.fee_sats,
+                change_sats: change,
+                to_address: reserve_params.display_to_address,
+                created_at: unix_timestamp_secs(),
+                txid: None,
+                raw_tx_hex: None,
+                expiry_height: None,
+                mined_height: None,
+                conflict_height: None,
+            })?;
+            Ok((
+                BuildReservation {
+                    runtime_key: reservation_key,
+                    id: reserve_id,
+                },
+                selected,
+                change,
+                state.chain.height,
+                state.chain.block_hash_hex.clone(),
+            ))
+        })
+        .await?;
+    let build_request = request.clone();
+    let build_params = params.clone();
+    let build_progress = progress.clone();
+    let proof = tokio::task::spawn_blocking(move || {
+        if cancellation.is_cancelled() {
+            return Err(WalletError::WalletLocked);
+        }
+        let keys = DlightSpendKeyMaterial::from_seed_material(
+            &build_request.seed_material,
+            build_request.network,
+            &build_request.scope_address,
+        )?;
+        build_transaction(
+            build_request.network,
+            &build_params,
+            &keys,
+            &selected,
+            change,
+            height,
+            super::consensus::parameters(build_request.network),
+            build_progress.as_deref(),
+        )
+    });
+    // Cryptographic proving cannot be interrupted mid-call. Its result is
+    // discarded after lock, and admission to the transport remains cancelled.
+    let built = request
+        .submission_guard
+        .run(async { proof.await.map_err(|_| WalletError::OperationFailed)? })
+        .await?;
+    let txid = built.txid.clone();
+    let persist_txid = txid.clone();
+    let raw_hex = hex::encode(&built.raw);
+    let expiry = built.expiry_height;
+    runtime::update_pending(&request.runtime_key, true, move |state| {
+        let anchor_present = std::iter::once(&state.chain)
+            .chain(state.checkpoints.iter())
+            .any(|cp| cp.height == height && cp.block_hash_hex == hash);
+        if !anchor_present || state.chain.height > expiry {
+            return Err(WalletError::DlightSpendCacheNotReady);
+        }
+        let pending = state
+            .pending
+            .get_mut(&id)
+            .ok_or(WalletError::InvalidPreflight)?;
+        if !pending.is_active(state.chain.height)
+            || pending.nullifiers.iter().any(|nf| {
+                !state
+                    .chain
+                    .notes
+                    .iter()
+                    .any(|note| note.nullifier_hex == *nf)
+            })
+        {
+            return Err(WalletError::InvalidPreflight);
+        }
+        pending.txid = Some(persist_txid);
+        pending.raw_tx_hex = Some(raw_hex);
+        pending.expiry_height = Some(expiry);
+        Ok(())
+    })
+    .await?;
+    emit_send_stage(progress.as_deref(), DlightSendStage::Broadcasting);
+    // Persist before the first admitted network poll. Any transport error or
+    // cancellation retains the reservation until a mined/conflicting/expired
+    // chain observation; a dropped RPC is not evidence that no broadcast occurred.
+    request
+        .submission_guard
+        .run(broadcast_transaction(&request.endpoint, built.raw))
+        .await
+        .map_err(|error| match error {
+            WalletError::WalletLocked => WalletError::WalletLocked,
+            _ => WalletError::DlightBroadcastUncertain,
+        })?;
+    drop(reservation);
+    Ok(ExecutedSend { txid })
+}
+
+struct BuiltTransaction {
+    txid: String,
+    raw: Vec<u8>,
+    expiry_height: u64,
+}
+
+fn build_transaction<P: Parameters + Send + Clone>(
+    wallet_network: WalletNetwork,
     params: &ExecuteSendParams,
     key_material: &DlightSpendKeyMaterial,
     selected_notes: &[SpendableNote],
@@ -205,7 +277,7 @@ async fn execute_send_for_network<P: Parameters + Send + Clone>(
     chain_tip_height: u64,
     network: P,
     progress: Option<&(dyn Fn(DlightSendStage) + Send + Sync)>,
-) -> Result<ExecutedSend, WalletError> {
+) -> Result<BuiltTransaction, WalletError> {
     let anchor = selected_notes
         .first()
         .map(|note| {
@@ -243,7 +315,7 @@ async fn execute_send_for_network<P: Parameters + Send + Clone>(
     })?;
     match params.destination_kind {
         DlightDestinationKind::Shielded => {
-            let recipient = decode_shielded_delivery(&params.delivery_to_address, request.network)?;
+            let recipient = decode_shielded_delivery(&params.delivery_to_address, wallet_network)?;
             let memo_bytes = parse_memo_bytes(params.memo.as_deref())?;
             builder
                 .add_sapling_output::<Infallible>(
@@ -317,27 +389,11 @@ async fn execute_send_for_network<P: Parameters + Send + Clone>(
             format!("failed to serialize transaction bytes: {error}"),
         )
     })?;
-    eprintln!(
-        "[dlight_private][spend_send] built tx txid={} bytes={}",
+    Ok(BuiltTransaction {
         txid,
-        raw.len()
-    );
-    emit_send_stage(progress, DlightSendStage::Broadcasting);
-    broadcast_transaction(&request.endpoint, raw).await?;
-
-    let spent_height = chain_tip_height.saturating_add(1);
-    let spent_nullifiers = selected_notes
-        .iter()
-        .map(|note| note.nullifier_hex.clone())
-        .collect::<Vec<_>>();
-    if let Err(err) = mark_notes_spent(request, &spent_nullifiers, spent_height) {
-        eprintln!(
-            "[dlight_private][spend_send] failed to mark notes spent in cache: {:?}",
-            err
-        );
-    }
-
-    Ok(ExecutedSend { txid })
+        raw,
+        expiry_height: u64::from(tx.expiry_height()),
+    })
 }
 
 fn emit_send_stage(
@@ -510,25 +566,6 @@ fn decode_transparent_delivery(
     super::recipient_resolution::decode_r_address(address)
 }
 
-fn verus_send_params(network: WalletNetwork) -> VerusConsensusParams {
-    let activation_height = match network {
-        WalletNetwork::Mainnet => VERUS_MAINNET_SAPLING_ACTIVATION_HEIGHT,
-        WalletNetwork::Testnet => VERUS_TESTNET_SAPLING_ACTIVATION_HEIGHT,
-    };
-
-    VerusConsensusParams {
-        network_type: match network {
-            WalletNetwork::Mainnet => NetworkType::Main,
-            WalletNetwork::Testnet => NetworkType::Test,
-        },
-        sapling_activation_height: BlockHeight::from_u32(
-            activation_height
-                .try_into()
-                .expect("known verus sapling activation heights fit in u32"),
-        ),
-    }
-}
-
 fn select_notes(notes: &[SpendableNote], required_sats: u64) -> Option<(Vec<SpendableNote>, u64)> {
     if required_sats == 0 {
         return Some((vec![], 0));
@@ -591,39 +628,19 @@ async fn broadcast_transaction(endpoint: &str, raw_tx: Vec<u8>) -> Result<(), Wa
             height: 0,
         })
         .await
-        .map_err(|error| {
-            eprintln!(
-                "[dlight_private][spend_send] broadcast rpc failed: {}",
-                error
-            );
-            dlight_send_failure(
-                "lightwalletd RPC",
-                format!("sendTransaction RPC call failed: {error}"),
-            )
-        })?
+        .map_err(|_| WalletError::NetworkError)?
         .into_inner();
 
     if response.error_code != 0 {
         let error_message = response.error_message.trim().to_string();
-        eprintln!(
-            "[dlight_private][spend_send] broadcast rejected code={} message={}",
-            response.error_code, error_message
-        );
         let message_lower = error_message.to_ascii_lowercase();
         if message_lower.contains("insufficient") {
             return Err(WalletError::InsufficientFunds);
         }
-        let detail = if error_message.is_empty() {
-            format!(
-                "Broadcast was rejected by lightwalletd (code {}).",
-                response.error_code
-            )
-        } else {
-            format!(
-                "Broadcast was rejected by lightwalletd (code {}): {}",
-                response.error_code, error_message
-            )
-        };
+        let detail = format!(
+            "Broadcast was rejected by lightwalletd (code {}).",
+            response.error_code
+        );
         return Err(WalletError::DlightBroadcastRejected(detail));
     }
 
@@ -680,5 +697,92 @@ mod tests {
             resolve_send_value(100_000_000, 50_000_000, 10_000),
             Err(WalletError::InsufficientFunds)
         ));
+    }
+    #[test]
+    #[ignore = "requires canonical Sapling proving files; performs real CPU proving"]
+    fn real_proof_roundtrip_preserves_verus_v4_and_pre_zip212_notes() {
+        use super::super::state::testing::{self, block, funded_state};
+        use super::*;
+        use zcash_client_backend::proto::compact_formats::{
+            CompactSaplingOutput, CompactSaplingSpend, CompactTx,
+        };
+        use zcash_primitives::transaction::{
+            sighash::SignableInput, sighash_v4::v4_signature_hash, Transaction, TxVersion,
+        };
+        use zcash_protocol::consensus::BranchId;
+        let (mut state, keys, _) = funded_state();
+        let notes = state.available_notes().unwrap();
+        let address = keys.scope_address(WalletNetwork::Testnet).unwrap();
+        let params = ExecuteSendParams {
+            destination_kind: DlightDestinationKind::Shielded,
+            display_to_address: address.clone(),
+            delivery_to_address: address,
+            value_sats: 80_000,
+            fee_sats: 10_000,
+            memo: Some("fixture".into()),
+        };
+        let built = build_transaction(
+            WalletNetwork::Testnet,
+            &params,
+            &keys,
+            &notes,
+            10_000,
+            1,
+            super::super::consensus::parameters(WalletNetwork::Testnet),
+            None,
+        )
+        .unwrap();
+        let tx = Transaction::read(built.raw.as_slice(), BranchId::Sapling).unwrap();
+        assert_eq!(tx.version(), TxVersion::V4);
+        assert_eq!(tx.txid().to_string(), built.txid);
+        assert_eq!(u64::from(tx.expiry_height()), built.expiry_height);
+        assert!(built.expiry_height > 2);
+        let bundle = tx.sapling_bundle().unwrap();
+        let sighash = v4_signature_hash(&tx, &SignableInput::Shielded);
+        let mut verifier = sapling::BatchValidator::new();
+        assert!(verifier.check_bundle(bundle.clone(), sighash.as_bytes().try_into().unwrap()));
+        let provers = load_sapling_provers().unwrap();
+        assert!(verifier.validate(
+            &provers.spend.verifying_key(),
+            &provers.output.verifying_key(),
+            OsRng
+        ));
+        assert!(Arc::ptr_eq(&provers, &load_sapling_provers().unwrap()));
+        let mut tx_hash = hex::decode(&built.txid).unwrap();
+        tx_hash.reverse();
+        let compact = CompactTx {
+            hash: tx_hash,
+            spends: bundle
+                .shielded_spends()
+                .iter()
+                .map(|spend| CompactSaplingSpend {
+                    nf: spend.nullifier().0.to_vec(),
+                })
+                .collect(),
+            outputs: bundle
+                .shielded_outputs()
+                .iter()
+                .map(|output| CompactSaplingOutput {
+                    cmu: output.cmu().to_bytes().to_vec(),
+                    ephemeral_key: output.ephemeral_key().0.to_vec(),
+                    ciphertext: output.enc_ciphertext()[..52].to_vec(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let tree_size = 1 + compact.outputs.len() as u32;
+        testing::scan(
+            &mut state,
+            &keys,
+            vec![block(2, 2, 1, vec![compact], tree_size)],
+        )
+        .unwrap();
+        assert_eq!(state.balances(), (90_000, 0));
+        assert_eq!(state.transactions[&built.txid].net_sats, -10_000);
+        assert!(state
+            .available_notes()
+            .unwrap()
+            .iter()
+            .all(|note| matches!(note.note.rseed(), sapling::Rseed::BeforeZip212(_))));
     }
 }

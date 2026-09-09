@@ -384,22 +384,14 @@ async fn build_dlight_runtime_request(
     coin_id_hint: Option<&str>,
     session_manager: &Arc<Mutex<SessionManager>>,
     coin_registry: &CoinRegistry,
+    require_secret: bool,
 ) -> Result<dlight_private::DlightRuntimeRequest, WalletError> {
     let resolved = dlight_private::parse_dlight_channel_id(channel_id)?;
 
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let account_id = session
-        .active_account_id()
-        .cloned()
-        .ok_or(WalletError::WalletLocked)?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let password_hash = session.stronghold_password_hash_for_storage()?;
-    let stronghold_store = session.stronghold_store().clone();
-    drop(session);
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    let account_id = context.account_id.clone();
+    let network = context.wallet_network;
+    let stronghold_store = &context.stronghold_store;
 
     // Milestone 1: only root Verus private scope is supported.
     if !resolved
@@ -418,26 +410,34 @@ async fn build_dlight_runtime_request(
         .cloned()
         .ok_or(WalletError::UnsupportedChannel)?;
 
-    let seed_material = stronghold_store
-        .load_dlight_seed(&account_id, password_hash.as_ref(), network)
-        .await?
-        .ok_or(WalletError::UnsupportedChannel)?;
-    let scope_address = dlight_private::derive_scope_address(&seed_material, network)?;
-    if !resolved.address.eq_ignore_ascii_case(&scope_address) {
-        return Err(WalletError::UnsupportedChannel);
-    }
-
     let account_hash = hash_account_id(&account_id);
     let runtime_key = format!(
-        "dlight:{}:{}:{}",
+        "dlight:{}:{}:{}:{}",
         if matches!(network, WalletNetwork::Testnet) {
             "testnet"
         } else {
             "mainnet"
         },
         account_hash,
-        coin.id.to_ascii_uppercase()
+        coin.id.to_ascii_uppercase(),
+        context.session_id
     );
+
+    if !require_secret {
+        if let Some(request) = dlight_private::cached_runtime_request(&runtime_key) {
+            if request.scope_address == resolved.address && request.endpoint == endpoint {
+                return Ok(request);
+            }
+        }
+    }
+    let (seed_material, metadata) = stronghold_store
+        .load_dlight_runtime_material(&account_id, context.password_hash(), network)
+        .await?
+        .ok_or(WalletError::UnsupportedChannel)?;
+    let scope_address = dlight_private::derive_scope_address(&seed_material, network)?;
+    if !resolved.address.eq_ignore_ascii_case(&scope_address) {
+        return Err(WalletError::UnsupportedChannel);
+    }
 
     Ok(dlight_private::DlightRuntimeRequest {
         runtime_key,
@@ -447,6 +447,9 @@ async fn build_dlight_runtime_request(
         coin_id: coin.id,
         network,
         seed_material,
+        session_id: context.session_id.clone(),
+        submission_guard: context.session_submission_guard(),
+        birthday: metadata.birthday,
         account_hash,
         app_data_dir: stronghold_store.app_data_dir(),
     })
@@ -576,6 +579,7 @@ pub async fn route_preflight(
                 Some(&params.coin_id),
                 session_manager,
                 coin_registry,
+                true,
             )
             .await?;
             let provider = vrpc_provider_pool.for_system(request.network, &request.scope_system_id);
@@ -744,6 +748,7 @@ pub async fn route_send(
                 Some(&payload.coin_id),
                 session_manager,
                 coin_registry,
+                true,
             )
             .await?;
 
@@ -805,6 +810,7 @@ pub async fn route_get_balances(
                 coin_id_hint,
                 session_manager,
                 coin_registry,
+                false,
             )
             .await?;
             dlight_private::get_balances(request).await
@@ -906,6 +912,7 @@ pub async fn route_get_transactions(
                 coin_id_hint,
                 session_manager,
                 coin_registry,
+                false,
             )
             .await?;
             let transactions = dlight_private::get_transactions(request).await?;
@@ -1082,6 +1089,7 @@ pub async fn route_get_transactions_page(
                 coin_id_hint,
                 session_manager,
                 coin_registry,
+                false,
             )
             .await?;
             let transactions = dlight_private::get_transactions(request).await?;
@@ -1234,14 +1242,16 @@ pub async fn route_get_transactions_page(
         None
     };
 
-    println!(
-        "[TX][PAGE] channel={} limit={} returned={} has_more={} next_cursor={}",
-        channel_id,
-        requested_limit,
-        page.transactions.len(),
-        page.has_more,
-        next_cursor.as_ref().map(|_| "yes").unwrap_or("no")
-    );
+    if !channel_id.starts_with("dlight_private.") {
+        println!(
+            "[TX][PAGE] channel={} limit={} returned={} has_more={} next_cursor={}",
+            channel_id,
+            requested_limit,
+            page.transactions.len(),
+            page.has_more,
+            next_cursor.as_ref().map(|_| "yes").unwrap_or("no")
+        );
+    }
 
     Ok(TransactionHistoryPage {
         transactions: page.transactions,
@@ -1298,6 +1308,7 @@ pub async fn route_get_info(
                 coin_id_hint,
                 session_manager,
                 coin_registry,
+                false,
             )
             .await?;
             let parsed = dlight_private::get_info(request).await?;
@@ -1323,9 +1334,14 @@ pub async fn route_get_dlight_runtime_status(
     session_manager: &Arc<Mutex<SessionManager>>,
     coin_registry: &CoinRegistry,
 ) -> Result<dlight_private::DlightRuntimeDiagnostics, WalletError> {
-    let request =
-        build_dlight_runtime_request(channel_id, coin_id_hint, session_manager, coin_registry)
-            .await?;
+    let request = build_dlight_runtime_request(
+        channel_id,
+        coin_id_hint,
+        session_manager,
+        coin_registry,
+        false,
+    )
+    .await?;
     dlight_private::get_runtime_diagnostics(request).await
 }
 

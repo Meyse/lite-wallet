@@ -50,17 +50,20 @@ blake2b_simd = "1.0"
 ethers = { version = "2.0", default-features = false, features = ["rustls"] }  # ETH/ERC20 channel support
 dotenvy = "0.15"
 base64 = "0.22"
-zcash_client_backend = { version = "0.21.0", default-features = false, features = ["lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "unstable", "sync"] }
+zcash_client_backend = { version = "0.21.2", default-features = false, features = ["lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "unstable", "sync"] }
 zcash_protocol = { version = "0.7.2", default-features = false }
 zcash_keys = { version = "0.12.0", default-features = false, features = ["sapling"] }
 zcash_primitives = { version = "0.26.4", features = ["non-standard-fees"] }
-zcash_transparent = "0.6.3"
+zcash_transparent = "0.6.4"
 sapling = { package = "sapling-crypto", version = "0.5.0" }
 jubjub = "0.10"
 zip32 = { version = "0.2", default-features = false }
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-webpki-roots"] }
+chacha20poly1305 = "0.10.1" # Authenticated encryption for the private wallet cache
+fs2 = "0.4.3" # One writer per private wallet cache, including across app processes
 
 [dev-dependencies]
+zcash_note_encryption = "0.4.2"
 tokio = { version = "1.53.1", features = ["test-util"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

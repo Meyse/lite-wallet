@@ -34,7 +34,7 @@ pub async fn preflight(
     vrpc_provider: &VrpcProvider,
 ) -> Result<PreflightResult, WalletError> {
     // Preflight should use runtime state only; avoid triggering full spend sync work here.
-    let _ = super::runtime::ensure_runtime(&request);
+    super::runtime::ensure_runtime(&request).await?;
     let runtime_snapshot =
         super::runtime::get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
     super::ensure_runtime_ready_for_spend(runtime_snapshot.status_kind)?;
@@ -45,14 +45,9 @@ pub async fn preflight(
         u64::try_from(runtime_snapshot.confirmed_sats).map_err(|_| WalletError::OperationFailed)?
     };
 
-    println!(
-        "[dlight_private][spend_preflight] channel={} coin={} to={}",
-        channel_id,
-        params.coin_id,
-        params.to_address.trim()
-    );
-
-    super::spend_params::ensure_prover_ready()?;
+    tokio::task::spawn_blocking(super::spend_params::ensure_prover_ready)
+        .await
+        .map_err(|_| WalletError::OperationFailed)??;
 
     let preflight = compute_preflight(
         &request,

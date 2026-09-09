@@ -2,17 +2,21 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
-use zcash_client_backend::encoding::{decode_extended_spending_key, encode_payment_address};
+use zcash_client_backend::encoding::encode_payment_address;
 use zcash_client_backend::keys::{ReceiverRequirement, UnifiedAddressRequest, UnifiedSpendingKey};
 use zcash_keys::encoding::encode_extended_spending_key;
-use zcash_protocol::consensus::{MainNetwork, Parameters, TestNetwork};
-use zcash_protocol::constants::{mainnet, testnet};
+use zcash_protocol::consensus::{MainNetwork, Parameters};
+use zcash_protocol::constants::mainnet;
+#[cfg(test)]
+use zcash_protocol::constants::testnet;
 use zip32::AccountId;
 
 use crate::types::transaction::{BalanceResult, Transaction};
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
+mod cache;
+mod consensus;
 mod destination;
 mod preflight;
 mod reader;
@@ -24,10 +28,14 @@ mod spend_engine;
 mod spend_keys;
 mod spend_params;
 mod spend_sync;
+mod state;
 mod store;
 mod synchronizer;
 
+pub use consensus::{DlightBirthday, DlightSeedMetadata};
 pub use preflight::{preflight, DlightPreflightPayload};
+pub(super) use runtime::cached_request as cached_runtime_request;
+pub(crate) use runtime::creation_birthday;
 pub use runtime::stop_all_runtimes;
 pub use send::send;
 pub use spend_params::{DlightProverFileDiagnostics, DlightProverStatus};
@@ -85,7 +93,7 @@ pub struct DlightRuntimeDiagnostics {
     pub spend_cache_note_count: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DlightRuntimeRequest {
     pub runtime_key: String,
     pub endpoint: String,
@@ -93,7 +101,10 @@ pub struct DlightRuntimeRequest {
     pub scope_system_id: String,
     pub coin_id: String,
     pub network: WalletNetwork,
-    pub seed_material: String,
+    pub seed_material: zeroize::Zeroizing<String>,
+    pub session_id: String,
+    pub(crate) submission_guard: crate::core::auth::SessionSubmissionGuard,
+    pub birthday: Option<DlightBirthday>,
     pub account_hash: String,
     pub app_data_dir: PathBuf,
 }
@@ -179,14 +190,9 @@ fn derive_scope_address_from_spending_key(
     spending_key: &str,
     network: WalletNetwork,
 ) -> Result<String, WalletError> {
-    let spending_key_hrp = match network {
-        WalletNetwork::Mainnet => mainnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
-        WalletNetwork::Testnet => testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
-    };
     let payment_address_hrp = sapling_payment_address_hrp(network);
 
-    let extsk = decode_extended_spending_key(spending_key_hrp, spending_key.trim())
-        .map_err(|_| WalletError::InvalidImportText)?;
+    let extsk = spend_keys::decode_spending_key(spending_key)?;
     let (_diversifier_index, payment_address) = extsk.default_address();
     Ok(encode_payment_address(
         payment_address_hrp,
@@ -227,21 +233,12 @@ pub fn derive_scope_address(
 
     let mnemonic =
         bip39::Mnemonic::parse(normalized).map_err(|_| WalletError::InvalidSeedPhrase)?;
-    let seed_bytes = mnemonic.to_seed_normalized("").to_vec();
+    let seed_bytes = zeroize::Zeroizing::new(mnemonic.to_seed_normalized(""));
     let payment_address_hrp = sapling_payment_address_hrp(network);
 
-    match network {
-        WalletNetwork::Mainnet => derive_scope_address_for_network(
-            seed_bytes.as_slice(),
-            &MainNetwork,
-            payment_address_hrp,
-        ),
-        WalletNetwork::Testnet => derive_scope_address_for_network(
-            seed_bytes.as_slice(),
-            &TestNetwork,
-            payment_address_hrp,
-        ),
-    }
+    // Verus Mobile derives m/32'/133'/0' for both chains. The selected
+    // network controls synchronization and consensus, never this key path.
+    derive_scope_address_for_network(seed_bytes.as_slice(), &MainNetwork, payment_address_hrp)
 }
 
 fn sapling_payment_address_hrp(_network: WalletNetwork) -> &'static str {
@@ -249,11 +246,8 @@ fn sapling_payment_address_hrp(_network: WalletNetwork) -> &'static str {
     mainnet::HRP_SAPLING_PAYMENT_ADDRESS
 }
 
-fn sapling_extsk_hrp(network: WalletNetwork) -> &'static str {
-    match network {
-        WalletNetwork::Mainnet => mainnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
-        WalletNetwork::Testnet => testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
-    }
+fn sapling_extsk_hrp(_network: WalletNetwork) -> &'static str {
+    mainnet::HRP_SAPLING_EXTENDED_SPENDING_KEY
 }
 
 pub fn derive_spending_key(
@@ -267,30 +261,26 @@ pub fn derive_spending_key(
 
     let hrp = sapling_extsk_hrp(network);
     if is_dlight_spending_key(normalized) {
-        let extsk = decode_extended_spending_key(hrp, normalized)
-            .map_err(|_| WalletError::InvalidImportText)?;
+        let extsk = spend_keys::decode_spending_key(normalized)?;
         return Ok(encode_extended_spending_key(hrp, &extsk));
     }
 
     let mnemonic =
         bip39::Mnemonic::parse(normalized).map_err(|_| WalletError::InvalidSeedPhrase)?;
-    let seed_bytes = mnemonic.to_seed_normalized("").to_vec();
-    let extsk = match network {
-        WalletNetwork::Mainnet => {
-            UnifiedSpendingKey::from_seed(&MainNetwork, seed_bytes.as_slice(), AccountId::ZERO)
-                .map_err(|_| WalletError::InvalidSeedPhrase)?
-                .sapling()
-                .clone()
-        }
-        WalletNetwork::Testnet => {
-            UnifiedSpendingKey::from_seed(&TestNetwork, seed_bytes.as_slice(), AccountId::ZERO)
-                .map_err(|_| WalletError::InvalidSeedPhrase)?
-                .sapling()
-                .clone()
-        }
-    };
+    let seed_bytes = zeroize::Zeroizing::new(mnemonic.to_seed_normalized(""));
+    let extsk = UnifiedSpendingKey::from_seed(&MainNetwork, seed_bytes.as_slice(), AccountId::ZERO)
+        .map_err(|_| WalletError::InvalidSeedPhrase)?
+        .sapling()
+        .clone();
 
     Ok(encode_extended_spending_key(hrp, &extsk))
+}
+
+pub fn runtime_spending_key(
+    secret: &str,
+    network: WalletNetwork,
+) -> Result<zeroize::Zeroizing<String>, WalletError> {
+    derive_spending_key(secret, network).map(zeroize::Zeroizing::new)
 }
 
 pub fn normalize_endpoint_url(endpoint: &str) -> Result<String, WalletError> {
@@ -456,5 +446,55 @@ mod tests {
             ensure_runtime_ready_for_spend(runtime::RuntimeStatusKind::Error),
             Err(WalletError::NetworkError)
         ));
+    }
+    #[test]
+    fn both_networks_match_verus_mobile_coin_133() {
+        let mnemonic = bip39::Mnemonic::from_entropy(&[0; 32]).unwrap().to_string();
+        let testnet_key = runtime_spending_key(&mnemonic, WalletNetwork::Testnet).unwrap();
+        let mainnet_key = runtime_spending_key(&mnemonic, WalletNetwork::Mainnet).unwrap();
+        assert_eq!(*mainnet_key, *testnet_key);
+        let address = derive_scope_address(&testnet_key, WalletNetwork::Testnet).unwrap();
+        assert_eq!(
+            address,
+            derive_scope_address(&mnemonic, WalletNetwork::Testnet).unwrap()
+        );
+        assert_eq!(
+            address,
+            derive_scope_address(&mnemonic, WalletNetwork::Mainnet).unwrap()
+        );
+        let seed = bip39::Mnemonic::parse(&mnemonic)
+            .unwrap()
+            .to_seed_normalized("");
+        let independently_derived = sapling::zip32::ExtendedSpendingKey::from_path(
+            &sapling::zip32::ExtendedSpendingKey::master(&seed),
+            &[
+                zip32::ChildIndex::hardened(32),
+                zip32::ChildIndex::hardened(133),
+                zip32::ChildIndex::hardened(0),
+            ],
+        );
+        assert_eq!(
+            address,
+            encode_payment_address(
+                mainnet::HRP_SAPLING_PAYMENT_ADDRESS,
+                &independently_derived.default_address().1
+            )
+        );
+        // A spending key already identifies its derivation; import it as-is.
+        let test_prefix = encode_extended_spending_key(
+            testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
+            &independently_derived,
+        );
+        assert_eq!(
+            address,
+            derive_scope_address(&test_prefix, WalletNetwork::Testnet).unwrap()
+        );
+        let keys = spend_keys::DlightSpendKeyMaterial::from_seed_material(
+            &testnet_key,
+            WalletNetwork::Testnet,
+            &address,
+        )
+        .unwrap();
+        assert_ne!(*keys.cache_key(b"one"), *keys.cache_key(b"two"));
     }
 }

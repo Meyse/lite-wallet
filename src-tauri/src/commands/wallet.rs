@@ -17,8 +17,8 @@ use zeroize::Zeroizing;
 use crate::core::address_book::manager as address_book_manager;
 use crate::core::auth::{
     capture_active_wallet_access_context, clear_wallet_session_if_current,
-    load_primary_secret_material_for_context, spawn_session_expiry_monitor,
-    stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
+    ensure_active_wallet_session, load_primary_secret_material_for_context,
+    spawn_session_expiry_monitor, stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
 };
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
@@ -1183,6 +1183,7 @@ pub async fn setup_dlight_seed(
     request: SetupDlightSeedRequest,
     wallet_manager: State<'_, WalletManager>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<SetupDlightSeedResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let reuse_primary_seed = if matches!(request.mode, DlightSeedSetupMode::ReusePrimary) {
@@ -1219,16 +1220,40 @@ pub async fn setup_dlight_seed(
             }
         }
     };
-    // Validate and normalize z-address derivation before persisting.
-    let _ = dlight_private::derive_scope_address(&seed_to_store, context.wallet_network)?;
-
+    let seed_to_store = Zeroizing::new(seed_to_store);
+    let fresh = matches!(request.mode, DlightSeedSetupMode::CreateNew);
+    let canonical = dlight_private::runtime_spending_key(&seed_to_store, context.wallet_network)?;
+    dlight_private::derive_scope_address(&canonical, context.wallet_network)?;
+    let birthday = if fresh {
+        let testnet = matches!(context.wallet_network, WalletNetwork::Testnet);
+        let coin_id = if testnet { "VRSCTEST" } else { "VRSC" };
+        if let Some(endpoint) = coin_registry
+            .find_by_id(coin_id, testnet)
+            .and_then(|coin| coin.dlight_endpoints)
+            .and_then(|endpoints| endpoints.into_iter().next())
+        {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(15),
+                dlight_private::creation_birthday(&endpoint, context.wallet_network),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
     context
         .stronghold_store
-        .store_dlight_seed(
+        .store_dlight_seed_with_metadata(
             &context.account_id,
             context.password_hash(),
             context.wallet_network,
             Some(seed_to_store.as_str()),
+            dlight_private::DlightSeedMetadata { birthday },
         )
         .await?;
 
@@ -1293,13 +1318,18 @@ pub async fn get_wallet_recovery_secrets(
     let dlight_secret = stronghold_store
         .load_dlight_seed(&account_id, password_hash.as_slice(), network)
         .await?;
+    let dlight_runtime = stronghold_store
+        .load_dlight_runtime_material(&account_id, password_hash.as_slice(), network)
+        .await?;
     let (dlight_secret_kind, dlight_shielded_address, dlight_derived_spending_key) =
         if let Some(secret) = dlight_secret.as_deref() {
             let secret_kind = dlight_recovery_secret_kind_from_seed(secret);
-            let shielded_address = dlight_private::derive_scope_address(secret, network).ok();
+            let shielded_address = dlight_runtime
+                .as_ref()
+                .and_then(|(key, _)| dlight_private::derive_scope_address(key, network).ok());
             let derived_spending_key = if matches!(secret_kind, DlightRecoverySecretKind::Mnemonic)
             {
-                dlight_private::derive_spending_key(secret, network).ok()
+                dlight_runtime.as_ref().map(|(key, _)| key.to_string())
             } else {
                 None
             };

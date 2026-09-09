@@ -1,14 +1,13 @@
 use zcash_client_backend::encoding::{decode_extended_spending_key, encode_payment_address};
-use zcash_client_backend::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
+use zcash_client_backend::keys::UnifiedFullViewingKey;
 use zcash_client_backend::scanning::ScanningKeys;
-use zcash_protocol::consensus::{MainNetwork, TestNetwork};
 use zcash_protocol::constants::{mainnet, testnet};
-use zip32::{AccountId, Scope};
+use zip32::Scope;
 
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DlightSpendKeyMaterial {
     sapling_extsk: sapling::zip32::ExtendedSpendingKey,
     sapling_dfvk: sapling::zip32::DiversifiableFullViewingKey,
@@ -25,26 +24,8 @@ impl DlightSpendKeyMaterial {
             return Err(WalletError::InvalidSeedPhrase);
         }
 
-        let sapling_extsk = if normalized.starts_with("secret-extended-key-") {
-            let hrp = sapling_extsk_hrp(network);
-            decode_extended_spending_key(hrp, normalized)
-                .map_err(|_| WalletError::InvalidImportText)?
-        } else {
-            let mnemonic =
-                bip39::Mnemonic::parse(normalized).map_err(|_| WalletError::InvalidSeedPhrase)?;
-            let seed = mnemonic.to_seed_normalized("");
-            let usk = match network {
-                WalletNetwork::Mainnet => {
-                    UnifiedSpendingKey::from_seed(&MainNetwork, &seed, AccountId::ZERO)
-                        .map_err(|_| WalletError::InvalidSeedPhrase)?
-                }
-                WalletNetwork::Testnet => {
-                    UnifiedSpendingKey::from_seed(&TestNetwork, &seed, AccountId::ZERO)
-                        .map_err(|_| WalletError::InvalidSeedPhrase)?
-                }
-            };
-            usk.sapling().clone()
-        };
+        let canonical = zeroize::Zeroizing::new(super::derive_spending_key(normalized, network)?);
+        let sapling_extsk = decode_spending_key(&canonical)?;
 
         let sapling_dfvk = sapling_extsk.to_diversifiable_full_viewing_key();
         let derived_scope = scope_address_for_dfvk(&sapling_dfvk, network)?;
@@ -56,6 +37,33 @@ impl DlightSpendKeyMaterial {
             sapling_extsk,
             sapling_dfvk,
         })
+    }
+
+    pub fn viewing_key(&self) -> Result<UnifiedFullViewingKey, WalletError> {
+        #[allow(deprecated)]
+        let ext_fvk = self.sapling_extsk.to_extended_full_viewing_key();
+        UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(ext_fvk)
+            .map_err(|_| WalletError::OperationFailed)
+    }
+
+    pub fn cache_key(&self, binding: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
+        let encoded = zeroize::Zeroizing::new(self.sapling_extsk.to_bytes());
+        let mut secret_hash = zeroize::Zeroizing::new([0u8; 32]);
+        secret_hash.copy_from_slice(
+            blake2b_simd::Params::new()
+                .hash_length(32)
+                .hash(encoded.as_ref())
+                .as_bytes(),
+        );
+        let mut hash = blake2b_simd::Params::new()
+            .hash_length(32)
+            .personal(b"LWPrivateCache01")
+            .key(&secret_hash[..32])
+            .to_state();
+        hash.update(binding);
+        let mut key = zeroize::Zeroizing::new([0; 32]);
+        key.copy_from_slice(hash.finalize().as_bytes());
+        key
     }
 
     pub fn to_scanning_keys(&self) -> Result<ScanningKeys<u32, (u32, Scope)>, WalletError> {
@@ -123,4 +131,19 @@ fn scope_address_for_dfvk(
         sapling_payment_address_hrp(network),
         &addr,
     ))
+}
+
+/// Sapling extended spending keys encode key material, not an authorization to
+/// use a network. Verus Mobile exports mainnet-prefixed keys for VRSCTEST too.
+/// The selected chain is still validated independently at the RPC boundary.
+pub(super) fn decode_spending_key(
+    value: &str,
+) -> Result<sapling::zip32::ExtendedSpendingKey, WalletError> {
+    [
+        mainnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
+        testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
+    ]
+    .into_iter()
+    .find_map(|hrp| decode_extended_spending_key(hrp, value.trim()).ok())
+    .ok_or(WalletError::InvalidImportText)
 }

@@ -393,6 +393,8 @@ export const de: Record<string, string> = {
   'wallet.settings.profile.recovery.description':
     'Zeige Wiederherstellungsgeheimnisse und abgeleitete Schlussel nach Passwortbestatigung an.',
 
+  'wallet.transfer.error.dlightBroadcastUncertain':
+    'Die Übermittlung konnte nicht bestätigt werden. Prüfe den Transaktionsverlauf, bevor du es erneut versuchst.',
   'wallet.settings.privateVerus.title': 'Privatsphare',
   'wallet.settings.privateVerus.description':
     'Konfiguriere shielded Privatsphare fur {label}. Du kannst deine primare geheime Wiederherstellungsphrase wiederverwenden oder ein separates Privacy-Wiederherstellungsgeheimnis setzen.',

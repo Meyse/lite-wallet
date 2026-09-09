@@ -312,6 +312,7 @@ pub enum DlightSeedSetupMode {
 #[serde(rename_all = "camelCase")]
 pub struct SetupDlightSeedRequest {
     pub mode: DlightSeedSetupMode,
+    #[serde(alias = "import_text")]
     pub import_text: Option<String>,
 }
 

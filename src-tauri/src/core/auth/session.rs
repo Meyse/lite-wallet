@@ -89,6 +89,21 @@ impl SessionSubmissionGuard {
         self.state.cancellation.clone()
     }
 
+    /// Stop polling as soon as lock/logout invalidates this session. A poll
+    /// admitted before invalidation may already have reached the transport.
+    pub(crate) async fn run<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, WalletError>>,
+    ) -> Result<T, WalletError> {
+        let mut future = std::pin::pin!(future);
+        let cancellation = self.cancellation();
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(WalletError::WalletLocked),
+            result = std::future::poll_fn(|cx| self.poll_admitted(|| future.as_mut().poll(cx))) => result,
+        }
+    }
+
     pub(crate) fn poll_admitted<T>(
         &self,
         poll: impl FnOnce() -> std::task::Poll<Result<T, WalletError>>,
@@ -175,9 +190,13 @@ impl ActiveWalletAccessContext {
 
         let seed = self
             .stronghold_store
-            .load_dlight_seed(&self.account_id, self.password_hash(), self.wallet_network)
+            .load_dlight_runtime_material(
+                &self.account_id,
+                self.password_hash(),
+                self.wallet_network,
+            )
             .await?;
-        let shielded_address = seed.as_deref().and_then(|value| {
+        let shielded_address = seed.as_ref().and_then(|(value, _)| {
             dlight_private::derive_scope_address(value, self.wallet_network)
                 .map_err(|error| {
                     println!(
@@ -693,5 +712,89 @@ mod tests {
             session.touch_activity(),
             Err(WalletError::WalletLocked)
         ));
+    }
+    #[tokio::test]
+    async fn cancelled_submission_guard_never_polls_transport() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let guard = super::SessionSubmissionGuard::new();
+        let polls = Arc::new(AtomicUsize::new(0));
+        guard.invalidate();
+        let result: Result<(), WalletError> = guard
+            .run(std::future::poll_fn(|_| {
+                polls.fetch_add(1, Ordering::SeqCst);
+                std::task::Poll::Ready(Ok(()))
+            }))
+            .await;
+        assert!(matches!(result, Err(WalletError::WalletLocked)));
+        assert_eq!(polls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn lock_during_proof_discards_result_before_broadcast() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let guard = super::SessionSubmissionGuard::new();
+        let broadcast = Arc::new(AtomicBool::new(false));
+        let submitted = broadcast.clone();
+        let operation_guard = guard.clone();
+        let (proof_started, started) = tokio::sync::oneshot::channel();
+        let (finish_proof, proof_finished) = tokio::sync::oneshot::channel();
+        let operation = tokio::spawn(async move {
+            operation_guard
+                .run(async {
+                    let _ = proof_started.send(());
+                    proof_finished
+                        .await
+                        .map_err(|_| WalletError::OperationFailed)?;
+                    submitted.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+        });
+        started.await.unwrap();
+        guard.invalidate();
+        let _ = finish_proof.send(());
+        assert!(matches!(
+            operation.await.unwrap(),
+            Err(WalletError::WalletLocked)
+        ));
+        assert!(!broadcast.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn lock_after_first_transport_poll_prevents_further_polls() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let guard = super::SessionSubmissionGuard::new();
+        let polls = Arc::new(AtomicUsize::new(0));
+        let transport_polls = polls.clone();
+        let (started, first_poll) = tokio::sync::oneshot::channel();
+        let mut started = Some(started);
+        let operation_guard = guard.clone();
+        let operation = tokio::spawn(async move {
+            operation_guard
+                .run(std::future::poll_fn(|_| {
+                    transport_polls.fetch_add(1, Ordering::SeqCst);
+                    if let Some(started) = started.take() {
+                        let _ = started.send(());
+                    }
+                    std::task::Poll::<Result<(), WalletError>>::Pending
+                }))
+                .await
+        });
+        first_poll.await.unwrap();
+        guard.invalidate();
+        assert!(matches!(
+            operation.await.unwrap(),
+            Err(WalletError::WalletLocked)
+        ));
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
     }
 }

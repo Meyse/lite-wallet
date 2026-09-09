@@ -39,7 +39,7 @@ pub async fn preflight_send(
     }
     drop(session);
 
-    println!("[TX] Preflight requested: channel_id={}", params.channel_id);
+    println!("[TX] Preflight requested");
     let channel_id = params.channel_id.clone();
     route_preflight(
         &channel_id,

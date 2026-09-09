@@ -2,7 +2,7 @@ use blake2b_simd::Params as Blake2bParams;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
@@ -167,22 +167,61 @@ pub fn ensure_prover_ready() -> Result<(), WalletError> {
     Err(WalletError::DlightProverUnavailable)
 }
 
-pub fn load_sapling_provers() -> Result<SaplingProvers, WalletError> {
-    ensure_prover_ready()?;
+pub fn load_sapling_provers() -> Result<Arc<SaplingProvers>, WalletError> {
+    static CACHE: OnceLock<Mutex<Option<(ProverStatusFingerprint, Arc<SaplingProvers>)>>> =
+        OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| WalletError::DlightProverUnavailable)?;
+    let status = get_prover_status();
+    if !status.ready {
+        return Err(WalletError::DlightProverUnavailable);
+    }
+    let fingerprint = build_status_fingerprint(
+        &status.params_dir.as_ref().map(PathBuf::from),
+        &status.spend.expected_checksum,
+        &status.output.expected_checksum,
+    );
+    if let Some((cached_fingerprint, provers)) = cache.as_ref() {
+        if *cached_fingerprint == fingerprint {
+            return Ok(provers.clone());
+        }
+    }
 
     let params_dir = locate_params_dir().ok_or(WalletError::DlightProverUnavailable)?;
     let spend_path = params_dir.join(SAPLING_SPEND_PARAMS_FILE);
     let output_path = params_dir.join(SAPLING_OUTPUT_PARAMS_FILE);
 
-    let spend_file = File::open(&spend_path).map_err(|_| WalletError::DlightProverUnavailable)?;
-    let output_file = File::open(&output_path).map_err(|_| WalletError::DlightProverUnavailable)?;
-
-    let spend = sapling::circuit::SpendParameters::read(&mut BufReader::new(spend_file), false)
+    // Parse the exact bytes that pass checksum verification, so a file change
+    // between diagnostics and loading cannot replace the proving material.
+    let spend_bytes = read_verified_params(&spend_path, &status.spend.expected_checksum)?;
+    let output_bytes = read_verified_params(&output_path, &status.output.expected_checksum)?;
+    let spend = sapling::circuit::SpendParameters::read(spend_bytes.as_slice(), false)
         .map_err(|_| WalletError::DlightProverUnavailable)?;
-    let output = sapling::circuit::OutputParameters::read(&mut BufReader::new(output_file), false)
+    let output = sapling::circuit::OutputParameters::read(output_bytes.as_slice(), false)
         .map_err(|_| WalletError::DlightProverUnavailable)?;
 
-    Ok(SaplingProvers { spend, output })
+    let provers = Arc::new(SaplingProvers { spend, output });
+    *cache = Some((fingerprint, provers.clone()));
+    Ok(provers)
+}
+
+fn read_verified_params(path: &Path, expected: &str) -> Result<Vec<u8>, WalletError> {
+    let bytes = std::fs::read(path).map_err(|_| WalletError::DlightProverUnavailable)?;
+    let actual =
+        match resolve_checksum_algorithm(expected).ok_or(WalletError::DlightProverUnavailable)? {
+            ChecksumAlgorithm::Sha256 => hex::encode(Sha256::digest(&bytes)),
+            ChecksumAlgorithm::Blake2b512 => Blake2bParams::new()
+                .hash_length(64)
+                .hash(&bytes)
+                .to_hex()
+                .to_string(),
+        };
+    if actual != expected {
+        return Err(WalletError::DlightProverUnavailable);
+    }
+    Ok(bytes)
 }
 
 fn resolve_params_dir_for_diagnostics() -> Option<PathBuf> {

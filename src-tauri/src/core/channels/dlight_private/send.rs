@@ -36,26 +36,28 @@ pub async fn send(
     if active_id.as_str() != record.account_id {
         return Err(WalletError::InvalidPreflight);
     }
+    if request.session_id != session_id {
+        return Err(WalletError::WalletLocked);
+    }
     drop(session);
 
     let payload: DlightPreflightPayload =
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
 
-    let _ = super::runtime::ensure_runtime(&request);
+    super::runtime::ensure_runtime(&request).await?;
     let runtime_snapshot =
         super::runtime::get_runtime_snapshot(&request.runtime_key).unwrap_or_default();
     super::ensure_runtime_ready_for_spend(runtime_snapshot.status_kind)?;
     super::ensure_spend_cache_ready(&request, &runtime_snapshot)?;
 
-    println!(
-        "[dlight_private][spend_send] channel={} to={} value_sats={}",
-        record.channel_id, payload.delivery_to_address, payload.value_sats
-    );
-
     let progress_app = app_handle.clone();
     let progress_channel = record.channel_id.clone();
     let progress_coin_id = payload.coin_id.clone();
+    let progress_cancellation = request.submission_guard.cancellation();
     let progress = move |stage: DlightSendStage| {
+        if progress_cancellation.is_cancelled() {
+            return;
+        }
         let payload = TxSendProgressPayload {
             channel: progress_channel.clone(),
             coin_id: progress_coin_id.clone(),
@@ -80,7 +82,7 @@ pub async fn send(
             fee_sats: payload.fee_sats,
             memo: payload.memo.clone(),
         },
-        Some(&progress),
+        Some(Arc::new(progress)),
     )
     .await?;
 
