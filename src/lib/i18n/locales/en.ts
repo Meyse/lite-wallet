@@ -13,6 +13,9 @@ export const en: Record<string, string> = {
 
   'wallet.hero.discord': 'Join Verus on Discord',
   'wallet.hero.ownership': 'With Verus you own your identity, data, and money',
+  'wallet.hero.ownershipTerm.identity': 'identity',
+  'wallet.hero.ownershipTerm.data': 'data',
+  'wallet.hero.ownershipTerm.money': 'money',
 
   'welcome.titleLine1': 'Your access to',
   'welcome.titleLine2': 'the new internet',

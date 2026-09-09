@@ -29,6 +29,31 @@
   const shouldRenderVideo = $derived(
     isDesktop && !prefersReducedMotion && isDocumentVisible && !suspended
   );
+  const ownershipParts = $derived.by(() => {
+    const text = i18n.t('wallet.hero.ownership');
+    const terms = [
+      i18n.t('wallet.hero.ownershipTerm.identity'),
+      i18n.t('wallet.hero.ownershipTerm.data'),
+      i18n.t('wallet.hero.ownershipTerm.money'),
+    ]
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+
+    if (terms.length === 0) return [{ text, emphasized: false }];
+
+    const pattern = new RegExp(
+      `(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+      'giu'
+    );
+
+    return text
+      .split(pattern)
+      .filter(Boolean)
+      .map((part) => ({
+        text: part,
+        emphasized: terms.some((term) => part.toLowerCase() === term.toLowerCase()),
+      }));
+  });
 
   onMount(() => {
     const desktopQuery = window.matchMedia('(min-width: 768px)');
@@ -76,16 +101,22 @@
   {/if}
 
   <div class="absolute inset-0 flex flex-col items-start px-8 pt-24 pb-8 lg:px-12 lg:pb-12">
-    <p class="text-foreground max-w-sm select-none text-left text-3xl leading-tight font-medium tracking-tight">
-      {i18n.t('wallet.hero.ownership')}
+    <p
+      class="max-w-sm text-left text-3xl leading-tight font-medium tracking-tight text-foreground/55 select-none dark:text-white/55"
+    >
+      {#each ownershipParts as part}
+        <span class={part.emphasized ? 'text-foreground dark:text-white' : ''}>{part.text}</span>
+      {/each}
     </p>
     <Button
       variant="ghost"
       size="icon"
-      class="cursor-default text-foreground/70 hover:text-foreground hover:bg-transparent dark:hover:bg-transparent mt-auto -ml-2 size-10"
+      class="mt-auto -ml-2 size-10 cursor-default text-foreground/70 hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
       aria-label={i18n.t('wallet.hero.discord')}
       title={i18n.t('wallet.hero.discord')}
-      onclick={() => { void openCommunityHangout(); }}
+      onclick={() => {
+        void openCommunityHangout();
+      }}
     >
       <DiscordIcon class="size-5" />
     </Button>

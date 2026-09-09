@@ -13,6 +13,9 @@ export const nl: Record<string, string> = {
 
   'wallet.hero.discord': 'Ga naar Verus op Discord',
   'wallet.hero.ownership': 'Met Verus ben je eigenaar van je identiteit, data en geld',
+  'wallet.hero.ownershipTerm.identity': 'identiteit',
+  'wallet.hero.ownershipTerm.data': 'data',
+  'wallet.hero.ownershipTerm.money': 'geld',
 
   'welcome.titleLine1': 'Jouw toegang tot',
   'welcome.titleLine2': 'het nieuwe internet',
