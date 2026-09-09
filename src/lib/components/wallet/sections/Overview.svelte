@@ -30,6 +30,7 @@
     buildWalletOverviewViewModel,
     formatCryptoAmount,
     OVERVIEW_UNAVAILABLE_DISPLAY,
+    sortWalletOverviewRows,
     type WalletOverviewRowViewModel,
   } from '$lib/utils/walletOverview.js';
   import {
@@ -281,40 +282,11 @@
   const rankedRows = $derived<WalletEntryRow[]>(
     (() => {
       const rows = [...baseRows];
-      if (!privateRow) return rows;
-      const insertAfterIndex = rows.findIndex((row) => row.coinId === privateBaseCoinId);
-      if (insertAfterIndex >= 0) {
-        rows.splice(insertAfterIndex + 1, 0, privateRow);
-      } else {
-        rows.push(privateRow);
-      }
-      return rows;
+      if (privateRow) rows.push(privateRow);
+      return sortWalletOverviewRows(rows);
     })()
   );
-  let visibleRowOrder = $state<string[]>([]);
-  $effect(() => {
-    const currentKeys = rankedRows.map((row) => row.key);
-    const currentKeySet = new Set(currentKeys);
-    const retainedKeys = visibleRowOrder.filter((key) => currentKeySet.has(key));
-    const retainedKeySet = new Set(retainedKeys);
-    const nextOrder = [...retainedKeys, ...currentKeys.filter((key) => !retainedKeySet.has(key))];
-    if (
-      nextOrder.length === visibleRowOrder.length &&
-      nextOrder.every((key, index) => key === visibleRowOrder[index])
-    ) {
-      return;
-    }
-    visibleRowOrder = nextOrder;
-  });
-  const visibleRows = $derived<WalletEntryRow[]>(
-    (() => {
-      if (visibleRowOrder.length === 0) return rankedRows;
-      const rowsByKey = new Map(rankedRows.map((row) => [row.key, row]));
-      return visibleRowOrder
-        .map((key) => rowsByKey.get(key))
-        .filter((row): row is WalletEntryRow => row !== undefined);
-    })()
-  );
+  const visibleRows = $derived(rankedRows);
   const heroSummary = $derived(
     (() => {
       const rows = visibleRows;

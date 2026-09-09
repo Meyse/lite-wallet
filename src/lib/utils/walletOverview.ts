@@ -183,7 +183,7 @@ function resolvePrimaryCoin(
   );
 }
 
-export function sortWalletOverviewRows(rows: WalletOverviewRowViewModel[]): WalletOverviewRowViewModel[] {
+export function sortWalletOverviewRows<Row extends WalletOverviewRowViewModel>(rows: Row[]): Row[] {
   return rows.sort((a, b) => {
     if (a.hasBalance !== b.hasBalance) {
       return a.hasBalance ? -1 : 1;
