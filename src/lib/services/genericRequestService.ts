@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import type {
   BuildAndSignGenericResponseRequest,
   BuildAndSignGenericResponseResult,
@@ -37,21 +36,25 @@ export async function buildAndSignGenericResponse(
 
 export async function postGenericResponseCallback(
   callbackUri: string,
-  responseHex: string
+  responseHex: string,
+  sessionId: string
 ): Promise<void> {
-  return invoke('post_generic_response_callback', {
+  return invokeWalletCommand<void>('post_generic_response_callback', {
     callback_uri: callbackUri,
     response_hex: responseHex,
+    session_id: sessionId,
   });
 }
 
 export async function openGenericRequestCallback(
   callbackUri: string,
-  responseHex: string
+  responseHex: string,
+  sessionId: string
 ): Promise<void> {
-  return invoke('open_generic_request_callback', {
+  return invokeWalletCommand<void>('open_generic_request_callback', {
     callback_uri: callbackUri,
     response_hex: responseHex,
+    session_id: sessionId,
   });
 }
 

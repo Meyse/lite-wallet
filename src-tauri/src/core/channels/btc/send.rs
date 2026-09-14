@@ -14,7 +14,7 @@ use crate::core::auth::{
     capture_active_wallet_access_context, ensure_active_wallet_session,
     load_primary_private_scalar_for_context, SessionManager,
 };
-use crate::core::channels::btc::preflight::BtcPreflightPayload;
+use crate::core::channels::btc::preflight::{BtcPreflightPayload, MAX_REVIEWED_FEE_SAT};
 use crate::core::channels::btc::provider::BtcProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
@@ -121,6 +121,33 @@ pub async fn send(
     let mut cursor = Cursor::new(&tx_bytes[..]);
     let mut tx: bitcoin::Transaction = bitcoin::Transaction::consensus_decode(&mut cursor)
         .map_err(|_| WalletError::OperationFailed)?;
+
+    if tx.input.len() != payload.inputs.len() {
+        return Err(WalletError::InvalidPreflight);
+    }
+    for (txin, expected) in tx.input.iter().zip(&payload.inputs) {
+        if txin.previous_output.txid.to_string() != expected.txid
+            || txin.previous_output.vout != expected.vout
+        {
+            return Err(WalletError::InvalidPreflight);
+        }
+    }
+    let input_total = payload.inputs.iter().try_fold(0u64, |total, input| {
+        total
+            .checked_add(input.value)
+            .ok_or(WalletError::InvalidPreflight)
+    })?;
+    let output_total = tx.output.iter().try_fold(0u64, |total, output| {
+        total
+            .checked_add(output.value.to_sat())
+            .ok_or(WalletError::InvalidPreflight)
+    })?;
+    let actual_fee = input_total
+        .checked_sub(output_total)
+        .ok_or(WalletError::InvalidPreflight)?;
+    if actual_fee != payload.fee_sats || actual_fee == 0 || actual_fee > MAX_REVIEWED_FEE_SAT {
+        return Err(WalletError::InvalidPreflight);
+    }
 
     for i in 0..tx.input.len() {
         let cache = bitcoin::sighash::SighashCache::new(&tx);

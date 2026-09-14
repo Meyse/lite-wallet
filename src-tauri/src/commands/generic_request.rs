@@ -1115,6 +1115,7 @@ pub async fn sign_generic_response(
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<String, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
     let active_wallet_primary_address = context.vrsc_address.clone();
     let private_key = load_primary_private_scalar_for_context(&context).await?;
@@ -1128,14 +1129,15 @@ pub async fn sign_generic_response(
     }
 
     let provider = vrpc_provider_pool.for_system(network, &parsed.signature_data.signer_system_id);
-    validate_identity_control_for_active_wallet(
-        provider,
-        &parsed.signature_data.signer_identity_id,
-        &active_wallet_primary_address,
-    )
-    .await?;
+    submission_guard
+        .run(validate_identity_control_for_active_wallet(
+            provider,
+            &parsed.signature_data.signer_identity_id,
+            &active_wallet_primary_address,
+        ))
+        .await?;
 
-    let info = provider.getinfo().await?;
+    let info = submission_guard.run(provider.getinfo()).await?;
     let signed_block_height = extract_chain_height(&info)?;
     let raw_envelope_sha256 = get_raw_envelope_sha256(&parsed);
     let identity_hash = compute_identity_signature_hash(
@@ -1143,8 +1145,16 @@ pub async fn sign_generic_response(
         signed_block_height,
         raw_envelope_sha256,
     )?;
-    let signature_as_vch =
-        sign_identity_hash_with_private_bytes(identity_hash, signed_block_height, &private_key)?;
+    let signature_as_vch = match submission_guard.poll_admitted(|| {
+        std::task::Poll::Ready(sign_identity_hash_with_private_bytes(
+            identity_hash,
+            signed_block_height,
+            &private_key,
+        ))
+    }) {
+        std::task::Poll::Ready(result) => result?,
+        std::task::Poll::Pending => return Err(WalletError::OperationFailed),
+    };
 
     let signed_signature_data = parsed
         .signature_data
@@ -1162,8 +1172,8 @@ pub async fn sign_generic_response(
     let parsed_signed = parse_generic_envelope_hex(&hex::encode(&signed_envelope))?;
     let parsed_identity_signature =
         parse_identity_signature(&parsed_signed.signature_data.signature_as_vch)?;
-    let signer_identity = provider
-        .getidentity(&parsed_signed.signature_data.signer_identity_id)
+    let signer_identity = submission_guard
+        .run(provider.getidentity(&parsed_signed.signature_data.signer_identity_id))
         .await?;
     let allowed_addresses = signer_identity
         .get("identity")
@@ -1198,7 +1208,13 @@ pub async fn sign_generic_response(
         return Err(WalletError::OperationFailed);
     }
 
-    Ok(hex::encode(signed_envelope))
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+    match submission_guard
+        .poll_admitted(|| std::task::Poll::Ready(Ok(hex::encode(signed_envelope))))
+    {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => Err(WalletError::OperationFailed),
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1211,6 +1227,7 @@ pub async fn build_and_sign_generic_response(
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<BuildAndSignGenericResponseResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
     let active_wallet_primary_address = context.vrsc_address.clone();
     let private_key = load_primary_private_scalar_for_context(&context).await?;
@@ -1228,67 +1245,115 @@ pub async fn build_and_sign_generic_response(
     }
 
     let provider = vrpc_provider_pool.for_system(network, &request.signer.system_id);
-    validate_identity_control_for_active_wallet(
-        provider,
-        &request.signer.identity_id,
-        &active_wallet_primary_address,
-    )
-    .await?;
+    submission_guard
+        .run(validate_identity_control_for_active_wallet(
+            provider,
+            &request.signer.identity_id,
+            &active_wallet_primary_address,
+        ))
+        .await?;
 
-    let signer_identity = provider.getidentity(&request.signer.identity_id).await?;
+    let signer_identity = submission_guard
+        .run(provider.getidentity(&request.signer.identity_id))
+        .await?;
     let allowed_primary_addresses = extract_primary_addresses(&signer_identity);
-    let info = provider.getinfo().await?;
+    let info = submission_guard.run(provider.getinfo()).await?;
     let signed_block_height = extract_chain_height(&info)?;
-    let signed_response_hex = build_and_sign_generic_response_internal(
-        &request,
-        wallet_network_to_crypto_network(network),
-        &active_wallet_primary_address,
-        &allowed_primary_addresses,
-        signed_block_height,
-        &private_key,
-        now_unix_seconds(),
-    )?;
+    let signed_response_hex = match submission_guard.poll_admitted(|| {
+        std::task::Poll::Ready(build_and_sign_generic_response_internal(
+            &request,
+            wallet_network_to_crypto_network(network),
+            &active_wallet_primary_address,
+            &allowed_primary_addresses,
+            signed_block_height,
+            &private_key,
+            now_unix_seconds(),
+        ))
+    }) {
+        std::task::Poll::Ready(result) => result?,
+        std::task::Poll::Pending => return Err(WalletError::OperationFailed),
+    };
 
-    Ok(BuildAndSignGenericResponseResult {
-        signed_response_hex,
-    })
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+
+    match submission_guard.poll_admitted(|| {
+        std::task::Poll::Ready(Ok(BuildAndSignGenericResponseResult {
+            signed_response_hex,
+            session_id: context.session_id,
+        }))
+    }) {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => Err(WalletError::OperationFailed),
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn post_generic_response_callback(
     callback_uri: String,
     response_hex: String,
+    session_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<(), WalletError> {
-    let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
-    let response_bytes =
-        hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
-
-    let response = reqwest::Client::new()
-        .post(callback_uri)
-        .header(CONTENT_TYPE, "application/octet-stream")
-        .body(response_bytes)
-        .send()
-        .await
-        .map_err(|_| WalletError::NetworkError)?;
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if context.session_id != session_id {
+        return Err(WalletError::WalletLocked);
+    }
+    let response = context
+        .session_submission_guard()
+        .run(post_generic_response_callback_request(
+            callback_uri,
+            response_hex,
+        ))
+        .await?;
 
     if !response.status().is_success() {
         return Err(WalletError::OperationFailed);
     }
 
+    ensure_active_wallet_session(session_manager.inner(), &session_id).await?;
+
     Ok(())
+}
+
+async fn post_generic_response_callback_request(
+    callback_uri: String,
+    response_hex: String,
+) -> Result<reqwest::Response, WalletError> {
+    let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
+    let response_bytes =
+        hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
+    reqwest::Client::new()
+        .post(callback_uri)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .body(response_bytes)
+        .send()
+        .await
+        .map_err(|_| WalletError::NetworkError)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_generic_request_callback(
     callback_uri: String,
     response_hex: String,
+    session_id: String,
     app: AppHandle,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<(), WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if context.session_id != session_id {
+        return Err(WalletError::WalletLocked);
+    }
     let redirect_url = build_generic_response_redirect_url(&callback_uri, &response_hex)?;
-    app.opener()
-        .open_url(redirect_url.to_string(), None::<&str>)
-        .map_err(|_| WalletError::OperationFailed)?;
-    Ok(())
+    match context.session_submission_guard().poll_admitted(|| {
+        std::task::Poll::Ready(
+            app.opener()
+                .open_url(redirect_url.to_string(), None::<&str>)
+                .map_err(|_| WalletError::OperationFailed),
+        )
+    }) {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => Err(WalletError::OperationFailed),
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -2246,7 +2311,7 @@ mod tests {
         build_and_sign_generic_response_internal, build_generic_response_redirect_url,
         build_unsigned_generic_response_hex, decode_defined_key_label, merge_identity_update_patch,
         parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
-        post_generic_response_callback, resolve_signer_cmm_key_labels_from_identity,
+        post_generic_response_callback_request, resolve_signer_cmm_key_labels_from_identity,
         validate_generic_request_funding_source, wallet_network_to_crypto_network,
         BuildAndSignGenericResponseRequest, WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID,
         GENERIC_RESPONSE_DEEPLINK_VDXF_ID, GENERIC_RESPONSE_FLAG_HAS_CREATED_AT,
@@ -2790,9 +2855,13 @@ mod tests {
                 .expect("write response");
         });
 
-        post_generic_response_callback(format!("http://{}/callback", address), expected_hex)
-            .await
-            .expect("callback post succeeds");
+        let response = post_generic_response_callback_request(
+            format!("http://{}/callback", address),
+            expected_hex,
+        )
+        .await
+        .expect("callback post succeeds");
+        assert!(response.status().is_success());
 
         server.await.expect("server completes");
     }
@@ -2813,13 +2882,13 @@ mod tests {
                 .expect("write response");
         });
 
-        let error = post_generic_response_callback(
+        let response = post_generic_response_callback_request(
             format!("http://{}/callback", address),
             "deadbeef".to_string(),
         )
         .await
-        .expect_err("callback status should fail");
-        assert!(matches!(error, WalletError::OperationFailed));
+        .expect("request returns response");
+        assert!(!response.status().is_success());
 
         server.await.expect("server completes");
     }

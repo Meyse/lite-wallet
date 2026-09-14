@@ -137,6 +137,27 @@ impl BtcProvider {
         Ok(list)
     }
 
+    /// Fetch canonical previous transaction bytes. Callers must verify that
+    /// the decoded transaction hashes to `txid` before trusting its outputs.
+    pub async fn get_transaction_hex(&self, txid: &str) -> Result<String, WalletError> {
+        let url = self.url(&format!("tx/{}/hex", txid));
+        let res = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|_| WalletError::NetworkError)?;
+        if !res.status().is_success() {
+            return Err(WalletError::NetworkError);
+        }
+        let tx_hex = res.text().await.map_err(|_| WalletError::OperationFailed)?;
+        let tx_hex = tx_hex.trim();
+        if tx_hex.is_empty() {
+            return Err(WalletError::OperationFailed);
+        }
+        Ok(tx_hex.to_string())
+    }
+
     /// GET /address/:address/txs/chain -> confirmed txs (first page).
     pub async fn get_address_txs(&self, address: &str) -> Result<Vec<MempoolTx>, WalletError> {
         let url = self.url(&format!("address/{}/txs/chain", address));

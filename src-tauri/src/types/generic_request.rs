@@ -47,6 +47,7 @@ pub struct BuildAndSignGenericResponseRequest {
 #[serde(rename_all = "camelCase")]
 pub struct BuildAndSignGenericResponseResult {
     pub signed_response_hex: String,
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

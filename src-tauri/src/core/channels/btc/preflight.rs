@@ -7,7 +7,7 @@ use bitcoin::absolute::LockTime;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use bitcoin::consensus::Encodable;
+use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::{Amount, Network as BtcNetwork, ScriptBuf, Sequence, Txid};
 use bs58;
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ use crate::types::WalletError;
 const SATOSHI_PER_COIN: f64 = 100_000_000.0;
 const DUST_SATOSHI: u64 = 1000;
 const DEFAULT_FEE_SAT: u64 = 2000;
+pub(crate) const MAX_REVIEWED_FEE_SAT: u64 = DEFAULT_FEE_SAT + DUST_SATOSHI - 1;
 
 /// Payload stored in PreflightStore for BTC send. Not sent to frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +32,44 @@ pub struct BtcPreflightPayload {
     pub from_address: String,
     pub value: String,
     pub fee: String,
+    pub fee_sats: u64,
     pub inputs: Vec<BtcInputRef>,
+}
+
+fn verify_previous_output(
+    expected: &UtxoEntry,
+    tx_hex: &str,
+    expected_script: &ScriptBuf,
+) -> Result<(), WalletError> {
+    let bytes = hex::decode(tx_hex.trim().trim_start_matches("0x"))
+        .map_err(|_| WalletError::OperationFailed)?;
+    let mut cursor = std::io::Cursor::new(bytes);
+    let tx =
+        Transaction::consensus_decode(&mut cursor).map_err(|_| WalletError::OperationFailed)?;
+    let expected_txid = Txid::from_str(&expected.txid).map_err(|_| WalletError::OperationFailed)?;
+    if tx.txid() != expected_txid {
+        return Err(WalletError::OperationFailed);
+    }
+    let output = tx
+        .output
+        .get(expected.vout as usize)
+        .ok_or(WalletError::OperationFailed)?;
+    if output.script_pubkey != *expected_script || output.value.to_sat() != expected.value {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(())
+}
+
+async fn authenticate_utxos(
+    provider: &BtcProvider,
+    utxos: &[UtxoEntry],
+    expected_script: &ScriptBuf,
+) -> Result<(), WalletError> {
+    for utxo in utxos {
+        let tx_hex = provider.get_transaction_hex(&utxo.txid).await?;
+        verify_previous_output(utxo, &tx_hex, expected_script)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,7 +185,8 @@ pub async fn preflight(
     network: WalletNetwork,
 ) -> Result<PreflightResult, WalletError> {
     let to_script = parse_btc_destination_script(&params.to_address, network)?;
-    validate_btc_source_address(from_address, network)?;
+    let from_hash = validate_btc_source_address(from_address, network)?;
+    let from_script = p2pkh_script_from_hash160(&from_hash);
 
     let amount_sat = params
         .amount
@@ -164,7 +203,6 @@ pub async fn preflight(
     if utxos.is_empty() {
         return Err(WalletError::InsufficientFunds);
     }
-
     let fee_sat = DEFAULT_FEE_SAT;
     let needed = amount_sat.saturating_add(fee_sat);
     let mut selected: Vec<&UtxoEntry> = Vec::new();
@@ -176,12 +214,23 @@ pub async fn preflight(
             break;
         }
     }
+    let selected_owned = selected
+        .iter()
+        .map(|utxo| (*utxo).clone())
+        .collect::<Vec<_>>();
+    authenticate_utxos(provider, &selected_owned, &from_script).await?;
     let (send_value_sat, fee_taken_from_amount, fee_taken_message) =
         resolve_send_value_after_fee(amount_sat, total, fee_sat)?;
 
-    let change = total.saturating_sub(send_value_sat).saturating_sub(fee_sat);
-    let from_hash = validate_btc_source_address(from_address, network)?;
-    let from_script = p2pkh_script_from_hash160(&from_hash);
+    let candidate_change = total.saturating_sub(send_value_sat).saturating_sub(fee_sat);
+    let (change, actual_fee_sat) = if candidate_change >= DUST_SATOSHI {
+        (candidate_change, fee_sat)
+    } else {
+        (0, total.saturating_sub(send_value_sat))
+    };
+    if actual_fee_sat == 0 || actual_fee_sat > MAX_REVIEWED_FEE_SAT {
+        return Err(WalletError::OperationFailed);
+    }
 
     let mut inputs: Vec<TxIn> = Vec::new();
     let mut payload_inputs: Vec<BtcInputRef> = Vec::new();
@@ -225,13 +274,14 @@ pub async fn preflight(
 
     let preflight_id = Uuid::new_v4().to_string();
     let value_str = format!("{:.8}", send_value_sat as f64 / SATOSHI_PER_COIN);
-    let fee_str = format!("{:.8}", fee_sat as f64 / SATOSHI_PER_COIN);
+    let fee_str = format!("{:.8}", actual_fee_sat as f64 / SATOSHI_PER_COIN);
     let payload = BtcPreflightPayload {
         unsigned_hex: unsigned_hex.clone(),
         to_address: params.to_address.clone(),
         from_address: from_address.to_string(),
         value: value_str.clone(),
         fee: fee_str.clone(),
+        fee_sats: actual_fee_sat,
         inputs: payload_inputs,
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
@@ -245,7 +295,8 @@ pub async fn preflight(
         return Err(WalletError::WalletLocked);
     }
 
-    let warnings: Vec<PreflightWarning> = if change > 0 && change < DUST_SATOSHI {
+    let warnings: Vec<PreflightWarning> = if candidate_change > 0 && candidate_change < DUST_SATOSHI
+    {
         vec![PreflightWarning {
             warning_type: "dust_change".to_string(),
             message: "Change below dust threshold is added to fee.".to_string(),
@@ -272,6 +323,69 @@ pub async fn preflight(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn previous_tx(script: ScriptBuf, value: u64) -> (String, String) {
+        let tx = Transaction {
+            version: bitcoin::blockdata::transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Default::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: script,
+            }],
+        };
+        let txid = tx.txid().to_string();
+        let mut bytes = Vec::new();
+        tx.consensus_encode(&mut bytes).expect("encode previous tx");
+        (txid, hex::encode(bytes))
+    }
+
+    fn reported_utxo(txid: String, value: u64) -> UtxoEntry {
+        UtxoEntry {
+            txid,
+            vout: 0,
+            value,
+            status: crate::core::channels::btc::provider::UtxoStatus {
+                confirmed: true,
+                block_height: Some(1),
+            },
+        }
+    }
+
+    #[test]
+    fn previous_output_authentication_rejects_understated_rest_value() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        let (txid, tx_hex) = previous_tx(script.clone(), 1_000_000);
+        assert!(verify_previous_output(&reported_utxo(txid, 202_000), &tx_hex, &script).is_err());
+    }
+
+    #[test]
+    fn previous_output_authentication_rejects_script_and_hash_mismatches() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        let (txid, tx_hex) = previous_tx(script.clone(), 50_000);
+        let reported = reported_utxo(txid, 50_000);
+        assert!(
+            verify_previous_output(&reported, &tx_hex, &p2pkh_script_from_hash160(&[8u8; 20]))
+                .is_err()
+        );
+        assert!(
+            verify_previous_output(&reported_utxo("00".repeat(32), 50_000), &tx_hex, &script)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn previous_output_authentication_accepts_matching_outpoint() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        let (txid, tx_hex) = previous_tx(script.clone(), 50_000);
+        verify_previous_output(&reported_utxo(txid, 50_000), &tx_hex, &script)
+            .expect("matching prevout");
+    }
 
     #[test]
     fn parse_btc_destination_script_accepts_mainnet_bech32() {

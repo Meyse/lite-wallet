@@ -149,6 +149,7 @@
   let selectedContentChange = $state<IdentityUpdateContentItem | null>(null);
   let fundingSourceLoadSequence = 0;
   let updatePreflightRequestSequence = 0;
+  let responseSubmissionSequence = 0;
   const copiedCompletionFieldState = new TimedValueState<'txid'>();
 
   const updateReviewSource = $derived(updatePreflight ?? updateAnalysis);
@@ -279,6 +280,7 @@
   });
 
   function resetFlowState() {
+    responseSubmissionSequence += 1;
     currentStepId = 'auth';
     linkedIdentities = [];
     identityDetailsByAddress = {};
@@ -877,26 +879,36 @@
   async function submitResponseDraft(draft: ResponseDraft) {
     if (!session) return;
 
+    const activeSession = session;
+    const submissionSequence = ++responseSubmissionSequence;
+
     completing = true;
     flowError = '';
 
     try {
-      const { signedResponseHex } = await genericRequestService.buildAndSignGenericResponse({
-        requestHex: session.requestHex,
+      const { signedResponseHex, sessionId } = await genericRequestService.buildAndSignGenericResponse({
+        requestHex: activeSession.requestHex,
         ...draft
       });
 
-      if (session.responseUris.length > 0) {
-        await deliverSignedResponse(signedResponseHex);
+      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
+
+      if (activeSession.responseUris.length > 0) {
+        await deliverSignedResponse(signedResponseHex, sessionId, activeSession);
       }
+
+      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
 
       completionMessage = completionMessage || i18n.t('genericRequest.complete.sent');
       isOpen = false;
       onClose();
     } catch (error) {
+      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
       setError(error, 'genericRequest.error.complete');
     } finally {
-      completing = false;
+      if (submissionSequence === responseSubmissionSequence) {
+        completing = false;
+      }
     }
   }
 
@@ -976,9 +988,13 @@
     }
   }
 
-  async function deliverSignedResponse(signedResponseHex: string) {
-    const postUri = session?.responseUris.find((item) => item.mode === 'post');
-    const redirectUri = session?.responseUris.find((item) => item.mode === 'redirect');
+  async function deliverSignedResponse(
+    signedResponseHex: string,
+    sessionId: string,
+    activeSession: GenericRequestFlowSession
+  ) {
+    const postUri = activeSession.responseUris.find((item) => item.mode === 'post');
+    const redirectUri = activeSession.responseUris.find((item) => item.mode === 'redirect');
 
     if (postUri) {
       const scheme = (() => {
@@ -991,12 +1007,12 @@
       if (scheme !== 'http:' && scheme !== 'https:') {
         throw new Error('genericRequest.error.unsupportedPostCallback');
       }
-      await genericRequestService.postGenericResponseCallback(postUri.uri, signedResponseHex);
+      await genericRequestService.postGenericResponseCallback(postUri.uri, signedResponseHex, sessionId);
       return;
     }
 
     if (redirectUri) {
-      await genericRequestService.openGenericRequestCallback(redirectUri.uri, signedResponseHex);
+      await genericRequestService.openGenericRequestCallback(redirectUri.uri, signedResponseHex, sessionId);
     }
   }
 
