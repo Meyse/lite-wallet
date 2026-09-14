@@ -798,8 +798,7 @@ export const nl: Record<string, string> = {
     'De verzending kon niet worden bevestigd. Controleer de transactiegeschiedenis voordat je het opnieuw probeert.',
   'wallet.transfer.error.ethBroadcastUncertain':
     'De Ethereum-verzending kon niet worden bevestigd. Ga verder met de opgeslagen transfer in plaats van opnieuw te verzenden.',
-  'wallet.transfer.error.ethBroadcastRecovered':
-    'De opgeslagen Ethereum-transfer is hersteld.',
+  'wallet.transfer.error.ethBroadcastRecovered': 'De opgeslagen Ethereum-transfer is hersteld.',
   'wallet.transfer.error.ethRecoveryRequired':
     'Rond de opgeslagen Ethereum-transfer af voordat je een nieuwe start.',
   'wallet.transfer.ethRecovery.title': 'Ethereum-transfer herstellen',
@@ -808,6 +807,19 @@ export const nl: Record<string, string> = {
   'wallet.transfer.ethRecovery.continue': 'Doorgaan met transfer',
   'wallet.transfer.ethRecovery.showResult': 'Verzonden transfer tonen',
   'wallet.transfer.ethRecovery.recovering': 'Herstellen…',
+  'wallet.transfer.ethRecovery.network': 'Netwerk',
+  'wallet.transfer.ethRecovery.chain': 'Chain {value}',
+  'wallet.transfer.ethRecovery.stage': 'Herstelfase',
+  'wallet.transfer.ethRecovery.assetContract': 'Assetcontract',
+  'wallet.transfer.ethRecovery.bridgeContract': 'Bridgecontract',
+  'wallet.transfer.ethRecovery.mappedCurrency': 'Gekoppelde valuta',
+  'wallet.transfer.ethRecovery.destinationSystem': 'Bestemmingssysteem',
+  'wallet.transfer.ethRecovery.stage.eth': 'Native transfer',
+  'wallet.transfer.ethRecovery.stage.erc20': 'Tokentransfer',
+  'wallet.transfer.ethRecovery.stage.bridge_zero_approval': 'Tokengoedkeuring resetten',
+  'wallet.transfer.ethRecovery.stage.bridge_approval': 'Bridgetoegang goedkeuren',
+  'wallet.transfer.ethRecovery.stage.bridge_transfer': 'Bridgetransfer verzenden',
+  'wallet.transfer.ethRecovery.stage.unknown': 'Opgeslagen transfer',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend-cache is nog niet klaar. Laat private sync voltooien en probeer daarna opnieuw.',
   'wallet.transfer.error.network': 'Netwerkfout. Probeer opnieuw.',

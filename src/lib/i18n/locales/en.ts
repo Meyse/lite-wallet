@@ -784,16 +784,27 @@ export const en: Record<string, string> = {
     'Submission could not be confirmed. Check transaction history before trying again.',
   'wallet.transfer.error.ethBroadcastUncertain':
     'Ethereum submission could not be confirmed. Continue the saved transfer instead of sending again.',
-  'wallet.transfer.error.ethBroadcastRecovered':
-    'The saved Ethereum transfer was recovered.',
+  'wallet.transfer.error.ethBroadcastRecovered': 'The saved Ethereum transfer was recovered.',
   'wallet.transfer.error.ethRecoveryRequired':
     'Finish the saved Ethereum transfer before starting another one.',
   'wallet.transfer.ethRecovery.title': 'Ethereum transfer recovery',
-  'wallet.transfer.ethRecovery.description':
-    'Review {value} to {recipient} before continuing.',
+  'wallet.transfer.ethRecovery.description': 'Review {value} to {recipient} before continuing.',
   'wallet.transfer.ethRecovery.continue': 'Continue transfer',
   'wallet.transfer.ethRecovery.showResult': 'Show submitted transfer',
   'wallet.transfer.ethRecovery.recovering': 'Recovering…',
+  'wallet.transfer.ethRecovery.network': 'Network',
+  'wallet.transfer.ethRecovery.chain': 'Chain {value}',
+  'wallet.transfer.ethRecovery.stage': 'Recovery stage',
+  'wallet.transfer.ethRecovery.assetContract': 'Asset contract',
+  'wallet.transfer.ethRecovery.bridgeContract': 'Bridge contract',
+  'wallet.transfer.ethRecovery.mappedCurrency': 'Mapped currency',
+  'wallet.transfer.ethRecovery.destinationSystem': 'Destination system',
+  'wallet.transfer.ethRecovery.stage.eth': 'Native transfer',
+  'wallet.transfer.ethRecovery.stage.erc20': 'Token transfer',
+  'wallet.transfer.ethRecovery.stage.bridge_zero_approval': 'Reset token approval',
+  'wallet.transfer.ethRecovery.stage.bridge_approval': 'Approve bridge access',
+  'wallet.transfer.ethRecovery.stage.bridge_transfer': 'Submit bridge transfer',
+  'wallet.transfer.ethRecovery.stage.unknown': 'Saved transfer',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend cache is not ready yet. Let private sync complete, then try again.',
   'wallet.transfer.error.network': 'Network error. Try again.',

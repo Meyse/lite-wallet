@@ -10,7 +10,7 @@ import type {
   SendRequest,
   SendResult,
 } from '$lib/types/wallet.js';
-import { invokeWalletCommand } from './invokeWalletCommand.js';
+import { invokeSessionBoundWalletCommand, invokeWalletCommand } from './invokeWalletCommand.js';
 import { invalidateWalletDisplayHistory } from './walletDisplayService.js';
 
 export async function preflightSend(params: PreflightParams): Promise<PreflightResult> {
@@ -34,19 +34,24 @@ export async function sendTransaction(request: SendRequest): Promise<SendResult>
 }
 
 export async function getPendingEthSubmission(): Promise<EthPendingSubmissionReview | null> {
-  return invokeWalletCommand<EthPendingSubmissionReview | null>('get_pending_eth_submission');
+  return invokeSessionBoundWalletCommand<EthPendingSubmissionReview | null>(
+    'get_pending_eth_submission'
+  );
 }
 
 export async function resumePendingEthSubmission(recoveryId: string): Promise<SendResult> {
-  const result = await invokeWalletCommand<SendResult>('resume_pending_eth_submission', {
-    recovery_id: recoveryId,
-  });
+  const result = await invokeSessionBoundWalletCommand<SendResult>(
+    'resume_pending_eth_submission',
+    {
+      recovery_id: recoveryId,
+    }
+  );
   invalidateWalletDisplayHistory();
   return result;
 }
 
 export async function acknowledgePendingEthSubmission(recoveryId: string): Promise<void> {
-  return invokeWalletCommand<void>('acknowledge_pending_eth_submission', {
+  return invokeSessionBoundWalletCommand<void>('acknowledge_pending_eth_submission', {
     recovery_id: recoveryId,
   });
 }

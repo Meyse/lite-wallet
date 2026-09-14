@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
 use bitcoin::consensus::Decodable;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,6 +20,10 @@ const EVAL_RESERVE_OUTPUT: u8 = 9;
 const EVAL_IDENTITY_PRIMARY: u8 = 14;
 const EVAL_IDENTITY_REVOKE: u8 = 15;
 const EVAL_IDENTITY_RECOVER: u8 = 16;
+// Canonical EVAL_IDENTITY_RECOVER contract destination from VerusCoin
+// src/cc/CCcustom.cpp (IdentityRecoverAddr). Tokenized identity recovery must
+// not accept an arbitrary caller-selected public-key hash in this slot.
+const IDENTITY_RECOVER_CONTRACT_ADDRESS: &str = "RRw9rJMPwdNqC1wgXn5vryJwMDyBgpXjYT";
 const FLAG_IDENTITY_REVOKED: u32 = 0x8000;
 const FLAG_IDENTITY_TOKENIZED_CONTROL: u32 = 0x4;
 
@@ -279,7 +285,7 @@ pub(crate) fn identity_control_intent_from_json(
         .iter()
         .map(|value| {
             let address = value.as_str().ok_or(WalletError::IdentityBuildFailed)?;
-            Ok(decode_base58_destination(address)?.destination_bytes)
+            decode_primary_destination(address)
         })
         .collect::<Result<Vec<_>, WalletError>>()?;
     let revocation_authority =
@@ -346,22 +352,109 @@ fn json_content_multimap(identity: &Value) -> Result<Vec<(Vec<u8>, Vec<Vec<u8>>)
             .map_err(|_| WalletError::IdentityBuildFailed)?
             .destination_bytes;
         let values = match value {
-            Value::String(raw) => vec![decode_identity_hex(raw)?],
             Value::Array(values) => values
                 .iter()
-                .map(|value| {
-                    value
-                        .as_str()
-                        .ok_or(WalletError::IdentityBuildFailed)
-                        .and_then(decode_identity_hex)
-                })
+                .map(normalize_vdxf_univalue)
                 .collect::<Result<Vec<_>, _>>()?,
-            _ => return Err(WalletError::IdentityBuildFailed),
+            value => vec![normalize_vdxf_univalue(value)?],
         };
+        if values.is_empty() || values.iter().any(Vec::is_empty) {
+            return Err(WalletError::IdentityBuildFailed);
+        }
         entries.push((key, values));
     }
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(entries)
+}
+
+fn decode_primary_destination(value: &str) -> Result<Vec<u8>, WalletError> {
+    let trimmed = value.trim();
+    if trimmed.len() == 66 {
+        let bytes = hex::decode(trimmed).map_err(|_| WalletError::IdentityBuildFailed)?;
+        if bytes.len() != 33 || !matches!(bytes.first(), Some(2 | 3)) {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        return Ok(bytes);
+    }
+    Ok(decode_base58_destination(trimmed)?.destination_bytes)
+}
+
+fn normalize_vdxf_univalue(value: &Value) -> Result<Vec<u8>, WalletError> {
+    if let Some(raw) = value.as_str() {
+        return decode_identity_hex(raw);
+    }
+    let object = value.as_object().ok_or(WalletError::IdentityBuildFailed)?;
+    if object.len() != 1 {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let (key, value) = object
+        .iter()
+        .next()
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    match key.as_str() {
+        "serializedhex" => {
+            decode_identity_hex(value.as_str().ok_or(WalletError::IdentityBuildFailed)?)
+        }
+        "serializedbase64" => BASE64_STANDARD
+            .decode(
+                value
+                    .as_str()
+                    .ok_or(WalletError::IdentityBuildFailed)?
+                    .trim(),
+            )
+            .map_err(|_| WalletError::IdentityBuildFailed),
+        "message" => {
+            let message = value.as_str().ok_or(WalletError::IdentityBuildFailed)?;
+            if message.is_empty() {
+                return Err(WalletError::IdentityBuildFailed);
+            }
+            Ok(message.as_bytes().to_vec())
+        }
+        "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c" => {
+            let bytes = value
+                .as_str()
+                .ok_or(WalletError::IdentityBuildFailed)?
+                .as_bytes();
+            encode_length_prefixed_vdxf_value(key, bytes)
+        }
+        "iKMhRLX1JHQihVZx2t2pAWW2uzmK6AzwW3" => {
+            let bytes =
+                decode_identity_hex(value.as_str().ok_or(WalletError::IdentityBuildFailed)?)?;
+            encode_length_prefixed_vdxf_value(key, &bytes)
+        }
+        _ => Err(WalletError::IdentityBuildFailed),
+    }
+}
+
+fn encode_length_prefixed_vdxf_value(key: &str, value: &[u8]) -> Result<Vec<u8>, WalletError> {
+    if value.is_empty() {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let mut encoded = decode_base58_destination(key)?.destination_bytes;
+    encoded.push(1); // VDXF_UNI_VALUE_VERSION_CURRENT, encoded as Verus varint.
+    let mut inner = compact_size_bytes(value.len());
+    inner.extend_from_slice(value);
+    encoded.extend_from_slice(&compact_size_bytes(inner.len()));
+    encoded.extend_from_slice(&inner);
+    Ok(encoded)
+}
+
+fn compact_size_bytes(value: usize) -> Vec<u8> {
+    if value < 253 {
+        vec![value as u8]
+    } else if value <= u16::MAX as usize {
+        let mut encoded = vec![253];
+        encoded.extend_from_slice(&(value as u16).to_le_bytes());
+        encoded
+    } else if value <= u32::MAX as usize {
+        let mut encoded = vec![254];
+        encoded.extend_from_slice(&(value as u32).to_le_bytes());
+        encoded
+    } else {
+        let mut encoded = vec![255];
+        encoded.extend_from_slice(&(value as u64).to_le_bytes());
+        encoded
+    }
 }
 
 fn json_content_map(identity: &Value) -> Result<Vec<(Vec<u8>, Vec<u8>)>, WalletError> {
@@ -913,7 +1006,13 @@ fn validate_identity_authority_condition(
             .iter()
             .filter(|destination| destination.destination_type == 2)
             .count();
-        if condition.destinations.len() != 2 || authority_count != 1 || public_key_hash_count != 1 {
+        let canonical_contract = decode_base58_destination(IDENTITY_RECOVER_CONTRACT_ADDRESS)
+            .map_err(|_| WalletError::IdentityBuildFailed)?;
+        if condition.destinations.len() != 2
+            || authority_count != 1
+            || public_key_hash_count != 1
+            || !condition.destinations.contains(&canonical_contract)
+        {
             return Err(WalletError::IdentityBuildFailed);
         }
     } else if condition.destinations.as_slice() != [authority] {
@@ -1534,6 +1633,91 @@ mod tests {
             decode_base58_destination("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").expect("i destination");
         assert_eq!(destination.destination_type, 4);
         assert_eq!(destination.destination_bytes.len(), 20);
+    }
+
+    #[test]
+    fn identity_json_normalizes_official_vdxf_forms_and_compressed_public_keys() {
+        let public_key = "03a058410b33f893fe182f15336577f3941c28c8cadcfb0395b9c31dd5c07ccd11";
+        let identity = serde_json::json!({
+            "version": 3,
+            "flags": 0,
+            "minimumsignatures": 1,
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "name": "structured",
+            "contentmultimap": {
+                "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": [
+                    "deadbeef",
+                    {"message": "hello"},
+                    {"serializedhex": "cafe"},
+                    {"serializedbase64": "AQID"},
+                    {"iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": "typed"},
+                    {"iKMhRLX1JHQihVZx2t2pAWW2uzmK6AzwW3": "010203"}
+                ]
+            },
+            "contentmap": {},
+            "primaryaddresses": [public_key],
+            "revocationauthority": "i98Mnj1YugaRzoURXt4aRhdqQDu7rML9J5",
+            "recoveryauthority": "i9ps1xDcr7eM66Fko6aTkeuvvBPZFLEXRN",
+            "privateaddresses": [],
+            "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "timelock": 0
+        });
+
+        let intent = identity_control_intent_from_json(&identity).expect("normalized identity");
+        assert_eq!(
+            intent.primary_addresses,
+            vec![hex::decode(public_key).unwrap()]
+        );
+        assert_eq!(intent.content_multimap.len(), 1);
+        assert_eq!(
+            intent.content_multimap[0].1,
+            vec![
+                hex::decode("deadbeef").unwrap(),
+                hex::decode("68656c6c6f").unwrap(),
+                hex::decode("cafe").unwrap(),
+                hex::decode("010203").unwrap(),
+                hex::decode("ab8b7b8b4418de66e611921699a328126461c0e50106057479706564").unwrap(),
+                hex::decode("ae377010192abb2513f705519f62066046e63acc010403010203").unwrap(),
+            ]
+        );
+
+        let mut unsupported = identity;
+        unsupported["contentmultimap"]["iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"] =
+            serde_json::json!({"unknown": "value"});
+        assert!(identity_control_intent_from_json(&unsupported).is_err());
+    }
+
+    #[test]
+    fn tokenized_recovery_requires_the_canonical_contract_destination() {
+        let authority = SemanticDestination {
+            destination_type: 4,
+            destination_bytes: vec![4u8; 20],
+        };
+        let canonical_contract =
+            decode_base58_destination(IDENTITY_RECOVER_CONTRACT_ADDRESS).unwrap();
+        let mut recover = push(&[3, EVAL_IDENTITY_RECOVER, 1, 2]);
+        recover.extend_from_slice(&push(
+            &[&[4u8][..], authority.destination_bytes.as_slice()].concat(),
+        ));
+        recover.extend_from_slice(&push(&canonical_contract.destination_bytes));
+        validate_identity_authority_condition(
+            &recover,
+            EVAL_IDENTITY_RECOVER,
+            &authority.destination_bytes,
+            true,
+        )
+        .expect("canonical tokenized recovery");
+
+        let mut substituted = recover;
+        let last = substituted.last_mut().expect("contract hash byte");
+        *last ^= 1;
+        assert!(validate_identity_authority_condition(
+            &substituted,
+            EVAL_IDENTITY_RECOVER,
+            &authority.destination_bytes,
+            true,
+        )
+        .is_err());
     }
 
     #[test]

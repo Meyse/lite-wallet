@@ -317,6 +317,7 @@ pub async fn validate_operation_authority(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::channels::vrpc::intent::identity_control_intent_from_json;
     use serde_json::json;
 
     #[test]
@@ -331,6 +332,41 @@ mod tests {
             IDENTITY_FLAG_REVOKED
         );
         assert_eq!(identity["contentmultimap"], json!({}));
+    }
+
+    #[test]
+    fn update_revoke_and_recover_produce_supported_control_intents() {
+        let base = json!({
+            "version": 3,
+            "flags": 0,
+            "minimumsignatures": 1,
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "name": "operations",
+            "contentmultimap": {
+                "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": {"message": "preserved update"}
+            },
+            "contentmap": {},
+            "primaryaddresses": [
+                "03a058410b33f893fe182f15336577f3941c28c8cadcfb0395b9c31dd5c07ccd11"
+            ],
+            "revocationauthority": "i98Mnj1YugaRzoURXt4aRhdqQDu7rML9J5",
+            "recoveryauthority": "i9ps1xDcr7eM66Fko6aTkeuvvBPZFLEXRN",
+            "privateaddresses": [],
+            "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "timelock": 0
+        });
+
+        let mut updated = base.clone();
+        apply_identity_operation(&mut updated, &IdentityOperation::Update, None).unwrap();
+        assert!(identity_control_intent_from_json(&updated).is_ok());
+
+        let mut revoked = base.clone();
+        apply_identity_operation(&mut revoked, &IdentityOperation::Revoke, None).unwrap();
+        assert!(identity_control_intent_from_json(&revoked).is_ok());
+
+        let mut recovered = revoked;
+        apply_identity_operation(&mut recovered, &IdentityOperation::Recover, None).unwrap();
+        assert!(identity_control_intent_from_json(&recovered).is_ok());
     }
 
     #[test]

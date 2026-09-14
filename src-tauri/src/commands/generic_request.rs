@@ -3003,24 +3003,26 @@ mod tests {
     #[test]
     fn merge_identity_update_patch_preserves_omitted_primary_addresses() {
         let current = serde_json::json!({
+            "version": 3,
+            "flags": 0,
+            "minimumsignatures": 1,
             "name": "before",
-            "primaryaddresses": ["RFWcHcpnFh57ovrV1hmzN8o8wmMZjvqCSh"],
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "primaryaddresses": ["03a058410b33f893fe182f15336577f3941c28c8cadcfb0395b9c31dd5c07ccd11"],
             "contentmultimap": {
-                "existing": {
-                    "data": {
-                        "message": "before"
-                    }
-                }
-            }
+                "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": {"message": "before"}
+            },
+            "contentmap": {},
+            "revocationauthority": "i98Mnj1YugaRzoURXt4aRhdqQDu7rML9J5",
+            "recoveryauthority": "i9ps1xDcr7eM66Fko6aTkeuvvBPZFLEXRN",
+            "privateaddresses": [],
+            "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "timelock": 0
         });
         let patch = serde_json::json!({
             "name": "maxs",
             "contentmultimap": {
-                "new_key": {
-                    "data": {
-                        "message": "after"
-                    }
-                }
+                "iKMhRLX1JHQihVZx2t2pAWW2uzmK6AzwW3": {"serializedhex": "010203"}
             }
         });
 
@@ -3029,10 +3031,18 @@ mod tests {
         assert_eq!(merged["name"], serde_json::json!("maxs"));
         assert_eq!(
             merged["primaryaddresses"],
-            serde_json::json!(["RFWcHcpnFh57ovrV1hmzN8o8wmMZjvqCSh"])
+            serde_json::json!([
+                "03a058410b33f893fe182f15336577f3941c28c8cadcfb0395b9c31dd5c07ccd11"
+            ])
         );
-        assert!(merged["contentmultimap"].get("existing").is_some());
-        assert!(merged["contentmultimap"].get("new_key").is_some());
+        assert!(merged["contentmultimap"]
+            .get("iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c")
+            .is_some());
+        assert!(merged["contentmultimap"]
+            .get("iKMhRLX1JHQihVZx2t2pAWW2uzmK6AzwW3")
+            .is_some());
+        crate::core::channels::vrpc::intent::identity_control_intent_from_json(&merged)
+            .expect("GenericRequest merged structured identity remains serializable");
     }
 
     #[tokio::test]

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeWalletCommandMock = vi.hoisted(() => vi.fn());
+const invokeSessionBoundWalletCommandMock = vi.hoisted(() => vi.fn());
 const invalidateWalletDisplayHistoryMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./invokeWalletCommand.js', () => ({
   invokeWalletCommand: invokeWalletCommandMock,
+  invokeSessionBoundWalletCommand: invokeSessionBoundWalletCommandMock,
 }));
 
 vi.mock('./walletDisplayService.js', () => ({
@@ -30,6 +32,7 @@ const recoveredResult = {
 describe('txService ETH recovery boundary', () => {
   beforeEach(() => {
     invokeWalletCommandMock.mockReset();
+    invokeSessionBoundWalletCommandMock.mockReset();
     invalidateWalletDisplayHistoryMock.mockReset();
   });
 
@@ -44,20 +47,20 @@ describe('txService ETH recovery boundary', () => {
   });
 
   it('acknowledges only through the explicit command', async () => {
-    invokeWalletCommandMock.mockResolvedValueOnce(undefined);
+    invokeSessionBoundWalletCommandMock.mockResolvedValueOnce(undefined);
 
     await expect(acknowledgePendingEthSubmission('recovery-1')).resolves.toBeUndefined();
-    expect(invokeWalletCommandMock.mock.calls).toEqual([
+    expect(invokeSessionBoundWalletCommandMock.mock.calls).toEqual([
       ['acknowledge_pending_eth_submission', { recovery_id: 'recovery-1' }],
     ]);
     expect(invalidateWalletDisplayHistoryMock).not.toHaveBeenCalled();
   });
 
   it('uses the explicit recovery id without acknowledging before its caller renders', async () => {
-    invokeWalletCommandMock.mockResolvedValueOnce(recoveredResult);
+    invokeSessionBoundWalletCommandMock.mockResolvedValueOnce(recoveredResult);
 
     await expect(resumePendingEthSubmission('recovery-1')).resolves.toEqual(recoveredResult);
-    expect(invokeWalletCommandMock.mock.calls).toEqual([
+    expect(invokeSessionBoundWalletCommandMock.mock.calls).toEqual([
       ['resume_pending_eth_submission', { recovery_id: 'recovery-1' }],
     ]);
   });
@@ -74,11 +77,30 @@ describe('txService ETH recovery boundary', () => {
       fromAddress: recoveredResult.fromAddress,
       requiresResume: true,
       canAcknowledge: false,
+      context: {
+        walletNetwork: 'mainnet',
+        chainId: 1,
+        coinId: 'TOKEN_A',
+        channelId: 'erc20.TOKEN_A',
+        assetKind: 'bridge',
+        contractAddress: `0x${'44'.repeat(20)}`,
+        feeCurrency: 'ETH',
+        destinationKind: 'vrpc',
+        value: recoveredResult.value,
+        fee: recoveredResult.fee,
+        toAddress: recoveredResult.toAddress,
+        fromAddress: recoveredResult.fromAddress,
+        bridgeContractAddress: `0x${'55'.repeat(20)}`,
+        mappedCurrencyId: 'iMappedCurrency',
+        destinationSystemId: 'iDestinationSystem',
+      },
     };
-    invokeWalletCommandMock.mockResolvedValueOnce(review);
+    invokeSessionBoundWalletCommandMock.mockResolvedValueOnce(review);
 
     await expect(getPendingEthSubmission()).resolves.toEqual(review);
-    expect(invokeWalletCommandMock.mock.calls).toEqual([['get_pending_eth_submission']]);
+    expect(invokeSessionBoundWalletCommandMock.mock.calls).toEqual([
+      ['get_pending_eth_submission'],
+    ]);
     expect(invalidateWalletDisplayHistoryMock).not.toHaveBeenCalled();
   });
 });

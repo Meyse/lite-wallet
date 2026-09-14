@@ -10,7 +10,7 @@ vi.mock('./walletLockCoordinator.js', () => ({
   isForcedWalletLockError: () => false,
 }));
 
-import { invokeWalletCommand } from './invokeWalletCommand.js';
+import { invokeSessionBoundWalletCommand, invokeWalletCommand } from './invokeWalletCommand.js';
 
 function deferred<T>() {
   let reject!: (error: unknown) => void;
@@ -37,6 +37,17 @@ describe('invokeWalletCommand', () => {
 
     await expect(request).rejects.toEqual({ type: 'WalletSessionChanged' });
     expect(activeWallet).toBe('wallet-b');
+    expect(forceWalletToUnlockMock).not.toHaveBeenCalled();
+  });
+
+  it('propagates a session-bound WalletLocked cancellation without locking the replacement wallet', async () => {
+    invokeMock.mockRejectedValueOnce({ type: 'WalletLocked' });
+
+    await expect(
+      invokeSessionBoundWalletCommand<void>('resume_pending_eth_submission', {
+        recovery_id: 'recovery-1',
+      })
+    ).rejects.toEqual({ type: 'WalletLocked' });
     expect(forceWalletToUnlockMock).not.toHaveBeenCalled();
   });
 });

@@ -25,6 +25,7 @@
   import WalletTransferStepperShell from '$lib/components/shared/WalletTransferStepperShell.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import TransferSummaryRail from './transfer-wizard/TransferSummaryRail.svelte';
+  import EthRecoveryReviewCard from './transfer-wizard/EthRecoveryReviewCard.svelte';
   import { i18nStore } from '$lib/i18n';
   import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
   import { coinsStore } from '$lib/stores/coins.js';
@@ -71,6 +72,11 @@
     getTransferStepCopy,
     getTransferStepLabels
   } from '$lib/transfer/transferWizardCopy';
+  import {
+    EthRecoveryLifetime,
+    resolveTransferResultContext,
+    runEthRecovery,
+  } from '$lib/transfer/ethRecovery.js';
   import {
     buildReceiveAssetSections,
     type ExportRouteOption,
@@ -207,7 +213,8 @@
         contextChannelId ??
         walletChannels.byCoinId[coin.id] ??
         channelIdForCoin(coin, walletChannels.vrpcAddress ?? undefined);
-      const balanceTotal = channelId ? getBalance(channelId, coin.id, balances)?.total ?? '0' : '0';
+      const balanceTotal = channelId ? (getBalance(channelId, coin.id, balances)?.total ?? '0')
+        : '0';
       return {
         coin,
         channelId,
@@ -266,7 +273,9 @@
   let targetsError = $state('');
   let transferError = $state('');
   let pendingEthSubmission = $state<EthPendingSubmissionReview | null>(null);
+  let recoveredEthSubmission = $state<EthPendingSubmissionReview | null>(null);
   let recoveringEthSubmission = $state(false);
+  const ethRecoveryLifetime = new EthRecoveryLifetime();
 
   let simplePreflightResult = $state<PreflightResult | null>(null);
   let bridgePreflightResult = $state<BridgeTransferPreflightResult | null>(null);
@@ -297,7 +306,7 @@
 
   const selectedChannelId = $derived(selectedCoinOption?.channelId ?? null);
   const selectedChannelInfo = $derived(
-    selectedChannelId ? chainInfoByChannel[selectedChannelId] ?? null : null
+    selectedChannelId ? (chainInfoByChannel[selectedChannelId] ?? null) : null
   );
   const selectedShieldedSyncPercent = $derived(
     selectedChannelId?.startsWith('dlight_private.')
@@ -306,7 +315,7 @@
   );
   const selectedShieldedStatusKind = $derived(
     selectedChannelId?.startsWith('dlight_private.')
-      ? selectedChannelInfo?.statusKind?.toLowerCase() ?? null
+      ? (selectedChannelInfo?.statusKind?.toLowerCase() ?? null)
       : null
   );
   const isShieldedSyncBlocked = $derived(
@@ -432,7 +441,7 @@
   );
 
   const activeConvertRoute = $derived(
-    isPositiveAmount(amount) ? selectedViaOption ?? bestViaOption : null
+    isPositiveAmount(amount) ? (selectedViaOption ?? bestViaOption) : null
   );
 
   const sourceRouteAliasKeys = $derived(
@@ -622,7 +631,7 @@
   );
   const selectedSendExportRouteOption = $derived(
     sendSameAssetOption && activeSendExportSystemId
-      ? sendSameAssetOption.exportOptions.find((option) => option.exportTo === activeSendExportSystemId) ?? null
+      ? (sendSameAssetOption.exportOptions.find((option) => option.exportTo === activeSendExportSystemId) ?? null)
       : null
   );
   const activeSendMapTo = $derived(
@@ -641,7 +650,9 @@
     (() => {
       if (sendSameAssetViaOptions.length === 0) return null;
       if (!isPositiveAmount(amount)) return sendSameAssetViaOptions[0];
-      return sortViaOptionsByScore(sendSameAssetViaOptions, amount, routeEstimateOutputs)[0] ?? null;
+      return (
+        sortViaOptionsByScore(sendSameAssetViaOptions, amount, routeEstimateOutputs)[0] ?? null
+      );
     })()
   );
   const sendDestinationNetworkValue = $derived(
@@ -685,9 +696,9 @@
   );
   const selectedExportRouteOption = $derived(
     selectedReceiveAssetOption && selectedExportSystemId
-      ? selectedReceiveAssetOption.exportOptions.find(
+      ? (selectedReceiveAssetOption.exportOptions.find(
           (option) => option.exportTo === selectedExportSystemId
-        ) ?? null
+        ) ?? null)
       : null
   );
   const selectedDestinationNetworkValue = $derived(
@@ -849,10 +860,37 @@
         destinationAddressKind,
         selfDestinationAddress
       );
-      return !!normalizedDestination && !!normalizedSelf && normalizedDestination === normalizedSelf;
+      return (
+        !!normalizedDestination && !!normalizedSelf && normalizedDestination === normalizedSelf
+      );
     })()
   );
   const isSavedRecipient = $derived(!!matchedSavedRecipient);
+  const successResultContext = $derived(
+    sendResult
+      ? resolveTransferResultContext(sendResult, recoveredEthSubmission, {
+          coinId: selectedCoin?.id ?? '',
+          channelId: selectedChannelId ?? '',
+          destinationKind: destinationAddressKind,
+          toAddress: sendResult.toAddress,
+        })
+      : null
+  );
+  const successCoinPresentation = $derived(
+    successResultContext?.coinId
+      ? resolveCoinPresentationById(successResultContext.coinId)
+      : selectedCoinPresentation
+  );
+  const successMatchedSavedRecipient = $derived(
+    successResultContext
+      ? findMatchingSavedEndpoint(
+          addressBookContacts,
+          successResultContext.destinationKind,
+          successResultContext.toAddress
+        )
+      : null
+  );
+  const isSuccessRecipientSaved = $derived(!!successMatchedSavedRecipient);
   const hasRecipientSimilarityWarning = $derived(
     !isSavedRecipient &&
       sharesSuspiciousPrefixSuffix(addressBookContacts, destinationAddressKind, destinationAddress)
@@ -930,7 +968,9 @@
       if (preflightIndicatesAmountAdjustment) return true;
       const normalizedSubmitted = normalizeAmountString(submittedSendAmount);
       const normalizedActual = normalizeAmountString(effectiveSendAmount);
-      return !!normalizedSubmitted && !!normalizedActual && normalizedSubmitted !== normalizedActual;
+      return (
+        !!normalizedSubmitted && !!normalizedActual && normalizedSubmitted !== normalizedActual
+      );
     })()
   );
 
@@ -1147,7 +1187,9 @@
     })
   );
 
-  const isBusy = $derived(loadingTargets || preflighting || sending);
+  const isBusy = $derived(
+    loadingTargets || preflighting || sending || recoveringEthSubmission || !!pendingEthSubmission
+  );
   const isDirty = $derived(
     currentStep !== 'details' ||
       !!amount.trim() ||
@@ -1597,7 +1639,7 @@
 
     selectedExportSystemId = selectedReceiveAssetOption.hasOnChainPath
       ? null
-      : selectedReceiveAssetOption.exportOptions[0]?.exportTo ?? null;
+      : (selectedReceiveAssetOption.exportOptions[0]?.exportTo ?? null);
     selectedViaOptionId = '';
     manualViaLocked = false;
   });
@@ -1854,7 +1896,10 @@
         const pendingSubmission = await getPendingEthSubmission();
         if (!disposed) pendingEthSubmission = pendingSubmission;
       } catch (error) {
-        if (!disposed) transferError = mapWalletError(error);
+        const errorType = extractWalletErrorType(error);
+        if (!disposed && errorType !== 'WalletSessionChanged' && errorType !== 'WalletLocked') {
+          transferError = mapWalletError(error);
+        }
       }
 
       try {
@@ -1886,6 +1931,7 @@
       disposed = true;
       clearInterval(tickInterval);
       if (unlistenTxSendProgress) unlistenTxSendProgress();
+      ethRecoveryLifetime.dispose();
       copiedSuccessFieldState.destroy();
     };
   });
@@ -1978,9 +2024,11 @@
       return;
     }
 
+    const resultContext = successResultContext;
+    if (!resultContext) return;
     const endpointKind = inferEndpointKindForDestinationAddress(
-      destinationAddressKind,
-      sendResult.toAddress
+      resultContext.destinationKind,
+      resultContext.toAddress
     );
     if (!endpointKind) {
       saveRecipientError = i18n.t('wallet.transfer.saveRecipient.error.invalid');
@@ -1993,7 +2041,7 @@
     try {
       const validation = await addressBookService.validateDestinationAddress({
         kind: endpointKind,
-        address: sendResult.toAddress
+        address: resultContext.toAddress
       });
       if (!validation.valid) {
         saveRecipientError = i18n.t('wallet.transfer.saveRecipient.error.invalid');
@@ -2007,7 +2055,7 @@
           {
             kind: endpointKind,
             label: i18n.t('wallet.transfer.saveRecipient.defaultEndpointLabel'),
-            address: sendResult.toAddress
+            address: resultContext.toAddress
           }
         ]
       });
@@ -2218,7 +2266,9 @@
       normalizedFallback === 'veth' ||
       normalizedFallback === 'ethereum on verus'
     ) {
-      return resolveCoinPresentationById('ETH')?.displayName?.trim() || fallbackTrimmed || systemId?.trim() || '';
+      return (
+        resolveCoinPresentationById('ETH')?.displayName?.trim() || fallbackTrimmed || systemId?.trim() || ''
+      );
     }
     return fallbackTrimmed || systemId?.trim() || '';
   }
@@ -2325,10 +2375,8 @@
       return 'Network';
     }
 
-    return (
-      normalizedSystemId ||
-      'Verus'
-    );
+    return normalizedSystemId ||
+      'Verus';
   }
 
   function stripBridgeSuffix(value: string): string {
@@ -3146,6 +3194,7 @@
     sendStageTick = Date.now();
     transferError = '';
     savedRecipientOnSuccess = false;
+    recoveredEthSubmission = null;
 
     try {
       const result = await sendTransaction({ preflightId: activePreflight.preflightId });
@@ -3182,35 +3231,51 @@
 
   async function recoverPendingEthSubmission() {
     if (!pendingEthSubmission || recoveringEthSubmission) return;
+    const reviewedSubmission = pendingEthSubmission;
     recoveringEthSubmission = true;
     transferError = '';
-    try {
-      const result = await resumePendingEthSubmission(pendingEthSubmission.recoveryId);
-      sendResult = result;
-      pendingEthSubmission = null;
-      await refreshTxHistory();
-      currentStep = 'success';
-    } catch (error) {
-      transferError = mapWalletError(error);
-      try {
-        pendingEthSubmission = await getPendingEthSubmission();
-      } catch {
-        // Keep the last reviewed recovery details visible.
+    await runEthRecovery({
+      lifetime: ethRecoveryLifetime,
+      resume: () => resumePendingEthSubmission(reviewedSubmission.recoveryId),
+      complete: (result) => {
+        recoveredEthSubmission = reviewedSubmission;
+        sendResult = result;
+        pendingEthSubmission = null;
+        const savedRecipient = findMatchingSavedEndpoint(
+          addressBookContacts,
+          reviewedSubmission.context.destinationKind,
+          reviewedSubmission.context.toAddress
+        );
+        if (savedRecipient) {
+          void addressBookService.markAddressBookEndpointUsed(savedRecipient.endpoint.id);
+        }
+        void refreshTxHistory(
+          reviewedSubmission.context.channelId,
+          reviewedSubmission.context.coinId
+        );
+        currentStep = 'success';
+      },
+      fail: (error) => {
+        transferError = mapWalletError(error);
+      },
+      settle: () => {
+        recoveringEthSubmission = false;
       }
-    } finally {
-      recoveringEthSubmission = false;
-    }
+    });
   }
 
-  async function refreshTxHistory() {
-    if (!selectedCoin || !selectedChannelId) return;
+  async function refreshTxHistory(
+    channelId = selectedChannelId ?? '',
+    coinId = selectedCoin?.id ?? ''
+  ) {
+    if (!coinId || !channelId) return;
     try {
-      const transactions = await walletService.getTransactionHistory(selectedChannelId, selectedCoin.id);
+      const transactions = await walletService.getTransactionHistory(channelId, coinId);
       transactionStore.update((state) => ({
         ...state,
-        [selectedChannelId]: {
-          ...(state[selectedChannelId] ?? {}),
-          [selectedCoin.id]: transactions
+        [channelId]: {
+          ...(state[channelId] ?? {}),
+          [coinId]: transactions
         }
       }));
     } catch {
@@ -3315,10 +3380,10 @@
   currentStep={stepNumber}
   totalSteps={OPERATIONAL_STEPS.length}
   steps={stepperSteps}
-  onClose={onClose}
-  closeDisabled={isBusy}
+  {onClose}
+  closeDisabled={loadingTargets || preflighting || sending || recoveringEthSubmission}
   dirty={isDirty}
-  showAside={showSummaryAside}
+  showAside={showSummaryAside && !pendingEthSubmission}
   mobileAsideLabel={i18n.t('wallet.transfer.viewSummary')}
   mobileAsideTitle={i18n.t('wallet.transfer.summary.title')}
 >
@@ -3331,7 +3396,13 @@
   {/snippet}
 
   {#snippet footer()}
-    {#if currentStep === 'success'}
+    {#if pendingEthSubmission}
+      <div class="flex justify-end">
+        <Button variant="secondary" onclick={onClose} disabled={recoveringEthSubmission}>
+          {i18n.t('common.cancel')}
+        </Button>
+      </div>
+    {:else if currentStep === 'success'}
       <div class="flex justify-end">
         <Button onclick={handleDone}>
           {i18n.t('common.done')}
@@ -3366,7 +3437,13 @@
   {/snippet}
 
   {#snippet footerAside()}
-    {#if currentStep === 'success'}
+    {#if pendingEthSubmission}
+      <div class="hidden w-full justify-end md:flex">
+        <Button variant="secondary" onclick={onClose} disabled={recoveringEthSubmission}>
+          {i18n.t('common.cancel')}
+        </Button>
+      </div>
+    {:else if currentStep === 'success'}
       <div class="hidden w-full justify-end md:flex">
         <Button onclick={handleDone}>
           {i18n.t('common.done')}
@@ -3384,33 +3461,13 @@
   <div class={currentStep === 'details' ? 'space-y-4' : currentStep === 'review' ? 'space-y-3' : 'space-y-5'}>
 
     {#if pendingEthSubmission}
-      <div class="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-3 text-amber-950 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-100">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div class="min-w-0">
-            <p class="text-sm font-semibold">{i18n.t('wallet.transfer.ethRecovery.title')}</p>
-            <p class="mt-0.5 text-xs opacity-80">
-              {i18n.t('wallet.transfer.ethRecovery.description', {
-                value: pendingEthSubmission.value,
-                recipient: shortRecipientAddress(pendingEthSubmission.toAddress)
-              })}
-            </p>
-          </div>
-          <Button
-            class="shrink-0"
-            onclick={recoverPendingEthSubmission}
-            disabled={recoveringEthSubmission}
-          >
-            {recoveringEthSubmission
-              ? i18n.t('wallet.transfer.ethRecovery.recovering')
-              : pendingEthSubmission.requiresResume
-                ? i18n.t('wallet.transfer.ethRecovery.continue')
-                : i18n.t('wallet.transfer.ethRecovery.showResult')}
-          </Button>
-        </div>
-      </div>
-    {/if}
-
-    {#if transferError}
+      <EthRecoveryReviewCard
+        review={pendingEthSubmission}
+        recovering={recoveringEthSubmission}
+        onrecover={recoverPendingEthSubmission}
+      />
+    {:else}
+      {#if transferError}
       <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
         {transferError}
       </div>
@@ -3994,12 +4051,13 @@
                 sendResult.value,
                 MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
               )}
-              {@const successRecipientFullAddress = sendResult.toAddress}
+              {@const successRecipientFullAddress =
+                    successResultContext?.toAddress ?? sendResult.toAddress}
               {@const successRecipientAddress = truncateAddressMiddle(successRecipientFullAddress, 10, 10)}
               {@const successTxid = sendResult.txid}
-              {@const sentValueWithTicker = selectedCoinPresentation?.displayTicker?.trim()
-                ? `${formattedSentValue} ${selectedCoinPresentation.displayTicker.trim()}`
-                : formattedSentValue}
+              {@const sentValueWithTicker = successCoinPresentation?.displayTicker?.trim()
+                ? `${formattedSentValue} ${successCoinPresentation.displayTicker.trim()}`
+                    : formattedSentValue}
               <dl class="space-y-1 rounded-lg bg-muted/35 px-2.5 py-2 text-left dark:bg-muted/40">
                 <div class="flex items-start justify-between gap-3">
                   <dt class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.amount')}</dt>
@@ -4010,8 +4068,8 @@
                   <dd class="min-w-0 flex-1">
                     <div class="flex items-start justify-end gap-1.5">
                       <div class="min-w-0 text-right">
-                        {#if matchedSavedRecipient}
-                          <p class="truncate text-[13px] font-medium">{matchedSavedRecipient.contact.displayName}</p>
+                        {#if successMatchedSavedRecipient}
+                          <p class="truncate text-[13px] font-medium">{successMatchedSavedRecipient.contact.displayName}</p>
                           <p class="text-muted-foreground identifier-text mt-0.5 truncate text-[10px]">{successRecipientAddress}</p>
                         {:else}
                           <p class="identifier-text truncate text-[13px] font-medium">{successRecipientAddress}</p>
@@ -4050,7 +4108,7 @@
                 </div>
               </dl>
 
-              {#if !isSavedRecipient}
+              {#if !isSuccessRecipientSaved}
                 <div class="bg-muted/35 w-full rounded-md p-3 text-left dark:bg-muted/40">
                   <p class="text-sm font-medium">{i18n.t('wallet.transfer.saveRecipient.title')}</p>
                   <p class="text-muted-foreground mt-1 text-xs">{i18n.t('wallet.transfer.saveRecipient.description')}</p>
@@ -4084,11 +4142,11 @@
                       <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">
                         {i18n.t('wallet.transfer.step.success.savedRecipientTitle')}
                       </p>
-                      {#if matchedSavedRecipient}
+                      {#if successMatchedSavedRecipient}
                         <p class="text-[11px] text-emerald-900/85 dark:text-emerald-200/90">
                           {i18n.t('wallet.transfer.review.savedRecipient', {
-                            contact: matchedSavedRecipient.contact.displayName,
-                            endpoint: matchedSavedRecipient.endpoint.label
+                            contact: successMatchedSavedRecipient.contact.displayName,
+                            endpoint: successMatchedSavedRecipient.endpoint.label
                           })}
                         </p>
                       {:else}
@@ -4104,6 +4162,7 @@
           </div>
         </Card.Content>
       </Card.Root>
+        {/if}
     {/if}
   </div>
 </WalletTransferStepperShell>
@@ -4380,9 +4439,9 @@
           {i18n.t('wallet.transfer.exportSheetDescription', {
             value:
               exportSheetMode === 'send'
-                ? (selectedCoinPresentation?.displayTicker?.trim() ||
+                ? selectedCoinPresentation?.displayTicker?.trim() ||
                   selectedCoinPresentation?.displayName?.trim() ||
-                  pendingTargetOption.label)
+                  pendingTargetOption.label
                 : pendingTargetOption.label
           })}
         {/if}
@@ -4419,8 +4478,8 @@
                       {i18n.t('wallet.transfer.receiveAs', {
                         value:
                           exportSheetMode === 'send'
-                            ? (selectedCoinPresentation?.displayTicker?.trim() ||
-                              resolveReceiveLabel(pendingTargetOption, null))
+                            ? selectedCoinPresentation?.displayTicker?.trim() ||
+                              resolveReceiveLabel(pendingTargetOption, null)
                             : resolveReceiveLabel(pendingTargetOption, null)
                       })}
                     </p>

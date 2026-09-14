@@ -28,7 +28,10 @@ use crate::core::channels::eth::preflight::EthPreflightPayload;
 use crate::core::channels::eth::provider::EthProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
+use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
+
+const ETH_PENDING_SUBMISSION_SCHEMA_VERSION: u8 = 3;
 
 const ERC20_TRANSFER_ABI: &str = r#"[
   {
@@ -101,6 +104,28 @@ struct EthPendingSubmission {
     tx_hash: String,
     payload: EthPreflightPayload,
     result: SendResult,
+    #[serde(default)]
+    review_context: Option<EthRecoveryReviewContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EthRecoveryReviewContext {
+    pub wallet_network: WalletNetwork,
+    pub chain_id: u64,
+    pub coin_id: String,
+    pub channel_id: String,
+    pub asset_kind: String,
+    pub contract_address: Option<String>,
+    pub fee_currency: String,
+    pub destination_kind: String,
+    pub value: String,
+    pub fee: String,
+    pub to_address: String,
+    pub from_address: String,
+    pub bridge_contract_address: Option<String>,
+    pub mapped_currency_id: Option<String>,
+    pub destination_system_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,11 +141,16 @@ pub struct EthPendingSubmissionReview {
     pub from_address: String,
     pub requires_resume: bool,
     pub can_acknowledge: bool,
+    pub context: EthRecoveryReviewContext,
 }
 
 impl EthPendingSubmission {
-    fn review(&self) -> EthPendingSubmissionReview {
-        EthPendingSubmissionReview {
+    fn review(&self) -> Result<EthPendingSubmissionReview, WalletError> {
+        let context = self
+            .review_context
+            .clone()
+            .ok_or(WalletError::SecureStorageUnavailable)?;
+        Ok(EthPendingSubmissionReview {
             recovery_id: self.recovery_id.clone(),
             stage: serde_json::to_value(self.stage)
                 .ok()
@@ -139,7 +169,8 @@ impl EthPendingSubmission {
                 && self.status == EthSubmissionStatus::BroadcastKnown),
             can_acknowledge: self.stage.is_final()
                 && self.status == EthSubmissionStatus::BroadcastKnown,
-        }
+            context,
+        })
     }
 }
 
@@ -308,7 +339,7 @@ pub async fn get_pending_submission_review(
         return Ok(None);
     };
     validate_pending_binding(&pending, &context, network_provider.chain_id)?;
-    Ok(Some(pending.review()))
+    Ok(Some(pending.review()?))
 }
 
 pub async fn resume_pending_submission(
@@ -451,6 +482,105 @@ fn payload_result(payload: &EthPreflightPayload) -> SendResult {
             to_address: to_address.clone(),
             from_address: from_address.clone(),
             recovery_id: None,
+        },
+    }
+}
+
+fn recovery_review_context(
+    payload: &EthPreflightPayload,
+    wallet_network: WalletNetwork,
+) -> EthRecoveryReviewContext {
+    let fee_currency = match wallet_network {
+        WalletNetwork::Mainnet => "ETH",
+        WalletNetwork::Testnet => "GETH",
+    }
+    .to_string();
+
+    match payload {
+        EthPreflightPayload::Eth {
+            chain_id,
+            coin_id,
+            from_address,
+            to_address,
+            fee,
+            value,
+            ..
+        } => EthRecoveryReviewContext {
+            wallet_network,
+            chain_id: *chain_id,
+            coin_id: coin_id.clone(),
+            channel_id: format!("eth.{coin_id}"),
+            asset_kind: "eth".to_string(),
+            contract_address: None,
+            fee_currency,
+            destination_kind: "eth".to_string(),
+            value: value.clone(),
+            fee: fee.clone(),
+            to_address: to_address.clone(),
+            from_address: from_address.clone(),
+            bridge_contract_address: None,
+            mapped_currency_id: None,
+            destination_system_id: None,
+        },
+        EthPreflightPayload::Erc20 {
+            chain_id,
+            coin_id,
+            token_address,
+            from_address,
+            to_address,
+            fee,
+            value,
+            ..
+        } => EthRecoveryReviewContext {
+            wallet_network,
+            chain_id: *chain_id,
+            coin_id: coin_id.clone(),
+            channel_id: format!("erc20.{coin_id}"),
+            asset_kind: "erc20".to_string(),
+            contract_address: Some(token_address.clone()),
+            fee_currency,
+            destination_kind: "eth".to_string(),
+            value: value.clone(),
+            fee: fee.clone(),
+            to_address: to_address.clone(),
+            from_address: from_address.clone(),
+            bridge_contract_address: None,
+            mapped_currency_id: None,
+            destination_system_id: None,
+        },
+        EthPreflightPayload::Bridge {
+            chain_id,
+            coin_id,
+            channel_id,
+            from_address,
+            to_address,
+            source_contract,
+            mapped_currency_iaddress,
+            reserve_transfer_dest_system_id,
+            bridge_contract,
+            fee,
+            value,
+            ..
+        } => EthRecoveryReviewContext {
+            wallet_network,
+            chain_id: *chain_id,
+            coin_id: coin_id.clone(),
+            channel_id: channel_id.clone(),
+            asset_kind: "bridge".to_string(),
+            contract_address: source_contract
+                .parse::<Address>()
+                .ok()
+                .filter(|address| *address != Address::zero())
+                .map(|_| source_contract.clone()),
+            fee_currency,
+            destination_kind: "vrpc".to_string(),
+            value: value.clone(),
+            fee: fee.clone(),
+            to_address: to_address.clone(),
+            from_address: from_address.clone(),
+            bridge_contract_address: Some(bridge_contract.clone()),
+            mapped_currency_id: Some(mapped_currency_iaddress.clone()),
+            destination_system_id: Some(reserve_transfer_dest_system_id.clone()),
         },
     }
 }
@@ -761,10 +891,22 @@ async fn load_pending_submission(
     else {
         return Ok(None);
     };
-    let pending = serde_json::from_slice::<EthPendingSubmission>(&bytes)
+    let mut pending = serde_json::from_slice::<EthPendingSubmission>(&bytes)
         .map_err(|_| WalletError::SecureStorageUnavailable)?;
-    if pending.schema_version != 2 || pending.recovery_id.trim().is_empty() {
+    if pending.recovery_id.trim().is_empty()
+        || !matches!(
+            pending.schema_version,
+            2 | ETH_PENDING_SUBMISSION_SCHEMA_VERSION
+        )
+    {
         return Err(WalletError::SecureStorageUnavailable);
+    }
+    if pending.schema_version == 2 && pending.review_context.is_none() {
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
+        pending.schema_version = ETH_PENDING_SUBMISSION_SCHEMA_VERSION;
     }
     Ok(Some(pending))
 }
@@ -779,6 +921,15 @@ fn validate_pending_binding(
         .parse()
         .map_err(|_| WalletError::InvalidAddress)?;
     validate_payload_binding(&pending.payload, expected_chain_id, expected_from)?;
+    let expected_review_context = recovery_review_context(&pending.payload, context.wallet_network);
+    if pending.review_context.as_ref() != Some(&expected_review_context)
+        || pending.result.fee != expected_review_context.fee
+        || pending.result.value != expected_review_context.value
+        || pending.result.to_address != expected_review_context.to_address
+        || pending.result.from_address != expected_review_context.from_address
+    {
+        return Err(WalletError::SecureStorageUnavailable);
+    }
     if pending.chain_id != expected_chain_id
         || !pending
             .from_address
@@ -883,7 +1034,7 @@ async fn prepare_pending_submission(
     result.recovery_id = Some(recovery_id.clone());
 
     let pending = EthPendingSubmission {
-        schema_version: 2,
+        schema_version: ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
         recovery_id,
         preflight_id: preflight_id.to_string(),
         chain_id: payload_chain_and_from(&payload).0,
@@ -893,6 +1044,7 @@ async fn prepare_pending_submission(
         status: EthSubmissionStatus::Prepared,
         raw_signed_transaction: hex::encode(raw),
         tx_hash: format!("{tx_hash:#x}"),
+        review_context: Some(recovery_review_context(&payload, context.wallet_network)),
         payload,
         result,
     };
@@ -1142,8 +1294,9 @@ fn fee_drift_exceeds_cap(
 #[cfg(test)]
 mod tests {
     use super::{
-        fee_drift_exceeds_cap, EthPendingSubmission, EthSubmissionStage, EthSubmissionStatus,
-        SessionBoundEthOperation, SessionBoundSubmission,
+        fee_drift_exceeds_cap, recovery_review_context, validate_pending_binding,
+        EthPendingSubmission, EthSubmissionStage, EthSubmissionStatus, SessionBoundEthOperation,
+        SessionBoundSubmission, ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
     };
     use crate::core::auth::session::ActiveWalletAccessContext;
     use crate::core::auth::{
@@ -1228,8 +1381,20 @@ mod tests {
     }
 
     fn pending_submission(stage: EthSubmissionStage) -> EthPendingSubmission {
+        let payload = EthPreflightPayload::Eth {
+            chain_id: 1,
+            coin_id: "ETH".to_string(),
+            from_address: "0x1111111111111111111111111111111111111111".to_string(),
+            to_address: "0x2222222222222222222222222222222222222222".to_string(),
+            value_wei: "1".to_string(),
+            gas_limit: "21000".to_string(),
+            max_fee_per_gas: "2".to_string(),
+            max_priority_fee_per_gas: "1".to_string(),
+            fee: "0.000000000000042".to_string(),
+            value: "0.000000000000000001".to_string(),
+        };
         EthPendingSubmission {
-            schema_version: 2,
+            schema_version: ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
             recovery_id: "recovery-1".to_string(),
             preflight_id: "preflight-1".to_string(),
             chain_id: 1,
@@ -1239,18 +1404,8 @@ mod tests {
             status: EthSubmissionStatus::Prepared,
             raw_signed_transaction: "02deadbeef".to_string(),
             tx_hash: format!("0x{}", "ab".repeat(32)),
-            payload: EthPreflightPayload::Eth {
-                chain_id: 1,
-                coin_id: "ETH".to_string(),
-                from_address: "0x1111111111111111111111111111111111111111".to_string(),
-                to_address: "0x2222222222222222222222222222222222222222".to_string(),
-                value_wei: "1".to_string(),
-                gas_limit: "21000".to_string(),
-                max_fee_per_gas: "2".to_string(),
-                max_priority_fee_per_gas: "1".to_string(),
-                fee: "0.000000000000042".to_string(),
-                value: "0.000000000000000001".to_string(),
-            },
+            review_context: Some(recovery_review_context(&payload, WalletNetwork::Mainnet)),
+            payload,
             result: SendResult {
                 txid: format!("0x{}", "ab".repeat(32)),
                 fee: "0.000000000000042".to_string(),
@@ -1460,7 +1615,7 @@ mod tests {
             let actual: EthPendingSubmission =
                 serde_json::from_slice(&bytes).expect("deserialize pending submission");
 
-            assert_eq!(actual.schema_version, 2);
+            assert_eq!(actual.schema_version, ETH_PENDING_SUBMISSION_SCHEMA_VERSION);
             assert_eq!(actual.recovery_id, "recovery-1");
             assert_eq!(actual.stage, stage);
             assert_eq!(actual.status, EthSubmissionStatus::Prepared);
@@ -1468,6 +1623,93 @@ mod tests {
             assert_eq!(actual.raw_signed_transaction, "02deadbeef");
             assert_eq!(actual.tx_hash, format!("0x{}", "ab".repeat(32)));
         }
+    }
+
+    #[test]
+    fn recovery_review_context_binds_asset_network_and_bridge_details() {
+        let bridge = bridge_payload("0x1111111111111111111111111111111111111111");
+        let bridge_context = recovery_review_context(&bridge, WalletNetwork::Mainnet);
+        assert_eq!(bridge_context.coin_id, "vETH");
+        assert_eq!(bridge_context.channel_id, "erc20.vETH");
+        assert_eq!(bridge_context.asset_kind, "bridge");
+        assert_eq!(bridge_context.wallet_network, WalletNetwork::Mainnet);
+        assert_eq!(bridge_context.chain_id, 1);
+        assert_eq!(
+            bridge_context.contract_address.as_deref(),
+            Some("0x4444444444444444444444444444444444444444")
+        );
+        assert_eq!(
+            bridge_context.bridge_contract_address.as_deref(),
+            Some("0x5555555555555555555555555555555555555555")
+        );
+        assert_eq!(
+            bridge_context.mapped_currency_id.as_deref(),
+            Some("iTestCurrency")
+        );
+        assert_eq!(
+            bridge_context.destination_system_id.as_deref(),
+            Some("0x0000000000000000000000000000000000000000")
+        );
+        assert_eq!(bridge_context.to_address, "RtestDestination");
+
+        let erc20 = EthPreflightPayload::Erc20 {
+            chain_id: 11155111,
+            coin_id: "TOKEN_A".to_string(),
+            token_address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            token_decimals: 6,
+            from_address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+            to_address: "0xcccccccccccccccccccccccccccccccccccccccc".to_string(),
+            token_value_raw: "5000000".to_string(),
+            gas_limit: "120000".to_string(),
+            max_fee_per_gas: "2".to_string(),
+            max_priority_fee_per_gas: "1".to_string(),
+            max_fee_cap: "240000".to_string(),
+            fee: "0.00024".to_string(),
+            value: "5".to_string(),
+        };
+        let erc20_context = recovery_review_context(&erc20, WalletNetwork::Testnet);
+        assert_eq!(erc20_context.coin_id, "TOKEN_A");
+        assert_eq!(erc20_context.channel_id, "erc20.TOKEN_A");
+        assert_eq!(erc20_context.asset_kind, "erc20");
+        assert_eq!(erc20_context.wallet_network, WalletNetwork::Testnet);
+        assert_eq!(erc20_context.chain_id, 11155111);
+        assert_eq!(erc20_context.fee_currency, "GETH");
+        assert_eq!(
+            erc20_context.contract_address.as_deref(),
+            Some("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            erc20_context.to_address,
+            "0xcccccccccccccccccccccccccccccccccccccccc"
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_binding_rejects_tampered_recovery_review_context() {
+        let (_session, context) = test_session_with_stored_seed("review binding seed").await;
+        let mut pending = pending_submission(EthSubmissionStage::Eth);
+        pending.from_address = context.eth_address.clone();
+        pending.payload = eth_payload(
+            &context.eth_address,
+            "0x3333333333333333333333333333333333333333",
+        );
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
+        pending.result = super::payload_result(&pending.payload);
+
+        validate_pending_binding(&pending, &context, 1).expect("untampered context");
+
+        pending
+            .review_context
+            .as_mut()
+            .expect("review context")
+            .coin_id = "TOKEN_B".to_string();
+        assert!(matches!(
+            validate_pending_binding(&pending, &context, 1),
+            Err(WalletError::SecureStorageUnavailable)
+        ));
     }
 
     #[test]
@@ -1492,6 +1734,10 @@ mod tests {
         old.status = EthSubmissionStatus::Confirmed;
         old.from_address = context.eth_address.clone();
         old.payload = bridge_payload(&context.eth_address);
+        old.review_context = Some(recovery_review_context(
+            &old.payload,
+            context.wallet_network,
+        ));
         old.result = super::payload_result(&old.payload);
         old.result.txid = old.tx_hash.clone();
         old.result.recovery_id = Some(old.recovery_id.clone());
@@ -1538,6 +1784,10 @@ mod tests {
             &context.eth_address,
             "0x2222222222222222222222222222222222222222",
         );
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
         pending.result.from_address = context.eth_address.clone();
         store_pending(&context, &pending).await;
         let providers = EthProviderPool::for_tests(WalletNetwork::Mainnet, "http://127.0.0.1:9");
@@ -1575,6 +1825,10 @@ mod tests {
             &context.eth_address,
             "0x2222222222222222222222222222222222222222",
         );
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
         pending.result.from_address = context.eth_address.clone();
         store_pending(&context, &pending).await;
 
@@ -1602,6 +1856,10 @@ mod tests {
         pending.status = EthSubmissionStatus::Confirmed;
         pending.from_address = context.eth_address.clone();
         pending.payload = bridge_payload(&context.eth_address);
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
         pending.result = super::payload_result(&pending.payload);
         pending.result.txid = pending.tx_hash.clone();
         pending.result.recovery_id = Some(pending.recovery_id.clone());
@@ -1692,6 +1950,10 @@ mod tests {
             &context.eth_address,
             "0x2222222222222222222222222222222222222222",
         );
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
         pending.result.from_address = context.eth_address.clone();
         store_pending(&context, &pending).await;
         let preflights = PreflightStore::new();

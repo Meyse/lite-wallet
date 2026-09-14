@@ -167,6 +167,23 @@ export interface EthPendingSubmissionReview {
   fromAddress: string;
   requiresResume: boolean;
   canAcknowledge: boolean;
+  context: {
+    walletNetwork: 'mainnet' | 'testnet';
+    chainId: number;
+    coinId: string;
+    channelId: string;
+    assetKind: 'eth' | 'erc20' | 'bridge';
+    contractAddress?: string | null;
+    feeCurrency: string;
+    destinationKind: 'eth' | 'vrpc';
+    value: string;
+    fee: string;
+    toAddress: string;
+    fromAddress: string;
+    bridgeContractAddress?: string | null;
+    mappedCurrencyId?: string | null;
+    destinationSystemId?: string | null;
+  };
 }
 
 export type IdentityOperation = 'update' | 'revoke' | 'recover';
@@ -683,10 +700,7 @@ export interface DlightProverStatusResult {
 }
 
 export type TxSendProgressStage =
-  | 'syncing_spend_state'
-  | 'loading_prover'
-  | 'building_proof'
-  | 'broadcasting';
+  'syncing_spend_state' | 'loading_prover' | 'building_proof' | 'broadcasting';
 
 export interface TxSendProgressEventPayload {
   channel?: string;
