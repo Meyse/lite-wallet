@@ -33,6 +33,7 @@ const PROVISIONING_JOBS_RECORD_KEY: &[u8] = b"provisioning_jobs_v1";
 const PROVISIONING_JOBS_SCHEMA_VERSION: u8 = 1;
 const DLIGHT_SEED_RECORD_KEY: &[u8] = b"dlight_seed_v1";
 const DLIGHT_SEED_SCHEMA_VERSION: u8 = 1;
+const ETH_PENDING_SUBMISSION_RECORD_KEY: &[u8] = b"eth_pending_submission_v1";
 const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
@@ -266,6 +267,18 @@ impl StrongholdStore {
 
     fn provisioning_jobs_snapshot_path(&self, account_id: &str) -> PathBuf {
         self.isolated_snapshot_path(account_id, "provisioning_jobs.snapshot.stronghold")
+    }
+
+    fn eth_pending_submission_snapshot_path(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+    ) -> PathBuf {
+        let file_name = match network {
+            WalletNetwork::Mainnet => "eth_pending_submission.mainnet.snapshot.stronghold",
+            WalletNetwork::Testnet => "eth_pending_submission.testnet.snapshot.stronghold",
+        };
+        self.isolated_snapshot_path(account_id, file_name)
     }
 
     fn seed_temp_snapshot_path(&self, account_id: &str) -> PathBuf {
@@ -1029,6 +1042,50 @@ impl StrongholdStore {
             "address book",
         )
         .await
+    }
+
+    /// Persist the exact signed Ethereum transaction awaiting reconciliation.
+    /// The opaque payload is encrypted in an account- and network-scoped snapshot.
+    pub async fn store_eth_pending_submission(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+        data: &[u8],
+    ) -> Result<(), WalletError> {
+        let path = self.eth_pending_submission_snapshot_path(account_id, network);
+        self.commit_record_to_path(
+            account_id,
+            &path,
+            password_hash,
+            ETH_PENDING_SUBMISSION_RECORD_KEY,
+            data,
+        )
+    }
+
+    pub async fn load_eth_pending_submission(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        network: WalletNetwork,
+    ) -> Result<Option<Vec<u8>>, WalletError> {
+        let path = self.eth_pending_submission_snapshot_path(account_id, network);
+        self.load_optional_record_from_path(
+            account_id,
+            password_hash,
+            &path,
+            ETH_PENDING_SUBMISSION_RECORD_KEY,
+            "Ethereum pending submission",
+        )
+        .await
+    }
+
+    pub async fn clear_eth_pending_submission(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+    ) -> Result<(), WalletError> {
+        Self::remove_file_if_exists(&self.eth_pending_submission_snapshot_path(account_id, network))
     }
 
     pub async fn load_watched_vrpc_addresses(
@@ -1909,6 +1966,96 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(replaced_metadata.birthday.is_none());
+        std::fs::remove_dir_all(store.base_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn eth_pending_submission_round_trip_is_encrypted_network_scoped_and_clearable() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let account_id = "account_eth_pending";
+        let password_hash = StrongholdStore::derive_legacy_password_hash("test-password");
+        let mainnet_record = br#"{"stage":"eth","raw":"0102"}"#;
+        let testnet_record = br#"{"stage":"bridge_transfer","raw":"0304"}"#;
+
+        store
+            .store_eth_pending_submission(
+                account_id,
+                password_hash.as_ref(),
+                WalletNetwork::Mainnet,
+                mainnet_record,
+            )
+            .await
+            .expect("store mainnet pending submission");
+        store
+            .store_eth_pending_submission(
+                account_id,
+                password_hash.as_ref(),
+                WalletNetwork::Testnet,
+                testnet_record,
+            )
+            .await
+            .expect("store testnet pending submission");
+
+        assert_eq!(
+            store
+                .load_eth_pending_submission(
+                    account_id,
+                    password_hash.as_ref(),
+                    WalletNetwork::Mainnet,
+                )
+                .await
+                .expect("load mainnet pending submission")
+                .as_deref(),
+            Some(mainnet_record.as_slice())
+        );
+        assert_eq!(
+            store
+                .load_eth_pending_submission(
+                    account_id,
+                    password_hash.as_ref(),
+                    WalletNetwork::Testnet,
+                )
+                .await
+                .expect("load testnet pending submission")
+                .as_deref(),
+            Some(testnet_record.as_slice())
+        );
+
+        let mainnet_snapshot =
+            store.eth_pending_submission_snapshot_path(account_id, WalletNetwork::Mainnet);
+        let snapshot_bytes = std::fs::read(&mainnet_snapshot).expect("encrypted snapshot");
+        assert!(!snapshot_bytes
+            .windows(mainnet_record.len())
+            .any(|window| window == mainnet_record));
+
+        store
+            .clear_eth_pending_submission(account_id, WalletNetwork::Mainnet)
+            .await
+            .expect("clear mainnet pending submission");
+        assert!(
+            store
+                .load_eth_pending_submission(
+                    account_id,
+                    password_hash.as_ref(),
+                    WalletNetwork::Mainnet,
+                )
+                .await
+                .expect("load cleared mainnet pending submission")
+                .is_none()
+        );
+        assert!(
+            store
+                .load_eth_pending_submission(
+                    account_id,
+                    password_hash.as_ref(),
+                    WalletNetwork::Testnet,
+                )
+                .await
+                .expect("load retained testnet pending submission")
+                .is_some()
+        );
+
         std::fs::remove_dir_all(store.base_path).unwrap();
     }
 }

@@ -25,6 +25,7 @@ use crate::core::channels::vrpc::identity::verus_tx::sighash::{
     signature_hash as zcash_signature_hash, SIGHASH_ALL,
 };
 use crate::core::channels::vrpc::identity::verus_tx::smart_sig::build_single_signature_chunk;
+use crate::core::channels::vrpc::intent::validate_identity_transaction_intent;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::wallet::WalletNetwork;
@@ -100,6 +101,22 @@ pub async fn send_with_private_key_material(
     }
     let payload: IdentityPreflightPayload =
         serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
+
+    let input_total = payload
+        .signable_inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::InvalidPreflight)?;
+    let fee_sats = crate::core::channels::vrpc::common::parse_positive_amount_sat(&payload.fee)
+        .map_err(|_| WalletError::InvalidPreflight)?;
+    validate_identity_transaction_intent(
+        &payload.unsigned_hex,
+        &payload.control_intent,
+        &payload.from_address,
+        input_total,
+        fee_sats,
+    )
+    .map_err(|_| WalletError::InvalidPreflight)?;
 
     let signed_hex = sign_payload(&payload, private_key)?;
     if let Some(session_manager) = session_manager {

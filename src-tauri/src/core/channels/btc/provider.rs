@@ -97,6 +97,14 @@ impl BtcProvider {
         Self::new_mainnet()
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_for_tests(base_url: String) -> Self {
+        Self {
+            client: Self::build_http_client(),
+            base_url,
+        }
+    }
+
     fn url(&self, path: &str) -> String {
         format!(
             "{}/{}",

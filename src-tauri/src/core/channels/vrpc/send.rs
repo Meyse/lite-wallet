@@ -29,6 +29,7 @@ use crate::core::channels::vrpc::identity::verus_tx::sighash::{
     signature_hash as zcash_signature_hash, SIGHASH_ALL as ZCASH_SIGHASH_ALL,
 };
 use crate::core::channels::vrpc::identity::verus_tx::smart_sig::build_single_signature_chunk;
+use crate::core::channels::vrpc::intent::validate_transaction_intent;
 use crate::core::channels::vrpc::provider::VrpcProviderPool;
 use crate::types::transaction::SendResult;
 use crate::types::WalletError;
@@ -55,6 +56,22 @@ pub async fn send(
 
     let payload: VrpcPreflightPayload = serde_json::from_value(record.payload.clone())
         .map_err(|_| WalletError::InvalidPreflight)?;
+
+    let input_total = payload
+        .inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::InvalidPreflight)?;
+    let fee_sat = crate::core::channels::vrpc::common::parse_positive_amount_sat(&payload.fee)
+        .map_err(|_| WalletError::InvalidPreflight)?;
+    validate_transaction_intent(
+        &payload.hex,
+        &payload.intent,
+        &payload.from_address,
+        input_total,
+        fee_sat,
+    )
+    .map_err(|_| WalletError::InvalidPreflight)?;
 
     let secp = Secp256k1::new();
     let secret_key = bitcoin::secp256k1::SecretKey::from_slice(&*private_key)

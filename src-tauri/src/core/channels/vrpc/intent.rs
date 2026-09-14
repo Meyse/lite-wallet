@@ -1,0 +1,1236 @@
+use std::io::Cursor;
+
+use bitcoin::consensus::Decodable;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::core::channels::vrpc::identity::verus_tx::codec::decode_hex as decode_verus_tx;
+use crate::types::WalletError;
+use zcash_client_backend::encoding::decode_payment_address;
+
+const OP_CHECKCRYPTOCONDITION: u8 = 0xcc;
+const OP_DROP: u8 = 0x75;
+const EVAL_NONE: u8 = 0;
+const EVAL_RESERVE_TRANSFER: u8 = 8;
+const EVAL_RESERVE_OUTPUT: u8 = 9;
+const EVAL_IDENTITY_PRIMARY: u8 = 14;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct IdentityControlIntent {
+    pub version: u32,
+    pub flags: u32,
+    pub primary_addresses: Vec<Vec<u8>>,
+    pub minimum_signatures: u32,
+    pub revocation_authority: Vec<u8>,
+    pub recovery_authority: Vec<u8>,
+    pub private_addresses: Vec<Vec<u8>>,
+    pub system_id: Option<Vec<u8>>,
+    pub unlock_after: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SemanticDestination {
+    pub destination_type: u8,
+    pub destination_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum VrpcOutputIntent {
+    NativePayment {
+        destination: SemanticDestination,
+        amount_sats: u64,
+    },
+    TokenPayment {
+        destination: SemanticDestination,
+        currency_id: Vec<u8>,
+        amount_sats: u64,
+        output_value_sats: u64,
+    },
+    ReserveTransfer {
+        source_currency_id: Vec<u8>,
+        amount_sats: u64,
+        flags: u64,
+        fee_currency_id: Vec<u8>,
+        fee_sats: u64,
+        destination: SemanticDestination,
+        dest_currency_id: Option<Vec<u8>>,
+        second_reserve_id: Option<Vec<u8>>,
+        dest_system_id: Option<Vec<u8>>,
+        output_value_sats: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DecodedReserveTransfer {
+    source_currency_id: Vec<u8>,
+    amount_sats: u64,
+    flags: u64,
+    fee_currency_id: Vec<u8>,
+    fee_sats: u64,
+    destination: SemanticDestination,
+    dest_currency_id: Vec<u8>,
+    second_reserve_id: Option<Vec<u8>>,
+    dest_system_id: Option<Vec<u8>>,
+}
+
+#[derive(Debug)]
+struct DecodedOutput {
+    value: u64,
+    script: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct OptCcParams {
+    eval_code: u8,
+    destinations: Vec<SemanticDestination>,
+    vdata: Vec<Vec<u8>>,
+}
+
+pub(crate) fn decode_base58_destination(address: &str) -> Result<SemanticDestination, WalletError> {
+    let decoded = bs58::decode(address.trim())
+        .with_check(None)
+        .into_vec()
+        .map_err(|_| WalletError::InvalidAddress)?;
+    if decoded.len() != 21 {
+        return Err(WalletError::InvalidAddress);
+    }
+    let destination_type = match decoded[0] {
+        60 => 2,
+        102 => 4,
+        _ => return Err(WalletError::InvalidAddress),
+    };
+    Ok(SemanticDestination {
+        destination_type,
+        destination_bytes: decoded[1..].to_vec(),
+    })
+}
+
+pub(crate) fn decode_semantic_destination(
+    address: &str,
+) -> Result<SemanticDestination, WalletError> {
+    let trimmed = address.trim();
+    if trimmed.starts_with('R') || trimmed.starts_with('i') {
+        return decode_base58_destination(trimmed);
+    }
+    if let Some(raw) = trimmed.strip_prefix("0x") {
+        if raw.len() != 40 {
+            return Err(WalletError::InvalidAddress);
+        }
+        return Ok(SemanticDestination {
+            destination_type: 9,
+            destination_bytes: hex::decode(raw).map_err(|_| WalletError::InvalidAddress)?,
+        });
+    }
+    let payment =
+        decode_sapling_payment_address(trimmed).map_err(|_| WalletError::InvalidAddress)?;
+    Ok(SemanticDestination {
+        destination_type: 7,
+        destination_bytes: payment.to_bytes().to_vec(),
+    })
+}
+
+pub(crate) fn decode_currency_id(currency_id: &str) -> Result<Vec<u8>, WalletError> {
+    let decoded = bs58::decode(currency_id.trim())
+        .with_check(None)
+        .into_vec()
+        .map_err(|_| WalletError::OperationFailed)?;
+    if decoded.len() != 21 || decoded[0] != 102 {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(decoded[1..].to_vec())
+}
+
+pub(crate) fn validate_transaction_intent(
+    tx_hex: &str,
+    intent: &VrpcOutputIntent,
+    change_address: &str,
+    input_total_sats: i64,
+    expected_fee_sats: i64,
+) -> Result<(), WalletError> {
+    let outputs = decode_outputs(tx_hex)?;
+    let change = decode_base58_destination(change_address)?;
+    if change.destination_type != 2 {
+        return Err(WalletError::OperationFailed);
+    }
+    let change_script = p2pkh_script(&change.destination_bytes)?;
+    let mut matched = 0usize;
+    let mut output_total = 0u64;
+
+    for output in outputs {
+        output_total = output_total
+            .checked_add(output.value)
+            .ok_or(WalletError::OperationFailed)?;
+        if output_matches_intent(&output, intent)? {
+            matched += 1;
+            continue;
+        }
+        if output.script != change_script {
+            return Err(WalletError::OperationFailed);
+        }
+    }
+
+    if matched != 1 {
+        return Err(WalletError::OperationFailed);
+    }
+    let output_total = i64::try_from(output_total).map_err(|_| WalletError::OperationFailed)?;
+    let actual_fee = input_total_sats
+        .checked_sub(output_total)
+        .ok_or(WalletError::OperationFailed)?;
+    if actual_fee != expected_fee_sats || actual_fee <= 0 {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(())
+}
+
+/// Bind fields that verusd derives rather than accepting directly from the
+/// user request. The unfunded template must already match every user-selected
+/// reserve-transfer field; after this step, funding and signing validate the
+/// daemon-derived destination currency exactly as well.
+pub(crate) fn bind_derived_reserve_fields(
+    tx_hex: &str,
+    intent: &mut VrpcOutputIntent,
+) -> Result<(), WalletError> {
+    let VrpcOutputIntent::ReserveTransfer {
+        dest_currency_id, ..
+    } = &*intent
+    else {
+        return Ok(());
+    };
+    if dest_currency_id.is_some() {
+        return Ok(());
+    }
+
+    let outputs = decode_outputs(tx_hex)?;
+    let mut derived = None;
+    for output in outputs {
+        if !output_matches_intent(&output, intent)? {
+            continue;
+        }
+        let params = parse_cc_params(&output.script)?;
+        if params.eval_code != EVAL_RESERVE_TRANSFER || params.vdata.len() != 1 {
+            continue;
+        }
+        let decoded = parse_reserve_transfer(&params.vdata[0])?;
+        if derived.replace(decoded.dest_currency_id).is_some() {
+            return Err(WalletError::OperationFailed);
+        }
+    }
+    let derived = derived.ok_or(WalletError::OperationFailed)?;
+    if let VrpcOutputIntent::ReserveTransfer {
+        dest_currency_id, ..
+    } = intent
+    {
+        *dest_currency_id = Some(derived);
+    }
+    Ok(())
+}
+
+pub(crate) fn identity_control_intent_from_json(
+    identity: &Value,
+) -> Result<IdentityControlIntent, WalletError> {
+    let version = json_u32(identity, &["version"])?;
+    let flags = json_u32(identity, &["flags"])?;
+    let minimum_signatures = json_u32(identity, &["minimumsignatures", "minimumSignatures"])?;
+    let primary_addresses = json_array(identity, &["primaryaddresses", "primaryAddresses"])?
+        .iter()
+        .map(|value| {
+            let address = value.as_str().ok_or(WalletError::IdentityBuildFailed)?;
+            Ok(decode_base58_destination(address)?.destination_bytes)
+        })
+        .collect::<Result<Vec<_>, WalletError>>()?;
+    let revocation_authority =
+        json_address_hash(identity, &["revocationauthority", "revocationAuthority"])?;
+    let recovery_authority =
+        json_address_hash(identity, &["recoveryauthority", "recoveryAuthority"])?;
+    let private_addresses = match identity
+        .get("privateaddresses")
+        .or_else(|| identity.get("privateAddresses"))
+        .or_else(|| identity.get("privateaddress"))
+        .or_else(|| identity.get("privateAddress"))
+    {
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| decode_private_address(value.as_str()))
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(Value::String(value)) if !value.trim().is_empty() => {
+            vec![decode_private_address(Some(value))?]
+        }
+        _ => Vec::new(),
+    };
+    let system_id = if version >= 2 {
+        Some(json_address_hash(identity, &["systemid", "systemId"])?)
+    } else {
+        None
+    };
+    let unlock_after = if version >= 2 {
+        Some(json_u32(
+            identity,
+            &["timelock", "unlockafter", "unlockAfter"],
+        )?)
+    } else {
+        None
+    };
+    Ok(IdentityControlIntent {
+        version,
+        flags,
+        primary_addresses,
+        minimum_signatures,
+        revocation_authority,
+        recovery_authority,
+        private_addresses,
+        system_id,
+        unlock_after,
+    })
+}
+
+pub(crate) fn validate_identity_control_intent(
+    tx_hex: &str,
+    expected: &IdentityControlIntent,
+) -> Result<(), WalletError> {
+    let outputs = decode_outputs(tx_hex)?;
+    let mut matched = 0usize;
+    for output in outputs {
+        let Ok(params) = parse_cc_params(&output.script) else {
+            continue;
+        };
+        if params.eval_code != EVAL_IDENTITY_PRIMARY || params.vdata.len() != 1 {
+            continue;
+        }
+        let actual = parse_identity_control(&params.vdata[0])?;
+        if &actual != expected {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        matched += 1;
+    }
+    if matched != 1 {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_identity_transaction_intent(
+    tx_hex: &str,
+    expected: &IdentityControlIntent,
+    change_address: &str,
+    input_total_sats: i64,
+    expected_fee_sats: i64,
+) -> Result<(), WalletError> {
+    let outputs = decode_outputs(tx_hex)?;
+    let change = decode_base58_destination(change_address)?;
+    if change.destination_type != 2 {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let change_script = p2pkh_script(&change.destination_bytes)?;
+    let mut identity_outputs = 0usize;
+    let mut output_total = 0u64;
+
+    for output in outputs {
+        output_total = output_total
+            .checked_add(output.value)
+            .ok_or(WalletError::IdentityBuildFailed)?;
+        if let Ok(params) = parse_cc_params(&output.script) {
+            if params.eval_code == EVAL_IDENTITY_PRIMARY && params.vdata.len() == 1 {
+                if parse_identity_control(&params.vdata[0])? != *expected {
+                    return Err(WalletError::IdentityBuildFailed);
+                }
+                identity_outputs += 1;
+                continue;
+            }
+        }
+        if output.script != change_script {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+    }
+
+    let output_total = i64::try_from(output_total).map_err(|_| WalletError::IdentityBuildFailed)?;
+    let actual_fee = input_total_sats
+        .checked_sub(output_total)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    if identity_outputs != 1 || actual_fee != expected_fee_sats || actual_fee <= 0 {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    Ok(())
+}
+
+fn json_u32(identity: &Value, names: &[&str]) -> Result<u32, WalletError> {
+    let value = names
+        .iter()
+        .find_map(|name| identity.get(*name))
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse().ok())
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or(WalletError::IdentityBuildFailed)
+}
+
+fn json_array<'a>(identity: &'a Value, names: &[&str]) -> Result<&'a [Value], WalletError> {
+    names
+        .iter()
+        .find_map(|name| identity.get(*name))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .ok_or(WalletError::IdentityBuildFailed)
+}
+
+fn json_address_hash(identity: &Value, names: &[&str]) -> Result<Vec<u8>, WalletError> {
+    let address = names
+        .iter()
+        .find_map(|name| identity.get(*name))
+        .and_then(Value::as_str)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    Ok(decode_base58_destination(address)?.destination_bytes)
+}
+
+fn decode_private_address(address: Option<&str>) -> Result<Vec<u8>, WalletError> {
+    let address = address.ok_or(WalletError::IdentityBuildFailed)?;
+    let payment =
+        decode_sapling_payment_address(address).map_err(|_| WalletError::IdentityBuildFailed)?;
+    Ok(payment.to_bytes().to_vec())
+}
+
+fn decode_sapling_payment_address(address: &str) -> Result<sapling::PaymentAddress, WalletError> {
+    let normalized = address.trim().to_ascii_lowercase();
+    decode_payment_address("zs", &normalized)
+        .or_else(|_| decode_payment_address("ztestsapling", &normalized))
+        .map_err(|_| WalletError::InvalidAddress)
+}
+
+fn output_matches_intent(
+    output: &DecodedOutput,
+    intent: &VrpcOutputIntent,
+) -> Result<bool, WalletError> {
+    match intent {
+        VrpcOutputIntent::NativePayment {
+            destination,
+            amount_sats,
+        } => {
+            if output.value != *amount_sats {
+                return Ok(false);
+            }
+            if destination.destination_type == 2 {
+                return Ok(output.script == p2pkh_script(&destination.destination_bytes)?);
+            }
+            let params = parse_cc_params(&output.script)?;
+            Ok(params.eval_code == EVAL_NONE
+                && params.vdata.is_empty()
+                && params.destinations.as_slice() == [destination.clone()])
+        }
+        VrpcOutputIntent::TokenPayment {
+            destination,
+            currency_id,
+            amount_sats,
+            output_value_sats,
+        } => {
+            if output.value != *output_value_sats {
+                return Ok(false);
+            }
+            let params = parse_cc_params(&output.script)?;
+            if params.eval_code != EVAL_RESERVE_OUTPUT
+                || params.destinations.as_slice() != [destination.clone()]
+                || params.vdata.len() != 1
+            {
+                return Ok(false);
+            }
+            let (decoded_currency, decoded_amount, consumed) =
+                parse_token_output(&params.vdata[0], 0)?;
+            Ok(consumed == params.vdata[0].len()
+                && decoded_currency == *currency_id
+                && decoded_amount == *amount_sats)
+        }
+        VrpcOutputIntent::ReserveTransfer {
+            source_currency_id,
+            amount_sats,
+            flags,
+            fee_currency_id,
+            fee_sats,
+            destination,
+            dest_currency_id,
+            second_reserve_id,
+            dest_system_id,
+            output_value_sats,
+        } => {
+            if output.value != *output_value_sats {
+                return Ok(false);
+            }
+            let params = parse_cc_params(&output.script)?;
+            if params.eval_code != EVAL_RESERVE_TRANSFER || params.vdata.len() != 1 {
+                return Ok(false);
+            }
+            let decoded = parse_reserve_transfer(&params.vdata[0])?;
+            Ok(decoded.source_currency_id == *source_currency_id
+                && decoded.amount_sats == *amount_sats
+                && decoded.flags == *flags
+                && decoded.fee_currency_id == *fee_currency_id
+                && decoded.fee_sats == *fee_sats
+                && decoded.destination == *destination
+                && dest_currency_id
+                    .as_ref()
+                    .map(|expected| decoded.dest_currency_id == *expected)
+                    .unwrap_or(true)
+                && decoded.second_reserve_id == *second_reserve_id
+                && decoded.dest_system_id == *dest_system_id)
+        }
+    }
+}
+
+fn decode_outputs(tx_hex: &str) -> Result<Vec<DecodedOutput>, WalletError> {
+    if let Ok(tx) = decode_verus_tx(tx_hex) {
+        return Ok(tx
+            .outputs
+            .into_iter()
+            .map(|output| DecodedOutput {
+                value: output.value,
+                script: output.script_pub_key,
+            })
+            .collect());
+    }
+    let raw = hex::decode(tx_hex.trim().trim_start_matches("0x"))
+        .map_err(|_| WalletError::OperationFailed)?;
+    let tx: bitcoin::Transaction = bitcoin::Transaction::consensus_decode(&mut Cursor::new(raw))
+        .map_err(|_| WalletError::OperationFailed)?;
+    Ok(tx
+        .output
+        .into_iter()
+        .map(|output| DecodedOutput {
+            value: output.value.to_sat(),
+            script: output.script_pubkey.into_bytes(),
+        })
+        .collect())
+}
+
+fn p2pkh_script(hash: &[u8]) -> Result<Vec<u8>, WalletError> {
+    if hash.len() != 20 {
+        return Err(WalletError::OperationFailed);
+    }
+    let mut script = vec![0x76, 0xa9, 0x14];
+    script.extend_from_slice(hash);
+    script.extend_from_slice(&[0x88, 0xac]);
+    Ok(script)
+}
+
+fn read_push(script: &[u8], offset: &mut usize) -> Result<Vec<u8>, WalletError> {
+    let opcode = *script.get(*offset).ok_or(WalletError::OperationFailed)?;
+    *offset += 1;
+    let length = match opcode {
+        0..=75 => opcode as usize,
+        76 => {
+            let length = *script.get(*offset).ok_or(WalletError::OperationFailed)? as usize;
+            *offset += 1;
+            length
+        }
+        77 => {
+            let bytes = script
+                .get(*offset..*offset + 2)
+                .ok_or(WalletError::OperationFailed)?;
+            *offset += 2;
+            u16::from_le_bytes([bytes[0], bytes[1]]) as usize
+        }
+        78 => {
+            let bytes = script
+                .get(*offset..*offset + 4)
+                .ok_or(WalletError::OperationFailed)?;
+            *offset += 4;
+            u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize
+        }
+        _ => return Err(WalletError::OperationFailed),
+    };
+    let value = script
+        .get(*offset..*offset + length)
+        .ok_or(WalletError::OperationFailed)?
+        .to_vec();
+    *offset += length;
+    Ok(value)
+}
+
+fn parse_cc_params(script: &[u8]) -> Result<OptCcParams, WalletError> {
+    let mut offset = 0usize;
+    let _master = read_push(script, &mut offset)?;
+    if script.get(offset) != Some(&OP_CHECKCRYPTOCONDITION) {
+        return Err(WalletError::OperationFailed);
+    }
+    offset += 1;
+    let params = read_push(script, &mut offset)?;
+    if script.get(offset) != Some(&OP_DROP) || offset + 1 != script.len() {
+        return Err(WalletError::OperationFailed);
+    }
+    parse_optcc_chunk(&params)
+}
+
+fn parse_optcc_chunk(chunk: &[u8]) -> Result<OptCcParams, WalletError> {
+    let mut offset = 0usize;
+    let header = read_push(chunk, &mut offset)?;
+    if header.len() != 4 || !(1..=3).contains(&header[0]) || header[3] > 4 {
+        return Err(WalletError::OperationFailed);
+    }
+    let mut chunks = Vec::new();
+    while offset < chunk.len() {
+        chunks.push(read_push(chunk, &mut offset)?);
+    }
+    let destination_count = usize::from(header[3]);
+    if chunks.len() < destination_count {
+        return Err(WalletError::OperationFailed);
+    }
+    let destinations = chunks[..destination_count]
+        .iter()
+        .map(|chunk| parse_tx_destination_chunk(chunk))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(OptCcParams {
+        eval_code: header[1],
+        destinations,
+        vdata: chunks[destination_count..].to_vec(),
+    })
+}
+
+fn parse_tx_destination_chunk(chunk: &[u8]) -> Result<SemanticDestination, WalletError> {
+    if chunk.len() == 20 {
+        return Ok(SemanticDestination {
+            destination_type: 2,
+            destination_bytes: chunk.to_vec(),
+        });
+    }
+    if chunk.len() < 2 {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(SemanticDestination {
+        destination_type: chunk[0],
+        destination_bytes: chunk[1..].to_vec(),
+    })
+}
+
+fn read_compact_size(data: &[u8], offset: &mut usize) -> Result<u64, WalletError> {
+    let marker = *data.get(*offset).ok_or(WalletError::OperationFailed)?;
+    *offset += 1;
+    let (value, width) = match marker {
+        0..=252 => (u64::from(marker), 0),
+        253 => (0, 2),
+        254 => (0, 4),
+        255 => (0, 8),
+    };
+    if width == 0 {
+        return Ok(value);
+    }
+    let bytes = data
+        .get(*offset..*offset + width)
+        .ok_or(WalletError::OperationFailed)?;
+    *offset += width;
+    let mut padded = [0u8; 8];
+    padded[..width].copy_from_slice(bytes);
+    Ok(u64::from_le_bytes(padded))
+}
+
+fn read_varint(data: &[u8], offset: &mut usize) -> Result<u64, WalletError> {
+    let mut value = 0u64;
+    loop {
+        let byte = *data.get(*offset).ok_or(WalletError::OperationFailed)?;
+        *offset += 1;
+        value = value
+            .checked_shl(7)
+            .and_then(|value| value.checked_add(u64::from(byte & 0x7f)))
+            .ok_or(WalletError::OperationFailed)?;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+        value = value.checked_add(1).ok_or(WalletError::OperationFailed)?;
+    }
+}
+
+fn read_slice(data: &[u8], offset: &mut usize, length: usize) -> Result<Vec<u8>, WalletError> {
+    let value = data
+        .get(*offset..*offset + length)
+        .ok_or(WalletError::OperationFailed)?
+        .to_vec();
+    *offset += length;
+    Ok(value)
+}
+
+fn read_var_slice(data: &[u8], offset: &mut usize) -> Result<Vec<u8>, WalletError> {
+    let length = usize::try_from(read_compact_size(data, offset)?)
+        .map_err(|_| WalletError::OperationFailed)?;
+    read_slice(data, offset, length)
+}
+
+fn parse_token_output(
+    data: &[u8],
+    mut offset: usize,
+) -> Result<(Vec<u8>, u64, usize), WalletError> {
+    let version = read_varint(data, &mut offset)?;
+    if version != 1 {
+        return Err(WalletError::OperationFailed);
+    }
+    let currency = read_slice(data, &mut offset, 20)?;
+    let amount = read_varint(data, &mut offset)?;
+    Ok((currency, amount, offset))
+}
+
+fn parse_transfer_destination(
+    data: &[u8],
+    offset: &mut usize,
+) -> Result<SemanticDestination, WalletError> {
+    let destination_type = *data.get(*offset).ok_or(WalletError::OperationFailed)?;
+    *offset += 1;
+    let destination_bytes = read_var_slice(data, offset)?;
+    if destination_type & 0x80 != 0 {
+        let _gateway_id = read_slice(data, offset, 20)?;
+        let _gateway_code = read_slice(data, offset, 20)?;
+        let _fees = read_slice(data, offset, 8)?;
+    }
+    if destination_type & 0x40 != 0 {
+        let count = read_compact_size(data, offset)?;
+        for _ in 0..count {
+            let nested = read_var_slice(data, offset)?;
+            let mut nested_offset = 0;
+            parse_transfer_destination(&nested, &mut nested_offset)?;
+            if nested_offset != nested.len() {
+                return Err(WalletError::OperationFailed);
+            }
+        }
+    }
+    Ok(SemanticDestination {
+        destination_type,
+        destination_bytes,
+    })
+}
+
+fn parse_reserve_transfer(data: &[u8]) -> Result<DecodedReserveTransfer, WalletError> {
+    let (source_currency_id, amount_sats, mut offset) = parse_token_output(data, 0)?;
+    let flags = read_varint(data, &mut offset)?;
+    let fee_currency_id = read_slice(data, &mut offset, 20)?;
+    let fee_sats = read_varint(data, &mut offset)?;
+    let destination = parse_transfer_destination(data, &mut offset)?;
+    let dest_currency_id = read_slice(data, &mut offset, 20)?;
+    let second_reserve_id = if flags & 0x400 != 0 {
+        Some(read_slice(data, &mut offset, 20)?)
+    } else {
+        None
+    };
+    let dest_system_id = if flags & 0x40 != 0 {
+        Some(read_slice(data, &mut offset, 20)?)
+    } else {
+        None
+    };
+    if offset != data.len() {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(DecodedReserveTransfer {
+        source_currency_id,
+        amount_sats,
+        flags,
+        fee_currency_id,
+        fee_sats,
+        destination,
+        dest_currency_id,
+        second_reserve_id,
+        dest_system_id,
+    })
+}
+
+fn read_u32_le(data: &[u8], offset: &mut usize) -> Result<u32, WalletError> {
+    let bytes = read_slice(data, offset, 4)?;
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn skip_content_map(data: &[u8], offset: &mut usize) -> Result<(), WalletError> {
+    let count = read_varint(data, offset)?;
+    for _ in 0..count {
+        read_slice(data, offset, 20)?;
+        read_slice(data, offset, 32)?;
+    }
+    Ok(())
+}
+
+fn parse_identity_control(data: &[u8]) -> Result<IdentityControlIntent, WalletError> {
+    let mut offset = 0usize;
+    let version = read_u32_le(data, &mut offset)?;
+    if !(1..=3).contains(&version) {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let flags = read_u32_le(data, &mut offset)?;
+    let primary_count = read_compact_size(data, &mut offset)?;
+    let mut primary_addresses = Vec::new();
+    for _ in 0..primary_count {
+        let address = read_var_slice(data, &mut offset)?;
+        if address.len() != 20 {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        primary_addresses.push(address);
+    }
+    let minimum_signatures = read_u32_le(data, &mut offset)?;
+    let _parent = read_slice(data, &mut offset, 20)?;
+    let _name = read_var_slice(data, &mut offset)?;
+
+    if version >= 3 {
+        let content_count = read_compact_size(data, &mut offset)?;
+        for _ in 0..content_count {
+            read_slice(data, &mut offset, 20)?;
+            let value_count = read_compact_size(data, &mut offset)?;
+            for _ in 0..value_count {
+                read_var_slice(data, &mut offset)?;
+            }
+        }
+    } else {
+        skip_content_map(data, &mut offset)?;
+    }
+    skip_content_map(data, &mut offset)?;
+
+    let revocation_authority = read_slice(data, &mut offset, 20)?;
+    let recovery_authority = read_slice(data, &mut offset, 20)?;
+    let private_count = read_varint(data, &mut offset)?;
+    let mut private_addresses = Vec::new();
+    for _ in 0..private_count {
+        private_addresses.push(read_slice(data, &mut offset, 43)?);
+    }
+    let (system_id, unlock_after) = if version >= 2 {
+        (
+            Some(read_slice(data, &mut offset, 20)?),
+            Some(read_u32_le(data, &mut offset)?),
+        )
+    } else {
+        (None, None)
+    };
+    if offset != data.len() {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+
+    Ok(IdentityControlIntent {
+        version,
+        flags,
+        primary_addresses,
+        minimum_signatures,
+        revocation_authority,
+        recovery_authority,
+        private_addresses,
+        system_id,
+        unlock_after,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::channels::vrpc::identity::verus_tx::codec::encode_hex;
+    use crate::core::channels::vrpc::identity::verus_tx::model::{VerusTx, VerusTxOut};
+
+    fn push(data: &[u8]) -> Vec<u8> {
+        let mut output = Vec::new();
+        if data.len() <= 75 {
+            output.push(data.len() as u8);
+        } else {
+            output.extend_from_slice(&[76, data.len() as u8]);
+        }
+        output.extend_from_slice(data);
+        output
+    }
+
+    fn cc_script(eval_code: u8, destination: &SemanticDestination, vdata: &[u8]) -> Vec<u8> {
+        let mut destination_chunk = Vec::new();
+        if destination.destination_type == 2 {
+            destination_chunk.extend_from_slice(&destination.destination_bytes);
+        } else {
+            destination_chunk.push(destination.destination_type);
+            destination_chunk.extend_from_slice(&destination.destination_bytes);
+        }
+        let mut params = push(&[3, eval_code, 1, 1]);
+        params.extend_from_slice(&push(&destination_chunk));
+        if !vdata.is_empty() {
+            params.extend_from_slice(&push(vdata));
+        }
+        let mut script = push(&[3, 0, 1, 1]);
+        script.push(OP_CHECKCRYPTOCONDITION);
+        script.extend_from_slice(&push(&params));
+        script.push(OP_DROP);
+        script
+    }
+
+    fn identity_bytes(primary: [u8; 20]) -> Vec<u8> {
+        let mut identity = Vec::new();
+        identity.extend_from_slice(&3u32.to_le_bytes());
+        identity.extend_from_slice(&0u32.to_le_bytes());
+        identity.push(1);
+        identity.push(20);
+        identity.extend_from_slice(&primary);
+        identity.extend_from_slice(&1u32.to_le_bytes());
+        identity.extend_from_slice(&[2u8; 20]);
+        identity.extend_from_slice(&[4, b't', b'e', b's', b't']);
+        identity.push(0); // content multimap
+        identity.push(0); // content map
+        identity.extend_from_slice(&[3u8; 20]);
+        identity.extend_from_slice(&[4u8; 20]);
+        identity.push(0); // private addresses
+        identity.extend_from_slice(&[5u8; 20]);
+        identity.extend_from_slice(&0u32.to_le_bytes());
+        identity
+    }
+
+    fn identity_tx(primary: [u8; 20]) -> String {
+        let destination = SemanticDestination {
+            destination_type: 2,
+            destination_bytes: vec![9u8; 20],
+        };
+        encode_hex(&VerusTx {
+            version: 4,
+            overwintered: true,
+            version_group_id: 0x892f2085,
+            inputs: vec![],
+            outputs: vec![VerusTxOut {
+                value: 0,
+                script_pub_key: cc_script(
+                    EVAL_IDENTITY_PRIMARY,
+                    &destination,
+                    &identity_bytes(primary),
+                ),
+            }],
+            lock_time: 0,
+            expiry_height: 0,
+            value_balance: 0,
+        })
+        .expect("identity tx")
+    }
+
+    fn funded_identity_tx(primary: [u8; 20], extra_output: Option<VerusTxOut>) -> String {
+        let destination = SemanticDestination {
+            destination_type: 2,
+            destination_bytes: vec![9u8; 20],
+        };
+        let mut outputs = vec![VerusTxOut {
+            value: 0,
+            script_pub_key: cc_script(
+                EVAL_IDENTITY_PRIMARY,
+                &destination,
+                &identity_bytes(primary),
+            ),
+        }];
+        if let Some(output) = extra_output {
+            outputs.push(output);
+        }
+        outputs.push(VerusTxOut {
+            value: 9_000,
+            script_pub_key: p2pkh_script(&[9u8; 20]).expect("change script"),
+        });
+        transaction_hex(outputs)
+    }
+
+    fn transaction_hex(outputs: Vec<VerusTxOut>) -> String {
+        encode_hex(&VerusTx {
+            version: 4,
+            overwintered: true,
+            version_group_id: 0x892f2085,
+            inputs: vec![],
+            outputs,
+            lock_time: 0,
+            expiry_height: 0,
+            value_balance: 0,
+        })
+        .expect("transaction hex")
+    }
+
+    fn native_payment_tx(recipient: [u8; 20], amount: u64, extra_recipient: bool) -> String {
+        let mut outputs = vec![VerusTxOut {
+            value: amount,
+            script_pub_key: p2pkh_script(&recipient).expect("recipient script"),
+        }];
+        if extra_recipient {
+            outputs.push(VerusTxOut {
+                value: 1,
+                script_pub_key: p2pkh_script(&recipient).expect("extra recipient script"),
+            });
+        }
+        outputs.push(VerusTxOut {
+            value: 4_000,
+            script_pub_key: p2pkh_script(&[9u8; 20]).expect("change script"),
+        });
+        transaction_hex(outputs)
+    }
+
+    fn reserve_transfer_bytes(dest_currency: [u8; 20]) -> Vec<u8> {
+        let mut data = vec![1]; // token-output version
+        data.extend_from_slice(&[1u8; 20]); // source currency
+        data.push(50); // amount
+        data.push(1); // flags
+        data.extend_from_slice(&[2u8; 20]); // fee currency
+        data.push(3); // fee
+        data.push(2); // destination type
+        data.push(20); // compact-size destination length
+        data.extend_from_slice(&[4u8; 20]);
+        data.extend_from_slice(&dest_currency);
+        data
+    }
+
+    fn reserve_transfer_tx(dest_currency: [u8; 20]) -> String {
+        let cc_destination = SemanticDestination {
+            destination_type: 2,
+            destination_bytes: vec![7u8; 20],
+        };
+        transaction_hex(vec![
+            VerusTxOut {
+                value: 0,
+                script_pub_key: cc_script(
+                    EVAL_RESERVE_TRANSFER,
+                    &cc_destination,
+                    &reserve_transfer_bytes(dest_currency),
+                ),
+            },
+            VerusTxOut {
+                value: 9_000,
+                script_pub_key: p2pkh_script(&[9u8; 20]).expect("change script"),
+            },
+        ])
+    }
+
+    fn token_payment_tx(destination: [u8; 20], output_value: u64) -> String {
+        let destination = SemanticDestination {
+            destination_type: 2,
+            destination_bytes: destination.to_vec(),
+        };
+        let mut token = vec![1];
+        token.extend_from_slice(&[6u8; 20]);
+        token.push(50);
+        transaction_hex(vec![
+            VerusTxOut {
+                value: output_value,
+                script_pub_key: cc_script(EVAL_RESERVE_OUTPUT, &destination, &token),
+            },
+            VerusTxOut {
+                value: 9_000,
+                script_pub_key: p2pkh_script(&[9u8; 20]).expect("change script"),
+            },
+        ])
+    }
+
+    #[test]
+    fn base58_destinations_preserve_type_and_hash() {
+        let destination =
+            decode_base58_destination("RLcoqsCLBQJPvciM1EvFzXH9p42Y61AtiB").expect("R destination");
+        assert_eq!(destination.destination_type, 2);
+        assert_eq!(destination.destination_bytes.len(), 20);
+
+        let destination =
+            decode_base58_destination("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").expect("i destination");
+        assert_eq!(destination.destination_type, 4);
+        assert_eq!(destination.destination_bytes.len(), 20);
+    }
+
+    #[test]
+    fn semantic_destination_accepts_testnet_sapling_addresses() {
+        let destination = decode_semantic_destination(
+            "ztestsapling1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75ss7jnk",
+        )
+        .expect("testnet Sapling destination");
+        assert_eq!(destination.destination_type, 7);
+        assert_eq!(destination.destination_bytes.len(), 43);
+    }
+
+    #[test]
+    fn signed_varint_matches_verus_encoding() {
+        let mut offset = 0;
+        assert_eq!(
+            read_varint(&[0x80, 0x00], &mut offset).expect("varint"),
+            128
+        );
+        assert_eq!(offset, 2);
+    }
+
+    #[test]
+    fn identity_control_validation_rejects_primary_authority_substitution() {
+        let expected = IdentityControlIntent {
+            version: 3,
+            flags: 0,
+            primary_addresses: vec![vec![1u8; 20]],
+            minimum_signatures: 1,
+            revocation_authority: vec![3u8; 20],
+            recovery_authority: vec![4u8; 20],
+            private_addresses: vec![],
+            system_id: Some(vec![5u8; 20]),
+            unlock_after: Some(0),
+        };
+
+        validate_identity_control_intent(&identity_tx([1u8; 20]), &expected)
+            .expect("matching identity controls");
+        assert!(validate_identity_control_intent(&identity_tx([8u8; 20]), &expected).is_err());
+
+        let change_address = bs58::encode([&[60u8][..], &[9u8; 20][..]].concat())
+            .with_check()
+            .into_string();
+        validate_identity_transaction_intent(
+            &funded_identity_tx([1u8; 20], None),
+            &expected,
+            &change_address,
+            10_000,
+            1_000,
+        )
+        .expect("matching funded identity transaction");
+        assert!(validate_identity_transaction_intent(
+            &funded_identity_tx(
+                [1u8; 20],
+                Some(VerusTxOut {
+                    value: 1,
+                    script_pub_key: p2pkh_script(&[8u8; 20]).expect("attacker output"),
+                }),
+            ),
+            &expected,
+            &change_address,
+            10_001,
+            1_000,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn native_intent_rejects_recipient_amount_extra_output_and_fee_substitution() {
+        let change_address = bs58::encode([&[60u8][..], &[9u8; 20][..]].concat())
+            .with_check()
+            .into_string();
+        let intent = VrpcOutputIntent::NativePayment {
+            destination: SemanticDestination {
+                destination_type: 2,
+                destination_bytes: vec![1u8; 20],
+            },
+            amount_sats: 5_000,
+        };
+        let valid = native_payment_tx([1u8; 20], 5_000, false);
+        validate_transaction_intent(&valid, &intent, &change_address, 10_000, 1_000)
+            .expect("matching native intent");
+
+        assert!(validate_transaction_intent(
+            &native_payment_tx([2u8; 20], 5_000, false),
+            &intent,
+            &change_address,
+            10_000,
+            1_000,
+        )
+        .is_err());
+        assert!(validate_transaction_intent(
+            &native_payment_tx([1u8; 20], 4_999, false),
+            &intent,
+            &change_address,
+            9_999,
+            1_000,
+        )
+        .is_err());
+        assert!(validate_transaction_intent(
+            &native_payment_tx([1u8; 20], 5_000, true),
+            &intent,
+            &change_address,
+            10_001,
+            1_000,
+        )
+        .is_err());
+        assert!(
+            validate_transaction_intent(&valid, &intent, &change_address, 10_001, 1_000,).is_err()
+        );
+    }
+
+    #[test]
+    fn reserve_transfer_intent_binds_daemon_derived_currency_and_rejects_substitution() {
+        let change_address = bs58::encode([&[60u8][..], &[9u8; 20][..]].concat())
+            .with_check()
+            .into_string();
+        let mut intent = VrpcOutputIntent::ReserveTransfer {
+            source_currency_id: vec![1u8; 20],
+            amount_sats: 50,
+            flags: 1,
+            fee_currency_id: vec![2u8; 20],
+            fee_sats: 3,
+            destination: SemanticDestination {
+                destination_type: 2,
+                destination_bytes: vec![4u8; 20],
+            },
+            dest_currency_id: None,
+            second_reserve_id: None,
+            dest_system_id: None,
+            output_value_sats: 0,
+        };
+        let unfunded = reserve_transfer_tx([5u8; 20]);
+        let decoded_outputs = decode_outputs(&unfunded).expect("decode reserve transfer tx");
+        let params = parse_cc_params(&decoded_outputs[0].script).expect("reserve transfer params");
+        assert_eq!(params.eval_code, EVAL_RESERVE_TRANSFER);
+        assert_eq!(params.vdata.len(), 1);
+        let decoded_transfer =
+            parse_reserve_transfer(&params.vdata[0]).expect("reserve transfer payload");
+        assert_eq!(decoded_transfer.source_currency_id, vec![1u8; 20]);
+        assert_eq!(decoded_transfer.amount_sats, 50);
+        assert_eq!(decoded_transfer.flags, 1);
+        assert_eq!(decoded_transfer.fee_currency_id, vec![2u8; 20]);
+        assert_eq!(decoded_transfer.fee_sats, 3);
+        assert_eq!(
+            decoded_transfer.destination.destination_bytes,
+            vec![4u8; 20]
+        );
+        assert!(output_matches_intent(&decoded_outputs[0], &intent).expect("match reserve intent"));
+        bind_derived_reserve_fields(&unfunded, &mut intent).expect("bind derived currency");
+        assert!(matches!(
+            &intent,
+            VrpcOutputIntent::ReserveTransfer {
+                dest_currency_id: Some(value),
+                ..
+            } if value == &vec![5u8; 20]
+        ));
+        validate_transaction_intent(&unfunded, &intent, &change_address, 10_000, 1_000)
+            .expect("matching reserve transfer");
+
+        assert!(validate_transaction_intent(
+            &reserve_transfer_tx([6u8; 20]),
+            &intent,
+            &change_address,
+            10_000,
+            1_000,
+        )
+        .is_err());
+        let mut substituted = intent.clone();
+        if let VrpcOutputIntent::ReserveTransfer { amount_sats, .. } = &mut substituted {
+            *amount_sats = 51;
+        }
+        assert!(validate_transaction_intent(
+            &unfunded,
+            &substituted,
+            &change_address,
+            10_000,
+            1_000,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn token_intent_rejects_destination_currency_amount_and_native_value_substitution() {
+        let change_address = bs58::encode([&[60u8][..], &[9u8; 20][..]].concat())
+            .with_check()
+            .into_string();
+        let intent = VrpcOutputIntent::TokenPayment {
+            destination: SemanticDestination {
+                destination_type: 2,
+                destination_bytes: vec![4u8; 20],
+            },
+            currency_id: vec![6u8; 20],
+            amount_sats: 50,
+            output_value_sats: 0,
+        };
+        let valid = token_payment_tx([4u8; 20], 0);
+        validate_transaction_intent(&valid, &intent, &change_address, 10_000, 1_000)
+            .expect("matching token payment");
+        assert!(validate_transaction_intent(
+            &token_payment_tx([5u8; 20], 0),
+            &intent,
+            &change_address,
+            10_000,
+            1_000,
+        )
+        .is_err());
+        assert!(validate_transaction_intent(
+            &token_payment_tx([4u8; 20], 1),
+            &intent,
+            &change_address,
+            10_001,
+            1_000,
+        )
+        .is_err());
+        let mut wrong_amount = intent.clone();
+        if let VrpcOutputIntent::TokenPayment { amount_sats, .. } = &mut wrong_amount {
+            *amount_sats = 51;
+        }
+        assert!(
+            validate_transaction_intent(&valid, &wrong_amount, &change_address, 10_000, 1_000,)
+                .is_err()
+        );
+    }
+}

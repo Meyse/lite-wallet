@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
 use crate::core::channels::vrpc::common::{
-    parse_result_string, parse_string, parse_u32, parse_utxo_entry,
-    sat_to_decimal_string as shared_sat_to_decimal_string, VrpcUtxo,
+    authenticate_payload_inputs, parse_result_string, parse_string, parse_u32, parse_utxo_entry,
+    sat_to_decimal_string as shared_sat_to_decimal_string, VrpcInputRef, VrpcUtxo,
 };
 use crate::core::channels::vrpc::identity::validate::{
     apply_identity_operation, classify_high_risk_changes, validate_operation_authority,
@@ -24,6 +24,10 @@ use crate::core::channels::vrpc::identity::verus_tx::model::{
     txid_hex_to_le_bytes, txid_le_bytes_to_hex, InputSignMode, VerusTx, VerusTxIn, VerusTxOut,
 };
 use crate::core::channels::vrpc::identity::verus_tx::script::classify_prevout_script;
+use crate::core::channels::vrpc::intent::{
+    identity_control_intent_from_json, validate_identity_control_intent,
+    validate_identity_transaction_intent, IdentityControlIntent,
+};
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::types::{
     IdentityOperation, IdentityPreflightParams, IdentityPreflightResult, IdentityWarning,
@@ -69,6 +73,7 @@ pub struct IdentityPreflightPayload {
     pub from_address: String,
     pub fee: String,
     pub memo: Option<String>,
+    pub control_intent: IdentityControlIntent,
 }
 
 #[derive(Debug, Clone)]
@@ -178,7 +183,10 @@ pub(crate) fn build_unsigned_identity_tx(
     let outputs_total_sat = template_tx.outputs.iter().fold(0i64, |acc, o| {
         acc.saturating_add(i64::try_from(o.value).unwrap_or(i64::MAX))
     });
-    let required_total = outputs_total_sat.saturating_add(fee_sat);
+    let required_funding = outputs_total_sat
+        .saturating_add(fee_sat)
+        .saturating_sub(identity_satoshis)
+        .max(0);
 
     let mut selected: Vec<&VrpcUtxo> = Vec::new();
     let mut selected_total: i64 = 0;
@@ -188,12 +196,12 @@ pub(crate) fn build_unsigned_identity_tx(
         }
         selected.push(utxo);
         selected_total = selected_total.saturating_add(utxo.satoshis);
-        if selected_total >= required_total {
+        if selected_total >= required_funding {
             break;
         }
     }
 
-    if selected_total < required_total {
+    if selected_total < required_funding {
         return Err(WalletError::InsufficientFunds);
     }
 
@@ -234,7 +242,10 @@ pub(crate) fn build_unsigned_identity_tx(
         sign_mode: classify_sign_mode(identity_script_hex)?,
     });
 
-    let change_sat = selected_total.saturating_sub(required_total);
+    let change_sat = identity_satoshis
+        .saturating_add(selected_total)
+        .saturating_sub(outputs_total_sat)
+        .saturating_sub(fee_sat);
     let mut dropped_dust_change = false;
     if change_sat >= DUST_SAT {
         let change_script = hex::decode(
@@ -366,6 +377,8 @@ pub async fn preflight(
             _ => WalletError::IdentityBuildFailed,
         })?;
     let update_tx_hex = parse_updateidentity_hex(update_tx_raw)?;
+    let control_intent = identity_control_intent_from_json(&after_identity)?;
+    validate_identity_control_intent(&update_tx_hex, &control_intent)?;
     let mut template_tx = decode_verus_tx(&update_tx_hex).map_err(|err| {
         println!(
             "[IDENTITY_PREFLIGHT] Failed to decode updateidentity tx template (op={:?}, target={}, from={}, hex_prefix={})",
@@ -389,6 +402,29 @@ pub async fn preflight(
         &funding_candidates,
         DEFAULT_FEE_SAT,
     )?;
+    let authenticated_inputs = signable_inputs
+        .iter()
+        .map(|input| VrpcInputRef {
+            txid: input.txid.clone(),
+            vout: input.vout,
+            satoshis: input.satoshis,
+            script_pub_key: Some(input.script_pub_key.clone()),
+        })
+        .collect::<Vec<_>>();
+    authenticate_payload_inputs(provider, &authenticated_inputs)
+        .await
+        .map_err(|_| WalletError::IdentityBuildFailed)?;
+    let input_total = authenticated_inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    validate_identity_transaction_intent(
+        &unsigned_hex,
+        &control_intent,
+        from_address,
+        input_total,
+        DEFAULT_FEE_SAT,
+    )?;
 
     let mut warnings = Vec::new();
     add_operation_warnings(
@@ -409,6 +445,7 @@ pub async fn preflight(
         from_address: from_address.to_string(),
         fee: fee.clone(),
         memo: params.memo.clone(),
+        control_intent,
     };
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;

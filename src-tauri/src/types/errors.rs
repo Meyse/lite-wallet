@@ -27,6 +27,9 @@ pub enum WalletError {
     #[error("Wallet is locked")]
     WalletLocked,
 
+    #[error("Wallet session changed")]
+    WalletSessionChanged,
+
     #[error("Invalid password")]
     InvalidPassword,
 
@@ -92,6 +95,12 @@ pub enum WalletError {
 
     #[error("Ethereum channels are not configured")]
     EthNotConfigured,
+
+    #[error("Ethereum transaction submission could not be confirmed: {0}")]
+    EthBroadcastUncertain(String),
+
+    #[error("A previously uncertain Ethereum transaction was recovered: {0}")]
+    EthBroadcastRecovered(String),
 
     #[error("Invalid ERC20 contract")]
     InvalidContract,

@@ -9,9 +9,13 @@ use uuid::Uuid;
 
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
 use crate::core::channels::vrpc::common::{
-    collect_payload_inputs, parse_coin_value_sat, parse_fee_sat, parse_positive_amount_sat,
-    parse_result_string, parse_string, parse_utxo_entry, sat_to_decimal_string,
-    VrpcPreflightPayload, VrpcUtxo, SATOSHIS_PER_COIN,
+    authenticate_payload_inputs, collect_payload_inputs, parse_coin_value_sat, parse_fee_sat,
+    parse_positive_amount_sat, parse_result_string, parse_string, parse_utxo_entry,
+    sat_to_decimal_string, VrpcPreflightPayload, VrpcUtxo, SATOSHIS_PER_COIN,
+};
+use crate::core::channels::vrpc::intent::{
+    bind_derived_reserve_fields, decode_currency_id, decode_semantic_destination,
+    validate_transaction_intent, VrpcOutputIntent,
 };
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::types::transaction::PreflightWarning;
@@ -27,7 +31,9 @@ const TRANSFER_PREFLIGHT_TTL: Duration = Duration::from_secs(15 * 60);
 #[derive(Debug, Clone)]
 struct TransferRouteContext {
     source_is_native: bool,
+    source_currency_id: String,
     effective_fee_currency_id: Option<String>,
+    transfer_fee_sat: i64,
     parent_fee_coin: f64,
     parent_fee_sat: i64,
     native_required_fee_sat: i64,
@@ -41,6 +47,7 @@ struct TransferAmountPlan {
 
 #[derive(Debug, Clone)]
 struct FundedTransfer {
+    unfunded_hex: String,
     funded_hex: String,
     fee_sat: i64,
     payload_inputs: Vec<crate::core::channels::vrpc::common::VrpcInputRef>,
@@ -369,10 +376,131 @@ async fn derive_route_context(
 
     Ok(TransferRouteContext {
         source_is_native,
+        source_currency_id: source_currency_id.unwrap_or_else(|| system_id.to_string()),
         effective_fee_currency_id,
+        transfer_fee_sat,
         parent_fee_coin,
         parent_fee_sat,
         native_required_fee_sat,
+    })
+}
+
+async fn resolved_currency_hash(
+    provider: &VrpcProvider,
+    currency: &str,
+) -> Result<Vec<u8>, WalletError> {
+    if let Ok(hash) = decode_currency_id(currency) {
+        return Ok(hash);
+    }
+    let resolved = resolve_currency_id(provider, currency)
+        .await
+        .ok_or(WalletError::OperationFailed)?;
+    decode_currency_id(&resolved)
+}
+
+async fn build_transfer_intent(
+    provider: &VrpcProvider,
+    params: &VrpcTransferPreflightParams,
+    normalized_destination: &str,
+    amount_sat: i64,
+    route: &TransferRouteContext,
+    system_id: &str,
+) -> Result<VrpcOutputIntent, WalletError> {
+    let destination = decode_semantic_destination(normalized_destination)?;
+    let amount_sats = u64::try_from(amount_sat).map_err(|_| WalletError::OperationFailed)?;
+    let source_currency_id = resolved_currency_hash(provider, &route.source_currency_id).await?;
+    let is_reserve_transfer = params.fee_currency.is_some()
+        || params.fee_satoshis.is_some()
+        || params.convert_to.is_some()
+        || params.export_to.is_some()
+        || params.via.is_some();
+
+    if !is_reserve_transfer {
+        return if route.source_is_native {
+            Ok(VrpcOutputIntent::NativePayment {
+                destination,
+                amount_sats,
+            })
+        } else {
+            Ok(VrpcOutputIntent::TokenPayment {
+                destination,
+                currency_id: source_currency_id,
+                amount_sats,
+                output_value_sats: 0,
+            })
+        };
+    }
+
+    let fee_currency = route
+        .effective_fee_currency_id
+        .as_deref()
+        .unwrap_or(system_id);
+    let fee_currency_id = resolved_currency_hash(provider, fee_currency).await?;
+    let system_currency_id = resolved_currency_hash(provider, system_id).await?;
+    let convert_currency = params
+        .convert_to
+        .as_deref()
+        .unwrap_or(&route.source_currency_id);
+    let is_conversion = !is_same_currency_ref(convert_currency, &route.source_currency_id);
+    let mut flags = 1u64;
+    if is_conversion {
+        flags |= 0x2;
+    }
+    if params.preconvert.unwrap_or(false) {
+        flags |= 0x4;
+    }
+    if params.export_to.is_some() {
+        flags |= 0x40;
+    }
+    if params.via.is_some() {
+        flags |= 0x400;
+    }
+
+    let dest_currency_id = if let Some(via) = params.via.as_deref() {
+        Some(resolved_currency_hash(provider, via).await?)
+    } else if is_conversion || params.export_to.is_none() {
+        Some(resolved_currency_hash(provider, convert_currency).await?)
+    } else {
+        // Export-only routes derive a bridge currency internally in verusd. The
+        // source, destination, fee, flags, and destination system are still
+        // authenticated here; the derived bridge currency is not user input.
+        None
+    };
+    let second_reserve_id = if params.via.is_some() {
+        Some(resolved_currency_hash(provider, convert_currency).await?)
+    } else {
+        None
+    };
+    let dest_system_id = if let Some(export_to) = params.export_to.as_deref() {
+        Some(resolved_currency_hash(provider, export_to).await?)
+    } else {
+        None
+    };
+    let output_value_sats = (source_currency_id == system_currency_id)
+        .then_some(amount_sats)
+        .unwrap_or(0)
+        .checked_add(
+            (fee_currency_id == system_currency_id)
+                .then_some(
+                    u64::try_from(route.transfer_fee_sat)
+                        .map_err(|_| WalletError::OperationFailed)?,
+                )
+                .unwrap_or(0),
+        )
+        .ok_or(WalletError::OperationFailed)?;
+
+    Ok(VrpcOutputIntent::ReserveTransfer {
+        source_currency_id,
+        amount_sats,
+        flags,
+        fee_currency_id,
+        fee_sats: u64::try_from(route.transfer_fee_sat)
+            .map_err(|_| WalletError::OperationFailed)?,
+        destination,
+        dest_currency_id,
+        second_reserve_id,
+        dest_system_id,
+        output_value_sats,
     })
 }
 
@@ -426,6 +554,7 @@ async fn build_funded_transfer(
     let payload_inputs = collect_payload_inputs(&funded_hex, available_utxos, "transfer")?;
 
     Ok(FundedTransfer {
+        unfunded_hex,
         funded_hex,
         fee_sat,
         payload_inputs,
@@ -519,6 +648,29 @@ pub async fn preflight_transfer(
         route_context.parent_fee_sat,
     )
     .await?;
+    authenticate_payload_inputs(provider, &funded_transfer.payload_inputs).await?;
+    let mut intent = build_transfer_intent(
+        provider,
+        &params,
+        &normalized_destination,
+        amount_plan.send_value_sat,
+        &route_context,
+        system_id,
+    )
+    .await?;
+    bind_derived_reserve_fields(&funded_transfer.unfunded_hex, &mut intent)?;
+    let input_total = funded_transfer
+        .payload_inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::OperationFailed)?;
+    validate_transaction_intent(
+        &funded_transfer.funded_hex,
+        &intent,
+        from_address,
+        input_total,
+        funded_transfer.fee_sat,
+    )?;
 
     add_transfer_warnings(&mut warnings, &params);
 
@@ -531,6 +683,7 @@ pub async fn preflight_transfer(
         from_address: from_address.to_string(),
         value: sat_to_decimal_string(amount_plan.send_value_sat),
         fee: sat_to_decimal_string(funded_transfer.fee_sat),
+        intent,
     };
     store_transfer_payload(
         preflight_store,
@@ -734,6 +887,13 @@ mod tests {
             from_address: "Rfrom".to_string(),
             value: "1.00000000".to_string(),
             fee: "0.00010000".to_string(),
+            intent: VrpcOutputIntent::NativePayment {
+                destination: crate::core::channels::vrpc::intent::SemanticDestination {
+                    destination_type: 2,
+                    destination_bytes: vec![0; 20],
+                },
+                amount_sats: 100_000_000,
+            },
         };
 
         store_transfer_payload(

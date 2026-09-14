@@ -6,8 +6,11 @@ use uuid::Uuid;
 
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
 use crate::core::channels::vrpc::common::{
-    collect_payload_inputs, parse_fee_sat, parse_positive_amount_sat, parse_utxo_entry,
-    sat_to_decimal_string, VrpcPreflightPayload, VrpcUtxo, SATOSHIS_PER_COIN,
+    authenticate_payload_inputs, collect_payload_inputs, parse_fee_sat, parse_positive_amount_sat,
+    parse_utxo_entry, sat_to_decimal_string, VrpcPreflightPayload, VrpcUtxo, SATOSHIS_PER_COIN,
+};
+use crate::core::channels::vrpc::intent::{
+    decode_semantic_destination, validate_transaction_intent, VrpcOutputIntent,
 };
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::types::transaction::{PreflightParams, PreflightResult};
@@ -128,6 +131,16 @@ pub async fn preflight(
         .to_string();
     let fee_sat = parse_fee_sat(funded.get("fee"), fee_estimate);
     let payload_inputs = collect_payload_inputs(&funded_hex, &selected, "preflight")?;
+    authenticate_payload_inputs(provider, &payload_inputs).await?;
+    let intent = VrpcOutputIntent::NativePayment {
+        destination: decode_semantic_destination(&params.to_address)?,
+        amount_sats: u64::try_from(send_value_sat).map_err(|_| WalletError::OperationFailed)?,
+    };
+    let input_total = payload_inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::OperationFailed)?;
+    validate_transaction_intent(&funded_hex, &intent, from_address, input_total, fee_sat)?;
 
     let preflight_id = Uuid::new_v4().to_string();
     let fee_str = sat_to_decimal_string(fee_sat);
@@ -140,6 +153,7 @@ pub async fn preflight(
         from_address: from_address.to_string(),
         value: value_str.clone(),
         fee: fee_str.clone(),
+        intent,
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
 
@@ -265,6 +279,13 @@ mod tests {
             from_address: "Rfrom".to_string(),
             value: "1.00000000".to_string(),
             fee: "0.00010000".to_string(),
+            intent: VrpcOutputIntent::NativePayment {
+                destination: crate::core::channels::vrpc::intent::SemanticDestination {
+                    destination_type: 2,
+                    destination_bytes: vec![0; 20],
+                },
+                amount_sats: 100_000_000,
+            },
         };
 
         assert_eq!(payload.system_id, "iSystem");

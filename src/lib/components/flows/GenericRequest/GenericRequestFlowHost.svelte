@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -31,6 +32,10 @@
     buildGenericIdentityUpdateReview,
     type IdentityUpdateContentItem
   } from '$lib/genericRequest/identityUpdateReview';
+  import {
+    ResponseSubmissionLifetime,
+    runResponseSubmission
+  } from '$lib/genericRequest/responseSubmission.js';
   import { submitGenericProvisioningRequest } from '$lib/genericRequest/provisioning';
   import {
     type AuthenticationDetailSession,
@@ -149,8 +154,12 @@
   let selectedContentChange = $state<IdentityUpdateContentItem | null>(null);
   let fundingSourceLoadSequence = 0;
   let updatePreflightRequestSequence = 0;
-  let responseSubmissionSequence = 0;
+  const responseSubmissionLifetime = new ResponseSubmissionLifetime();
   const copiedCompletionFieldState = new TimedValueState<'txid'>();
+
+  onDestroy(() => {
+    responseSubmissionLifetime.dispose();
+  });
 
   const updateReviewSource = $derived(updatePreflight ?? updateAnalysis);
   const updateReview = $derived(
@@ -201,6 +210,7 @@
   );
 
   $effect(() => {
+    responseSubmissionLifetime.cancel();
     if (!isOpen || !session) {
       resetFlowState();
       return;
@@ -280,7 +290,7 @@
   });
 
   function resetFlowState() {
-    responseSubmissionSequence += 1;
+    responseSubmissionLifetime.cancel();
     currentStepId = 'auth';
     linkedIdentities = [];
     identityDetailsByAddress = {};
@@ -858,8 +868,7 @@
       const notice = i18n.t('genericRequest.provisioning.submitted');
       provisioningNotice = notice;
       toast.success(notice);
-      isOpen = false;
-      onClose();
+      closeFlow();
     } catch (error) {
       setError(error, 'genericRequest.provisioning.error.generic');
     } finally {
@@ -880,36 +889,41 @@
     if (!session) return;
 
     const activeSession = session;
-    const submissionSequence = ++responseSubmissionSequence;
 
     completing = true;
     flowError = '';
 
-    try {
-      const { signedResponseHex, sessionId } = await genericRequestService.buildAndSignGenericResponse({
-        requestHex: activeSession.requestHex,
-        ...draft
-      });
-
-      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
-
-      if (activeSession.responseUris.length > 0) {
-        await deliverSignedResponse(signedResponseHex, sessionId, activeSession);
-      }
-
-      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
-
-      completionMessage = completionMessage || i18n.t('genericRequest.complete.sent');
-      isOpen = false;
-      onClose();
-    } catch (error) {
-      if (submissionSequence !== responseSubmissionSequence || !isOpen || session !== activeSession) return;
-      setError(error, 'genericRequest.error.complete');
-    } finally {
-      if (submissionSequence === responseSubmissionSequence) {
+    await runResponseSubmission({
+      lifetime: responseSubmissionLifetime,
+      sign: () =>
+        genericRequestService.buildAndSignGenericResponse({
+          requestHex: activeSession.requestHex,
+          ...draft
+        }),
+      deliver:
+        activeSession.responseUris.length > 0
+          ? ({ signedResponseHex, sessionId }) =>
+              deliverSignedResponse(signedResponseHex, sessionId, activeSession)
+          : undefined,
+      complete: () => {
+        if (!isOpen || session !== activeSession) return;
+        completionMessage = completionMessage || i18n.t('genericRequest.complete.sent');
+        closeFlow();
+      },
+      fail: (error) => {
+        if (!isOpen || session !== activeSession) return;
+        setError(error, 'genericRequest.error.complete');
+      },
+      settle: () => {
         completing = false;
       }
-    }
+    });
+  }
+
+  function closeFlow() {
+    responseSubmissionLifetime.cancel();
+    isOpen = false;
+    onClose();
   }
 
   function handleUpdateNext() {
@@ -928,8 +942,7 @@
 
     const currentIndex = visibleSteps.findIndex((step) => step.id === currentStepId);
     if (currentIndex <= 0) {
-      isOpen = false;
-      onClose();
+      closeFlow();
       return;
     }
 
@@ -1018,8 +1031,7 @@
 
   async function handleComplete() {
     if (!responseDraft) {
-      isOpen = false;
-      onClose();
+      closeFlow();
       return;
     }
 
@@ -1159,10 +1171,7 @@
           <button
             type="button"
             class="ring-offset-background focus-visible:ring-ring inline-flex h-8 w-8 items-center justify-center rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
-            onclick={() => {
-              isOpen = false;
-              onClose();
-            }}
+            onclick={closeFlow}
             aria-label={i18n.t('common.cancel')}
           >
             <XIcon class="size-5" />
@@ -1347,10 +1356,7 @@
 
           <div class="border-black/10 bg-muted/10 dark:border-white/20 border-t">
             <div class="flex w-full items-center justify-between gap-4 px-4 py-4 sm:px-6">
-              <Button variant="secondary" class="min-w-40 px-4 sm:min-w-48 sm:px-6" onclick={() => {
-                isOpen = false;
-                onClose();
-              }}>
+              <Button variant="secondary" class="min-w-40 px-4 sm:min-w-48 sm:px-6" onclick={closeFlow}>
                 {i18n.t('common.cancel')}
               </Button>
 
@@ -1379,10 +1385,7 @@
           totalSteps={Math.max(visibleSteps.length, 1)}
           steps={visibleSteps}
           closeDisabled={finishStepLocked}
-          onClose={() => {
-            isOpen = false;
-            onClose();
-          }}
+          onClose={closeFlow}
           showCloseButton={!finishStepLocked}
           showAside={false}
         >

@@ -2,8 +2,9 @@
 // Module 5: VRPC channel — balance, transactions, preflight, send for Verus (VRSC/VRSCTEST). Runtime-configured endpoints.
 
 mod balance;
-mod common;
+pub(crate) mod common;
 pub mod identity;
+pub(crate) mod intent;
 mod preflight;
 mod provider;
 mod send;

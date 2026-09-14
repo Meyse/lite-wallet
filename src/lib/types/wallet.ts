@@ -669,7 +669,10 @@ export interface DlightProverStatusResult {
 }
 
 export type TxSendProgressStage =
-  'syncing_spend_state' | 'loading_prover' | 'building_proof' | 'broadcasting';
+  | 'syncing_spend_state'
+  | 'loading_prover'
+  | 'building_proof'
+  | 'broadcasting';
 
 export interface TxSendProgressEventPayload {
   channel?: string;

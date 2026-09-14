@@ -1118,7 +1118,9 @@ pub async fn sign_generic_response(
     let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
     let active_wallet_primary_address = context.vrsc_address.clone();
-    let private_key = load_primary_private_scalar_for_context(&context).await?;
+    let private_key = load_primary_private_scalar_for_context(&context)
+        .await
+        .map_err(map_generic_session_change)?;
 
     let parsed = parse_generic_envelope_hex(&response_hex)?;
     if parsed.created_at.is_none() {
@@ -1135,9 +1137,13 @@ pub async fn sign_generic_response(
             &parsed.signature_data.signer_identity_id,
             &active_wallet_primary_address,
         ))
-        .await?;
+        .await
+        .map_err(map_generic_session_change)?;
 
-    let info = submission_guard.run(provider.getinfo()).await?;
+    let info = submission_guard
+        .run(provider.getinfo())
+        .await
+        .map_err(map_generic_session_change)?;
     let signed_block_height = extract_chain_height(&info)?;
     let raw_envelope_sha256 = get_raw_envelope_sha256(&parsed);
     let identity_hash = compute_identity_signature_hash(
@@ -1152,7 +1158,7 @@ pub async fn sign_generic_response(
             &private_key,
         ))
     }) {
-        std::task::Poll::Ready(result) => result?,
+        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change)?,
         std::task::Poll::Pending => return Err(WalletError::OperationFailed),
     };
 
@@ -1174,7 +1180,8 @@ pub async fn sign_generic_response(
         parse_identity_signature(&parsed_signed.signature_data.signature_as_vch)?;
     let signer_identity = submission_guard
         .run(provider.getidentity(&parsed_signed.signature_data.signer_identity_id))
-        .await?;
+        .await
+        .map_err(map_generic_session_change)?;
     let allowed_addresses = signer_identity
         .get("identity")
         .and_then(|identity| {
@@ -1208,11 +1215,13 @@ pub async fn sign_generic_response(
         return Err(WalletError::OperationFailed);
     }
 
-    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id)
+        .await
+        .map_err(map_generic_session_change)?;
     match submission_guard
         .poll_admitted(|| std::task::Poll::Ready(Ok(hex::encode(signed_envelope))))
     {
-        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change),
         std::task::Poll::Pending => Err(WalletError::OperationFailed),
     }
 }
@@ -1230,7 +1239,9 @@ pub async fn build_and_sign_generic_response(
     let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
     let active_wallet_primary_address = context.vrsc_address.clone();
-    let private_key = load_primary_private_scalar_for_context(&context).await?;
+    let private_key = load_primary_private_scalar_for_context(&context)
+        .await
+        .map_err(map_generic_session_change)?;
 
     let request = BuildAndSignGenericResponseRequest {
         request_hex,
@@ -1251,13 +1262,18 @@ pub async fn build_and_sign_generic_response(
             &request.signer.identity_id,
             &active_wallet_primary_address,
         ))
-        .await?;
+        .await
+        .map_err(map_generic_session_change)?;
 
     let signer_identity = submission_guard
         .run(provider.getidentity(&request.signer.identity_id))
-        .await?;
+        .await
+        .map_err(map_generic_session_change)?;
     let allowed_primary_addresses = extract_primary_addresses(&signer_identity);
-    let info = submission_guard.run(provider.getinfo()).await?;
+    let info = submission_guard
+        .run(provider.getinfo())
+        .await
+        .map_err(map_generic_session_change)?;
     let signed_block_height = extract_chain_height(&info)?;
     let signed_response_hex = match submission_guard.poll_admitted(|| {
         std::task::Poll::Ready(build_and_sign_generic_response_internal(
@@ -1270,11 +1286,13 @@ pub async fn build_and_sign_generic_response(
             now_unix_seconds(),
         ))
     }) {
-        std::task::Poll::Ready(result) => result?,
+        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change)?,
         std::task::Poll::Pending => return Err(WalletError::OperationFailed),
     };
 
-    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id)
+        .await
+        .map_err(map_generic_session_change)?;
 
     match submission_guard.poll_admitted(|| {
         std::task::Poll::Ready(Ok(BuildAndSignGenericResponseResult {
@@ -1282,7 +1300,7 @@ pub async fn build_and_sign_generic_response(
             session_id: context.session_id,
         }))
     }) {
-        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change),
         std::task::Poll::Pending => Err(WalletError::OperationFailed),
     }
 }
@@ -1294,23 +1312,37 @@ pub async fn post_generic_response_callback(
     session_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<(), WalletError> {
-    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    post_generic_response_callback_for_session(
+        callback_uri,
+        response_hex,
+        session_id,
+        session_manager.inner(),
+    )
+    .await
+}
+
+async fn post_generic_response_callback_for_session(
+    callback_uri: String,
+    response_hex: String,
+    session_id: String,
+    session_manager: &Arc<Mutex<SessionManager>>,
+) -> Result<(), WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
     if context.session_id != session_id {
-        return Err(WalletError::WalletLocked);
+        return Err(WalletError::WalletSessionChanged);
     }
-    let response = context
+    context
         .session_submission_guard()
         .run(post_generic_response_callback_request(
             callback_uri,
             response_hex,
         ))
-        .await?;
+        .await
+        .map_err(map_generic_session_change)?;
 
-    if !response.status().is_success() {
-        return Err(WalletError::OperationFailed);
-    }
-
-    ensure_active_wallet_session(session_manager.inner(), &session_id).await?;
+    ensure_active_wallet_session(session_manager, &session_id)
+        .await
+        .map_err(map_generic_session_change)?;
 
     Ok(())
 }
@@ -1318,17 +1350,23 @@ pub async fn post_generic_response_callback(
 async fn post_generic_response_callback_request(
     callback_uri: String,
     response_hex: String,
-) -> Result<reqwest::Response, WalletError> {
+) -> Result<(), WalletError> {
     let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
     let response_bytes =
         hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
-    reqwest::Client::new()
+    let response = reqwest::Client::new()
         .post(callback_uri)
         .header(CONTENT_TYPE, "application/octet-stream")
         .body(response_bytes)
         .send()
         .await
-        .map_err(|_| WalletError::NetworkError)
+        .map_err(|_| WalletError::NetworkError)?;
+
+    if !response.status().is_success() {
+        return Err(WalletError::OperationFailed);
+    }
+
+    Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1341,7 +1379,7 @@ pub async fn open_generic_request_callback(
 ) -> Result<(), WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     if context.session_id != session_id {
-        return Err(WalletError::WalletLocked);
+        return Err(WalletError::WalletSessionChanged);
     }
     let redirect_url = build_generic_response_redirect_url(&callback_uri, &response_hex)?;
     match context.session_submission_guard().poll_admitted(|| {
@@ -1351,8 +1389,15 @@ pub async fn open_generic_request_callback(
                 .map_err(|_| WalletError::OperationFailed),
         )
     }) {
-        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change),
         std::task::Poll::Pending => Err(WalletError::OperationFailed),
+    }
+}
+
+fn map_generic_session_change(error: WalletError) -> WalletError {
+    match error {
+        WalletError::WalletLocked => WalletError::WalletSessionChanged,
+        other => other,
     }
 }
 
@@ -1819,7 +1864,7 @@ pub async fn preflight_generic_identity_update(
     .await?;
     let GenericIdentityUpdateInspection {
         target,
-        effective_requested_identity: _effective_requested_identity,
+        effective_requested_identity,
         mut review,
     } = inspection;
 
@@ -1843,13 +1888,20 @@ pub async fn preflight_generic_identity_update(
     }
 
     let update_tx_raw = provider
-        .updateidentity(&requested_identity_json, true)
+        .updateidentity(&effective_requested_identity, true)
         .await
         .map_err(|err| match err {
             WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
             _ => WalletError::IdentityBuildFailed,
         })?;
     let update_tx_hex = parse_updateidentity_hex(update_tx_raw)?;
+    let control_intent = crate::core::channels::vrpc::intent::identity_control_intent_from_json(
+        &effective_requested_identity,
+    )?;
+    crate::core::channels::vrpc::intent::validate_identity_control_intent(
+        &update_tx_hex,
+        &control_intent,
+    )?;
     let mut template_tx =
         crate::core::channels::vrpc::identity::verus_tx::codec::decode_hex(&update_tx_hex)
             .map_err(|_| WalletError::IdentityBuildFailed)?;
@@ -1865,6 +1917,32 @@ pub async fn preflight_generic_identity_update(
         &funding_candidates,
         DEFAULT_FEE_SAT,
     )?;
+    let authenticated_inputs = signable_inputs
+        .iter()
+        .map(|input| crate::core::channels::vrpc::common::VrpcInputRef {
+            txid: input.txid.clone(),
+            vout: input.vout,
+            satoshis: input.satoshis,
+            script_pub_key: Some(input.script_pub_key.clone()),
+        })
+        .collect::<Vec<_>>();
+    crate::core::channels::vrpc::common::authenticate_payload_inputs(
+        provider,
+        &authenticated_inputs,
+    )
+    .await
+    .map_err(|_| WalletError::IdentityBuildFailed)?;
+    let input_total = authenticated_inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    crate::core::channels::vrpc::intent::validate_identity_transaction_intent(
+        &unsigned_hex,
+        &control_intent,
+        &resolved.address,
+        input_total,
+        DEFAULT_FEE_SAT,
+    )?;
 
     let fee = sat_to_decimal_string(DEFAULT_FEE_SAT);
     let preflight_id = Uuid::new_v4().to_string();
@@ -1876,6 +1954,7 @@ pub async fn preflight_generic_identity_update(
         from_address: resolved.address.clone(),
         fee: fee.clone(),
         memo: None,
+        control_intent,
     };
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;
@@ -2309,8 +2388,9 @@ async fn resolve_identity_friendly_names(
 mod tests {
     use super::{
         build_and_sign_generic_response_internal, build_generic_response_redirect_url,
-        build_unsigned_generic_response_hex, decode_defined_key_label, merge_identity_update_patch,
-        parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
+        build_unsigned_generic_response_hex, decode_defined_key_label, map_generic_session_change,
+        merge_identity_update_patch, parse_generic_response_post_callback_uri,
+        parse_provisioning_challenge_hex, post_generic_response_callback_for_session,
         post_generic_response_callback_request, resolve_signer_cmm_key_labels_from_identity,
         validate_generic_request_funding_source, wallet_network_to_crypto_network,
         BuildAndSignGenericResponseRequest, WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID,
@@ -2321,6 +2401,7 @@ mod tests {
         VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST, VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE,
         VDXF_ORDINAL_PROVISION_IDENTITY, VERIFIABLE_SIGNATURE_VERSION_V2,
     };
+    use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
         compute_identity_signature_hash, encode_compact_i_address, get_raw_envelope_sha256,
         parse_generic_envelope_hex, parse_identity_signature,
@@ -2328,13 +2409,18 @@ mod tests {
         write_varint,
     };
     use crate::core::crypto::wif_encoding::generate_p2pkh_address;
+    use crate::core::crypto::{derive_public_profile_from_material, Network};
+    use crate::core::StrongholdStore;
     use crate::types::{
         GenericAuthenticationResponseInput, GenericIdentityUpdateResponseInput,
         GenericResponseSignerInput, LinkedIdentity, WalletError,
     };
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::sync::{Mutex, Notify};
+    use zeroize::Zeroizing;
 
     const TEST_SYSTEM_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
     const TEST_SIGNER_ID: &str = "i89UVSuN6vfWg1mWpXMuc6dsJBdeYTi7bX";
@@ -2468,6 +2554,22 @@ mod tests {
         }
 
         request
+    }
+
+    async fn unlock_generic_test_session(session: &Arc<Mutex<SessionManager>>, material: &str) {
+        let profile = derive_public_profile_from_material(
+            material,
+            crate::types::wallet::WalletSecretKind::SeedText,
+            Network::Mainnet,
+        )
+        .expect("public profile");
+        session.lock().await.unlock_with_profile(
+            "generic-account".to_string(),
+            WalletNetwork::Mainnet,
+            crate::types::wallet::WalletSecretKind::SeedText,
+            profile,
+            Zeroizing::new(vec![1, 2, 3]),
+        );
     }
 
     #[test]
@@ -2855,13 +2957,12 @@ mod tests {
                 .expect("write response");
         });
 
-        let response = post_generic_response_callback_request(
+        post_generic_response_callback_request(
             format!("http://{}/callback", address),
             expected_hex,
         )
         .await
         .expect("callback post succeeds");
-        assert!(response.status().is_success());
 
         server.await.expect("server completes");
     }
@@ -2882,15 +2983,161 @@ mod tests {
                 .expect("write response");
         });
 
-        let response = post_generic_response_callback_request(
+        let error = post_generic_response_callback_request(
             format!("http://{}/callback", address),
             "deadbeef".to_string(),
         )
         .await
-        .expect("request returns response");
-        assert!(!response.status().is_success());
+        .expect_err("non-success callback status must fail");
+        assert!(matches!(error, WalletError::OperationFailed));
 
         server.await.expect("server completes");
+    }
+
+    #[tokio::test]
+    async fn callback_command_maps_http_failure_without_collapsing_it_to_network_error() {
+        let store_path = std::env::temp_dir().join(format!(
+            "lite_wallet_generic_callback_status_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(store_path),
+        )));
+        unlock_generic_test_session(&session, "wallet A").await;
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .expect("wallet context");
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept request");
+            let _request = read_http_request(&mut stream).await;
+            stream
+                .write_all(b"HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .expect("write response");
+        });
+
+        let error = post_generic_response_callback_for_session(
+            format!("http://{address}/callback"),
+            "deadbeef".to_string(),
+            context.session_id,
+            &session,
+        )
+        .await
+        .expect_err("non-success callback status must fail");
+        assert!(matches!(error, WalletError::OperationFailed));
+        server.await.expect("server completes");
+    }
+
+    #[tokio::test]
+    async fn callback_command_cancels_when_wallet_session_changes_during_http_wait() {
+        let store_path = std::env::temp_dir().join(format!(
+            "lite_wallet_generic_callback_session_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(store_path),
+        )));
+        unlock_generic_test_session(&session, "wallet A").await;
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .expect("wallet A context");
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+        let request_started = Arc::new(Notify::new());
+        let allow_response = Arc::new(Notify::new());
+        let server = tokio::spawn({
+            let request_started = Arc::clone(&request_started);
+            let allow_response = Arc::clone(&allow_response);
+            async move {
+                let (mut stream, _) = listener.accept().await.expect("accept request");
+                let _request = read_http_request(&mut stream).await;
+                request_started.notify_one();
+                allow_response.notified().await;
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+            }
+        });
+        let callback = tokio::spawn({
+            let session = Arc::clone(&session);
+            let session_id = context.session_id.clone();
+            async move {
+                post_generic_response_callback_for_session(
+                    format!("http://{address}/callback"),
+                    "deadbeef".to_string(),
+                    session_id,
+                    &session,
+                )
+                .await
+            }
+        });
+
+        request_started.notified().await;
+        session.lock().await.lock();
+        unlock_generic_test_session(&session, "wallet B").await;
+        allow_response.notify_one();
+
+        let error = callback
+            .await
+            .expect("callback task")
+            .expect_err("stale callback must fail");
+        assert!(matches!(error, WalletError::WalletSessionChanged));
+        let replacement = capture_active_wallet_access_context(&session)
+            .await
+            .expect("replacement wallet remains active");
+        assert_ne!(replacement.session_id, context.session_id);
+        server.await.expect("server completes");
+    }
+
+    #[tokio::test]
+    async fn stale_generic_operation_maps_to_session_changed_without_affecting_replacement_wallet()
+    {
+        let store_path = std::env::temp_dir().join(format!(
+            "lite_wallet_generic_session_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(store_path),
+        )));
+        unlock_generic_test_session(&session, "wallet A").await;
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .expect("wallet A context");
+        let guard = context.session_submission_guard();
+        let started = Arc::new(Notify::new());
+        let task = tokio::spawn({
+            let started = Arc::clone(&started);
+            async move {
+                guard
+                    .run(async move {
+                        started.notify_one();
+                        std::future::pending::<Result<(), WalletError>>().await
+                    })
+                    .await
+                    .map_err(map_generic_session_change)
+            }
+        });
+
+        started.notified().await;
+        session.lock().await.lock();
+        unlock_generic_test_session(&session, "wallet B").await;
+
+        let error = task
+            .await
+            .expect("stale operation task")
+            .expect_err("stale operation");
+        assert!(matches!(error, WalletError::WalletSessionChanged));
+        let replacement = capture_active_wallet_access_context(&session)
+            .await
+            .expect("replacement wallet remains active");
+        assert_ne!(replacement.session_id, context.session_id);
+        assert_eq!(replacement.account_id, "generic-account");
     }
 
     #[test]

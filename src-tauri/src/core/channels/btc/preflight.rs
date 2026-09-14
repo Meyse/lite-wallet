@@ -323,6 +323,9 @@ pub async fn preflight(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex as StdMutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn previous_tx(script: ScriptBuf, value: u64) -> (String, String) {
         let tx = Transaction {
@@ -357,6 +360,82 @@ mod tests {
         }
     }
 
+    fn p2pkh_address(hash: [u8; 20]) -> String {
+        let mut payload = vec![0u8];
+        payload.extend_from_slice(&hash);
+        bs58::encode(payload).with_check().into_string()
+    }
+
+    async fn mocked_preflight(
+        source_hash: [u8; 20],
+        reported_txid: String,
+        reported_vout: u32,
+        reported_value: u64,
+        previous_tx_hex: String,
+    ) -> (Result<PreflightResult, WalletError>, Vec<String>) {
+        let source_address = p2pkh_address(source_hash);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind BTC test endpoint");
+        let address = listener.local_addr().expect("BTC test endpoint address");
+        let paths = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let server_paths = Arc::clone(&paths);
+        let utxo_json = serde_json::json!([{
+            "txid": reported_txid,
+            "vout": reported_vout,
+            "value": reported_value,
+            "status": { "confirmed": true, "block_height": 1 }
+        }])
+        .to_string();
+
+        let server = tokio::spawn(async move {
+            for response_body in [utxo_json, previous_tx_hex] {
+                let (mut stream, _) = listener.accept().await.expect("accept BTC request");
+                let mut request = vec![0u8; 4096];
+                let count = stream.read(&mut request).await.expect("read BTC request");
+                let request = String::from_utf8_lossy(&request[..count]);
+                let first_line = request.lines().next().unwrap_or_default().to_string();
+                server_paths
+                    .lock()
+                    .expect("request path lock")
+                    .push(first_line);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write BTC response");
+            }
+        });
+
+        let store = PreflightStore::new();
+        store.activate_wallet_session("session");
+        let provider = BtcProvider::new_for_tests(format!("http://{address}"));
+        let result = preflight(
+            PreflightParams {
+                coin_id: "BTC".to_string(),
+                channel_id: "btc.BTC".to_string(),
+                to_address: source_address.clone(),
+                amount: "0.00050000".to_string(),
+                memo: None,
+            },
+            &store,
+            "account",
+            "session",
+            &source_address,
+            "btc.BTC",
+            &provider,
+            WalletNetwork::Mainnet,
+        )
+        .await;
+        server.await.expect("BTC test endpoint completes");
+        let captured_paths = paths.lock().expect("request path lock").clone();
+        (result, captured_paths)
+    }
+
     #[test]
     fn previous_output_authentication_rejects_understated_rest_value() {
         let script = p2pkh_script_from_hash160(&[7u8; 20]);
@@ -385,6 +464,59 @@ mod tests {
         let (txid, tx_hex) = previous_tx(script.clone(), 50_000);
         verify_previous_output(&reported_utxo(txid, 50_000), &tx_hex, &script)
             .expect("matching prevout");
+    }
+
+    #[tokio::test]
+    async fn preflight_authenticates_rest_utxo_before_storing_transaction() {
+        let source_hash = [7u8; 20];
+        let script = p2pkh_script_from_hash160(&source_hash);
+        let (txid, tx_hex) = previous_tx(script, 100_000);
+        let (result, requests) = mocked_preflight(source_hash, txid, 0, 100_000, tx_hex).await;
+
+        let result = result.expect("honest endpoint should preflight");
+        assert_eq!(result.value, "0.00050000");
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_understated_rest_value_without_broadcasting() {
+        let source_hash = [7u8; 20];
+        let script = p2pkh_script_from_hash160(&source_hash);
+        let (txid, tx_hex) = previous_tx(script, 100_000);
+        let (result, requests) = mocked_preflight(source_hash, txid, 0, 52_000, tx_hex).await;
+
+        assert!(matches!(result, Err(WalletError::OperationFailed)));
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_wrong_txid_script_and_outpoint_without_broadcasting() {
+        let source_hash = [7u8; 20];
+        let source_script = p2pkh_script_from_hash160(&source_hash);
+        let (real_txid, matching_hex) = previous_tx(source_script, 100_000);
+
+        let (wrong_txid, requests) = mocked_preflight(
+            source_hash,
+            "00".repeat(32),
+            0,
+            100_000,
+            matching_hex.clone(),
+        )
+        .await;
+        assert!(wrong_txid.is_err());
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
+
+        let (_, wrong_script_hex) = previous_tx(p2pkh_script_from_hash160(&[8u8; 20]), 100_000);
+        let (wrong_script, requests) =
+            mocked_preflight(source_hash, real_txid.clone(), 0, 100_000, wrong_script_hex).await;
+        assert!(wrong_script.is_err());
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
+
+        let (wrong_outpoint, requests) =
+            mocked_preflight(source_hash, real_txid, 1, 100_000, matching_hex).await;
+        assert!(wrong_outpoint.is_err());
+        assert!(requests.iter().all(|request| request.starts_with("GET ")));
     }
 
     #[test]

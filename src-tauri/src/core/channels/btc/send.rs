@@ -22,6 +22,46 @@ use crate::types::WalletError;
 
 const SIGHASH_ALL: u32 = 1u32;
 
+fn validate_unsigned_transaction(
+    payload: &BtcPreflightPayload,
+) -> Result<bitcoin::Transaction, WalletError> {
+    let tx_bytes = hex::decode(payload.unsigned_hex.trim_start_matches("0x"))
+        .or_else(|_| hex::decode(&payload.unsigned_hex))
+        .map_err(|_| WalletError::InvalidPreflight)?;
+    let mut cursor = Cursor::new(&tx_bytes[..]);
+    let tx = bitcoin::Transaction::consensus_decode(&mut cursor)
+        .map_err(|_| WalletError::InvalidPreflight)?;
+
+    if tx.input.len() != payload.inputs.len() {
+        return Err(WalletError::InvalidPreflight);
+    }
+    for (txin, expected) in tx.input.iter().zip(&payload.inputs) {
+        if txin.previous_output.txid.to_string() != expected.txid
+            || txin.previous_output.vout != expected.vout
+        {
+            return Err(WalletError::InvalidPreflight);
+        }
+    }
+    let input_total = payload.inputs.iter().try_fold(0u64, |total, input| {
+        total
+            .checked_add(input.value)
+            .ok_or(WalletError::InvalidPreflight)
+    })?;
+    let output_total = tx.output.iter().try_fold(0u64, |total, output| {
+        total
+            .checked_add(output.value.to_sat())
+            .ok_or(WalletError::InvalidPreflight)
+    })?;
+    let actual_fee = input_total
+        .checked_sub(output_total)
+        .ok_or(WalletError::InvalidPreflight)?;
+    if actual_fee != payload.fee_sats || actual_fee == 0 || actual_fee > MAX_REVIEWED_FEE_SAT {
+        return Err(WalletError::InvalidPreflight);
+    }
+
+    Ok(tx)
+}
+
 fn p2pkh_script(pubkey: &[u8]) -> ScriptBuf {
     use bitcoin::blockdata::opcodes::all::*;
     use bitcoin::blockdata::script::Builder;
@@ -114,40 +154,7 @@ pub async fn send(
     let public_key = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
     let script_pubkey = p2pkh_script(&public_key.serialize());
 
-    let tx_bytes = hex::decode(payload.unsigned_hex.trim_start_matches("0x"))
-        .or_else(|_| hex::decode(&payload.unsigned_hex))
-        .map_err(|_| WalletError::OperationFailed)?;
-
-    let mut cursor = Cursor::new(&tx_bytes[..]);
-    let mut tx: bitcoin::Transaction = bitcoin::Transaction::consensus_decode(&mut cursor)
-        .map_err(|_| WalletError::OperationFailed)?;
-
-    if tx.input.len() != payload.inputs.len() {
-        return Err(WalletError::InvalidPreflight);
-    }
-    for (txin, expected) in tx.input.iter().zip(&payload.inputs) {
-        if txin.previous_output.txid.to_string() != expected.txid
-            || txin.previous_output.vout != expected.vout
-        {
-            return Err(WalletError::InvalidPreflight);
-        }
-    }
-    let input_total = payload.inputs.iter().try_fold(0u64, |total, input| {
-        total
-            .checked_add(input.value)
-            .ok_or(WalletError::InvalidPreflight)
-    })?;
-    let output_total = tx.output.iter().try_fold(0u64, |total, output| {
-        total
-            .checked_add(output.value.to_sat())
-            .ok_or(WalletError::InvalidPreflight)
-    })?;
-    let actual_fee = input_total
-        .checked_sub(output_total)
-        .ok_or(WalletError::InvalidPreflight)?;
-    if actual_fee != payload.fee_sats || actual_fee == 0 || actual_fee > MAX_REVIEWED_FEE_SAT {
-        return Err(WalletError::InvalidPreflight);
-    }
+    let mut tx = validate_unsigned_transaction(&payload)?;
 
     for i in 0..tx.input.len() {
         let cache = bitcoin::sighash::SighashCache::new(&tx);
@@ -188,4 +195,67 @@ pub async fn send(
         to_address: payload.to_address,
         from_address: payload.from_address,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::absolute::LockTime;
+    use bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
+    use bitcoin::{Amount, Sequence, Txid};
+    use std::str::FromStr;
+
+    fn payload_with_fee(input_value: u64, output_value: u64, fee_sats: u64) -> BtcPreflightPayload {
+        let txid = Txid::from_str(&"11".repeat(32)).expect("test txid");
+        let tx = bitcoin::Transaction {
+            version: bitcoin::blockdata::transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid, vout: 0 },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Default::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(output_value),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+        let mut bytes = Vec::new();
+        tx.consensus_encode(&mut bytes).expect("encode transaction");
+        BtcPreflightPayload {
+            unsigned_hex: hex::encode(bytes),
+            to_address: "destination".to_string(),
+            from_address: "source".to_string(),
+            value: "0.00050000".to_string(),
+            fee: format!("{:.8}", fee_sats as f64 / 100_000_000.0),
+            fee_sats,
+            inputs: vec![crate::core::channels::btc::preflight::BtcInputRef {
+                txid: txid.to_string(),
+                vout: 0,
+                value: input_value,
+            }],
+        }
+    }
+
+    #[test]
+    fn send_time_guard_accepts_effective_dust_fee() {
+        let payload = payload_with_fee(52_999, 50_000, 2_999);
+        validate_unsigned_transaction(&payload).expect("reviewed dust fee should be accepted");
+    }
+
+    #[test]
+    fn send_time_guard_rejects_fee_mismatch_and_excessive_fee() {
+        let mismatch = payload_with_fee(53_000, 50_000, 2_000);
+        assert!(matches!(
+            validate_unsigned_transaction(&mismatch),
+            Err(WalletError::InvalidPreflight)
+        ));
+
+        let excessive = payload_with_fee(53_000, 50_000, 3_000);
+        assert!(matches!(
+            validate_unsigned_transaction(&excessive),
+            Err(WalletError::InvalidPreflight)
+        ));
+    }
 }

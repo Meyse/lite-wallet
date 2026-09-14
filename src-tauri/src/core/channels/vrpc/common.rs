@@ -5,11 +5,14 @@ use std::collections::HashSet;
 use std::io::Cursor;
 
 use bitcoin::consensus::Decodable;
+use bitcoin::hashes::{sha256d, Hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::channels::vrpc::identity::verus_tx::codec::decode_hex as decode_verus_tx;
 use crate::core::channels::vrpc::identity::verus_tx::model::txid_le_bytes_to_hex;
+use crate::core::channels::vrpc::intent::VrpcOutputIntent;
+use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::types::WalletError;
 
 pub(crate) const SATOSHIS_PER_COIN: i64 = 100_000_000;
@@ -24,6 +27,7 @@ pub(crate) struct VrpcPreflightPayload {
     pub from_address: String,
     pub value: String,
     pub fee: String,
+    pub intent: VrpcOutputIntent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -309,6 +313,53 @@ pub(crate) fn collect_payload_inputs(
     }
 
     Ok(out)
+}
+
+pub(crate) async fn authenticate_payload_inputs(
+    provider: &VrpcProvider,
+    inputs: &[VrpcInputRef],
+) -> Result<(), WalletError> {
+    for input in inputs {
+        let raw = provider.getrawtransaction(&input.txid, 0).await?;
+        let tx_hex = parse_result_string(&raw, &["hex"]).ok_or(WalletError::OperationFailed)?;
+        let tx_bytes = hex::decode(tx_hex.trim().trim_start_matches("0x"))
+            .map_err(|_| WalletError::OperationFailed)?;
+        let computed_txid = bitcoin::Txid::from_raw_hash(sha256d::Hash::hash(&tx_bytes));
+        if computed_txid.to_string() != input.txid {
+            return Err(WalletError::OperationFailed);
+        }
+        let (value, script) = if let Ok(tx) = decode_verus_tx(&tx_hex) {
+            let output = tx
+                .outputs
+                .get(input.vout as usize)
+                .ok_or(WalletError::OperationFailed)?;
+            (
+                i64::try_from(output.value).map_err(|_| WalletError::OperationFailed)?,
+                hex::encode(&output.script_pub_key),
+            )
+        } else {
+            let tx: bitcoin::Transaction =
+                bitcoin::Transaction::consensus_decode(&mut Cursor::new(tx_bytes))
+                    .map_err(|_| WalletError::OperationFailed)?;
+            let output = tx
+                .output
+                .get(input.vout as usize)
+                .ok_or(WalletError::OperationFailed)?;
+            (
+                i64::try_from(output.value.to_sat()).map_err(|_| WalletError::OperationFailed)?,
+                hex::encode(output.script_pubkey.as_bytes()),
+            )
+        };
+        if value != input.satoshis
+            || input
+                .script_pub_key
+                .as_deref()
+                .is_none_or(|expected| !expected.eq_ignore_ascii_case(&script))
+        {
+            return Err(WalletError::OperationFailed);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
