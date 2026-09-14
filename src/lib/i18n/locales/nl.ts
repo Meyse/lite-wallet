@@ -807,6 +807,14 @@ export const nl: Record<string, string> = {
   'wallet.transfer.ethRecovery.continue': 'Doorgaan met transfer',
   'wallet.transfer.ethRecovery.showResult': 'Verzonden transfer tonen',
   'wallet.transfer.ethRecovery.recovering': 'Herstellen…',
+  'wallet.transfer.ethRecovery.error.stageAdvanced':
+    'De transfer is verdergegaan, maar de volgende stap kon niet worden verzonden. Controleer de bijgewerkte gegevens en ga daarna opnieuw door.',
+  'wallet.transfer.ethRecovery.error.retry':
+    'De transfer kon niet doorgaan. Controleer deze gegevens en probeer het opnieuw.',
+  'wallet.transfer.ethRecovery.error.noPending':
+    'Er staat geen herstel meer open. Controleer je transfergegevens voordat je het opnieuw probeert.',
+  'wallet.transfer.ethRecovery.error.refreshFailed':
+    'De herstelstatus kon niet worden vernieuwd. Controleer de laatst bekende gegevens en probeer het opnieuw.',
   'wallet.transfer.ethRecovery.network': 'Netwerk',
   'wallet.transfer.ethRecovery.chain': 'Chain {value}',
   'wallet.transfer.ethRecovery.stage': 'Herstelfase',

@@ -406,6 +406,14 @@ export const es: Record<string, string> = {
   'wallet.transfer.ethRecovery.continue': 'Continuar transferencia',
   'wallet.transfer.ethRecovery.showResult': 'Mostrar transferencia enviada',
   'wallet.transfer.ethRecovery.recovering': 'Recuperando…',
+  'wallet.transfer.ethRecovery.error.stageAdvanced':
+    'La transferencia avanzó, pero no se pudo enviar el siguiente paso. Revisa los datos actualizados y vuelve a continuar.',
+  'wallet.transfer.ethRecovery.error.retry':
+    'No se pudo continuar la transferencia. Revisa estos datos e inténtalo de nuevo.',
+  'wallet.transfer.ethRecovery.error.noPending':
+    'La recuperación ya no está pendiente. Revisa los datos de la transferencia antes de intentarlo de nuevo.',
+  'wallet.transfer.ethRecovery.error.refreshFailed':
+    'No se pudo actualizar el estado de recuperación. Revisa los últimos datos conocidos e inténtalo de nuevo.',
   'wallet.transfer.ethRecovery.network': 'Red',
   'wallet.transfer.ethRecovery.chain': 'Cadena {value}',
   'wallet.transfer.ethRecovery.stage': 'Fase de recuperación',

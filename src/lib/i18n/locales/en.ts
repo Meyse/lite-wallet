@@ -792,6 +792,14 @@ export const en: Record<string, string> = {
   'wallet.transfer.ethRecovery.continue': 'Continue transfer',
   'wallet.transfer.ethRecovery.showResult': 'Show submitted transfer',
   'wallet.transfer.ethRecovery.recovering': 'Recovering…',
+  'wallet.transfer.ethRecovery.error.stageAdvanced':
+    'The transfer advanced, but the next step could not be submitted. Review the updated details, then continue again.',
+  'wallet.transfer.ethRecovery.error.retry':
+    'The transfer could not continue. Review these details, then try again.',
+  'wallet.transfer.ethRecovery.error.noPending':
+    'Recovery is no longer pending. Review your transfer details before trying again.',
+  'wallet.transfer.ethRecovery.error.refreshFailed':
+    'The recovery status could not be refreshed. Review the last known details, then try again.',
   'wallet.transfer.ethRecovery.network': 'Network',
   'wallet.transfer.ethRecovery.chain': 'Chain {value}',
   'wallet.transfer.ethRecovery.stage': 'Recovery stage',

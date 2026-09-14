@@ -3237,6 +3237,7 @@
     await runEthRecovery({
       lifetime: ethRecoveryLifetime,
       resume: () => resumePendingEthSubmission(reviewedSubmission.recoveryId),
+      reload: getPendingEthSubmission,
       complete: (result) => {
         recoveredEthSubmission = reviewedSubmission;
         sendResult = result;
@@ -3255,8 +3256,22 @@
         );
         currentStep = 'success';
       },
-      fail: (error) => {
-        transferError = mapWalletError(error);
+      refresh: (review) => {
+        pendingEthSubmission = review;
+      },
+      fail: (_error, recovery) => {
+        if (recovery.reloadFailed) {
+          transferError = i18n.t('wallet.transfer.ethRecovery.error.refreshFailed');
+        } else if (!recovery.review) {
+          transferError = i18n.t('wallet.transfer.ethRecovery.error.noPending');
+        } else if (
+          recovery.review.recoveryId !== reviewedSubmission.recoveryId ||
+          recovery.review.stage !== reviewedSubmission.stage
+        ) {
+          transferError = i18n.t('wallet.transfer.ethRecovery.error.stageAdvanced');
+        } else {
+          transferError = i18n.t('wallet.transfer.ethRecovery.error.retry');
+        }
       },
       settle: () => {
         recoveringEthSubmission = false;
@@ -3460,6 +3475,12 @@
 
   <div class={currentStep === 'details' ? 'space-y-4' : currentStep === 'review' ? 'space-y-3' : 'space-y-5'}>
 
+    {#if transferError}
+      <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        {transferError}
+      </div>
+    {/if}
+
     {#if pendingEthSubmission}
       <EthRecoveryReviewCard
         review={pendingEthSubmission}
@@ -3467,11 +3488,6 @@
         onrecover={recoverPendingEthSubmission}
       />
     {:else}
-      {#if transferError}
-      <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        {transferError}
-      </div>
-    {/if}
     {#if !transferError && sendStageGuidance}
       <div class="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-200">
         {sendStageGuidance}

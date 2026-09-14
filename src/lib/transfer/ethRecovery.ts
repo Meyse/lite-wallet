@@ -48,15 +48,25 @@ export function resolveTransferResultContext(
 type RunEthRecoveryOptions = {
   lifetime: EthRecoveryLifetime;
   resume: () => Promise<SendResult>;
+  reload: () => Promise<EthPendingSubmissionReview | null>;
   complete: (result: SendResult) => void;
-  fail: (error: unknown) => void;
+  refresh: (review: EthPendingSubmissionReview | null) => void;
+  fail: (
+    error: unknown,
+    recovery: {
+      review?: EthPendingSubmissionReview | null;
+      reloadFailed: boolean;
+    }
+  ) => void;
   settle: () => void;
 };
 
 export async function runEthRecovery({
   lifetime,
   resume,
+  reload,
   complete,
+  refresh,
   fail,
   settle,
 }: RunEthRecoveryOptions): Promise<void> {
@@ -71,7 +81,20 @@ export async function runEthRecovery({
       lifetime.dispose();
       return;
     }
-    fail(error);
+    try {
+      const review = await reload();
+      if (!lifetime.isActive(token)) return;
+      refresh(review);
+      fail(error, { review, reloadFailed: false });
+    } catch (reloadError) {
+      if (!lifetime.isActive(token)) return;
+      const reloadErrorType = extractWalletErrorType(reloadError);
+      if (reloadErrorType === 'WalletSessionChanged' || reloadErrorType === 'WalletLocked') {
+        lifetime.dispose();
+        return;
+      }
+      fail(error, { reloadFailed: true });
+    }
   } finally {
     if (lifetime.isActive(token)) settle();
   }

@@ -406,6 +406,14 @@ export const de: Record<string, string> = {
   'wallet.transfer.ethRecovery.continue': 'Übertragung fortsetzen',
   'wallet.transfer.ethRecovery.showResult': 'Gesendete Übertragung anzeigen',
   'wallet.transfer.ethRecovery.recovering': 'Wiederherstellung…',
+  'wallet.transfer.ethRecovery.error.stageAdvanced':
+    'Die Übertragung wurde fortgesetzt, aber der nächste Schritt konnte nicht gesendet werden. Prüfe die aktualisierten Details und fahre dann erneut fort.',
+  'wallet.transfer.ethRecovery.error.retry':
+    'Die Übertragung konnte nicht fortgesetzt werden. Prüfe diese Details und versuche es erneut.',
+  'wallet.transfer.ethRecovery.error.noPending':
+    'Es steht keine Wiederherstellung mehr aus. Prüfe deine Übertragungsdetails, bevor du es erneut versuchst.',
+  'wallet.transfer.ethRecovery.error.refreshFailed':
+    'Der Wiederherstellungsstatus konnte nicht aktualisiert werden. Prüfe die zuletzt bekannten Details und versuche es erneut.',
   'wallet.transfer.ethRecovery.network': 'Netzwerk',
   'wallet.transfer.ethRecovery.chain': 'Chain {value}',
   'wallet.transfer.ethRecovery.stage': 'Wiederherstellungsphase',
