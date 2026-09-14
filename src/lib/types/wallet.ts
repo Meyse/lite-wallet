@@ -153,6 +153,20 @@ export interface SendResult {
   value: string;
   toAddress: string;
   fromAddress: string;
+  recoveryId?: string;
+}
+
+export interface EthPendingSubmissionReview {
+  recoveryId: string;
+  stage: string;
+  status: string;
+  txid: string;
+  fee: string;
+  value: string;
+  toAddress: string;
+  fromAddress: string;
+  requiresResume: boolean;
+  canAcknowledge: boolean;
 }
 
 export type IdentityOperation = 'update' | 'revoke' | 'recover';

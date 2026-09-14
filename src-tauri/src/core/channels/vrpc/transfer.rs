@@ -490,6 +490,7 @@ async fn build_transfer_intent(
         .ok_or(WalletError::OperationFailed)?;
 
     Ok(VrpcOutputIntent::ReserveTransfer {
+        system_currency_id,
         source_currency_id,
         amount_sats,
         flags,
@@ -670,6 +671,7 @@ pub async fn preflight_transfer(
         from_address,
         input_total,
         funded_transfer.fee_sat,
+        &funded_transfer.payload_inputs,
     )?;
 
     add_transfer_warnings(&mut warnings, &params);

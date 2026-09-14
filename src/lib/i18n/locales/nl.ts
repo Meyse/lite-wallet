@@ -796,6 +796,18 @@ export const nl: Record<string, string> = {
     'Private send-prover is niet beschikbaar. Installeer geldige Sapling-params en probeer opnieuw.',
   'wallet.transfer.error.dlightBroadcastUncertain':
     'De verzending kon niet worden bevestigd. Controleer de transactiegeschiedenis voordat je het opnieuw probeert.',
+  'wallet.transfer.error.ethBroadcastUncertain':
+    'De Ethereum-verzending kon niet worden bevestigd. Ga verder met de opgeslagen transfer in plaats van opnieuw te verzenden.',
+  'wallet.transfer.error.ethBroadcastRecovered':
+    'De opgeslagen Ethereum-transfer is hersteld.',
+  'wallet.transfer.error.ethRecoveryRequired':
+    'Rond de opgeslagen Ethereum-transfer af voordat je een nieuwe start.',
+  'wallet.transfer.ethRecovery.title': 'Ethereum-transfer herstellen',
+  'wallet.transfer.ethRecovery.description':
+    'Controleer {value} naar {recipient} voordat je doorgaat.',
+  'wallet.transfer.ethRecovery.continue': 'Doorgaan met transfer',
+  'wallet.transfer.ethRecovery.showResult': 'Verzonden transfer tonen',
+  'wallet.transfer.ethRecovery.recovering': 'Herstellen…',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend-cache is nog niet klaar. Laat private sync voltooien en probeer daarna opnieuw.',
   'wallet.transfer.error.network': 'Netwerkfout. Probeer opnieuw.',

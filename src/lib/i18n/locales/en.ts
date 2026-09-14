@@ -782,6 +782,18 @@ export const en: Record<string, string> = {
     'Private send prover is unavailable. Install valid Sapling params and try again.',
   'wallet.transfer.error.dlightBroadcastUncertain':
     'Submission could not be confirmed. Check transaction history before trying again.',
+  'wallet.transfer.error.ethBroadcastUncertain':
+    'Ethereum submission could not be confirmed. Continue the saved transfer instead of sending again.',
+  'wallet.transfer.error.ethBroadcastRecovered':
+    'The saved Ethereum transfer was recovered.',
+  'wallet.transfer.error.ethRecoveryRequired':
+    'Finish the saved Ethereum transfer before starting another one.',
+  'wallet.transfer.ethRecovery.title': 'Ethereum transfer recovery',
+  'wallet.transfer.ethRecovery.description':
+    'Review {value} to {recipient} before continuing.',
+  'wallet.transfer.ethRecovery.continue': 'Continue transfer',
+  'wallet.transfer.ethRecovery.showResult': 'Show submitted transfer',
+  'wallet.transfer.ethRecovery.recovering': 'Recovering…',
   'wallet.transfer.error.dlightSpendCacheNotReady':
     'Private spend cache is not ready yet. Let private sync complete, then try again.',
   'wallet.transfer.error.network': 'Network error. Try again.',

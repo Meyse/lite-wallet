@@ -102,6 +102,9 @@ pub enum WalletError {
     #[error("A previously uncertain Ethereum transaction was recovered: {0}")]
     EthBroadcastRecovered(String),
 
+    #[error("An Ethereum transaction needs explicit recovery before another payment: {0}")]
+    EthRecoveryRequired(String),
+
     #[error("Invalid ERC20 contract")]
     InvalidContract,
 

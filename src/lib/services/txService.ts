@@ -4,6 +4,7 @@
  */
 
 import type {
+  EthPendingSubmissionReview,
   PreflightParams,
   PreflightResult,
   SendRequest,
@@ -30,4 +31,22 @@ export async function sendTransaction(request: SendRequest): Promise<SendResult>
   });
   invalidateWalletDisplayHistory();
   return result;
+}
+
+export async function getPendingEthSubmission(): Promise<EthPendingSubmissionReview | null> {
+  return invokeWalletCommand<EthPendingSubmissionReview | null>('get_pending_eth_submission');
+}
+
+export async function resumePendingEthSubmission(recoveryId: string): Promise<SendResult> {
+  const result = await invokeWalletCommand<SendResult>('resume_pending_eth_submission', {
+    recovery_id: recoveryId,
+  });
+  invalidateWalletDisplayHistory();
+  return result;
+}
+
+export async function acknowledgePendingEthSubmission(recoveryId: string): Promise<void> {
+  return invokeWalletCommand<void>('acknowledge_pending_eth_submission', {
+    recovery_id: recoveryId,
+  });
 }

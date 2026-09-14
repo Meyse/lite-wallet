@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::core::auth::SessionManager;
 use crate::core::channels::btc::BtcProviderPool;
+use crate::core::channels::eth::EthPendingSubmissionReview;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::channels::{
@@ -82,6 +83,46 @@ pub async fn send_transaction(
         btc_provider_pool.inner().as_ref(),
         eth_provider_pool.inner().as_ref(),
         &app_handle,
+    )
+    .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_pending_eth_submission(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    eth_provider_pool: State<'_, Arc<EthProviderPool>>,
+) -> Result<Option<EthPendingSubmissionReview>, WalletError> {
+    crate::core::channels::eth::get_pending_submission_review(
+        session_manager.inner(),
+        eth_provider_pool.inner().as_ref(),
+    )
+    .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resume_pending_eth_submission(
+    recovery_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    eth_provider_pool: State<'_, Arc<EthProviderPool>>,
+) -> Result<SendResult, WalletError> {
+    crate::core::channels::eth::resume_pending_submission(
+        &recovery_id,
+        session_manager.inner(),
+        eth_provider_pool.inner().as_ref(),
+    )
+    .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn acknowledge_pending_eth_submission(
+    recovery_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    eth_provider_pool: State<'_, Arc<EthProviderPool>>,
+) -> Result<(), WalletError> {
+    crate::core::channels::eth::acknowledge_pending_submission(
+        &recovery_id,
+        session_manager.inner(),
+        eth_provider_pool.inner().as_ref(),
     )
     .await
 }

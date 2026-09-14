@@ -395,6 +395,18 @@ export const de: Record<string, string> = {
 
   'wallet.transfer.error.dlightBroadcastUncertain':
     'Die Übermittlung konnte nicht bestätigt werden. Prüfe den Transaktionsverlauf, bevor du es erneut versuchst.',
+  'wallet.transfer.error.ethBroadcastUncertain':
+    'Die Ethereum-Übermittlung konnte nicht bestätigt werden. Setze die gespeicherte Übertragung fort, statt erneut zu senden.',
+  'wallet.transfer.error.ethBroadcastRecovered':
+    'Die gespeicherte Ethereum-Übertragung wurde wiederhergestellt.',
+  'wallet.transfer.error.ethRecoveryRequired':
+    'Schließe die gespeicherte Ethereum-Übertragung ab, bevor du eine neue startest.',
+  'wallet.transfer.ethRecovery.title': 'Ethereum-Übertragung wiederherstellen',
+  'wallet.transfer.ethRecovery.description':
+    'Prüfe {value} an {recipient}, bevor du fortfährst.',
+  'wallet.transfer.ethRecovery.continue': 'Übertragung fortsetzen',
+  'wallet.transfer.ethRecovery.showResult': 'Gesendete Übertragung anzeigen',
+  'wallet.transfer.ethRecovery.recovering': 'Wiederherstellung…',
   'wallet.settings.privateVerus.title': 'Privatsphare',
   'wallet.settings.privateVerus.description':
     'Konfiguriere shielded Privatsphare fur {label}. Du kannst deine primare geheime Wiederherstellungsphrase wiederverwenden oder ein separates Privacy-Wiederherstellungsgeheimnis setzen.',

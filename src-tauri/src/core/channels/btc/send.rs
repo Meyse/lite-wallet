@@ -194,6 +194,7 @@ pub async fn send(
         value: payload.value,
         to_address: payload.to_address,
         from_address: payload.from_address,
+        recovery_id: None,
     })
 }
 

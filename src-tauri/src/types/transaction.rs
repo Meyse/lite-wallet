@@ -56,6 +56,8 @@ pub struct SendResult {
     pub value: String,
     pub to_address: String,
     pub from_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_id: Option<String>,
 }
 
 /// Balance result shared across channels (VRPC, ETH, BTC). Decimal strings.

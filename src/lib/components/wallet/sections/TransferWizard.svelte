@@ -51,7 +51,13 @@
   } from '$lib/transfer/recipientAddressValidation';
   import { channelIdForCoin } from '$lib/utils/channelId.js';
   import * as walletService from '$lib/services/walletService.js';
-  import { preflightSend, sendTransaction } from '$lib/services/txService.js';
+  import {
+    acknowledgePendingEthSubmission,
+    getPendingEthSubmission,
+    preflightSend,
+    resumePendingEthSubmission,
+    sendTransaction
+  } from '$lib/services/txService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import {
     estimateBridgeConversion,
@@ -79,6 +85,7 @@
     BridgeExportFeeEstimateResult,
     BridgeTransferPreflightResult,
     DlightRuntimeStatusResult,
+    EthPendingSubmissionReview,
     PreflightResult,
     PreflightWarning,
     SendResult,
@@ -258,6 +265,8 @@
   let sendStageTick = $state(0);
   let targetsError = $state('');
   let transferError = $state('');
+  let pendingEthSubmission = $state<EthPendingSubmissionReview | null>(null);
+  let recoveringEthSubmission = $state(false);
 
   let simplePreflightResult = $state<PreflightResult | null>(null);
   let bridgePreflightResult = $state<BridgeTransferPreflightResult | null>(null);
@@ -1842,6 +1851,13 @@
       }
 
       try {
+        const pendingSubmission = await getPendingEthSubmission();
+        if (!disposed) pendingEthSubmission = pendingSubmission;
+      } catch (error) {
+        if (!disposed) transferError = mapWalletError(error);
+      }
+
+      try {
         const unlisten = await listen<TxSendProgressEventPayload>(
           'wallet://tx-send-progress',
           (event) => {
@@ -2888,6 +2904,15 @@
     if (errorType === 'DlightBroadcastUncertain') {
       return i18n.t('wallet.transfer.error.dlightBroadcastUncertain');
     }
+    if (errorType === 'EthBroadcastUncertain') {
+      return i18n.t('wallet.transfer.error.ethBroadcastUncertain');
+    }
+    if (errorType === 'EthBroadcastRecovered') {
+      return i18n.t('wallet.transfer.error.ethBroadcastRecovered');
+    }
+    if (errorType === 'EthRecoveryRequired') {
+      return i18n.t('wallet.transfer.error.ethRecoveryRequired');
+    }
     if (errorType === 'DlightSpendCacheNotReady') {
       return i18n.t('wallet.transfer.error.dlightSpendCacheNotReady');
     }
@@ -3123,7 +3148,8 @@
     savedRecipientOnSuccess = false;
 
     try {
-      sendResult = await sendTransaction({ preflightId: activePreflight.preflightId });
+      const result = await sendTransaction({ preflightId: activePreflight.preflightId });
+      sendResult = result;
       if (matchedSavedRecipient) {
         void addressBookService.markAddressBookEndpointUsed(matchedSavedRecipient.endpoint.id);
       }
@@ -3135,14 +3161,44 @@
         message: extractWalletErrorMessage(error),
         error
       });
+      const errorType = extractWalletErrorType(error);
       // Preflight ids are single-use on the backend; always force a fresh preflight after send failure.
       clearPreflightState();
       currentStep = 'recipient';
       transferError = mapWalletError(error);
+      if (errorType === 'EthRecoveryRequired' || errorType === 'EthBroadcastUncertain') {
+        try {
+          pendingEthSubmission = await getPendingEthSubmission();
+        } catch (recoveryError) {
+          transferError = mapWalletError(recoveryError);
+        }
+      }
     } finally {
       sending = false;
       sendStage = null;
       sendStageStartedAt = null;
+    }
+  }
+
+  async function recoverPendingEthSubmission() {
+    if (!pendingEthSubmission || recoveringEthSubmission) return;
+    recoveringEthSubmission = true;
+    transferError = '';
+    try {
+      const result = await resumePendingEthSubmission(pendingEthSubmission.recoveryId);
+      sendResult = result;
+      pendingEthSubmission = null;
+      await refreshTxHistory();
+      currentStep = 'success';
+    } catch (error) {
+      transferError = mapWalletError(error);
+      try {
+        pendingEthSubmission = await getPendingEthSubmission();
+      } catch {
+        // Keep the last reviewed recovery details visible.
+      }
+    } finally {
+      recoveringEthSubmission = false;
     }
   }
 
@@ -3162,7 +3218,14 @@
     }
   }
 
-  function handleDone() {
+  async function handleDone() {
+    if (sendResult?.recoveryId) {
+      try {
+        await acknowledgePendingEthSubmission(sendResult.recoveryId);
+      } catch {
+        // Closing is safe: the durable result will be offered again on the next transfer screen.
+      }
+    }
     onClose();
   }
 
@@ -3319,6 +3382,33 @@
   {/snippet}
 
   <div class={currentStep === 'details' ? 'space-y-4' : currentStep === 'review' ? 'space-y-3' : 'space-y-5'}>
+
+    {#if pendingEthSubmission}
+      <div class="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-3 text-amber-950 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-100">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold">{i18n.t('wallet.transfer.ethRecovery.title')}</p>
+            <p class="mt-0.5 text-xs opacity-80">
+              {i18n.t('wallet.transfer.ethRecovery.description', {
+                value: pendingEthSubmission.value,
+                recipient: shortRecipientAddress(pendingEthSubmission.toAddress)
+              })}
+            </p>
+          </div>
+          <Button
+            class="shrink-0"
+            onclick={recoverPendingEthSubmission}
+            disabled={recoveringEthSubmission}
+          >
+            {recoveringEthSubmission
+              ? i18n.t('wallet.transfer.ethRecovery.recovering')
+              : pendingEthSubmission.requiresResume
+                ? i18n.t('wallet.transfer.ethRecovery.continue')
+                : i18n.t('wallet.transfer.ethRecovery.showResult')}
+          </Button>
+        </div>
+      </div>
+    {/if}
 
     {#if transferError}
       <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

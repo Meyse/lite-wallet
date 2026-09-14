@@ -395,6 +395,18 @@ export const es: Record<string, string> = {
 
   'wallet.transfer.error.dlightBroadcastUncertain':
     'No se pudo confirmar el envío. Revisa el historial de transacciones antes de volver a intentarlo.',
+  'wallet.transfer.error.ethBroadcastUncertain':
+    'No se pudo confirmar el envío de Ethereum. Continúa la transferencia guardada en vez de volver a enviar.',
+  'wallet.transfer.error.ethBroadcastRecovered':
+    'Se recuperó la transferencia de Ethereum guardada.',
+  'wallet.transfer.error.ethRecoveryRequired':
+    'Termina la transferencia de Ethereum guardada antes de iniciar otra.',
+  'wallet.transfer.ethRecovery.title': 'Recuperar transferencia de Ethereum',
+  'wallet.transfer.ethRecovery.description':
+    'Revisa {value} a {recipient} antes de continuar.',
+  'wallet.transfer.ethRecovery.continue': 'Continuar transferencia',
+  'wallet.transfer.ethRecovery.showResult': 'Mostrar transferencia enviada',
+  'wallet.transfer.ethRecovery.recovering': 'Recuperando…',
   'wallet.settings.privateVerus.title': 'Privacidad',
   'wallet.settings.privateVerus.description':
     'Configura privacidad shielded para {label}. Puedes reutilizar tu frase secreta de recuperacion principal o definir un secreto de recuperacion de privacidad separado.',

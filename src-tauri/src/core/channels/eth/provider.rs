@@ -84,7 +84,42 @@ impl EthProviderPool {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_tests(network: WalletNetwork, rpc_url: &str) -> Self {
+        let provider = Provider::<Http>::try_from(rpc_url)
+            .expect("valid test Ethereum RPC URL")
+            .interval(Duration::from_millis(1));
+        let network_provider = EthNetworkProvider {
+            chain_id: match network {
+                WalletNetwork::Mainnet => ETHEREUM_MAINNET_CHAIN_ID,
+                WalletNetwork::Testnet => ETHEREUM_SEPOLIA_CHAIN_ID,
+            },
+            rpc_provider: provider,
+            history_provider: EtherscanHistoryClient::new(
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        match network {
+            WalletNetwork::Mainnet => Self {
+                mainnet: Some(network_provider),
+                testnet: None,
+                disabled_reason: None,
+            },
+            WalletNetwork::Testnet => Self {
+                mainnet: None,
+                testnet: Some(network_provider),
+                disabled_reason: None,
+            },
+        }
+    }
+
     pub fn is_enabled(&self) -> bool {
+        #[cfg(test)]
+        if self.disabled_reason.is_none() && (self.mainnet.is_some() || self.testnet.is_some()) {
+            return true;
+        }
         self.mainnet.is_some() && self.testnet.is_some()
     }
 

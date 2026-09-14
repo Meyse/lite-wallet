@@ -70,6 +70,7 @@ pub async fn send(
         &payload.from_address,
         input_total,
         fee_sat,
+        &payload.inputs,
     )
     .map_err(|_| WalletError::InvalidPreflight)?;
 
@@ -94,6 +95,7 @@ pub async fn send(
         value: payload.value,
         to_address: payload.to_address,
         from_address: payload.from_address,
+        recovery_id: None,
     })
 }
 

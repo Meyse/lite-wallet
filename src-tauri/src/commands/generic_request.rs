@@ -1235,20 +1235,32 @@ pub async fn build_and_sign_generic_response(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<BuildAndSignGenericResponseResult, WalletError> {
-    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let submission_guard = context.session_submission_guard();
-    let network = context.wallet_network;
-    let active_wallet_primary_address = context.vrsc_address.clone();
-    let private_key = load_primary_private_scalar_for_context(&context)
-        .await
-        .map_err(map_generic_session_change)?;
-
     let request = BuildAndSignGenericResponseRequest {
         request_hex,
         signer,
         authentication,
         identity_update,
     };
+    build_and_sign_generic_response_for_session(
+        request,
+        session_manager.inner(),
+        vrpc_provider_pool.inner(),
+    )
+    .await
+}
+
+async fn build_and_sign_generic_response_for_session(
+    request: BuildAndSignGenericResponseRequest,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    vrpc_provider_pool: &VrpcProviderPool,
+) -> Result<BuildAndSignGenericResponseResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager).await?;
+    let submission_guard = context.session_submission_guard();
+    let network = context.wallet_network;
+    let active_wallet_primary_address = context.vrsc_address.clone();
+    let private_key = load_primary_private_scalar_for_context(&context)
+        .await
+        .map_err(map_generic_session_change)?;
 
     let parsed_request = parse_generic_envelope_hex(&request.request_hex)?;
     if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
@@ -1290,7 +1302,7 @@ pub async fn build_and_sign_generic_response(
         std::task::Poll::Pending => return Err(WalletError::OperationFailed),
     };
 
-    ensure_active_wallet_session(session_manager.inner(), &context.session_id)
+    ensure_active_wallet_session(session_manager, &context.session_id)
         .await
         .map_err(map_generic_session_change)?;
 
@@ -2387,19 +2399,20 @@ async fn resolve_identity_friendly_names(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_and_sign_generic_response_internal, build_generic_response_redirect_url,
-        build_unsigned_generic_response_hex, decode_defined_key_label, map_generic_session_change,
-        merge_identity_update_patch, parse_generic_response_post_callback_uri,
-        parse_provisioning_challenge_hex, post_generic_response_callback_for_session,
-        post_generic_response_callback_request, resolve_signer_cmm_key_labels_from_identity,
-        validate_generic_request_funding_source, wallet_network_to_crypto_network,
-        BuildAndSignGenericResponseRequest, WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID,
-        GENERIC_RESPONSE_DEEPLINK_VDXF_ID, GENERIC_RESPONSE_FLAG_HAS_CREATED_AT,
-        GENERIC_RESPONSE_FLAG_IS_TESTNET, GENERIC_RESPONSE_FLAG_MULTI_DETAILS,
-        GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256, MAINNET_VERUS_CHAIN_ID,
-        VDXF_ORDINAL_AUTHENTICATION_REQUEST, VDXF_ORDINAL_AUTHENTICATION_RESPONSE,
-        VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST, VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE,
-        VDXF_ORDINAL_PROVISION_IDENTITY, VERIFIABLE_SIGNATURE_VERSION_V2,
+        build_and_sign_generic_response_for_session, build_and_sign_generic_response_internal,
+        build_generic_response_redirect_url, build_unsigned_generic_response_hex,
+        decode_defined_key_label, map_generic_session_change, merge_identity_update_patch,
+        parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
+        post_generic_response_callback_for_session, post_generic_response_callback_request,
+        resolve_signer_cmm_key_labels_from_identity, validate_generic_request_funding_source,
+        wallet_network_to_crypto_network, BuildAndSignGenericResponseRequest, WalletNetwork,
+        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
+        GENERIC_RESPONSE_FLAG_HAS_CREATED_AT, GENERIC_RESPONSE_FLAG_IS_TESTNET,
+        GENERIC_RESPONSE_FLAG_MULTI_DETAILS, GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256,
+        MAINNET_VERUS_CHAIN_ID, VDXF_ORDINAL_AUTHENTICATION_REQUEST,
+        VDXF_ORDINAL_AUTHENTICATION_RESPONSE, VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST,
+        VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE, VDXF_ORDINAL_PROVISION_IDENTITY,
+        VERIFIABLE_SIGNATURE_VERSION_V2,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
@@ -2568,8 +2581,97 @@ mod tests {
             WalletNetwork::Mainnet,
             crate::types::wallet::WalletSecretKind::SeedText,
             profile,
-            Zeroizing::new(vec![1, 2, 3]),
+            Zeroizing::new(vec![7u8; 32]),
         );
+    }
+
+    #[tokio::test]
+    async fn build_and_sign_cancels_during_delayed_identity_lookup_after_session_change() {
+        let store_path = std::env::temp_dir().join(format!(
+            "lite_wallet_generic_build_session_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let store = StrongholdStore::new_for_tests(store_path);
+        store
+            .store_seed("generic-account", "wallet A", &[7u8; 32])
+            .await
+            .expect("store test seed");
+        let session = Arc::new(Mutex::new(SessionManager::new(store)));
+        unlock_generic_test_session(&session, "wallet A").await;
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .expect("wallet A context");
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+        let request_started = Arc::new(Notify::new());
+        let allow_response = Arc::new(Notify::new());
+        let active_address = context.vrsc_address.clone();
+        let server = tokio::spawn({
+            let request_started = Arc::clone(&request_started);
+            let allow_response = Arc::clone(&allow_response);
+            async move {
+                let (mut stream, _) = listener.accept().await.expect("accept request");
+                let _request = read_http_request(&mut stream).await;
+                request_started.notify_one();
+                allow_response.notified().await;
+                let body = serde_json::json!({
+                    "result": {
+                        "identity": {
+                            "primaryaddresses": [active_address],
+                            "minimumsignatures": 1
+                        }
+                    },
+                    "error": null
+                })
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+        let pool = Arc::new(crate::core::channels::vrpc::VrpcProviderPool::for_tests(
+            &format!("http://{address}"),
+        ));
+        let operation = tokio::spawn({
+            let session = Arc::clone(&session);
+            let pool = Arc::clone(&pool);
+            async move {
+                build_and_sign_generic_response_for_session(
+                    test_request(
+                        build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], false),
+                        Some(GenericAuthenticationResponseInput {
+                            request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
+                        }),
+                        None,
+                    ),
+                    &session,
+                    &pool,
+                )
+                .await
+            }
+        });
+
+        request_started.notified().await;
+        session.lock().await.lock();
+        unlock_generic_test_session(&session, "wallet B").await;
+        allow_response.notify_one();
+
+        let error = operation
+            .await
+            .expect("build task")
+            .expect_err("stale build must fail");
+        assert!(matches!(error, WalletError::WalletSessionChanged));
+        let replacement = capture_active_wallet_access_context(&session)
+            .await
+            .expect("replacement wallet remains active");
+        assert_ne!(replacement.session_id, context.session_id);
+        server.await.expect("server completes");
     }
 
     #[test]

@@ -12,6 +12,7 @@ use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 pub use provider::{EthNetworkProvider, EthProviderPool};
+pub use send::EthPendingSubmissionReview;
 
 pub fn parse_coin_channel_id(
     channel_id: &str,
@@ -86,6 +87,29 @@ pub async fn send(
         provider_pool,
     )
     .await
+}
+
+pub async fn get_pending_submission_review(
+    session_manager: &std::sync::Arc<tokio::sync::Mutex<crate::core::auth::SessionManager>>,
+    provider_pool: &EthProviderPool,
+) -> Result<Option<EthPendingSubmissionReview>, WalletError> {
+    send::get_pending_submission_review(session_manager, provider_pool).await
+}
+
+pub async fn resume_pending_submission(
+    recovery_id: &str,
+    session_manager: &std::sync::Arc<tokio::sync::Mutex<crate::core::auth::SessionManager>>,
+    provider_pool: &EthProviderPool,
+) -> Result<crate::types::transaction::SendResult, WalletError> {
+    send::resume_pending_submission(recovery_id, session_manager, provider_pool).await
+}
+
+pub async fn acknowledge_pending_submission(
+    recovery_id: &str,
+    session_manager: &std::sync::Arc<tokio::sync::Mutex<crate::core::auth::SessionManager>>,
+    provider_pool: &EthProviderPool,
+) -> Result<(), WalletError> {
+    send::acknowledge_pending_submission(recovery_id, session_manager, provider_pool).await
 }
 
 pub async fn get_eth_balance(

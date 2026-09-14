@@ -92,6 +92,7 @@ pub async fn send(
         value: satoshis_to_decimal_string(i128::from(payload.value_sats)),
         to_address: payload.display_to_address,
         from_address: request.scope_address,
+        recovery_id: None,
     })
 }
 

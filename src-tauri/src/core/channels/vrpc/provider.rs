@@ -944,6 +944,16 @@ impl VrpcProviderPool {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_tests(base_url: &str) -> Self {
+        Self {
+            mainnet: VrpcProvider::new_with_base_url(base_url),
+            testnet: VrpcProvider::new_with_base_url(base_url),
+            mainnet_by_system: HashMap::new(),
+            testnet_by_system: HashMap::new(),
+        }
+    }
+
     pub fn for_network(&self, network: WalletNetwork) -> &VrpcProvider {
         match network {
             WalletNetwork::Mainnet => &self.mainnet,

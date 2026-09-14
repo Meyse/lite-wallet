@@ -140,7 +140,14 @@ pub async fn preflight(
         .iter()
         .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
         .ok_or(WalletError::OperationFailed)?;
-    validate_transaction_intent(&funded_hex, &intent, from_address, input_total, fee_sat)?;
+    validate_transaction_intent(
+        &funded_hex,
+        &intent,
+        from_address,
+        input_total,
+        fee_sat,
+        &payload_inputs,
+    )?;
 
     let preflight_id = Uuid::new_v4().to_string();
     let fee_str = sat_to_decimal_string(fee_sat);

@@ -238,6 +238,9 @@ pub fn run() {
             // Transaction commands (Module 4 + 9)
             transaction::preflight_send,
             transaction::send_transaction,
+            transaction::get_pending_eth_submission,
+            transaction::resume_pending_eth_submission,
+            transaction::acknowledge_pending_eth_submission,
             transaction::get_balances,
             transaction::get_transaction_history,
             transaction::get_transaction_history_page,

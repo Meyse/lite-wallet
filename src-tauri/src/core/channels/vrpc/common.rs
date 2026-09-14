@@ -14,6 +14,8 @@ use crate::core::channels::vrpc::identity::verus_tx::model::txid_le_bytes_to_hex
 use crate::core::channels::vrpc::intent::VrpcOutputIntent;
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::types::WalletError;
+use zcash_primitives::transaction::Transaction as ZcashTransaction;
+use zcash_protocol::consensus::BranchId;
 
 pub(crate) const SATOSHIS_PER_COIN: i64 = 100_000_000;
 
@@ -328,28 +330,7 @@ pub(crate) async fn authenticate_payload_inputs(
         if computed_txid.to_string() != input.txid {
             return Err(WalletError::OperationFailed);
         }
-        let (value, script) = if let Ok(tx) = decode_verus_tx(&tx_hex) {
-            let output = tx
-                .outputs
-                .get(input.vout as usize)
-                .ok_or(WalletError::OperationFailed)?;
-            (
-                i64::try_from(output.value).map_err(|_| WalletError::OperationFailed)?,
-                hex::encode(&output.script_pub_key),
-            )
-        } else {
-            let tx: bitcoin::Transaction =
-                bitcoin::Transaction::consensus_decode(&mut Cursor::new(tx_bytes))
-                    .map_err(|_| WalletError::OperationFailed)?;
-            let output = tx
-                .output
-                .get(input.vout as usize)
-                .ok_or(WalletError::OperationFailed)?;
-            (
-                i64::try_from(output.value.to_sat()).map_err(|_| WalletError::OperationFailed)?,
-                hex::encode(output.script_pubkey.as_bytes()),
-            )
-        };
+        let (value, script) = decode_canonical_prevout(&tx_hex, input.vout)?;
         if value != input.satoshis
             || input
                 .script_pub_key
@@ -360,6 +341,65 @@ pub(crate) async fn authenticate_payload_inputs(
         }
     }
     Ok(())
+}
+
+fn decode_canonical_prevout(tx_hex: &str, vout: u32) -> Result<(i64, String), WalletError> {
+    let tx_bytes = hex::decode(tx_hex.trim().trim_start_matches("0x"))
+        .map_err(|_| WalletError::OperationFailed)?;
+    if let Ok(tx) = decode_verus_tx(tx_hex) {
+        let output = tx
+            .outputs
+            .get(vout as usize)
+            .ok_or(WalletError::OperationFailed)?;
+        return Ok((
+            i64::try_from(output.value).map_err(|_| WalletError::OperationFailed)?,
+            hex::encode(&output.script_pub_key),
+        ));
+    }
+
+    // The signing codec intentionally supports transparent-only transactions.
+    // Previous transactions can legitimately contain Sapling components, so
+    // authenticate their complete canonical encoding with the consensus parser
+    // and then extract only the requested transparent output.
+    let header = tx_bytes
+        .get(..4)
+        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+        .map(u32::from_le_bytes);
+    if let Some(header) = header {
+        let version = header & 0x7fff_ffff;
+        let branch = if version == 3 {
+            BranchId::Overwinter
+        } else {
+            BranchId::Sapling
+        };
+        if (header >> 31) == 1 && matches!(version, 3 | 4) {
+            if let Ok(tx) = ZcashTransaction::read(tx_bytes.as_slice(), branch) {
+                let output = tx
+                    .transparent_bundle()
+                    .and_then(|bundle| bundle.vout.get(vout as usize))
+                    .ok_or(WalletError::OperationFailed)?;
+                return Ok((
+                    i64::try_from(output.value().into_u64())
+                        .map_err(|_| WalletError::OperationFailed)?,
+                    hex::encode(&output.script_pubkey().0 .0),
+                ));
+            }
+        }
+    }
+
+    {
+        let tx: bitcoin::Transaction =
+            bitcoin::Transaction::consensus_decode(&mut Cursor::new(tx_bytes))
+                .map_err(|_| WalletError::OperationFailed)?;
+        let output = tx
+            .output
+            .get(vout as usize)
+            .ok_or(WalletError::OperationFailed)?;
+        Ok((
+            i64::try_from(output.value.to_sat()).map_err(|_| WalletError::OperationFailed)?,
+            hex::encode(output.script_pubkey.as_bytes()),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -489,6 +529,19 @@ mod tests {
             refs[0].txid,
             "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
         );
+    }
+
+    #[test]
+    fn canonical_prevout_extraction_accepts_v4_with_shielded_value_balance() {
+        let mut raw = hex::decode(SAMPLE_V4_HEX).expect("fixture hex");
+        // The strict signing codec rejects any non-zero Sapling value balance.
+        // A previous transaction is parsed with the complete consensus codec.
+        raw[93] = 1;
+        let tx_hex = hex::encode(raw);
+        assert!(decode_verus_tx(&tx_hex).is_err());
+        let (value, script) = decode_canonical_prevout(&tx_hex, 0).expect("canonical prevout");
+        assert_eq!(value, 50_000);
+        assert_eq!(script, "76a914111111111111111111111111111111111111111188ac");
     }
 
     #[test]
