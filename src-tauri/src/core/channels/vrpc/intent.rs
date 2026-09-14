@@ -16,6 +16,10 @@ const EVAL_NONE: u8 = 0;
 const EVAL_RESERVE_TRANSFER: u8 = 8;
 const EVAL_RESERVE_OUTPUT: u8 = 9;
 const EVAL_IDENTITY_PRIMARY: u8 = 14;
+const EVAL_IDENTITY_REVOKE: u8 = 15;
+const EVAL_IDENTITY_RECOVER: u8 = 16;
+const FLAG_IDENTITY_REVOKED: u32 = 0x8000;
+const FLAG_IDENTITY_TOKENIZED_CONTROL: u32 = 0x4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct IdentityControlIntent {
@@ -90,9 +94,17 @@ struct DecodedOutput {
 
 #[derive(Debug)]
 struct OptCcParams {
+    version: u8,
     eval_code: u8,
+    required_signatures: u8,
     destinations: Vec<SemanticDestination>,
     vdata: Vec<Vec<u8>>,
+}
+
+#[derive(Debug)]
+struct CcScriptParams {
+    master: OptCcParams,
+    condition: OptCcParams,
 }
 
 pub(crate) fn decode_base58_destination(address: &str) -> Result<SemanticDestination, WalletError> {
@@ -224,10 +236,12 @@ pub(crate) fn bind_derived_reserve_fields(
             continue;
         }
         let params = parse_cc_params(&output.script)?;
-        if params.eval_code != EVAL_RESERVE_TRANSFER || params.vdata.len() != 1 {
+        validate_single_condition_master(&params)?;
+        if params.condition.eval_code != EVAL_RESERVE_TRANSFER || params.condition.vdata.len() != 1
+        {
             continue;
         }
-        let decoded = parse_reserve_transfer(&params.vdata[0])?;
+        let decoded = parse_reserve_transfer(&params.condition.vdata[0])?;
         if derived.replace(decoded.dest_currency_id).is_some() {
             return Err(WalletError::OperationFailed);
         }
@@ -389,13 +403,15 @@ pub(crate) fn validate_identity_control_intent(
         let Ok(params) = parse_cc_params(&output.script) else {
             continue;
         };
-        if params.eval_code != EVAL_IDENTITY_PRIMARY || params.vdata.is_empty() {
+        if params.condition.eval_code != EVAL_IDENTITY_PRIMARY || params.condition.vdata.is_empty()
+        {
             continue;
         }
-        let actual = parse_identity_control(&params.vdata[0])?;
+        let actual = parse_identity_control(&params.condition.vdata[0])?;
         if &actual != expected {
             return Err(WalletError::IdentityBuildFailed);
         }
+        validate_identity_master(&params, expected)?;
         matched += 1;
     }
     if matched != 1 {
@@ -425,10 +441,13 @@ pub(crate) fn validate_identity_transaction_intent(
             .checked_add(output.value)
             .ok_or(WalletError::IdentityBuildFailed)?;
         if let Ok(params) = parse_cc_params(&output.script) {
-            if params.eval_code == EVAL_IDENTITY_PRIMARY && !params.vdata.is_empty() {
-                if parse_identity_control(&params.vdata[0])? != *expected {
+            if params.condition.eval_code == EVAL_IDENTITY_PRIMARY
+                && !params.condition.vdata.is_empty()
+            {
+                if parse_identity_control(&params.condition.vdata[0])? != *expected {
                     return Err(WalletError::IdentityBuildFailed);
                 }
+                validate_identity_master(&params, expected)?;
                 identity_outputs += 1;
                 continue;
             }
@@ -508,9 +527,10 @@ fn output_matches_intent(
                 return Ok(output.script == p2pkh_script(&destination.destination_bytes)?);
             }
             let params = parse_cc_params(&output.script)?;
-            Ok(params.eval_code == EVAL_NONE
-                && params.vdata.is_empty()
-                && params.destinations.as_slice() == [destination.clone()])
+            validate_single_condition_master(&params)?;
+            Ok(params.condition.eval_code == EVAL_NONE
+                && params.condition.vdata.is_empty()
+                && params.condition.destinations.as_slice() == [destination.clone()])
         }
         VrpcOutputIntent::TokenPayment {
             destination,
@@ -522,14 +542,15 @@ fn output_matches_intent(
                 return Ok(false);
             }
             let params = parse_cc_params(&output.script)?;
-            if params.eval_code != EVAL_RESERVE_OUTPUT
-                || params.destinations.as_slice() != [destination.clone()]
-                || params.vdata.len() != 1
+            validate_single_condition_master(&params)?;
+            if params.condition.eval_code != EVAL_RESERVE_OUTPUT
+                || params.condition.destinations.as_slice() != [destination.clone()]
+                || params.condition.vdata.len() != 1
             {
                 return Ok(false);
             }
-            let (decoded_values, consumed) = parse_token_output(&params.vdata[0], 0)?;
-            Ok(consumed == params.vdata[0].len()
+            let (decoded_values, consumed) = parse_token_output(&params.condition.vdata[0], 0)?;
+            Ok(consumed == params.condition.vdata[0].len()
                 && decoded_values.len() == 1
                 && decoded_values.get(currency_id) == Some(amount_sats))
         }
@@ -550,10 +571,13 @@ fn output_matches_intent(
                 return Ok(false);
             }
             let params = parse_cc_params(&output.script)?;
-            if params.eval_code != EVAL_RESERVE_TRANSFER || params.vdata.len() != 1 {
+            validate_single_condition_master(&params)?;
+            if params.condition.eval_code != EVAL_RESERVE_TRANSFER
+                || params.condition.vdata.len() != 1
+            {
                 return Ok(false);
             }
-            let decoded = parse_reserve_transfer(&params.vdata[0])?;
+            let decoded = parse_reserve_transfer(&params.condition.vdata[0])?;
             Ok(decoded.source_currency_id == *source_currency_id
                 && decoded.amount_sats == *amount_sats
                 && decoded.flags == *flags
@@ -591,14 +615,15 @@ fn reserve_values_from_script(
     let Ok(params) = parse_cc_params(script) else {
         return Ok(None);
     };
-    if params.eval_code != EVAL_RESERVE_OUTPUT {
+    if params.condition.eval_code != EVAL_RESERVE_OUTPUT {
         return Ok(None);
     }
-    if params.vdata.len() != 1 {
+    validate_single_condition_master(&params)?;
+    if params.condition.vdata.len() != 1 {
         return Err(WalletError::OperationFailed);
     }
-    let (values, consumed) = parse_token_output(&params.vdata[0], 0)?;
-    if consumed != params.vdata[0].len() || values.is_empty() {
+    let (values, consumed) = parse_token_output(&params.condition.vdata[0], 0)?;
+    if consumed != params.condition.vdata[0].len() || values.is_empty() {
         return Err(WalletError::OperationFailed);
     }
     Ok(Some(values))
@@ -642,7 +667,9 @@ fn add_change_reserve_values(
     let Ok(params) = parse_cc_params(&output.script) else {
         return Ok(false);
     };
-    if params.eval_code != EVAL_RESERVE_OUTPUT || params.destinations.as_slice() != [change.clone()]
+    validate_single_condition_master(&params)?;
+    if params.condition.eval_code != EVAL_RESERVE_OUTPUT
+        || params.condition.destinations.as_slice() != [change.clone()]
     {
         return Ok(false);
     }
@@ -760,20 +787,12 @@ fn read_push(script: &[u8], offset: &mut usize) -> Result<Vec<u8>, WalletError> 
     Ok(value)
 }
 
-fn parse_cc_params(script: &[u8]) -> Result<OptCcParams, WalletError> {
+fn parse_cc_params(script: &[u8]) -> Result<CcScriptParams, WalletError> {
     let mut offset = 0usize;
     let master = read_push(script, &mut offset)?;
-    if master.is_empty() {
+    let master = parse_optcc_chunk(&master)?;
+    if master.version != 3 || master.eval_code != EVAL_NONE || !master.vdata.is_empty() {
         return Err(WalletError::OperationFailed);
-    }
-    // Constructors use a serialized EVAL_NONE OptCC master. Older daemon
-    // outputs may instead carry the opaque binary CryptoCondition. Validate
-    // every structured master we can decode, while retaining compatibility
-    // with that canonical opaque form.
-    if let Ok(decoded_master) = parse_optcc_chunk(&master) {
-        if decoded_master.eval_code != EVAL_NONE {
-            return Err(WalletError::OperationFailed);
-        }
     }
     if script.get(offset) != Some(&OP_CHECKCRYPTOCONDITION) {
         return Err(WalletError::OperationFailed);
@@ -783,7 +802,124 @@ fn parse_cc_params(script: &[u8]) -> Result<OptCcParams, WalletError> {
     if script.get(offset) != Some(&OP_DROP) || offset + 1 != script.len() {
         return Err(WalletError::OperationFailed);
     }
-    parse_optcc_chunk(&params)
+    Ok(CcScriptParams {
+        master,
+        condition: parse_optcc_chunk(&params)?,
+    })
+}
+
+fn validate_single_condition_master(params: &CcScriptParams) -> Result<(), WalletError> {
+    if params.condition.version != 3
+        || params.condition.required_signatures != 1
+        || params.condition.destinations.len() != 1
+    {
+        return Err(WalletError::OperationFailed);
+    }
+    // Verus MakeMofNCCScript indexes no destination for EVAL_NONE and the
+    // condition's first destination for every other single-condition output.
+    let expected_master_destinations = if params.condition.eval_code == EVAL_NONE {
+        &[][..]
+    } else {
+        &params.condition.destinations[..1]
+    };
+    if params.master.required_signatures as usize != expected_master_destinations.len()
+        || params.master.destinations.as_slice() != expected_master_destinations
+    {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(())
+}
+
+fn validate_identity_master(
+    params: &CcScriptParams,
+    identity: &IdentityControlIntent,
+) -> Result<(), WalletError> {
+    if params.condition.version != 3
+        || params.condition.required_signatures != 1
+        || params.condition.destinations.len() != 1
+        || params.condition.destinations[0].destination_type != 4
+        || params.master.required_signatures != 1
+    {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+
+    // Identity outputs explicitly index the identity plus its live revoke and
+    // recovery authorities, and repeat those authorities in nested conditions.
+    let is_revoked = identity.flags & FLAG_IDENTITY_REVOKED != 0;
+    let mut expected = vec![params.condition.destinations[0].clone()];
+    if !is_revoked {
+        expected.push(SemanticDestination {
+            destination_type: 4,
+            destination_bytes: identity.revocation_authority.clone(),
+        });
+    }
+    expected.push(SemanticDestination {
+        destination_type: 4,
+        destination_bytes: identity.recovery_authority.clone(),
+    });
+    if params.master.destinations != expected {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+
+    let expected_condition_count = if is_revoked { 2 } else { 3 };
+    if params.condition.vdata.len() != expected_condition_count {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let mut condition_index = 1;
+    if !is_revoked {
+        validate_identity_authority_condition(
+            &params.condition.vdata[condition_index],
+            EVAL_IDENTITY_REVOKE,
+            &identity.revocation_authority,
+            false,
+        )?;
+        condition_index += 1;
+    }
+    validate_identity_authority_condition(
+        &params.condition.vdata[condition_index],
+        EVAL_IDENTITY_RECOVER,
+        &identity.recovery_authority,
+        identity.flags & FLAG_IDENTITY_TOKENIZED_CONTROL != 0,
+    )?;
+    Ok(())
+}
+
+fn validate_identity_authority_condition(
+    chunk: &[u8],
+    expected_eval: u8,
+    expected_authority: &[u8],
+    tokenized_recovery: bool,
+) -> Result<(), WalletError> {
+    let condition = parse_optcc_chunk(chunk).map_err(|_| WalletError::IdentityBuildFailed)?;
+    if condition.version != 3
+        || condition.eval_code != expected_eval
+        || condition.required_signatures != 1
+        || !condition.vdata.is_empty()
+    {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let authority = SemanticDestination {
+        destination_type: 4,
+        destination_bytes: expected_authority.to_vec(),
+    };
+    if tokenized_recovery {
+        let authority_count = condition
+            .destinations
+            .iter()
+            .filter(|destination| **destination == authority)
+            .count();
+        let public_key_hash_count = condition
+            .destinations
+            .iter()
+            .filter(|destination| destination.destination_type == 2)
+            .count();
+        if condition.destinations.len() != 2 || authority_count != 1 || public_key_hash_count != 1 {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+    } else if condition.destinations.as_slice() != [authority] {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    Ok(())
 }
 
 fn parse_optcc_chunk(chunk: &[u8]) -> Result<OptCcParams, WalletError> {
@@ -812,7 +948,9 @@ fn parse_optcc_chunk(chunk: &[u8]) -> Result<OptCcParams, WalletError> {
         .map(|chunk| parse_tx_destination_chunk(chunk))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(OptCcParams {
+        version: header[0],
         eval_code: header[1],
+        required_signatures: header[2],
         destinations,
         vdata: chunks[destination_count..].to_vec(),
     })
@@ -1142,9 +1280,43 @@ mod tests {
         if !vdata.is_empty() {
             params.extend_from_slice(&push(vdata));
         }
-        let mut script = push(&[3, 0, 1, 1]);
+        let master = if eval_code == EVAL_NONE {
+            push(&[3, EVAL_NONE, 0, 0])
+        } else {
+            let mut master = push(&[3, EVAL_NONE, 1, 1]);
+            master.extend_from_slice(&push(&destination_chunk));
+            master
+        };
+        let mut script = push(&master);
         script.push(OP_CHECKCRYPTOCONDITION);
         script.extend_from_slice(&push(&params));
+        script.push(OP_DROP);
+        script
+    }
+
+    fn identity_cc_script(destination: &SemanticDestination, vdata: &[u8]) -> Vec<u8> {
+        let mut identity_destination = vec![destination.destination_type];
+        identity_destination.extend_from_slice(&destination.destination_bytes);
+        let revocation_destination = [&[4u8][..], &[3u8; 20][..]].concat();
+        let recovery_destination = [&[4u8][..], &[4u8; 20][..]].concat();
+        let mut master = push(&[3, EVAL_NONE, 1, 3]);
+        master.extend_from_slice(&push(&identity_destination));
+        master.extend_from_slice(&push(&revocation_destination));
+        master.extend_from_slice(&push(&recovery_destination));
+
+        let mut condition = push(&[3, EVAL_IDENTITY_PRIMARY, 1, 1]);
+        condition.extend_from_slice(&push(&identity_destination));
+        condition.extend_from_slice(&push(vdata));
+        let mut revoke = push(&[3, EVAL_IDENTITY_REVOKE, 1, 1]);
+        revoke.extend_from_slice(&push(&revocation_destination));
+        condition.extend_from_slice(&push(&revoke));
+        let mut recover = push(&[3, EVAL_IDENTITY_RECOVER, 1, 1]);
+        recover.extend_from_slice(&push(&recovery_destination));
+        condition.extend_from_slice(&push(&recover));
+
+        let mut script = push(&master);
+        script.push(OP_CHECKCRYPTOCONDITION);
+        script.extend_from_slice(&push(&condition));
         script.push(OP_DROP);
         script
     }
@@ -1171,7 +1343,7 @@ mod tests {
 
     fn identity_tx(primary: [u8; 20]) -> String {
         let destination = SemanticDestination {
-            destination_type: 2,
+            destination_type: 4,
             destination_bytes: vec![9u8; 20],
         };
         encode_hex(&VerusTx {
@@ -1181,11 +1353,7 @@ mod tests {
             inputs: vec![],
             outputs: vec![VerusTxOut {
                 value: 0,
-                script_pub_key: cc_script(
-                    EVAL_IDENTITY_PRIMARY,
-                    &destination,
-                    &identity_bytes(primary),
-                ),
+                script_pub_key: identity_cc_script(&destination, &identity_bytes(primary)),
             }],
             lock_time: 0,
             expiry_height: 0,
@@ -1196,16 +1364,12 @@ mod tests {
 
     fn funded_identity_tx(primary: [u8; 20], extra_output: Option<VerusTxOut>) -> String {
         let destination = SemanticDestination {
-            destination_type: 2,
+            destination_type: 4,
             destination_bytes: vec![9u8; 20],
         };
         let mut outputs = vec![VerusTxOut {
             value: 0,
-            script_pub_key: cc_script(
-                EVAL_IDENTITY_PRIMARY,
-                &destination,
-                &identity_bytes(primary),
-            ),
+            script_pub_key: identity_cc_script(&destination, &identity_bytes(primary)),
         }];
         if let Some(output) = extra_output {
             outputs.push(output);
@@ -1409,6 +1573,31 @@ mod tests {
     }
 
     #[test]
+    fn cc_master_binds_eval_threshold_and_index_destination() {
+        let destination = SemanticDestination {
+            destination_type: 2,
+            destination_bytes: vec![7u8; 20],
+        };
+        let script = cc_script(EVAL_RESERVE_OUTPUT, &destination, &[1u8; 21]);
+        let params = parse_cc_params(&script).expect("canonical CC script");
+        validate_single_condition_master(&params).expect("canonical master relation");
+
+        let mut tampered_eval = script.clone();
+        tampered_eval[3] = EVAL_RESERVE_OUTPUT;
+        assert!(parse_cc_params(&tampered_eval).is_err());
+
+        let mut tampered_threshold = script.clone();
+        tampered_threshold[4] = 0;
+        let params = parse_cc_params(&tampered_threshold).expect("structured master");
+        assert!(validate_single_condition_master(&params).is_err());
+
+        let mut tampered_destination = script;
+        tampered_destination[7] ^= 1;
+        let params = parse_cc_params(&tampered_destination).expect("structured master");
+        assert!(validate_single_condition_master(&params).is_err());
+    }
+
+    #[test]
     fn multivalue_token_output_uses_compact_size_and_fixed_i64_values() {
         let fixture = hex::decode("86fefeff010275939018c507ed9cf366d309d4614b2e43ca3c009008abfbd8080000848374dd2a47335f0252c8caa066b94de4bf800f804a5d0500000000")
             .expect("official primitive fixture");
@@ -1430,7 +1619,7 @@ mod tests {
             .expect("official identity script fixture");
         let tx = transaction_hex(vec![VerusTxOut {
             value: 0,
-            script_pub_key: script,
+            script_pub_key: script.clone(),
         }]);
         let identity = serde_json::json!({
             "contentmap": {"53f36cc8554d2a9b1c86e92e77965607e242a513": "6332bd51fca724077577f93ec7eb185a45bd881268e2d9488c9ef087293e5cc4"},
@@ -1453,9 +1642,17 @@ mod tests {
         let mut tampered = expected.clone();
         tampered.name = b"VerusPay2".to_vec();
         assert!(validate_identity_control_intent(&tx, &tampered).is_err());
-        let mut tampered = expected;
+        let mut tampered = expected.clone();
         tampered.content_map[0].1[0] ^= 1;
         assert!(validate_identity_control_intent(&tx, &tampered).is_err());
+
+        let mut tampered_master = script;
+        tampered_master[8] ^= 1;
+        let tx = transaction_hex(vec![VerusTxOut {
+            value: 0,
+            script_pub_key: tampered_master,
+        }]);
+        assert!(validate_identity_control_intent(&tx, &expected).is_err());
     }
 
     #[test]
@@ -1581,10 +1778,10 @@ mod tests {
         let unfunded = reserve_transfer_tx([5u8; 20]);
         let decoded_outputs = decode_outputs(&unfunded).expect("decode reserve transfer tx");
         let params = parse_cc_params(&decoded_outputs[0].script).expect("reserve transfer params");
-        assert_eq!(params.eval_code, EVAL_RESERVE_TRANSFER);
-        assert_eq!(params.vdata.len(), 1);
+        assert_eq!(params.condition.eval_code, EVAL_RESERVE_TRANSFER);
+        assert_eq!(params.condition.vdata.len(), 1);
         let decoded_transfer =
-            parse_reserve_transfer(&params.vdata[0]).expect("reserve transfer payload");
+            parse_reserve_transfer(&params.condition.vdata[0]).expect("reserve transfer payload");
         assert_eq!(decoded_transfer.source_currency_id, vec![1u8; 20]);
         assert_eq!(decoded_transfer.amount_sats, 50);
         assert_eq!(decoded_transfer.flags, 1);
