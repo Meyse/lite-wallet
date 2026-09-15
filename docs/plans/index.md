@@ -15,6 +15,8 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- VerusID avatar and description (proposed; storage feasibility first):
+  [`./active/verusid-profile-avatar-description.md`](./active/verusid-profile-avatar-description.md)
 - Direct-send Economy and Standard network fees:
   [`./active/direct-send-network-fees.md`](./active/direct-send-network-fees.md)
 - ETH/ERC20 desktop core parity:
