@@ -186,6 +186,8 @@ pub async fn preflight(
         fee_taken_message,
         warnings: vec![],
         memo: params.memo,
+        fee_mode: None,
+        fee_rate_sats_per_vbyte: None,
     })
 }
 

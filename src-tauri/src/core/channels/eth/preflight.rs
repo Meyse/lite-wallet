@@ -9,10 +9,11 @@ use ethers::utils::{format_units, parse_units};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::core::channels::direct_send_fee::{resolve_direct_evm_fee, ResolvedEvmFee};
 use crate::core::channels::eth::provider::EthNetworkProvider;
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
 use crate::core::coins::CoinDefinition;
-use crate::types::transaction::{PreflightParams, PreflightResult};
+use crate::types::transaction::{DirectSendFeeMode, PreflightParams, PreflightResult};
 use crate::types::WalletError;
 
 const ERC20_SEND_ABI: &str = r#"[
@@ -35,9 +36,10 @@ const ERC20_SEND_ABI: &str = r#"[
   }
 ]"#;
 
-const MIN_GAS_PRICE_GWEI_WEI: u64 = 1_000_000_000;
 const ETH_GAS_LIMIT_FALLBACK: u64 = 21_000;
 const ERC20_GAS_LIMIT_FALLBACK: u64 = 120_000;
+const ETH_GAS_MARGIN_DIVISOR: u64 = 5;
+const ERC20_GAS_MARGIN_DIVISOR: u64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -51,6 +53,8 @@ pub enum EthPreflightPayload {
         gas_limit: String,
         max_fee_per_gas: String,
         max_priority_fee_per_gas: String,
+        #[serde(default)]
+        fee_mode: DirectSendFeeMode,
         fee: String,
         value: String,
     },
@@ -66,6 +70,8 @@ pub enum EthPreflightPayload {
         max_fee_per_gas: String,
         max_priority_fee_per_gas: String,
         max_fee_cap: String,
+        #[serde(default)]
+        fee_mode: DirectSendFeeMode,
         fee: String,
         value: String,
     },
@@ -121,7 +127,8 @@ pub async fn preflight_eth(
 
     let submitted_value = parse_token_amount(&params.amount, 18)?;
 
-    let fee_params = current_fee_params(provider).await?;
+    let fee_mode = params.fee_mode.unwrap_or_default();
+    let fee_params = current_fee_params(provider, fee_mode).await?;
 
     let tx = Eip1559TransactionRequest::new()
         .from(parsed_from)
@@ -134,7 +141,8 @@ pub async fn preflight_eth(
         .estimate_gas(&typed_tx, None)
         .await
         .unwrap_or_else(|_| U256::from(ETH_GAS_LIMIT_FALLBACK));
-    let gas_limit = add_fraction(gas_estimate, 5).max(U256::from(ETH_GAS_LIMIT_FALLBACK));
+    let gas_limit =
+        add_fraction(gas_estimate, ETH_GAS_MARGIN_DIVISOR).max(U256::from(ETH_GAS_LIMIT_FALLBACK));
 
     let max_fee = gas_limit.saturating_mul(fee_params.max_fee_per_gas);
 
@@ -159,6 +167,7 @@ pub async fn preflight_eth(
         gas_limit: gas_limit.to_string(),
         max_fee_per_gas: fee_params.max_fee_per_gas.to_string(),
         max_priority_fee_per_gas: fee_params.max_priority_fee_per_gas.to_string(),
+        fee_mode,
         fee: fee_display.clone(),
         value: value_display.clone(),
     };
@@ -188,6 +197,8 @@ pub async fn preflight_eth(
         fee_taken_message,
         warnings: vec![],
         memo: params.memo,
+        fee_mode: Some(fee_mode),
+        fee_rate_sats_per_vbyte: None,
     })
 }
 
@@ -211,7 +222,8 @@ pub async fn preflight_erc20(
 
     let amount_raw = parse_token_amount(&params.amount, coin.decimals as usize)?;
 
-    let fee_params = current_fee_params(provider).await?;
+    let fee_mode = params.fee_mode.unwrap_or_default();
+    let fee_params = current_fee_params(provider, fee_mode).await?;
     let abi: Abi =
         serde_json::from_str(ERC20_SEND_ABI).map_err(|_| WalletError::OperationFailed)?;
     let rpc = Arc::new(provider.rpc_provider.clone());
@@ -236,7 +248,8 @@ pub async fn preflight_erc20(
         .await
         .unwrap_or_else(|_| U256::from(ERC20_GAS_LIMIT_FALLBACK));
 
-    let gas_limit = add_fraction(gas_estimate, 3).max(U256::from(ERC20_GAS_LIMIT_FALLBACK));
+    let gas_limit = add_fraction(gas_estimate, ERC20_GAS_MARGIN_DIVISOR)
+        .max(U256::from(ERC20_GAS_LIMIT_FALLBACK));
     let max_fee_cap = gas_limit.saturating_mul(fee_params.max_fee_per_gas);
 
     let eth_balance = provider
@@ -265,6 +278,7 @@ pub async fn preflight_erc20(
         max_fee_per_gas: fee_params.max_fee_per_gas.to_string(),
         max_priority_fee_per_gas: fee_params.max_priority_fee_per_gas.to_string(),
         max_fee_cap: max_fee_cap.to_string(),
+        fee_mode,
         fee: fee_display.clone(),
         value: value_display.clone(),
     };
@@ -294,39 +308,22 @@ pub async fn preflight_erc20(
         fee_taken_message: None,
         warnings: vec![],
         memo: params.memo,
+        fee_mode: Some(fee_mode),
+        fee_rate_sats_per_vbyte: None,
     })
 }
 
-#[derive(Debug, Clone)]
-struct FeeParams {
-    max_fee_per_gas: U256,
-    max_priority_fee_per_gas: U256,
-}
-
-async fn current_fee_params(provider: &EthNetworkProvider) -> Result<FeeParams, WalletError> {
+async fn current_fee_params(
+    provider: &EthNetworkProvider,
+    mode: DirectSendFeeMode,
+) -> Result<ResolvedEvmFee, WalletError> {
     let fee_data = provider
         .rpc_provider
         .estimate_eip1559_fees(None)
         .await
         .map_err(|_| WalletError::NetworkError)?;
 
-    let market = fee_data.0;
-
-    let mut max_fee = add_fraction(market, 3);
-    let min_gas = U256::from(MIN_GAS_PRICE_GWEI_WEI);
-    if max_fee < min_gas {
-        max_fee = min_gas;
-    }
-
-    let mut max_priority = fee_data.1;
-    if max_priority > max_fee {
-        max_priority = max_fee;
-    }
-
-    Ok(FeeParams {
-        max_fee_per_gas: max_fee,
-        max_priority_fee_per_gas: max_priority,
-    })
+    Ok(resolve_direct_evm_fee(mode, fee_data.0, fee_data.1))
 }
 
 fn parse_token_amount(amount: &str, decimals: usize) -> Result<U256, WalletError> {

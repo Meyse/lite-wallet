@@ -15,6 +15,8 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- Direct-send Economy and Standard network fees:
+  [`./active/direct-send-network-fees.md`](./active/direct-send-network-fees.md)
 - ETH/ERC20 desktop core parity:
   [`./active/eth-erc20-desktop-core.md`](./active/eth-erc20-desktop-core.md)
 - ETH/ERC20 bridge backend and command surface:

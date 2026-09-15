@@ -624,7 +624,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.youReceive': 'Je ontvangt',
   'wallet.transfer.receiveAsset': 'Ontvangst-asset',
   'wallet.transfer.receiveSheetTitle': 'Ontvangst-asset kiezen',
-  'wallet.transfer.conversionRoute': 'Conversieroute',
+  'wallet.transfer.conversionRoute': 'Conversiemand',
   'wallet.transfer.viaSheetTitle': 'Route via kiezen',
   'wallet.transfer.viaBest': 'Beste',
   'wallet.transfer.viaNoOptions': 'Geen omwisselopties beschikbaar voor deze selectie.',
@@ -632,8 +632,12 @@ export const nl: Record<string, string> = {
   'wallet.transfer.ratePair': '1 {from} = {rate} {to}',
   'wallet.transfer.estimatedLabel': 'Geschat',
   'wallet.transfer.sourceAsset': 'Bron-asset',
+  'wallet.transfer.source.sendFrom': 'Versturen vanaf',
+  'wallet.transfer.source.publicAddress': 'Openbaar adres',
+  'wallet.transfer.source.privateAddress': 'Privéadres',
   'wallet.transfer.chooseCurrency': 'Valuta kiezen',
   'wallet.transfer.noAssets': 'Er zijn nog geen assets beschikbaar om te versturen.',
+  'wallet.transfer.availableBalance': 'Beschikbaar {value} {ticker}',
   'wallet.transfer.sameAssetOption': '{ticker} versturen',
   'wallet.transfer.routeGroupPopular': 'Populaire omwisselingen',
   'wallet.transfer.routeGroupMore': 'Meer omwisselingen',
@@ -718,6 +722,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.addressBook.similarWarning':
     'Dit lijkt op een opgeslagen adres, maar is geen exacte match.',
   'wallet.transfer.preflighting': 'Review voorbereiden…',
+  'wallet.transfer.reviewSend': 'Verzending controleren',
+  'wallet.transfer.reviewConversion': 'Omwisseling controleren',
   'wallet.transfer.prepareReview': 'Review voorbereiden',
   'wallet.transfer.sendNow': 'Nu verzenden',
   'wallet.transfer.sendingNow': 'Uitzenden…',
@@ -737,6 +743,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.warning.finalAmountMayVary':
     'Definitieve hoeveelheid die je ontvangt kan iets afwijken.',
   'wallet.transfer.review.changeDetails': 'Details wijzigen',
+  'wallet.transfer.review.sendTitle': 'Verzending controleren',
+  'wallet.transfer.review.conversionTitle': 'Omwisseling controleren',
   'wallet.transfer.review.changeRecipient': 'Ontvanger wijzigen',
   'wallet.transfer.review.sending': 'Je verzendt',
   'wallet.transfer.review.receiving': 'Je ontvangt',
@@ -751,6 +759,46 @@ export const nl: Record<string, string> = {
   'wallet.transfer.review.refresh': 'Controle vernieuwen',
   'wallet.transfer.reviewUnavailable':
     'Reviewgegevens zijn niet beschikbaar. Voer preflight opnieuw uit.',
+  'wallet.transfer.fee.networkFee': 'Netwerkkosten',
+  'wallet.transfer.fee.estimatedNetworkFee': 'Geschatte netwerkkosten',
+  'wallet.transfer.fee.maximumNetworkFee': 'Maximale netwerkkosten',
+  'wallet.transfer.fee.totalDebited': 'Totaal afgeschreven',
+  'wallet.transfer.fee.maximumTotalDebited': 'Maximaal totaal afgeschreven',
+  'wallet.transfer.fee.economy': 'Voordelig',
+  'wallet.transfer.fee.lowerFee': 'Lagere kosten',
+  'wallet.transfer.fee.standard': 'Standaard',
+  'wallet.transfer.fee.recommended': 'Aanbevolen',
+  'wallet.transfer.fee.feeRate': 'Kostentarief',
+  'wallet.transfer.fee.paidIn': 'Betaald in {currency}.',
+  'wallet.transfer.fee.apply': 'Toepassen',
+  'wallet.transfer.fee.updating': 'Kosten bijwerken…',
+  'wallet.transfer.fee.refreshRequired': 'Pas deze keuze toe om de kostenschatting te vernieuwen.',
+  'wallet.transfer.fee.maximumExplanation':
+    'Dit is het maximale bedrag dat het netwerk kan rekenen. De uiteindelijke Ethereum-kosten kunnen lager zijn.',
+  'wallet.transfer.receipt.sendSubmitted': 'Verzending is ingediend',
+  'wallet.transfer.receipt.conversionSubmitted': 'Omwisseling is ingediend',
+  'wallet.transfer.receipt.submittedAmount': 'Ingediend bedrag',
+  'wallet.transfer.receipt.estimatedReceive': 'Geschatte ontvangst: {value}',
+  'wallet.transfer.receipt.from': 'Van',
+  'wallet.transfer.receipt.to': 'Naar',
+  'wallet.transfer.receipt.transactionId': 'Transactie-id',
+  'wallet.transfer.receipt.copy': 'Kopiëren',
+  'wallet.transfer.receipt.copied': 'Gekopieerd',
+  'wallet.transfer.receipt.viewExplorer': 'In explorer bekijken',
+  'wallet.transfer.receipt.timing.conversion':
+    'Omwisselingen worden meestal binnen 1–10 blokken afgerond.',
+  'wallet.transfer.receipt.timing.verus':
+    'Verus-transfers krijgen meestal binnen ongeveer 1 minuut hun eerste bevestiging.',
+  'wallet.transfer.receipt.timing.pbaas_cross_chain':
+    'Cross-chaintransfers binnen het Verus-ecosysteem worden meestal binnen 10–20 blokken afgerond.',
+  'wallet.transfer.receipt.timing.btc':
+    'Met voldoende kosten krijgt Bitcoin meestal binnen ongeveer 10 minuten de eerste bevestiging. Netwerkdruk kan dit veranderen.',
+  'wallet.transfer.receipt.timing.evm':
+    'Ethereum-transfers worden meestal binnen enkele minuten bevestigd. De kostenkeuze en netwerkdruk kunnen dit veranderen.',
+  'wallet.transfer.receipt.timing.verus_to_ethereum':
+    'Bridgetransfers van Verus naar Ethereum worden meestal binnen 1–6 uur afgerond.',
+  'wallet.transfer.receipt.timing.ethereum_to_verus':
+    'Bridgetransfers van Ethereum naar Verus worden meestal binnen 1–6 uur afgerond.',
   'wallet.transfer.privateSyncBlocked':
     'Private Verus synchroniseert nog ({percent}%). Verzenden is beschikbaar zodra de synchronisatie 100% bereikt.',
   'wallet.transfer.privateSyncBlockedUnknown':
@@ -788,6 +836,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.error.bridgeGasDriftExceeded':
     'Netwerkgas is te veel veranderd na preflight. Vernieuw de review en probeer opnieuw.',
   'wallet.transfer.error.unsupportedChannel': 'Dit kanaal wordt niet ondersteund voor transfers.',
+  'wallet.transfer.error.directSendFeeModeUnsupported':
+    'Kostenkeuze is niet beschikbaar voor deze transferroute.',
   'wallet.transfer.error.invalidAddress': 'Het bestemmingsadres is ongeldig.',
   'wallet.transfer.error.insufficientEthForGas':
     'Onvoldoende ETH om gaskosten voor deze transfer te betalen.',

@@ -21,6 +21,7 @@ export async function preflightSend(params: PreflightParams): Promise<PreflightR
       toAddress: params.toAddress,
       amount: params.amount,
       memo: params.memo ?? null,
+      ...(params.feeMode ? { feeMode: params.feeMode } : {}),
     },
   });
 }

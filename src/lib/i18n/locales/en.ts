@@ -619,7 +619,7 @@ export const en: Record<string, string> = {
   'wallet.transfer.youReceive': 'You receive',
   'wallet.transfer.receiveAsset': 'Receive asset',
   'wallet.transfer.receiveSheetTitle': 'Select receive asset',
-  'wallet.transfer.conversionRoute': 'Conversion route',
+  'wallet.transfer.conversionRoute': 'Conversion basket',
   'wallet.transfer.viaSheetTitle': 'Select route via',
   'wallet.transfer.viaBest': 'Best',
   'wallet.transfer.viaNoOptions': 'No conversion options available for this selection.',
@@ -627,8 +627,12 @@ export const en: Record<string, string> = {
   'wallet.transfer.ratePair': '1 {from} = {rate} {to}',
   'wallet.transfer.estimatedLabel': 'Estimated',
   'wallet.transfer.sourceAsset': 'Source asset',
+  'wallet.transfer.source.sendFrom': 'Send from',
+  'wallet.transfer.source.publicAddress': 'Public address',
+  'wallet.transfer.source.privateAddress': 'Private address',
   'wallet.transfer.chooseCurrency': 'Choose currency',
   'wallet.transfer.noAssets': 'No sendable assets are available yet.',
+  'wallet.transfer.availableBalance': 'Available {value} {ticker}',
   'wallet.transfer.sameAssetOption': 'Send {ticker}',
   'wallet.transfer.routeGroupPopular': 'Popular conversions',
   'wallet.transfer.routeGroupMore': 'More conversions',
@@ -708,6 +712,8 @@ export const en: Record<string, string> = {
   'wallet.transfer.addressBook.similarWarning':
     'This looks similar to a saved address, but it is not an exact match.',
   'wallet.transfer.preflighting': 'Preparing review…',
+  'wallet.transfer.reviewSend': 'Review send',
+  'wallet.transfer.reviewConversion': 'Review conversion',
   'wallet.transfer.prepareReview': 'Review',
   'wallet.transfer.sendNow': 'Send now',
   'wallet.transfer.sendingNow': 'Broadcasting…',
@@ -726,6 +732,8 @@ export const en: Record<string, string> = {
   'wallet.transfer.warningsTitle': 'Warnings',
   'wallet.transfer.warning.finalAmountMayVary': 'Final amount you receive may vary slightly.',
   'wallet.transfer.review.changeDetails': 'Change details',
+  'wallet.transfer.review.sendTitle': 'Review send',
+  'wallet.transfer.review.conversionTitle': 'Review conversion',
   'wallet.transfer.review.changeRecipient': 'Change recipient',
   'wallet.transfer.review.sending': "You're sending",
   'wallet.transfer.review.receiving': "You'll receive",
@@ -738,6 +746,45 @@ export const en: Record<string, string> = {
   'wallet.transfer.review.unsavedSettingHint': 'You can change this security setting in Settings.',
   'wallet.transfer.review.refresh': 'Refresh review',
   'wallet.transfer.reviewUnavailable': 'Review data is unavailable. Try preflight again.',
+  'wallet.transfer.fee.networkFee': 'Network fee',
+  'wallet.transfer.fee.estimatedNetworkFee': 'Estimated network fee',
+  'wallet.transfer.fee.maximumNetworkFee': 'Maximum network fee',
+  'wallet.transfer.fee.totalDebited': 'Total debited',
+  'wallet.transfer.fee.maximumTotalDebited': 'Maximum total debited',
+  'wallet.transfer.fee.economy': 'Economy',
+  'wallet.transfer.fee.lowerFee': 'Lower fee',
+  'wallet.transfer.fee.standard': 'Standard',
+  'wallet.transfer.fee.recommended': 'Recommended',
+  'wallet.transfer.fee.feeRate': 'Fee rate',
+  'wallet.transfer.fee.paidIn': 'Paid in {currency}.',
+  'wallet.transfer.fee.apply': 'Apply',
+  'wallet.transfer.fee.updating': 'Updating fee…',
+  'wallet.transfer.fee.refreshRequired': 'Apply this choice to refresh the fee quote.',
+  'wallet.transfer.fee.maximumExplanation':
+    'This is the maximum the network may charge. The final Ethereum fee can be lower.',
+  'wallet.transfer.receipt.sendSubmitted': 'Send has been submitted',
+  'wallet.transfer.receipt.conversionSubmitted': 'Conversion has been submitted',
+  'wallet.transfer.receipt.submittedAmount': 'Submitted amount',
+  'wallet.transfer.receipt.estimatedReceive': 'Estimated receive: {value}',
+  'wallet.transfer.receipt.from': 'From',
+  'wallet.transfer.receipt.to': 'To',
+  'wallet.transfer.receipt.transactionId': 'Transaction id',
+  'wallet.transfer.receipt.copy': 'Copy',
+  'wallet.transfer.receipt.copied': 'Copied',
+  'wallet.transfer.receipt.viewExplorer': 'View in explorer',
+  'wallet.transfer.receipt.timing.conversion': 'Conversions usually complete in 1–10 blocks.',
+  'wallet.transfer.receipt.timing.verus':
+    'Verus transfers usually receive their first confirmation in about 1 minute.',
+  'wallet.transfer.receipt.timing.pbaas_cross_chain':
+    'Verus ecosystem cross-chain transfers usually complete in 10–20 blocks.',
+  'wallet.transfer.receipt.timing.btc':
+    'With an adequate fee, Bitcoin usually receives its first confirmation in about 10 minutes. Network demand can change this.',
+  'wallet.transfer.receipt.timing.evm':
+    'Ethereum transfers usually confirm within a few minutes. Fee choice and network demand can change this.',
+  'wallet.transfer.receipt.timing.verus_to_ethereum':
+    'Verus to Ethereum bridge transfers usually complete in 1–6 hours.',
+  'wallet.transfer.receipt.timing.ethereum_to_verus':
+    'Ethereum to Verus bridge transfers usually complete in 1–6 hours.',
   'wallet.transfer.privateSyncBlocked':
     'Private Verus is still syncing ({percent}%). Sending is available when sync reaches 100%.',
   'wallet.transfer.privateSyncBlockedUnknown':
@@ -774,6 +821,8 @@ export const en: Record<string, string> = {
   'wallet.transfer.error.bridgeGasDriftExceeded':
     'Network gas moved too far after preflight. Refresh review and try again.',
   'wallet.transfer.error.unsupportedChannel': 'This channel is not supported for transfer.',
+  'wallet.transfer.error.directSendFeeModeUnsupported':
+    'Fee choice is not available for this transfer route.',
   'wallet.transfer.error.invalidAddress': 'The destination address is invalid.',
   'wallet.transfer.error.insufficientEthForGas':
     'Insufficient ETH to cover gas fees for this transfer.',

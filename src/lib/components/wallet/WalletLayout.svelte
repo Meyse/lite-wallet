@@ -320,6 +320,7 @@
         {:else if activeSection === 'send'}
           <Send
             entryContext={transferEntryContext}
+            walletNetwork={walletData.network ?? 'mainnet'}
             onClose={() => {
               activeSection = 'overview';
               transferEntryContext = null;
@@ -330,6 +331,7 @@
         {:else if activeSection === 'conversions'}
           <Conversions
             entryContext={transferEntryContext}
+            walletNetwork={walletData.network ?? 'mainnet'}
             onClose={() => {
               activeSection = 'overview';
               transferEntryContext = null;

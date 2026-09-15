@@ -121,6 +121,8 @@ export interface PreflightWarning {
   message: string;
 }
 
+export type DirectSendFeeMode = 'economy' | 'standard';
+
 export interface PreflightResult {
   preflightId: string;
   fee: string;
@@ -133,6 +135,8 @@ export interface PreflightResult {
   feeTakenMessage?: string | null;
   warnings: PreflightWarning[];
   memo?: string | null;
+  feeMode?: DirectSendFeeMode | null;
+  feeRateSatsPerVbyte?: number | null;
 }
 
 export interface PreflightParams {
@@ -141,6 +145,7 @@ export interface PreflightParams {
   toAddress: string;
   amount: string;
   memo?: string | null;
+  feeMode?: DirectSendFeeMode | null;
 }
 
 export interface SendRequest {

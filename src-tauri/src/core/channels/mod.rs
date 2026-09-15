@@ -19,13 +19,14 @@ use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::coins::Channel;
 use crate::core::coins::{CoinDefinition, CoinRegistry, Protocol};
 use crate::types::transaction::{
-    BalanceResult, PreflightParams, PreflightResult, SendResult, Transaction,
+    BalanceResult, DirectSendFeeMode, PreflightParams, PreflightResult, SendResult, Transaction,
     TransactionHistoryPage,
 };
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
 pub mod btc;
+mod direct_send_fee;
 pub mod dlight_private;
 pub mod eth;
 mod store;
@@ -458,7 +459,7 @@ async fn build_dlight_runtime_request(
 /// Route preflight by channel_id prefix. VRPC and BTC use session addresses and providers.
 pub async fn route_preflight(
     channel_id: &str,
-    params: PreflightParams,
+    mut params: PreflightParams,
     preflight_store: &PreflightStore,
     session_manager: &Arc<Mutex<SessionManager>>,
     coin_registry: &CoinRegistry,
@@ -467,6 +468,7 @@ pub async fn route_preflight(
     eth_provider_pool: &EthProviderPool,
 ) -> Result<PreflightResult, WalletError> {
     let prefix = channel_id.split('.').next().unwrap_or("");
+    params.fee_mode = resolve_direct_send_fee_mode(prefix, params.fee_mode)?;
     match prefix {
         "vrpc" => {
             let session = session_manager.lock().await;
@@ -547,6 +549,8 @@ pub async fn route_preflight(
                     }),
                     warnings: sendcurrency_preflight.warnings,
                     memo: sendcurrency_preflight.memo,
+                    fee_mode: None,
+                    fee_rate_sats_per_vbyte: None,
                 });
             }
 
@@ -693,6 +697,19 @@ pub async fn route_preflight(
         }
         _ => Err(WalletError::UnsupportedChannel),
     }
+}
+
+fn resolve_direct_send_fee_mode(
+    channel_prefix: &str,
+    requested: Option<DirectSendFeeMode>,
+) -> Result<Option<DirectSendFeeMode>, WalletError> {
+    if matches!(channel_prefix, "btc" | "eth" | "erc20") {
+        return Ok(Some(requested.unwrap_or_default()));
+    }
+    if requested.is_some() {
+        return Err(WalletError::DirectSendFeeModeUnsupported);
+    }
+    Ok(None)
 }
 
 /// Route send by preflight_id: lookup record, dispatch by channel. VRPC/BTC: sign with session WIF and broadcast.
@@ -1349,15 +1366,41 @@ pub async fn route_get_dlight_runtime_status(
 mod tests {
     use super::{
         clamp_history_limit, decode_history_cursor, encode_history_cursor,
-        is_shielded_z_destination, resolve_vrpc_coin_context, TransactionHistoryCursor,
+        is_shielded_z_destination, resolve_direct_send_fee_mode, resolve_vrpc_coin_context,
+        TransactionHistoryCursor,
     };
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
     use crate::core::runtime_config;
     use crate::types::wallet::WalletNetwork;
+    use crate::types::{DirectSendFeeMode, WalletError};
 
     const VRSC_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
     const CHIPS_SYSTEM_ID: &str = "iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP";
     const VUSDC_ON_VERUS_ID: &str = "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd";
+
+    #[test]
+    fn direct_send_fee_mode_defaults_only_on_eligible_channels() {
+        for prefix in ["btc", "eth", "erc20"] {
+            assert_eq!(
+                resolve_direct_send_fee_mode(prefix, None).expect("eligible mode"),
+                Some(DirectSendFeeMode::Standard)
+            );
+        }
+        assert_eq!(
+            resolve_direct_send_fee_mode("vrpc", None).expect("legacy automatic fee"),
+            None
+        );
+    }
+
+    #[test]
+    fn direct_send_fee_mode_is_rejected_on_ineligible_channels() {
+        for prefix in ["vrpc", "dlight_private", "bridge"] {
+            assert!(matches!(
+                resolve_direct_send_fee_mode(prefix, Some(DirectSendFeeMode::Economy)),
+                Err(WalletError::DirectSendFeeModeUnsupported)
+            ));
+        }
+    }
 
     fn set_active_account(registry: &CoinRegistry) {
         registry.set_active_account(Some("channels_tests_account".to_string()));

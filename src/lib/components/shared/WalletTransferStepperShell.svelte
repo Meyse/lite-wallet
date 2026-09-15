@@ -13,6 +13,7 @@
     onClose?: () => void;
     closeDisabled?: boolean;
     showCloseButton?: boolean;
+    showProgress?: boolean;
     dirty?: boolean;
     showAside?: boolean;
     mobileAsideLabel?: string;
@@ -25,7 +26,6 @@
 
   const defaultCloseHandler = () => {};
 
-   
   let {
     currentStep,
     totalSteps,
@@ -33,6 +33,7 @@
     onClose = defaultCloseHandler,
     closeDisabled = false,
     showCloseButton = true,
+    showProgress = true,
     dirty = false,
     showAside = true,
     mobileAsideLabel = '',
@@ -40,9 +41,8 @@
     children,
     aside,
     footer,
-    footerAside
+    footerAside,
   }: WalletTransferStepperShellProps = $props();
-   
 
   const i18n = $derived($i18nStore);
   const asideSnippet = $derived(aside);
@@ -76,6 +76,7 @@
   onClose={requestClose}
   {closeDisabled}
   {showCloseButton}
+  {showProgress}
   {showAside}
   {mobileAsideLabel}
   {mobileAsideTitle}

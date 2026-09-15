@@ -14,13 +14,15 @@ use crate::core::auth::{
     capture_active_wallet_access_context, ensure_active_wallet_session,
     load_primary_private_scalar_for_context, SessionManager,
 };
-use crate::core::channels::btc::preflight::{BtcPreflightPayload, MAX_REVIEWED_FEE_SAT};
+use crate::core::channels::btc::preflight::{legacy_p2pkh_transaction_vbytes, BtcPreflightPayload};
 use crate::core::channels::btc::provider::BtcProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
 use crate::types::WalletError;
 
 const SIGHASH_ALL: u32 = 1u32;
+const P2PKH_CHANGE_OUTPUT_VBYTES: u64 = 34;
+const DUST_SATOSHI: u64 = 1000;
 
 fn validate_unsigned_transaction(
     payload: &BtcPreflightPayload,
@@ -55,7 +57,28 @@ fn validate_unsigned_transaction(
     let actual_fee = input_total
         .checked_sub(output_total)
         .ok_or(WalletError::InvalidPreflight)?;
-    if actual_fee != payload.fee_sats || actual_fee == 0 || actual_fee > MAX_REVIEWED_FEE_SAT {
+    if payload.fee_rate_sats_per_vbyte == 0 || actual_fee != payload.fee_sats || actual_fee == 0 {
+        return Err(WalletError::InvalidPreflight);
+    }
+    let output_scripts = tx
+        .output
+        .iter()
+        .map(|output| &output.script_pubkey)
+        .collect::<Vec<_>>();
+    let minimum_shaped_fee = legacy_p2pkh_transaction_vbytes(tx.input.len(), &output_scripts)
+        .map_err(|_| WalletError::InvalidPreflight)?
+        .checked_mul(payload.fee_rate_sats_per_vbyte)
+        .ok_or(WalletError::InvalidPreflight)?;
+    let maximum_reviewed_fee = if tx.output.len() == 1 {
+        P2PKH_CHANGE_OUTPUT_VBYTES
+            .checked_mul(payload.fee_rate_sats_per_vbyte)
+            .and_then(|change_output_fee| minimum_shaped_fee.checked_add(change_output_fee))
+            .and_then(|fee| fee.checked_add(DUST_SATOSHI - 1))
+            .ok_or(WalletError::InvalidPreflight)?
+    } else {
+        minimum_shaped_fee
+    };
+    if actual_fee < minimum_shaped_fee || actual_fee > maximum_reviewed_fee {
         return Err(WalletError::InvalidPreflight);
     }
 
@@ -231,6 +254,8 @@ mod tests {
             value: "0.00050000".to_string(),
             fee: format!("{:.8}", fee_sats as f64 / 100_000_000.0),
             fee_sats,
+            fee_rate_sats_per_vbyte: 10,
+            fee_mode: crate::types::DirectSendFeeMode::Standard,
             inputs: vec![crate::core::channels::btc::preflight::BtcInputRef {
                 txid: txid.to_string(),
                 vout: 0,
@@ -253,7 +278,7 @@ mod tests {
             Err(WalletError::InvalidPreflight)
         ));
 
-        let excessive = payload_with_fee(53_000, 50_000, 3_000);
+        let excessive = payload_with_fee(55_000, 50_000, 5_000);
         assert!(matches!(
             validate_unsigned_transaction(&excessive),
             Err(WalletError::InvalidPreflight)

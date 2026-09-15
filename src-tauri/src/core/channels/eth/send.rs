@@ -688,13 +688,21 @@ async fn execute_payload(
                 .method::<_, bool>("transfer", (parsed_to, amount_raw))
                 .map_err(|_| WalletError::OperationFailed)?;
 
-            let configured_call = transfer_call
-                .from(parsed_from)
-                .gas(gas_limit)
-                .gas_price(max_fee_per_gas.max(max_priority_fee_per_gas));
+            let calldata = transfer_call
+                .calldata()
+                .ok_or(WalletError::OperationFailed)?;
+            let tx = build_direct_erc20_transaction(
+                parsed_from,
+                token_address,
+                calldata,
+                gas_limit,
+                max_fee_per_gas,
+                max_priority_fee_per_gas,
+                network_provider.chain_id,
+            );
 
             submit_final_transaction(
-                configured_call.tx,
+                tx,
                 EthSubmissionStage::Erc20,
                 payload,
                 preflight_id,
@@ -1283,6 +1291,26 @@ fn parse_hex_bytes(input: &str) -> Result<Bytes, WalletError> {
     Ok(Bytes::from(raw))
 }
 
+fn build_direct_erc20_transaction(
+    from: Address,
+    token_address: Address,
+    calldata: Bytes,
+    gas_limit: U256,
+    max_fee_per_gas: U256,
+    max_priority_fee_per_gas: U256,
+    chain_id: u64,
+) -> TypedTransaction {
+    Eip1559TransactionRequest::new()
+        .from(from)
+        .to(token_address)
+        .data(calldata)
+        .gas(gas_limit)
+        .max_fee_per_gas(max_fee_per_gas)
+        .max_priority_fee_per_gas(max_priority_fee_per_gas)
+        .chain_id(chain_id)
+        .into()
+}
+
 fn fee_drift_exceeds_cap(
     gas_limit: U256,
     current_max_fee_per_gas: U256,
@@ -1294,9 +1322,9 @@ fn fee_drift_exceeds_cap(
 #[cfg(test)]
 mod tests {
     use super::{
-        fee_drift_exceeds_cap, recovery_review_context, validate_pending_binding,
-        EthPendingSubmission, EthSubmissionStage, EthSubmissionStatus, SessionBoundEthOperation,
-        SessionBoundSubmission, ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
+        build_direct_erc20_transaction, fee_drift_exceeds_cap, recovery_review_context,
+        validate_pending_binding, EthPendingSubmission, EthSubmissionStage, EthSubmissionStatus,
+        SessionBoundEthOperation, SessionBoundSubmission, ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
     };
     use crate::core::auth::session::ActiveWalletAccessContext;
     use crate::core::auth::{
@@ -1311,7 +1339,7 @@ mod tests {
     use crate::types::wallet::{WalletNetwork, WalletSecretKind};
     use crate::types::WalletError;
     use ethers::providers::{Http, Provider};
-    use ethers::types::U256;
+    use ethers::types::{transaction::eip2718::TypedTransaction, Address, Bytes, U256};
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1390,6 +1418,7 @@ mod tests {
             gas_limit: "21000".to_string(),
             max_fee_per_gas: "2".to_string(),
             max_priority_fee_per_gas: "1".to_string(),
+            fee_mode: crate::types::DirectSendFeeMode::Standard,
             fee: "0.000000000000042".to_string(),
             value: "0.000000000000000001".to_string(),
         };
@@ -1427,8 +1456,28 @@ mod tests {
             gas_limit: "21000".to_string(),
             max_fee_per_gas: "2".to_string(),
             max_priority_fee_per_gas: "1".to_string(),
+            fee_mode: crate::types::DirectSendFeeMode::Standard,
             fee: "0.000000000000042".to_string(),
             value: "0.000000000000000001".to_string(),
+        }
+    }
+
+    fn erc20_payload(from_address: &str, to_address: &str) -> EthPreflightPayload {
+        EthPreflightPayload::Erc20 {
+            chain_id: 1,
+            coin_id: "TOKEN_A".to_string(),
+            token_address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            token_decimals: 6,
+            from_address: from_address.to_string(),
+            to_address: to_address.to_string(),
+            token_value_raw: "5000000".to_string(),
+            gas_limit: "120000".to_string(),
+            max_fee_per_gas: "2".to_string(),
+            max_priority_fee_per_gas: "1".to_string(),
+            max_fee_cap: "240000".to_string(),
+            fee_mode: crate::types::DirectSendFeeMode::Standard,
+            fee: "0.00024".to_string(),
+            value: "5".to_string(),
         }
     }
 
@@ -1486,6 +1535,19 @@ mod tests {
             )
             .await
             .expect("store pending submission");
+    }
+
+    async fn store_pending_bytes(context: &ActiveWalletAccessContext, bytes: &[u8]) {
+        context
+            .stronghold_store
+            .store_eth_pending_submission(
+                &context.account_id,
+                context.password_hash(),
+                context.wallet_network,
+                bytes,
+            )
+            .await
+            .expect("store raw pending submission");
     }
 
     fn put_preflight(
@@ -1602,6 +1664,30 @@ mod tests {
     }
 
     #[test]
+    fn direct_erc20_transaction_preserves_distinct_eip1559_fee_fields() {
+        let from = Address::from_low_u64_be(1);
+        let token = Address::from_low_u64_be(2);
+        let max_fee = U256::from(30_000_000_000u64);
+        let priority = U256::from(2_000_000_000u64);
+        let tx = build_direct_erc20_transaction(
+            from,
+            token,
+            Bytes::from(vec![0xa9, 0x05, 0x9c, 0xbb]),
+            U256::from(65_000u64),
+            max_fee,
+            priority,
+            1,
+        );
+
+        let TypedTransaction::Eip1559(request) = tx else {
+            panic!("direct ERC20 must use an EIP-1559 transaction");
+        };
+        assert_eq!(request.max_fee_per_gas, Some(max_fee));
+        assert_eq!(request.max_priority_fee_per_gas, Some(priority));
+        assert_ne!(request.max_fee_per_gas, request.max_priority_fee_per_gas);
+    }
+
+    #[test]
     fn pending_submission_serialization_preserves_exact_replay_for_every_stage() {
         for stage in [
             EthSubmissionStage::Eth,
@@ -1622,6 +1708,110 @@ mod tests {
             assert_eq!(actual.nonce, "7");
             assert_eq!(actual.raw_signed_transaction, "02deadbeef");
             assert_eq!(actual.tx_hash, format!("0x{}", "ab".repeat(32)));
+        }
+    }
+
+    #[tokio::test]
+    async fn historical_direct_pending_submissions_default_to_standard_without_repricing() {
+        for schema_version in [2, ETH_PENDING_SUBMISSION_SCHEMA_VERSION] {
+            for is_erc20 in [false, true] {
+                let material = format!("historical direct pending {schema_version} {is_erc20}");
+                let (session, context) = test_session_with_stored_seed(&material).await;
+                let mut pending = pending_submission(if is_erc20 {
+                    EthSubmissionStage::Erc20
+                } else {
+                    EthSubmissionStage::Eth
+                });
+                pending.schema_version = schema_version;
+                pending.status = EthSubmissionStatus::BroadcastKnown;
+                pending.from_address = context.eth_address.clone();
+                pending.payload = if is_erc20 {
+                    erc20_payload(
+                        &context.eth_address,
+                        "0x3333333333333333333333333333333333333333",
+                    )
+                } else {
+                    eth_payload(
+                        &context.eth_address,
+                        "0x2222222222222222222222222222222222222222",
+                    )
+                };
+                pending.review_context = Some(recovery_review_context(
+                    &pending.payload,
+                    context.wallet_network,
+                ));
+                pending.result = super::payload_result(&pending.payload);
+                pending.result.txid = pending.tx_hash.clone();
+                pending.result.recovery_id = Some(pending.recovery_id.clone());
+
+                let expected_raw_transaction = pending.raw_signed_transaction.clone();
+                let expected_tx_hash = pending.tx_hash.clone();
+                let expected_result = pending.result.clone();
+                let mut historical = serde_json::to_value(&pending).expect("serialize fixture");
+                historical
+                    .get_mut("payload")
+                    .and_then(serde_json::Value::as_object_mut)
+                    .expect("payload object")
+                    .remove("fee_mode");
+                if schema_version == 2 {
+                    historical
+                        .as_object_mut()
+                        .expect("pending object")
+                        .remove("review_context");
+                }
+                store_pending_bytes(
+                    &context,
+                    &serde_json::to_vec(&historical).expect("serialize historical fixture"),
+                )
+                .await;
+
+                let loaded = super::load_pending_submission(&context)
+                    .await
+                    .expect("load historical pending")
+                    .expect("historical pending exists");
+                assert_eq!(loaded.schema_version, ETH_PENDING_SUBMISSION_SCHEMA_VERSION);
+                assert_eq!(loaded.raw_signed_transaction, expected_raw_transaction);
+                assert_eq!(loaded.tx_hash, expected_tx_hash);
+                assert!(matches!(
+                    loaded.payload,
+                    EthPreflightPayload::Eth {
+                        fee_mode: crate::types::DirectSendFeeMode::Standard,
+                        ..
+                    } | EthPreflightPayload::Erc20 {
+                        fee_mode: crate::types::DirectSendFeeMode::Standard,
+                        ..
+                    }
+                ));
+                validate_pending_binding(&loaded, &context, 1).expect("historical binding");
+
+                let providers =
+                    EthProviderPool::for_tests(WalletNetwork::Mainnet, "http://127.0.0.1:9");
+                let review = super::get_pending_submission_review(&session, &providers)
+                    .await
+                    .expect("review historical pending")
+                    .expect("review exists");
+                assert_eq!(review.txid, expected_tx_hash);
+                assert!(review.can_acknowledge);
+                assert!(!review.requires_resume);
+
+                let resumed =
+                    super::resume_pending_submission(&pending.recovery_id, &session, &providers)
+                        .await
+                        .expect("resume historical terminal result");
+                assert_eq!(resumed.txid, expected_result.txid);
+                assert_eq!(resumed.fee, expected_result.fee);
+                assert_eq!(resumed.value, expected_result.value);
+                assert_eq!(resumed.from_address, expected_result.from_address);
+                assert_eq!(resumed.to_address, expected_result.to_address);
+
+                super::acknowledge_pending_submission(&pending.recovery_id, &session, &providers)
+                    .await
+                    .expect("acknowledge historical terminal result");
+                assert!(super::load_pending_submission(&context)
+                    .await
+                    .expect("load after historical ack")
+                    .is_none());
+            }
         }
     }
 
@@ -1664,6 +1854,7 @@ mod tests {
             max_fee_per_gas: "2".to_string(),
             max_priority_fee_per_gas: "1".to_string(),
             max_fee_cap: "240000".to_string(),
+            fee_mode: crate::types::DirectSendFeeMode::Economy,
             fee: "0.00024".to_string(),
             value: "5".to_string(),
         };

@@ -2,23 +2,18 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
-  import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import CheckCircle2Icon from '@lucide/svelte/icons/check-circle-2';
-  import BookUserIcon from '@lucide/svelte/icons/book-user';
-  import InfoIcon from '@lucide/svelte/icons/info';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import PencilIcon from '@lucide/svelte/icons/pencil';
-  import UserRoundIcon from '@lucide/svelte/icons/user-round';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
-  import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import * as RadioGroup from '$lib/components/ui/radio-group';
   import * as Card from '$lib/components/ui/card';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs';
-  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
@@ -29,35 +24,37 @@
   import { i18nStore } from '$lib/i18n';
   import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
   import { coinsStore } from '$lib/stores/coins.js';
-  import { walletChannelsStore } from '$lib/stores/walletChannels.js';
-  import { balanceStore, getBalance } from '$lib/stores/balances.js';
+  import { balanceStore } from '$lib/stores/balances.js';
   import { networkStore } from '$lib/stores/network.js';
   import { ratesStore } from '$lib/stores/rates.js';
   import { settingsStore } from '$lib/stores/settings.js';
   import { transactionStore } from '$lib/stores/transactions.js';
-  import { addressBookStore, upsertAddressBookContact } from '$lib/stores/addressBook.js';
+  import { addressBookStore } from '$lib/stores/addressBook.js';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { formatFiatAmount, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
   import * as addressBookService from '$lib/services/addressBookService.js';
   import {
     findMatchingSavedEndpoint,
-    inferEndpointKindForDestinationAddress,
     isEndpointCompatibleWithDestinationKind,
     normalizeAddressByDestinationKind,
-    sharesSuspiciousPrefixSuffix
+    sharesSuspiciousPrefixSuffix,
   } from '$lib/address-book/utils';
   import {
     classifyDlightDestinationAddress,
-    validateDestinationAddressForKind
+    validateDestinationAddressForKind,
   } from '$lib/transfer/recipientAddressValidation';
-  import { channelIdForCoin } from '$lib/utils/channelId.js';
+  import { openTrustedExternalUrl } from '$lib/utils/externalLinks.js';
   import * as walletService from '$lib/services/walletService.js';
+  import {
+    getDisplayCoinScopes,
+    isWalletDisplayRequestInvalidated,
+  } from '$lib/services/walletDisplayService.js';
   import {
     acknowledgePendingEthSubmission,
     getPendingEthSubmission,
     preflightSend,
     resumePendingEthSubmission,
-    sendTransaction
+    sendTransaction,
   } from '$lib/services/txService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import {
@@ -65,38 +62,32 @@
     estimateBridgeExportFee,
     getBridgeCapabilities,
     getBridgeConversionPaths,
-    preflightBridgeTransfer
+    preflightBridgeTransfer,
   } from '$lib/services/bridgeTransferService.js';
-  import {
-    getRecipientInputCopy,
-    getTransferStepCopy,
-    getTransferStepLabels
-  } from '$lib/transfer/transferWizardCopy';
-  import {
-    EthRecoveryLifetime,
-    resolveTransferResultContext,
-    runEthRecovery,
-  } from '$lib/transfer/ethRecovery.js';
+  import { getRecipientInputCopy, getTransferStepLabels } from '$lib/transfer/transferWizardCopy';
+  import { EthRecoveryLifetime, runEthRecovery } from '$lib/transfer/ethRecovery.js';
   import {
     buildReceiveAssetSections,
     type ExportRouteOption,
     filterReceiveAssetSectionsByQuery,
     type ReceiveAssetOption,
     type ReceiveAssetSections,
-    type ViaRouteOption
+    type ViaRouteOption,
   } from '$lib/transfer/convertTargetOptions';
   import type {
     BridgeCapabilitiesResult,
     BridgeConversionPathQuote,
     BridgeExportFeeEstimateResult,
     BridgeTransferPreflightResult,
+    CoinScope,
     DlightRuntimeStatusResult,
     EthPendingSubmissionReview,
     PreflightResult,
     PreflightWarning,
     SendResult,
     TxSendProgressEventPayload,
-    TxSendProgressStage
+    TxSendProgressStage,
+    WalletNetwork,
   } from '$lib/types/wallet.js';
   import type { AddressBookContact, AddressEndpointKind } from '$lib/types/addressBook';
   import type {
@@ -104,9 +95,37 @@
     TransferEntryContext,
     TransferStepId,
     TransferStepperStep,
-    WizardOperationalStepId
+    WizardOperationalStepId,
   } from './transfer-wizard/types';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
+  import {
+    DEFAULT_DIRECT_SEND_FEE_MODE,
+    directSendFeeDraftForOpen,
+    type DirectSendFeeMode,
+    directSendFeeSelectionNeedsRefresh,
+    type DirectSendRouteState,
+    getDirectSendFeeOptions,
+    isDirectSendFeeEligible,
+    withDirectSendFeeMode,
+  } from './transfer-wizard/directSendFee';
+  import { PreflightRequestGuard } from './transfer-wizard/preflightRequestGuard';
+  import {
+    preflightRequestSignature,
+    type ResolvedPreflightRequest,
+    runGuardedPreflight,
+  } from './transfer-wizard/preflightRequest';
+  import {
+    classifySubmittedTransferRoute,
+    finalizeSubmittedTransferSnapshot,
+    getSubmittedReceiptCopy,
+    type SubmittedTransferSnapshot,
+    transactionExplorerUrl,
+  } from './transfer-wizard/transferReceipt';
+  import {
+    buildSpendableTransferSources,
+    transferSourceSupportsConversion,
+  } from './transfer-wizard/transferSources';
+  import { EntryContextGuard } from './transfer-wizard/entryContextGuard';
 
   type EntryIntent = 'send' | 'convert';
 
@@ -165,29 +184,31 @@
     entryIntent: EntryIntent;
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
+    walletNetwork?: WalletNetwork;
   };
 
   const defaultClose = () => {};
-  const OPERATIONAL_STEPS: WizardOperationalStepId[] = ['details', 'recipient', 'review'];
+  const OPERATIONAL_STEPS: WizardOperationalStepId[] = ['details', 'review'];
   const VRSC_SYSTEM_ID = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
   const VRSCTEST_SYSTEM_ID = 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq';
   const VETH_SYSTEM_ID = 'i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X';
   const MAX_TRANSFER_AMOUNT_FRACTION_DIGITS = 8;
 
-   
-  let { entryIntent, entryContext = null, onClose = defaultClose }: TransferWizardProps = $props();
-   
+  let {
+    entryIntent,
+    entryContext = null,
+    onClose = defaultClose,
+    walletNetwork = 'mainnet',
+  }: TransferWizardProps = $props();
 
   const i18n = $derived($i18nStore);
   const coins = $derived($coinsStore);
-  const walletChannels = $derived($walletChannelsStore);
   const balances = $derived($balanceStore);
   const chainInfoByChannel = $derived($networkStore);
   const rates = $derived($ratesStore);
   const settings = $derived($settingsStore);
   const displayCurrency = $derived(settings.displayCurrency);
   const addressBookContacts = $derived($addressBookStore);
-  const stepCopy = $derived(getTransferStepCopy(i18n.t));
   const stepLabels = $derived(getTransferStepLabels(i18n.t));
 
   const sendableCoins = $derived(
@@ -200,41 +221,30 @@
     )
   );
 
+  let coinScopesByCoinId = $state<Record<string, CoinScope[]>>({});
+  let loadedScopeCoinIds = $state<Record<string, true>>({});
+
   const sendableCoinOptions = $derived(
-    sendableCoins.map((coin) => {
-      const contextChannelId =
-        entryContext &&
-        !entryContext.readOnly &&
-        entryContext.coinId === coin.id
-          ? entryContext.channelId
-          : null;
-      const presentation = resolveCoinPresentation(coin);
-      const channelId =
-        contextChannelId ??
-        walletChannels.byCoinId[coin.id] ??
-        channelIdForCoin(coin, walletChannels.vrpcAddress ?? undefined);
-      const balanceTotal = channelId ? (getBalance(channelId, coin.id, balances)?.total ?? '0')
-        : '0';
+    buildSpendableTransferSources(sendableCoins, coinScopesByCoinId, balances).map((option) => {
+      const presentation = resolveCoinPresentation(option.coin);
       return {
-        coin,
-        channelId,
-        balanceTotal,
-        balanceValue: toFiniteNumber(balanceTotal),
+        ...option,
         displayName: presentation.displayName,
-        displayTicker: presentation.displayTicker
+        displayTicker: presentation.displayTicker,
       };
     })
   );
 
-  const positiveSendableCoinOptions = $derived(
-    sendableCoinOptions.filter((option) => option.channelId && option.balanceValue > 0)
-  );
+  const positiveSendableCoinOptions = $derived(sendableCoinOptions);
 
   const selectedCoinOption = $derived(
-    positiveSendableCoinOptions.find((option) => option.coin.id === selectedCoinId) ?? null
+    positiveSendableCoinOptions.find(
+      (option) => option.coin.id === selectedCoinId && option.channelId === selectedSourceChannelId
+    ) ?? null
   );
 
   let selectedCoinId = $state('');
+  let selectedSourceChannelId = $state('');
   let currentStep = $state<TransferStepId>('details');
   let amount = $state('');
   let amountInputEl = $state<HTMLInputElement | null>(null);
@@ -248,6 +258,7 @@
   let selectedViaOptionId = $state('');
   let manualViaLocked = $state(false);
   let sourceCoinManuallyChosen = $state(false);
+  const entryContextGuard = new EntryContextGuard();
   let discoveredPathQuotes = $state<Record<string, BridgeConversionPathQuote[]>>({});
   let receiveSearchTerm = $state('');
   let pendingGroupedReceiveOption = $state<ReceiveAssetOption | null>(null);
@@ -261,7 +272,7 @@
     balanceCoins: null,
     currencyTicker: resolveCoinPresentationById('VRSC')?.displayTicker?.trim() || 'VRSC',
     systemId: null,
-    error: null
+    error: null,
   });
 
   let loadingTargets = $state(false);
@@ -273,14 +284,16 @@
   let targetsError = $state('');
   let transferError = $state('');
   let pendingEthSubmission = $state<EthPendingSubmissionReview | null>(null);
-  let recoveredEthSubmission = $state<EthPendingSubmissionReview | null>(null);
   let recoveringEthSubmission = $state(false);
   const ethRecoveryLifetime = new EthRecoveryLifetime();
 
   let simplePreflightResult = $state<PreflightResult | null>(null);
   let bridgePreflightResult = $state<BridgeTransferPreflightResult | null>(null);
   let sendResult = $state<SendResult | null>(null);
-  let addresses = $state<{ vrsc_address: string; eth_address: string; btc_address: string } | null>(null);
+  let submittedTransferSnapshot = $state<SubmittedTransferSnapshot | null>(null);
+  let addresses = $state<{ vrsc_address: string; eth_address: string; btc_address: string } | null>(
+    null
+  );
 
   let showSourceAssetSheet = $state(false);
   let showReceiveAssetSheet = $state(false);
@@ -289,12 +302,12 @@
   let showExportSheet = $state(false);
   let exportSheetMode = $state<'convert' | 'send'>('convert');
   let showAddressBookSheet = $state(false);
+  let showFeeSheet = $state(false);
+  let directSendFeeMode = $state<DirectSendFeeMode>(DEFAULT_DIRECT_SEND_FEE_MODE);
+  let pendingDirectSendFeeMode = $state<DirectSendFeeMode>(DEFAULT_DIRECT_SEND_FEE_MODE);
+  const preflightRequestGuard = new PreflightRequestGuard();
   let addressBookSearchTerm = $state('');
   let unsavedRecipientConfirmed = $state(false);
-  let saveRecipientName = $state('');
-  let saveRecipientError = $state('');
-  let savingRecipient = $state(false);
-  let savedRecipientOnSuccess = $state(false);
   const copiedSuccessFieldState = new TimedValueState<'recipient' | 'txid'>();
   const copiedSuccessField = $derived(copiedSuccessFieldState.current);
 
@@ -331,31 +344,29 @@
     isShieldedSyncBlocked && selectedShieldedStatusKind === 'error'
       ? i18n.t('wallet.transfer.error.network')
       : isShieldedSyncBlocked && selectedShieldedSyncPercent !== null
-      ? i18n.t('wallet.transfer.privateSyncBlocked', {
-          percent: formatSyncPercent(selectedShieldedSyncPercent)
-        })
-      : ''
+        ? i18n.t('wallet.transfer.privateSyncBlocked', {
+            percent: formatSyncPercent(selectedShieldedSyncPercent),
+          })
+        : ''
   );
 
   const selectedChannelPrefix = $derived(selectedChannelId?.split('.')[0] ?? '');
   const selectedSourceSystemId = $derived(
-    (() => {
-      const channelId = selectedChannelId?.trim() ?? '';
-      if (channelId.startsWith('vrpc.')) {
-        const parts = channelId.split('.');
-        if (parts.length >= 3) {
-          return parts.slice(2).join('.');
-        }
-      }
-      return selectedCoin?.systemId ?? selectedCoin?.id ?? '';
-    })()
+    selectedCoinOption?.scope.systemId ?? selectedCoin?.systemId ?? selectedCoin?.id ?? ''
   );
   const sourceNetworkDisplayName = $derived(
-    resolveSourceNetworkDisplayName(selectedSourceSystemId, selectedChannelPrefix)
+    selectedCoinOption?.scope.systemDisplayName?.trim() ||
+      resolveSourceNetworkDisplayName(selectedSourceSystemId, selectedChannelPrefix)
   );
   const sourceSupportsConversion = $derived(
     (() => {
-      if (!selectedCoin || !selectedChannelId) return false;
+      if (
+        !selectedCoin ||
+        !selectedChannelId ||
+        !transferSourceSupportsConversion(selectedCoinOption)
+      ) {
+        return false;
+      }
       if (bridgeCapabilities) return bridgeCapabilities.conversionSupported;
       // Preserve existing behavior while capabilities are loading.
       return selectedChannelPrefix === 'vrpc';
@@ -366,27 +377,10 @@
   const selectedBalanceValue = $derived(toFiniteNumber(selectedBalance));
 
   const selectedDlightScopeAddress = $derived(
-    (() => {
-      const channelId = selectedChannelId?.trim() ?? '';
-      if (!channelId.startsWith('dlight_private.')) return '';
-      const rest = channelId.slice('dlight_private.'.length);
-      const splitIndex = rest.indexOf('.');
-      if (splitIndex <= 0) return '';
-      return rest.slice(0, splitIndex);
-    })()
+    selectedCoinOption?.sourceKind === 'private' ? selectedCoinOption.scope.address : ''
   );
 
-  const selectedSourceAddress = $derived(
-    !addresses
-      ? ''
-      : selectedChannelPrefix === 'vrpc'
-        ? addresses.vrsc_address
-        : selectedChannelPrefix === 'dlight_private'
-          ? selectedDlightScopeAddress
-        : selectedChannelPrefix === 'btc'
-          ? addresses.btc_address
-          : addresses.eth_address
-  );
+  const selectedSourceAddress = $derived(selectedCoinOption?.scope.address ?? '');
 
   const showChooseCurrencyCallToAction = $derived(
     (entryIntent === 'send' || entryIntent === 'convert') && !sourceCoinManuallyChosen
@@ -401,8 +395,8 @@
       sourceCurrencyAliases: [
         selectedCoin?.currencyId,
         selectedCoin?.id,
-        selectedCoinPresentation?.currencyId
-      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        selectedCoinPresentation?.currencyId,
+      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
     })
   );
 
@@ -446,11 +440,7 @@
 
   const sourceRouteAliasKeys = $derived(
     new Set(
-      [
-        selectedCoin?.currencyId,
-        selectedCoin?.id,
-        selectedCoinPresentation?.currencyId
-      ]
+      [selectedCoin?.currencyId, selectedCoin?.id, selectedCoinPresentation?.currencyId]
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         .map((value) => value.trim().toLowerCase())
     )
@@ -487,11 +477,7 @@
           return option;
         }
         if (sourceCanonicalKey) {
-          const optionCanonicalCandidates = [
-            option.ticker,
-            option.label,
-            option.fullyqualifiedname
-          ]
+          const optionCanonicalCandidates = [option.ticker, option.label, option.fullyqualifiedname]
             .map((value) => canonicalizeBridgeTicker(value ?? ''))
             .filter((value) => value.length > 0);
           if (optionCanonicalCandidates.includes(sourceCanonicalKey)) {
@@ -527,7 +513,7 @@
               gateway: quote.gateway,
               via: null,
               price: quote.price ?? null,
-              mappingDestination: undefined
+              mappingDestination: undefined,
             });
             continue;
           }
@@ -539,7 +525,7 @@
               gateway: quote.gateway,
               via: null,
               price: quote.price ?? null,
-              mappingDestination: resolveSendMappingDestination(quote)
+              mappingDestination: resolveSendMappingDestination(quote),
             });
           }
         }
@@ -583,7 +569,7 @@
         return {
           ...matchedSendSameAssetOption,
           isCrossChain: mergedExportOptions.length > 0,
-          exportOptions: mergedExportOptions
+          exportOptions: mergedExportOptions,
         };
       }
 
@@ -610,7 +596,7 @@
         viaOptions: [],
         exportOptions: mergedExportOptions,
         gateway: mergedExportOptions.some((option) => option.gateway),
-        isEthDestination: false
+        isEthDestination: false,
       };
     })()
   );
@@ -622,7 +608,9 @@
       if (!sendSameAssetOption) return null;
       if (
         selectedSendExportSystemId &&
-        sendSameAssetOption.exportOptions.some((option) => option.exportTo === selectedSendExportSystemId)
+        sendSameAssetOption.exportOptions.some(
+          (option) => option.exportTo === selectedSendExportSystemId
+        )
       ) {
         return selectedSendExportSystemId;
       }
@@ -631,7 +619,9 @@
   );
   const selectedSendExportRouteOption = $derived(
     sendSameAssetOption && activeSendExportSystemId
-      ? (sendSameAssetOption.exportOptions.find((option) => option.exportTo === activeSendExportSystemId) ?? null)
+      ? (sendSameAssetOption.exportOptions.find(
+          (option) => option.exportTo === activeSendExportSystemId
+        ) ?? null)
       : null
   );
   const activeSendMapTo = $derived(
@@ -668,7 +658,7 @@
       ? {
           id: `same-${selectedCoin.id}${activeSendExportSystemId ? `|${activeSendExportSystemId}` : ''}`,
           label: i18n.t('wallet.transfer.sameAssetOption', {
-            ticker: selectedCoinPresentation.displayTicker
+            ticker: selectedCoinPresentation.displayTicker,
           }),
           destinationId: sendSameAssetOption?.destinationId ?? selectedCoin.id,
           receiveLabel:
@@ -680,13 +670,29 @@
           exportTo: activeSendExportSystemId,
           via: null,
           mapTo: activeSendMapTo ?? activeSendRoute?.mapTo ?? null,
-          price: selectedSendExportRouteOption?.price ?? activeSendRoute?.price ?? null
+          price: selectedSendExportRouteOption?.price ?? activeSendRoute?.price ?? null,
         }
       : null
   );
   const activeTargetOption = $derived(conversionEnabled ? activeConvertRoute : sameAssetOption);
   const activeExportSystemId = $derived(
     conversionEnabled ? (activeConvertRoute?.exportTo ?? null) : (sameAssetOption?.exportTo ?? null)
+  );
+  const directSendRoute = $derived<DirectSendRouteState>({
+    operation:
+      (conversionEnabled && !!activeConvertRoute) ||
+      (!conversionEnabled && !!activeTargetOption?.exportTo)
+        ? 'bridge_transfer'
+        : 'preflight_send',
+    channelId: selectedChannelId,
+    conversionEnabled,
+    exportSystemId: activeExportSystemId,
+  });
+  const directSendFeeEligible = $derived(isDirectSendFeeEligible(directSendRoute));
+  const directSendFeeOptions = $derived(getDirectSendFeeOptions(i18n.t));
+  const authoritativeDirectSendFeeMode = $derived(simplePreflightResult?.feeMode ?? null);
+  const pendingFeeModeMatchesApplied = $derived(
+    !directSendFeeSelectionNeedsRefresh(authoritativeDirectSendFeeMode, pendingDirectSendFeeMode)
   );
   const bridgeFeeParityEligible = $derived(
     !!selectedCoin &&
@@ -746,7 +752,7 @@
     (() => {
       if (bridgeFeeInsufficient) {
         return i18n.t('wallet.transfer.bridgeFeeInsufficient', {
-          ticker: bridgeFeeInfo.currencyTicker
+          ticker: bridgeFeeInfo.currencyTicker,
         });
       }
       if (
@@ -762,7 +768,10 @@
   );
 
   const convertUnavailableForSource = $derived(
-    !!selectedCoin && !!selectedChannelId && !!bridgeCapabilities && !bridgeCapabilities.conversionSupported
+    !!selectedCoin &&
+      !!selectedChannelId &&
+      (!transferSourceSupportsConversion(selectedCoinOption) ||
+        (!!bridgeCapabilities && !bridgeCapabilities.conversionSupported))
   );
 
   const showConvertUnavailable = $derived(
@@ -788,7 +797,8 @@
   const destinationAddressKind = $derived<DestinationAddressKind>(
     isEthereumExport(activeExportSystemId)
       ? 'eth'
-      : !activeExportSystemId && (selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20')
+      : !activeExportSystemId &&
+          (selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20')
         ? 'eth'
         : selectedChannelPrefix === 'btc'
           ? 'btc'
@@ -803,10 +813,10 @@
       : !addresses
         ? ''
         : destinationAddressKind === 'eth'
-        ? addresses.eth_address
-        : destinationAddressKind === 'btc'
-          ? addresses.btc_address
-          : addresses.vrsc_address
+          ? addresses.eth_address
+          : destinationAddressKind === 'btc'
+            ? addresses.btc_address
+            : addresses.vrsc_address
   );
 
   const addressBookEndpointOptions = $derived<AddressBookEndpointOption[]>(
@@ -825,7 +835,7 @@
             endpointLabel: endpoint.label,
             endpointAddress: endpoint.address,
             normalizedAddress: endpoint.normalizedAddress,
-            lastUsedAt: endpoint.lastUsedAt
+            lastUsedAt: endpoint.lastUsedAt,
           }))
       );
 
@@ -866,36 +876,28 @@
     })()
   );
   const isSavedRecipient = $derived(!!matchedSavedRecipient);
-  const successResultContext = $derived(
-    sendResult
-      ? resolveTransferResultContext(sendResult, recoveredEthSubmission, {
-          coinId: selectedCoin?.id ?? '',
-          channelId: selectedChannelId ?? '',
-          destinationKind: destinationAddressKind,
-          toAddress: sendResult.toAddress,
-        })
-      : null
-  );
-  const successCoinPresentation = $derived(
-    successResultContext?.coinId
-      ? resolveCoinPresentationById(successResultContext.coinId)
-      : selectedCoinPresentation
-  );
-  const successMatchedSavedRecipient = $derived(
-    successResultContext
-      ? findMatchingSavedEndpoint(
-          addressBookContacts,
-          successResultContext.destinationKind,
-          successResultContext.toAddress
-        )
-      : null
-  );
-  const isSuccessRecipientSaved = $derived(!!successMatchedSavedRecipient);
   const hasRecipientSimilarityWarning = $derived(
     !isSavedRecipient &&
       sharesSuspiciousPrefixSuffix(addressBookContacts, destinationAddressKind, destinationAddress)
   );
   const activePreflight = $derived(simplePreflightResult ?? bridgePreflightResult);
+  const submittedTransferRoute = $derived(
+    submittedTransferSnapshot ? classifySubmittedTransferRoute(submittedTransferSnapshot) : null
+  );
+  const submittedReceiptCopy = $derived(
+    submittedTransferRoute && submittedTransferSnapshot
+      ? getSubmittedReceiptCopy(
+          submittedTransferRoute,
+          submittedTransferSnapshot.conversionEnabled,
+          i18n.t
+        )
+      : null
+  );
+  const submittedExplorerUrl = $derived(
+    submittedTransferSnapshot && sendResult
+      ? transactionExplorerUrl(submittedTransferSnapshot, sendResult.txid)
+      : null
+  );
   const requiresUnsavedRecipientAck = $derived(
     !!destinationAddress.trim() && !!activePreflight && !isSavedRecipient && !isSelfRecipient
   );
@@ -934,9 +936,21 @@
       ? resolveCoinPresentationById(selectedReceiveAssetOption.destinationId)
       : null
   );
+  const selectedReceiveCompactTicker = $derived(
+    (selectedReceiveAssetPresentation?.mappedTo
+      ? resolveCoinPresentationById(selectedReceiveAssetPresentation.mappedTo)?.displayTicker
+      : null) ||
+      selectedReceiveAssetPresentation?.displayTicker ||
+      selectedReceiveAssetOption?.ticker ||
+      selectedReceiveLabel
+  );
 
   const sourceFiatRate = $derived(
-    getDisplayCurrencyRateForCoinIds([selectedCoin?.id, selectedCoin?.currencyId, selectedCoin?.mappedTo])
+    getDisplayCurrencyRateForCoinIds([
+      selectedCoin?.id,
+      selectedCoin?.currencyId,
+      selectedCoin?.mappedTo,
+    ])
   );
 
   const receiveFiatRate = $derived(
@@ -944,7 +958,7 @@
       selectedReceiveAssetOption?.destinationId,
       selectedReceiveAssetPresentation?.id,
       selectedReceiveAssetPresentation?.currencyId,
-      selectedReceiveAssetPresentation?.mappedTo
+      selectedReceiveAssetPresentation?.mappedTo,
     ])
   );
 
@@ -987,7 +1001,9 @@
       return (numericAmount * numericPrice).toFixed(8);
     })()
   );
-  const reviewSourceAmountFiatDisplay = $derived(formatFiatEstimate(effectiveSendAmount, sourceFiatRate));
+  const reviewSourceAmountFiatDisplay = $derived(
+    formatFiatEstimate(effectiveSendAmount, sourceFiatRate)
+  );
   const reviewReceiveAmountFiatDisplay = $derived(
     formatFiatEstimate(reviewEstimatedConversionValue ?? '0', receiveFiatRate)
   );
@@ -1003,7 +1019,7 @@
       return i18n.t('wallet.transfer.ratePair', {
         from: selectedCoinPresentation.displayTicker,
         rate: activeConvertRouteRate,
-        to: selectedReceiveLabel || selectedReceiveAssetOption.label
+        to: selectedReceiveCompactTicker || selectedReceiveAssetOption.label,
       });
     })()
   );
@@ -1022,7 +1038,7 @@
       return {
         amount: formatDecimalTrimmed(feeAmount),
         currency: selectedCoinPresentation.displayTicker,
-        percentage: hasVia ? '0.05%' : '0.025%'
+        percentage: hasVia ? '0.05%' : '0.025%',
       };
     })()
   );
@@ -1032,7 +1048,10 @@
       if (!selectedCoinPresentation) return '';
       const baseAmount = effectiveSendAmount;
       if (!baseAmount) return '';
-      const formattedAmount = formatAmountForReviewDisplay(baseAmount, MAX_TRANSFER_AMOUNT_FRACTION_DIGITS);
+      const formattedAmount = formatAmountForReviewDisplay(
+        baseAmount,
+        MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
+      );
       return `${formattedAmount} ${selectedCoinPresentation.displayTicker}`;
     })()
   );
@@ -1040,7 +1059,9 @@
   const reviewReceivingValue = $derived(
     (() => {
       if (!conversionEnabled || !reviewEstimatedConversionValue) return '';
-      const receiveLabel = resolveReceiveLabel(selectedReceiveAssetOption, activeExportSystemId);
+      const receiveLabel =
+        selectedReceiveCompactTicker ||
+        resolveReceiveLabel(selectedReceiveAssetOption, activeExportSystemId);
       return receiveLabel
         ? `~${reviewEstimatedConversionValue} ${receiveLabel}`
         : `~${reviewEstimatedConversionValue}`;
@@ -1069,25 +1090,42 @@
       ? `${formatAmountForReviewDisplay(activePreflight.fee, MAX_TRANSFER_AMOUNT_FRACTION_DIGITS)} ${reviewNetworkFeeCurrencyLabel || activePreflight.feeCurrency}`
       : ''
   );
+  const reviewTotalDebitedValue = $derived(
+    (() => {
+      if (!activePreflight || !selectedCoinPresentation) return '';
+      const feeTicker = reviewNetworkFeeCurrencyLabel || activePreflight.feeCurrency;
+      const sentTicker = selectedCoinPresentation.displayTicker;
+      const sentAmount = parseNonNegativeAmount(activePreflight.value);
+      const feeAmount = parseNonNegativeAmount(activePreflight.fee);
+      if (
+        sentAmount !== null &&
+        feeAmount !== null &&
+        feeTicker.trim().toLowerCase() === sentTicker.trim().toLowerCase()
+      ) {
+        return `${formatDecimalTrimmed(sentAmount + feeAmount)} ${sentTicker}`;
+      }
+      return `${reviewSendingValue} + ${reviewNetworkFeeValue}`;
+    })()
+  );
   const reviewTotalFeesFiat = $derived(
     (() => {
       if (!activePreflight) return '≈ —';
 
       let totalFiat = 0;
       const bridgeFeeRequired =
-        !!activeExportSystemId &&
-        isEthereumExport(activeExportSystemId) &&
-        bridgeFeeParityEligible;
+        !!activeExportSystemId && isEthereumExport(activeExportSystemId) && bridgeFeeParityEligible;
 
       const networkFeeAmount = parseNonNegativeAmount(activePreflight.fee);
-      const networkFeeRate = getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency) ?? sourceFiatRate;
+      const networkFeeRate =
+        getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency) ?? sourceFiatRate;
       if (networkFeeAmount !== null && networkFeeRate !== null) {
         totalFiat += networkFeeAmount * networkFeeRate;
       }
 
       if (conversionEnabled && conversionFeeInfo) {
         const conversionAmount = parseNonNegativeAmount(conversionFeeInfo.amount);
-        const conversionRate = getDisplayCurrencyRateForCurrencyLabel(conversionFeeInfo.currency) ?? sourceFiatRate;
+        const conversionRate =
+          getDisplayCurrencyRateForCurrencyLabel(conversionFeeInfo.currency) ?? sourceFiatRate;
         if (conversionAmount !== null && conversionRate !== null) {
           totalFiat += conversionAmount * conversionRate;
         }
@@ -1097,7 +1135,8 @@
         if (bridgeFeeInfo.loading || bridgeFeeInfo.error || !bridgeFeeInfo.feeCoins) return '≈ —';
 
         const bridgeAmount = parseNonNegativeAmount(bridgeFeeInfo.feeCoins);
-        const bridgeRate = getDisplayCurrencyRateForCurrencyLabel(bridgeFeeInfo.currencyTicker) ?? sourceFiatRate;
+        const bridgeRate =
+          getDisplayCurrencyRateForCurrencyLabel(bridgeFeeInfo.currencyTicker) ?? sourceFiatRate;
         if (bridgeAmount === null || bridgeRate === null) return '≈ —';
         totalFiat += bridgeAmount * bridgeRate;
       }
@@ -1122,37 +1161,6 @@
       return showReviewTotalFeesFiat;
     })()
   );
-  const estimatedArrivalInfo = $derived(
-    (() => {
-      if (!activePreflight) return null;
-
-      if (!conversionEnabled && !activeExportSystemId) {
-        return {
-          value: i18n.t('wallet.transfer.summary.estimatedTimeSimple'),
-          tooltip: i18n.t('wallet.transfer.summary.estimatedTimeTooltipSimple')
-        };
-      }
-
-      const hasEthereumBridgeRoute =
-        (!!activeExportSystemId && isEthereumExport(activeExportSystemId)) ||
-        !!activeConvertRoute?.exportTo ||
-        selectedChannelPrefix === 'eth' ||
-        selectedChannelPrefix === 'erc20';
-
-      if (hasEthereumBridgeRoute) {
-        return {
-          value: i18n.t('wallet.transfer.summary.estimatedTimeBridge'),
-          tooltip: i18n.t('wallet.transfer.summary.estimatedTimeTooltipBridge')
-        };
-      }
-
-      return {
-        value: i18n.t('wallet.transfer.summary.estimatedTimePbaas'),
-        tooltip: i18n.t('wallet.transfer.summary.estimatedTimeTooltipPbaas')
-      };
-    })()
-  );
-
   const reviewRecipientName = $derived(matchedSavedRecipient?.contact.displayName?.trim() ?? '');
   const reviewRecipientAddress = $derived(truncateAddressMiddle(destinationAddress));
   const reviewRecipientAddressWithSelf = $derived(
@@ -1182,7 +1190,7 @@
             ? 'complete'
             : index === currentIndex
               ? 'current'
-              : 'upcoming'
+              : 'upcoming',
       };
     })
   );
@@ -1190,6 +1198,7 @@
   const isBusy = $derived(
     loadingTargets || preflighting || sending || recoveringEthSubmission || !!pendingEthSubmission
   );
+  const transferMutationLocked = $derived(sending || recoveringEthSubmission);
   const isDirty = $derived(
     currentStep !== 'details' ||
       !!amount.trim() ||
@@ -1209,25 +1218,29 @@
         (!selectedCoin ||
           !selectedChannelId ||
           !amountValid ||
+          !recipientValid ||
           !activeTargetOption ||
           (conversionEnabled && !selectedReceiveAssetOption) ||
           (activeExportSystemId !== null &&
             isEthereumExport(activeExportSystemId) &&
             bridgeFeeInsufficient))) ||
-      (currentStep === 'recipient' && !recipientValid) ||
       (currentStep === 'review' && !activePreflight) ||
       (currentStep === 'review' && requiresUnsavedRecipientAck && !unsavedRecipientConfirmed)
   );
 
   const primaryLabel = $derived(
-    currentStep === 'recipient'
+    currentStep === 'details'
       ? preflighting
         ? i18n.t('wallet.transfer.preflighting')
-        : i18n.t('wallet.transfer.prepareReview')
+        : conversionEnabled
+          ? i18n.t('wallet.transfer.reviewConversion')
+          : i18n.t('wallet.transfer.reviewSend')
       : currentStep === 'review'
-        ? sending
-          ? sendStageLabel(sendStage)
-          : i18n.t('wallet.transfer.sendNow')
+        ? preflighting
+          ? i18n.t('wallet.transfer.fee.updating')
+          : sending
+            ? sendStageLabel(sendStage)
+            : i18n.t('wallet.transfer.sendNow')
         : i18n.t('common.continue')
   );
   const sendStageElapsedMs = $derived(
@@ -1239,8 +1252,6 @@
   const sendStageGuidance = $derived(
     sendStageExceededThreshold ? sendStageGuidanceLabel(sendStage) : ''
   );
-
-  const showSummaryAside = $derived(currentStep !== 'review' && currentStep !== 'success');
 
   const amountAdjustedWarning = $derived(
     (() => {
@@ -1258,7 +1269,7 @@
       return i18n.t('wallet.transfer.review.amountAdjustedWarning', {
         submitted: submittedDisplay,
         adjusted: adjustedDisplay,
-        ticker
+        ticker,
       });
     })()
   );
@@ -1292,7 +1303,7 @@
           primary: sourcePrimary,
           secondary: sourceSecondary,
           iconCoinId: selectedCoin?.id,
-          iconCoinName: sourcePrimary
+          iconCoinName: sourcePrimary,
         });
       }
 
@@ -1312,7 +1323,7 @@
             primary: toPrimary,
             secondary: toSecondary,
             iconCoinId: selectedReceiveAssetOption?.destinationId,
-            iconCoinName: toPrimary
+            iconCoinName: toPrimary,
           });
         }
       }
@@ -1320,7 +1331,7 @@
       if (selectedDestinationNetworkValue) {
         rows.push({
           label: i18n.t('wallet.transfer.summary.destinationNetwork'),
-          primary: selectedDestinationNetworkValue
+          primary: selectedDestinationNetworkValue,
         });
       }
 
@@ -1333,7 +1344,7 @@
           rows.push({
             label: i18n.t('wallet.transfer.summary.route'),
             primary: routePrimary,
-            secondary: routeSecondary
+            secondary: routeSecondary,
           });
         }
       }
@@ -1342,11 +1353,14 @@
         const amountValue = amount.trim();
         const amountFqn = selectedCoinPresentation?.displayTicker?.trim() ?? '';
         if (amountValue) {
-          const formattedAmount = formatAmountForReviewDisplay(amountValue, MAX_TRANSFER_AMOUNT_FRACTION_DIGITS);
+          const formattedAmount = formatAmountForReviewDisplay(
+            amountValue,
+            MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
+          );
           const amountPrimary = amountFqn ? `${formattedAmount} ${amountFqn}` : formattedAmount;
           rows.push({
             label: i18n.t('wallet.transfer.summary.amount'),
-            primary: amountPrimary
+            primary: amountPrimary,
           });
         }
       }
@@ -1363,7 +1377,7 @@
             : `~${estimatedPrimaryValue}`;
           rows.push({
             label: i18n.t('wallet.transfer.summary.estimatedReceive'),
-            primary: estimatedPrimary
+            primary: estimatedPrimary,
           });
         }
       }
@@ -1374,7 +1388,7 @@
           primary: bridgeFeeParityEligible
             ? bridgeFeeEstimateValue
             : i18n.t('wallet.transfer.bridgeFeeUnavailable'),
-          secondary: bridgeFeeParityEligible ? bridgeFeeEstimateSecondary : undefined
+          secondary: bridgeFeeParityEligible ? bridgeFeeEstimateSecondary : undefined,
         });
       }
 
@@ -1383,13 +1397,16 @@
         const truncatedRecipientAddress = truncateAddressMiddle(recipientAddress);
         const recipientName = matchedSavedRecipient?.contact.displayName?.trim() ?? '';
         const recipientPrimary = recipientName || truncatedRecipientAddress;
-        const recipientSecondary = normalizeSummarySecondary(recipientPrimary, truncatedRecipientAddress);
+        const recipientSecondary = normalizeSummarySecondary(
+          recipientPrimary,
+          truncatedRecipientAddress
+        );
         rows.push({
           label: i18n.t('wallet.transfer.summary.recipient'),
           primary: recipientPrimary,
           secondary: recipientSecondary,
           primaryIdentifier: !recipientName,
-          secondaryIdentifier: true
+          secondaryIdentifier: true,
         });
       }
 
@@ -1406,7 +1423,7 @@
           rows.push({
             label: i18n.t('wallet.transfer.summary.networkFee'),
             primary: feePrimary,
-            secondary: feeSecondary
+            secondary: feeSecondary,
           });
         }
       }
@@ -1415,19 +1432,46 @@
     })()
   );
 
-  const preflightInputSignature = $derived(
-    [
-      selectedCoinId,
-      selectedChannelId ?? '',
-      conversionEnabled ? '1' : '0',
-      selectedReceiveAssetId,
-      activeExportSystemId ?? '',
-      activeTargetOption?.id ?? '',
-      amount.trim(),
-      destinationAddress.trim(),
-      showDlightMemoField ? memo.trim() : ''
-    ].join('|')
+  const resolvedPreflightRequest = $derived<ResolvedPreflightRequest | null>(
+    (() => {
+      if (!selectedCoin || !selectedChannelId || !activeTargetOption) return null;
+      const useBridgePreflight = conversionEnabled
+        ? !!activeConvertRoute
+        : !!activeTargetOption.exportTo;
+      if (useBridgePreflight) {
+        return {
+          kind: 'bridge',
+          params: {
+            coinId: selectedCoin.id,
+            channelId: selectedChannelId,
+            sourceAddress: selectedSourceAddress || null,
+            destination: destinationAddress.trim(),
+            amount: amount.trim(),
+            convertTo: activeTargetOption.convertTo ?? null,
+            exportTo: activeTargetOption.exportTo ?? null,
+            via: activeTargetOption.via ?? null,
+            mapTo: activeTargetOption.mapTo ?? null,
+            preconvert: null,
+          },
+        };
+      }
+      return {
+        kind: 'direct',
+        params: withDirectSendFeeMode(
+          {
+            coinId: selectedCoin.id,
+            channelId: selectedChannelId,
+            toAddress: destinationAddress.trim(),
+            amount: amount.trim(),
+            memo: showDlightMemoField ? memo.trim() || null : null,
+          },
+          directSendRoute,
+          directSendFeeMode
+        ),
+      };
+    })()
   );
+  const preflightInputSignature = $derived(preflightRequestSignature(resolvedPreflightRequest));
 
   let previousPreflightInputSignature = $state<string | null>(null);
 
@@ -1435,6 +1479,38 @@
     if (conversionInitialized) return;
     conversionEnabled = entryIntent === 'convert';
     conversionInitialized = true;
+  });
+
+  $effect(() => {
+    const requestedCoins = sendableCoins;
+    let cancelled = false;
+
+    void Promise.all(
+      requestedCoins.map(async (coin) => {
+        try {
+          const result = await getDisplayCoinScopes(coin.id);
+          return { coinId: coin.id, scopes: result.scopes };
+        } catch (error) {
+          if (isWalletDisplayRequestInvalidated(error)) return null;
+          return { coinId: coin.id, scopes: [] };
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      const nextScopes: Record<string, CoinScope[]> = {};
+      const nextLoaded: Record<string, true> = {};
+      for (const result of results) {
+        if (!result) continue;
+        nextScopes[result.coinId] = result.scopes;
+        nextLoaded[result.coinId] = true;
+      }
+      coinScopesByCoinId = nextScopes;
+      loadedScopeCoinIds = nextLoaded;
+    });
+
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -1454,7 +1530,7 @@
       try {
         const capabilities = await getBridgeCapabilities({
           coinId: coin.id,
-          channelId
+          channelId,
         });
         if (cancelled) return;
         bridgeCapabilities = capabilities;
@@ -1463,7 +1539,7 @@
         bridgeCapabilities = {
           conversionSupported: false,
           executionEngine: 'unknown',
-          reasonCode: extractWalletErrorType(error)
+          reasonCode: extractWalletErrorType(error),
         };
       }
     })();
@@ -1487,7 +1563,7 @@
         balanceCoins: null,
         currencyTicker: defaultTicker,
         systemId: null,
-        error: null
+        error: null,
       };
       return () => {
         cancelled = true;
@@ -1501,14 +1577,14 @@
       balanceCoins: null,
       currencyTicker: defaultTicker,
       systemId: null,
-      error: null
+      error: null,
     };
 
     void (async () => {
       try {
         const estimate: BridgeExportFeeEstimateResult = await estimateBridgeExportFee({
           coinId: coin.id,
-          channelId
+          channelId,
         });
         if (cancelled) return;
         bridgeFeeInfo = {
@@ -1518,7 +1594,7 @@
           balanceCoins: estimate.balanceCoins?.trim() || null,
           currencyTicker: estimate.currencyTicker?.trim() || defaultTicker,
           systemId: estimate.systemId?.trim() || null,
-          error: null
+          error: null,
         };
       } catch (error) {
         if (cancelled) return;
@@ -1529,7 +1605,7 @@
           balanceCoins: null,
           currencyTicker: defaultTicker,
           systemId: null,
-          error: mapWalletError(error)
+          error: mapWalletError(error),
         };
       }
     })();
@@ -1542,28 +1618,36 @@
   $effect(() => {
     if (positiveSendableCoinOptions.length === 0) {
       selectedCoinId = '';
+      selectedSourceChannelId = '';
       sourceCoinManuallyChosen = false;
       return;
     }
 
     const selectedStillAvailable = positiveSendableCoinOptions.some(
-      (option) => option.coin.id === selectedCoinId
+      (option) => option.coin.id === selectedCoinId && option.channelId === selectedSourceChannelId
     );
 
     if (!selectedStillAvailable) {
       selectedCoinId = '';
+      selectedSourceChannelId = '';
       sourceCoinManuallyChosen = false;
     }
   });
 
   $effect(() => {
     const context = entryContext;
-    if (!context || context.readOnly) return;
-
-    const hasContextCoin = sendableCoinOptions.some((option) => option.coin.id === context.coinId);
-    if (!hasContextCoin) return;
+    if (!context) return;
+    const contextKey = `${context.coinId}|${context.channelId}|${context.scopeKind}|${context.readOnly ? 'read-only' : 'owned'}`;
+    const contextOption = sendableCoinOptions.find(
+      (option) => option.coin.id === context.coinId && option.channelId === context.channelId
+    );
+    const ready = !!loadedScopeCoinIds[context.coinId] && (context.readOnly || !!contextOption);
+    if (!entryContextGuard.claim(contextKey, ready)) return;
+    if (context.readOnly) return;
+    if (!contextOption) return;
 
     selectedCoinId = context.coinId;
+    selectedSourceChannelId = context.channelId;
     sourceCoinManuallyChosen = true;
   });
 
@@ -1668,15 +1752,15 @@
       return;
     }
 
-    const selectedStillValid = selectedReceiveAssetViaOptions.some((option) => option.id === selectedViaOptionId);
+    const selectedStillValid = selectedReceiveAssetViaOptions.some(
+      (option) => option.id === selectedViaOptionId
+    );
 
     if (manualViaLocked && selectedStillValid) return;
 
-    const best = sortViaOptionsByScore(
-      selectedReceiveAssetViaOptions,
-      amount,
-      routeEstimateOutputs
-    )[0] ?? null;
+    const best =
+      sortViaOptionsByScore(selectedReceiveAssetViaOptions, amount, routeEstimateOutputs)[0] ??
+      null;
     if (!best) {
       selectedViaOptionId = '';
       manualViaLocked = false;
@@ -1760,56 +1844,56 @@
         const estimateCache = new Map<string, Promise<string | null>>();
         const nextOutputs: Record<string, string> = {};
 
-      await Promise.all(
-        viaOptions.map(async (option) => {
-          const convertTo = option.convertTo?.trim();
-          if (!convertTo) {
+        await Promise.all(
+          viaOptions.map(async (option) => {
+            const convertTo = option.convertTo?.trim();
+            if (!convertTo) {
+              const fallback = fallbackEstimateOutput(option);
+              if (fallback) nextOutputs[option.id] = fallback;
+              return;
+            }
+
+            const via = option.via?.trim() || null;
+            const estimateKey = `${convertTo.toLowerCase()}|${(via ?? '').toLowerCase()}`;
+
+            let estimatePromise = estimateCache.get(estimateKey);
+            if (!estimatePromise) {
+              estimatePromise = (async () => {
+                try {
+                  const response = await estimateBridgeConversion({
+                    coinId: coin.id,
+                    channelId,
+                    sourceCurrency,
+                    convertTo,
+                    amount: normalizedAmount,
+                    via,
+                    preconvert: false,
+                  });
+                  const estimatedOut = parseEstimatedOutput(response.estimatedCurrencyOut ?? null);
+                  if (estimatedOut !== null) return estimatedOut.toString();
+
+                  const estimatedPrice = parsePrice(response.price ?? null);
+                  if (estimatedPrice !== null) return (numericAmount * estimatedPrice).toString();
+                } catch {
+                  // Fall through to price-based fallback below.
+                }
+                return null;
+              })();
+              estimateCache.set(estimateKey, estimatePromise);
+            }
+
+            const estimateOutput = await estimatePromise;
+            if (estimateOutput) {
+              nextOutputs[option.id] = estimateOutput;
+              return;
+            }
+
             const fallback = fallbackEstimateOutput(option);
-            if (fallback) nextOutputs[option.id] = fallback;
-            return;
-          }
-
-          const via = option.via?.trim() || null;
-          const estimateKey = `${convertTo.toLowerCase()}|${(via ?? '').toLowerCase()}`;
-
-          let estimatePromise = estimateCache.get(estimateKey);
-          if (!estimatePromise) {
-            estimatePromise = (async () => {
-              try {
-                const response = await estimateBridgeConversion({
-                  coinId: coin.id,
-                  channelId,
-                  sourceCurrency,
-                  convertTo,
-                  amount: normalizedAmount,
-                  via,
-                  preconvert: false
-                });
-                const estimatedOut = parseEstimatedOutput(response.estimatedCurrencyOut ?? null);
-                if (estimatedOut !== null) return estimatedOut.toString();
-
-                const estimatedPrice = parsePrice(response.price ?? null);
-                if (estimatedPrice !== null) return (numericAmount * estimatedPrice).toString();
-              } catch {
-                // Fall through to price-based fallback below.
-              }
-              return null;
-            })();
-            estimateCache.set(estimateKey, estimatePromise);
-          }
-
-          const estimateOutput = await estimatePromise;
-          if (estimateOutput) {
-            nextOutputs[option.id] = estimateOutput;
-            return;
-          }
-
-          const fallback = fallbackEstimateOutput(option);
-          if (fallback) {
-            nextOutputs[option.id] = fallback;
-          }
-        })
-      );
+            if (fallback) {
+              nextOutputs[option.id] = fallback;
+            }
+          })
+        );
 
         if (cancelled) return;
         routeEstimateOutputs = nextOutputs;
@@ -1850,7 +1934,7 @@
         const response = await getBridgeConversionPaths({
           coinId: coin.id,
           channelId,
-          sourceCurrency
+          sourceCurrency,
         });
         if (cancelled) return;
         discoveredPathQuotes = response.paths;
@@ -1933,14 +2017,13 @@
       if (unlistenTxSendProgress) unlistenTxSendProgress();
       ethRecoveryLifetime.dispose();
       copiedSuccessFieldState.destroy();
+      preflightRequestGuard.dispose();
     };
   });
 
   $effect(() => {
     destinationAddress;
     unsavedRecipientConfirmed = false;
-    saveRecipientError = '';
-    savedRecipientOnSuccess = false;
   });
 
   $effect(() => {
@@ -1955,8 +2038,10 @@
   });
 
   function clearPreflightState() {
+    preflightRequestGuard.invalidate();
     simplePreflightResult = null;
     bridgePreflightResult = null;
+    preflighting = false;
     transferError = '';
   }
 
@@ -1975,7 +2060,6 @@
     showAddressBookSheet = false;
     addressBookSearchTerm = '';
     transferError = '';
-    saveRecipientName = option.contactName;
   }
 
   function selectSelfRecipient() {
@@ -2003,72 +2087,6 @@
     copiedSuccessFieldState.clear();
   }
 
-  function mapAddressBookError(error: unknown): string {
-    if (isForcedWalletLockError(error)) return '';
-
-    const errorType = extractWalletErrorType(error);
-    if (errorType === 'AddressBookDuplicate') return i18n.t('wallet.transfer.saveRecipient.error.duplicate');
-    if (errorType === 'AddressBookInvalidInput' || errorType === 'InvalidAddress') {
-      return i18n.t('wallet.transfer.saveRecipient.error.invalid');
-    }
-    if (error instanceof Error && error.message.trim()) return error.message;
-    return i18n.t('wallet.transfer.saveRecipient.error.generic');
-  }
-
-  async function saveRecipientFromSuccess() {
-    if (!sendResult || savingRecipient) return;
-
-    const displayName = saveRecipientName.trim();
-    if (!displayName) {
-      saveRecipientError = i18n.t('wallet.transfer.saveRecipient.error.nameRequired');
-      return;
-    }
-
-    const resultContext = successResultContext;
-    if (!resultContext) return;
-    const endpointKind = inferEndpointKindForDestinationAddress(
-      resultContext.destinationKind,
-      resultContext.toAddress
-    );
-    if (!endpointKind) {
-      saveRecipientError = i18n.t('wallet.transfer.saveRecipient.error.invalid');
-      return;
-    }
-
-    savingRecipient = true;
-    saveRecipientError = '';
-
-    try {
-      const validation = await addressBookService.validateDestinationAddress({
-        kind: endpointKind,
-        address: resultContext.toAddress
-      });
-      if (!validation.valid) {
-        saveRecipientError = i18n.t('wallet.transfer.saveRecipient.error.invalid');
-        return;
-      }
-
-      const saved = await addressBookService.saveAddressBookContact({
-        displayName,
-        note: null,
-        endpoints: [
-          {
-            kind: endpointKind,
-            label: i18n.t('wallet.transfer.saveRecipient.defaultEndpointLabel'),
-            address: resultContext.toAddress
-          }
-        ]
-      });
-      upsertAddressBookContact(saved);
-      savedRecipientOnSuccess = true;
-      saveRecipientError = '';
-    } catch (error) {
-      saveRecipientError = mapAddressBookError(error);
-    } finally {
-      savingRecipient = false;
-    }
-  }
-
   function filterViaOptionsByExport(
     options: ViaRouteOption[],
     exportSystemId: string | null
@@ -2089,7 +2107,9 @@
       );
     }
     if (option.via) {
-      subtitleParts.push(i18n.t('wallet.transfer.pathVia', { value: option.viaLabel ?? option.via }));
+      subtitleParts.push(
+        i18n.t('wallet.transfer.pathVia', { value: option.viaLabel ?? option.via })
+      );
     }
     if (option.mapTo) {
       subtitleParts.push(i18n.t('wallet.transfer.pathMapTo', { value: option.mapTo }));
@@ -2116,7 +2136,9 @@
 
   function isReceiveOptionSelected(option: ReceiveAssetOption): boolean {
     if (option.isGrouped && option.networkOptions?.length) {
-      return option.networkOptions.some((networkOption) => networkOption.id === selectedReceiveAssetId);
+      return option.networkOptions.some(
+        (networkOption) => networkOption.id === selectedReceiveAssetId
+      );
     }
     return option.id === selectedReceiveAssetId;
   }
@@ -2219,7 +2241,7 @@
     const floored = Math.floor(clamped * 10) / 10;
     return i18n.formatNumber(floored, {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 1
+      maximumFractionDigits: 1,
     });
   }
 
@@ -2227,7 +2249,7 @@
     const numeric = toFiniteNumber(value);
     return i18n.formatNumber(numeric, {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 8
+      maximumFractionDigits: 8,
     });
   }
 
@@ -2242,7 +2264,10 @@
     );
   }
 
-  function normalizeNetworkDisplayName(systemId: string | null | undefined, fallback: string): string {
+  function normalizeNetworkDisplayName(
+    systemId: string | null | undefined,
+    fallback: string
+  ): string {
     const normalizedSystemId = systemId?.trim().toLowerCase() ?? '';
     const fallbackTrimmed = fallback.trim();
     const normalizedFallback = fallbackTrimmed.toLowerCase();
@@ -2267,7 +2292,10 @@
       normalizedFallback === 'ethereum on verus'
     ) {
       return (
-        resolveCoinPresentationById('ETH')?.displayName?.trim() || fallbackTrimmed || systemId?.trim() || ''
+        resolveCoinPresentationById('ETH')?.displayName?.trim() ||
+        fallbackTrimmed ||
+        systemId?.trim() ||
+        ''
       );
     }
     return fallbackTrimmed || systemId?.trim() || '';
@@ -2319,7 +2347,10 @@
     return networkLabelForExportOption(firstExportOption.exportTo, firstExportOption.exportToName);
   }
 
-  function resolveSourceNetworkDisplayName(systemId: string | null | undefined, channelPrefix: string): string {
+  function resolveSourceNetworkDisplayName(
+    systemId: string | null | undefined,
+    channelPrefix: string
+  ): string {
     const normalizedSystemId = systemId?.trim() ?? '';
     const normalizedSystemIdLc = normalizedSystemId.toLowerCase();
     const normalizedPrefix = channelPrefix.trim().toLowerCase();
@@ -2362,7 +2393,8 @@
       : normalizedSystemId
         ? resolveCoinPresentationById(normalizedSystemId)
         : null;
-    const displayName = presentation?.displayName?.trim() || presentation?.displayTicker?.trim() || '';
+    const displayName =
+      presentation?.displayName?.trim() || presentation?.displayTicker?.trim() || '';
     if (displayName) {
       return displayName;
     }
@@ -2375,8 +2407,7 @@
       return 'Network';
     }
 
-    return normalizedSystemId ||
-      'Verus';
+    return normalizedSystemId || 'Verus';
   }
 
   function stripBridgeSuffix(value: string): string {
@@ -2413,7 +2444,12 @@
   function normalizeSendExportKey(value: string): string {
     const normalized = value.trim().toLowerCase();
     if (!normalized) return '';
-    if (isEthereumExport(value) || normalized === '.eth' || normalized === 'bridge.veth' || normalized === 'veth') {
+    if (
+      isEthereumExport(value) ||
+      normalized === '.eth' ||
+      normalized === 'bridge.veth' ||
+      normalized === 'veth'
+    ) {
       return 'ethereum';
     }
     return normalized;
@@ -2466,7 +2502,7 @@
       quote.destinationDisplayName,
       quote.convertTo,
       quote.destinationId,
-      quote.mapTo
+      quote.mapTo,
     ];
     let fallback: string | undefined;
 
@@ -2496,7 +2532,10 @@
     return stripped;
   }
 
-  function receiveLabelForExportOption(option: ExportRouteOption, targetOption: ReceiveAssetOption): string {
+  function receiveLabelForExportOption(
+    option: ExportRouteOption,
+    targetOption: ReceiveAssetOption
+  ): string {
     const exportTarget = option.exportTo?.trim() ?? '';
     const ethereumExport = isEthereumExport(exportTarget) || exportTarget.toLowerCase() === '.eth';
 
@@ -2504,7 +2543,10 @@
       const ethDestinationLabel =
         targetOption.ethDisplayTicker?.trim() || targetOption.ethDisplayName?.trim() || '';
       if (ethDestinationLabel) {
-        const normalizedEthDestinationLabel = normalizeEthereumReceiveLabel(ethDestinationLabel, targetOption);
+        const normalizedEthDestinationLabel = normalizeEthereumReceiveLabel(
+          ethDestinationLabel,
+          targetOption
+        );
         if (normalizedEthDestinationLabel && !isLikelyEvmAddress(normalizedEthDestinationLabel)) {
           return normalizedEthDestinationLabel;
         }
@@ -2521,7 +2563,10 @@
           mappedDestinationLabel,
           targetOption
         );
-        if (normalizedMappedDestinationLabel && !isLikelyEvmAddress(normalizedMappedDestinationLabel)) {
+        if (
+          normalizedMappedDestinationLabel &&
+          !isLikelyEvmAddress(normalizedMappedDestinationLabel)
+        ) {
           return normalizedMappedDestinationLabel;
         }
       }
@@ -2536,7 +2581,9 @@
       if (mappedToId) {
         const mappedPresentation = resolveCoinPresentationById(mappedToId);
         const mappedLabel =
-          mappedPresentation?.displayTicker?.trim() || mappedPresentation?.displayName?.trim() || '';
+          mappedPresentation?.displayTicker?.trim() ||
+          mappedPresentation?.displayName?.trim() ||
+          '';
         if (mappedLabel) {
           return normalizeEthereumReceiveLabel(mappedLabel, targetOption);
         }
@@ -2556,7 +2603,9 @@
     }
 
     return (
-      targetOption.fullyqualifiedname?.trim() || targetOption.ticker?.trim() || targetOption.label.trim()
+      targetOption.fullyqualifiedname?.trim() ||
+      targetOption.ticker?.trim() ||
+      targetOption.label.trim()
     );
   }
 
@@ -2568,7 +2617,9 @@
     const normalizedExportSystemId = exportSystemId?.trim() ?? '';
     if (normalizedExportSystemId) {
       const matchedExportOption =
-        option.exportOptions.find((exportOption) => exportOption.exportTo === normalizedExportSystemId) ?? null;
+        option.exportOptions.find(
+          (exportOption) => exportOption.exportTo === normalizedExportSystemId
+        ) ?? null;
       if (matchedExportOption) {
         return receiveLabelForExportOption(matchedExportOption, option);
       }
@@ -2584,17 +2635,20 @@
   function bridgeFeeLineForExportOption(exportSystemId: string | null | undefined): string | null {
     if (!isEthereumExport(exportSystemId)) return null;
     if (bridgeFeeInfo.loading) return i18n.t('wallet.transfer.bridgeFeeCalculating');
-    if (bridgeFeeInfo.error || !bridgeFeeInfo.feeCoins) return i18n.t('wallet.transfer.bridgeFeeUnavailable');
+    if (bridgeFeeInfo.error || !bridgeFeeInfo.feeCoins)
+      return i18n.t('wallet.transfer.bridgeFeeUnavailable');
     return i18n.t('wallet.transfer.bridgeFeeEstimateLine', {
-      value: `${bridgeFeeInfo.feeCoins} ${bridgeFeeInfo.currencyTicker}`
+      value: `${bridgeFeeInfo.feeCoins} ${bridgeFeeInfo.currencyTicker}`,
     });
   }
 
-  function bridgeFeeMetaLineForExportOption(exportSystemId: string | null | undefined): string | null {
+  function bridgeFeeMetaLineForExportOption(
+    exportSystemId: string | null | undefined
+  ): string | null {
     if (!isEthereumExport(exportSystemId)) return null;
     if (bridgeFeeInsufficient) {
       return i18n.t('wallet.transfer.bridgeFeeInsufficient', {
-        ticker: bridgeFeeInfo.currencyTicker
+        ticker: bridgeFeeInfo.currencyTicker,
       });
     }
     if (
@@ -2632,7 +2686,9 @@
       presentation?.displayTicker?.trim() ||
       option.fullyqualifiedname?.trim() ||
       option.ticker?.trim();
-    const normalizedSecondaryCandidate = secondaryCandidate ? stripBridgeSuffix(secondaryCandidate) : '';
+    const normalizedSecondaryCandidate = secondaryCandidate
+      ? stripBridgeSuffix(secondaryCandidate)
+      : '';
     if (
       normalizedSecondaryCandidate &&
       normalizedSecondaryCandidate.toLowerCase() === primary.toLowerCase()
@@ -2722,7 +2778,11 @@
     const normalizedInteger = normalizeIntegerPart(parsed.integerPart);
     const truncatedFraction = parsed.fractionPart.slice(0, maxFractionDigits).replace(/0+$/, '');
 
-    if (normalizedInteger === '0' && !truncatedFraction && isTinyNonZero(parsed.fractionPart, maxFractionDigits)) {
+    if (
+      normalizedInteger === '0' &&
+      !truncatedFraction &&
+      isTinyNonZero(parsed.fractionPart, maxFractionDigits)
+    ) {
       return `<${formatDisplayFloor(maxFractionDigits)}`;
     }
 
@@ -2735,7 +2795,7 @@
     if (!match) return null;
     return {
       integerPart: match[1],
-      fractionPart: match[2] ?? ''
+      fractionPart: match[2] ?? '',
     };
   }
 
@@ -2766,7 +2826,9 @@
     return rate;
   }
 
-  function getDisplayCurrencyRateForCoinIds(coinIds: Array<string | null | undefined>): number | null {
+  function getDisplayCurrencyRateForCoinIds(
+    coinIds: Array<string | null | undefined>
+  ): number | null {
     const seen = new Set<string>();
 
     for (const rawCoinId of coinIds) {
@@ -2825,7 +2887,10 @@
     return trimmedLabel;
   }
 
-  function formatFiatEstimate(amountValue: string | null | undefined, fiatRate: number | null): string {
+  function formatFiatEstimate(
+    amountValue: string | null | undefined,
+    fiatRate: number | null
+  ): string {
     const numericAmount = parseNonNegativeAmount(amountValue);
     if (numericAmount === null || fiatRate === null) return '≈ —';
     return `≈ ${formatFiatAmount(numericAmount * fiatRate, i18n.intlLocale, displayCurrency)}`;
@@ -2834,11 +2899,19 @@
   function formatDisplayFiatAmountDynamic(value: number): string {
     const absoluteValue = Math.abs(value);
     const maximumFractionDigits =
-      absoluteValue < 0.0001 ? 8 : absoluteValue < 0.001 ? 7 : absoluteValue < 0.01 ? 6 : absoluteValue < 0.1 ? 4 : 2;
+      absoluteValue < 0.0001
+        ? 8
+        : absoluteValue < 0.001
+          ? 7
+          : absoluteValue < 0.01
+            ? 6
+            : absoluteValue < 0.1
+              ? 4
+              : 2;
 
     return formatFiatAmount(value, i18n.intlLocale, displayCurrency, {
       minimumFractionDigits: 2,
-      maximumFractionDigits
+      maximumFractionDigits,
     });
   }
 
@@ -2933,16 +3006,20 @@
     const errorType = extractWalletErrorType(error);
     const rawMessage = extractWalletErrorMessage(error);
     if (errorType === 'InvalidPreflight') return i18n.t('wallet.transfer.reviewUnavailable');
-    if (errorType === 'BridgeNotImplemented') return i18n.t('wallet.transfer.error.bridgeNotImplemented');
-    if (errorType === 'BridgeRouteInvalid') return i18n.t('wallet.transfer.error.bridgeRouteInvalid');
+    if (errorType === 'BridgeNotImplemented')
+      return i18n.t('wallet.transfer.error.bridgeNotImplemented');
+    if (errorType === 'BridgeRouteInvalid')
+      return i18n.t('wallet.transfer.error.bridgeRouteInvalid');
     if (errorType === 'BridgeUnsupportedDestinationCombination') {
       return i18n.t('wallet.transfer.error.bridgeUnsupportedDestinationCombination');
     }
-    if (errorType === 'BridgeApprovalFailed') return i18n.t('wallet.transfer.error.bridgeApprovalFailed');
+    if (errorType === 'BridgeApprovalFailed')
+      return i18n.t('wallet.transfer.error.bridgeApprovalFailed');
     if (errorType === 'BridgeInsufficientEthFeeEnvelope') {
       return i18n.t('wallet.transfer.error.bridgeInsufficientEthFeeEnvelope');
     }
-    if (errorType === 'BridgeGasDriftExceeded') return i18n.t('wallet.transfer.error.bridgeGasDriftExceeded');
+    if (errorType === 'BridgeGasDriftExceeded')
+      return i18n.t('wallet.transfer.error.bridgeGasDriftExceeded');
     if (errorType === 'DlightSynchronizerNotReady') {
       return shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
     }
@@ -2964,9 +3041,14 @@
     if (errorType === 'DlightSpendCacheNotReady') {
       return i18n.t('wallet.transfer.error.dlightSpendCacheNotReady');
     }
-    if (errorType === 'UnsupportedChannel') return i18n.t('wallet.transfer.error.unsupportedChannel');
+    if (errorType === 'DirectSendFeeModeUnsupported') {
+      return i18n.t('wallet.transfer.error.directSendFeeModeUnsupported');
+    }
+    if (errorType === 'UnsupportedChannel')
+      return i18n.t('wallet.transfer.error.unsupportedChannel');
     if (errorType === 'InvalidAddress') return i18n.t('wallet.transfer.error.invalidAddress');
-    if (errorType === 'InsufficientEthForGas') return i18n.t('wallet.transfer.error.insufficientEthForGas');
+    if (errorType === 'InsufficientEthForGas')
+      return i18n.t('wallet.transfer.error.insufficientEthForGas');
     if (errorType === 'InsufficientFunds') return i18n.t('wallet.transfer.error.insufficientFunds');
     if (errorType === 'NetworkError') return i18n.t('wallet.transfer.error.network');
     if (errorType === 'OperationFailed') {
@@ -3002,7 +3084,9 @@
         if (!spendCacheReady) {
           transferError =
             spendCachePercentText !== null
-              ? i18n.t('wallet.transfer.privateSpendCacheBlocked', { percent: spendCachePercentText })
+              ? i18n.t('wallet.transfer.privateSpendCacheBlocked', {
+                  percent: spendCachePercentText,
+                })
               : i18n.t('wallet.transfer.error.dlightSpendCacheNotReady');
           return false;
         }
@@ -3030,7 +3114,7 @@
       console.error('[TransferWizard] dlight runtime status check failed', {
         type: extractWalletErrorType(error),
         message: extractWalletErrorMessage(error),
-        error
+        error,
       });
       transferError = mapWalletError(error);
       return false;
@@ -3038,7 +3122,8 @@
   }
 
   function sendStageLabel(stage: TxSendProgressStage | null): string {
-    if (stage === 'syncing_spend_state') return i18n.t('wallet.transfer.sendStage.syncingSpendState');
+    if (stage === 'syncing_spend_state')
+      return i18n.t('wallet.transfer.sendStage.syncingSpendState');
     if (stage === 'loading_prover') return i18n.t('wallet.transfer.sendStage.loadingProver');
     if (stage === 'building_proof') return i18n.t('wallet.transfer.sendStage.buildingProof');
     if (stage === 'broadcasting') return i18n.t('wallet.transfer.sendStage.broadcasting');
@@ -3055,7 +3140,10 @@
     return '';
   }
 
-  function normalizeSummarySecondary(primary: string, secondary: string | null | undefined): string | undefined {
+  function normalizeSummarySecondary(
+    primary: string,
+    secondary: string | null | undefined
+  ): string | undefined {
     const primaryTrimmed = primary.trim();
     const secondaryTrimmed = (secondary ?? '').trim();
     if (!secondaryTrimmed) return undefined;
@@ -3092,14 +3180,9 @@
       return;
     }
 
-    if (currentStep === 'recipient') {
-      currentStep = 'details';
-      return;
-    }
-
     if (currentStep === 'review') {
       clearPreflightState();
-      currentStep = 'recipient';
+      currentStep = 'details';
     }
   }
 
@@ -3107,11 +3190,6 @@
     transferError = '';
 
     if (currentStep === 'details') {
-      currentStep = 'recipient';
-      return;
-    }
-
-    if (currentStep === 'recipient') {
       void runPreflight();
       return;
     }
@@ -3122,47 +3200,47 @@
   }
 
   function jumpToStep(step: WizardOperationalStepId) {
+    if (transferMutationLocked) return;
     clearPreflightState();
     currentStep = step;
   }
 
-  async function runPreflight() {
+  async function runPreflight(keepReviewOnError = false) {
     if (isShieldedSyncBlocked) {
-      transferError = shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
+      transferError =
+        shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
       return;
     }
-    if (!selectedCoin || !selectedChannelId || !activeTargetOption || !recipientValid) return;
+    const request = resolvedPreflightRequest;
+    if (!request || !recipientValid) return;
     if (!(await ensureDlightSpendReady())) return;
 
+    const requestSignature = preflightRequestSignature(request);
     preflighting = true;
     transferError = '';
 
     try {
-      const useBridgePreflight = conversionEnabled
-        ? !!activeConvertRoute
-        : !!activeTargetOption.exportTo;
-      if (useBridgePreflight) {
-        bridgePreflightResult = await preflightBridgeTransfer({
-          coinId: selectedCoin.id,
-          channelId: selectedChannelId,
-          sourceAddress: selectedSourceAddress || null,
-          destination: destinationAddress.trim(),
-          amount: amount.trim(),
-          convertTo: activeTargetOption.convertTo ?? null,
-          exportTo: activeTargetOption.exportTo ?? null,
-          via: activeTargetOption.via ?? null,
-          mapTo: activeTargetOption.mapTo ?? null,
-          preconvert: null
+      if (request.kind === 'bridge') {
+        const outcome = await runGuardedPreflight({
+          guard: preflightRequestGuard,
+          signature: requestSignature,
+          currentSignature: () => preflightInputSignature,
+          execute: () => preflightBridgeTransfer(request.params),
         });
+        if (outcome.status === 'stale') return;
+        if (outcome.status === 'failed') throw outcome.error;
+        bridgePreflightResult = outcome.value;
         simplePreflightResult = null;
       } else {
-        simplePreflightResult = await preflightSend({
-          coinId: selectedCoin.id,
-          channelId: selectedChannelId,
-          toAddress: destinationAddress.trim(),
-          amount: amount.trim(),
-          memo: showDlightMemoField ? memo.trim() || null : null
+        const outcome = await runGuardedPreflight({
+          guard: preflightRequestGuard,
+          signature: requestSignature,
+          currentSignature: () => preflightInputSignature,
+          execute: () => preflightSend(request.params),
         });
+        if (outcome.status === 'stale') return;
+        if (outcome.status === 'failed') throw outcome.error;
+        simplePreflightResult = outcome.value;
         bridgePreflightResult = null;
       }
       currentStep = 'review';
@@ -3170,35 +3248,39 @@
       console.error('[TransferWizard] preflight failed', {
         type: extractWalletErrorType(error),
         message: extractWalletErrorMessage(error),
-        error
+        error,
       });
       transferError = mapWalletError(error);
-      currentStep = 'recipient';
+      if (!keepReviewOnError) currentStep = 'details';
     } finally {
-      preflighting = false;
+      if (requestSignature === preflightInputSignature) {
+        preflighting = false;
+      }
     }
   }
 
   async function broadcast() {
     if (sending) return;
     if (isShieldedSyncBlocked) {
-      transferError = shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
+      transferError =
+        shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
       return;
     }
     if (!activePreflight) return;
     if (!(await ensureDlightSpendReady())) return;
+    const receiptSnapshot = buildSubmittedTransferSnapshot();
+    if (!receiptSnapshot) return;
 
     sending = true;
     sendStage = null;
     sendStageStartedAt = null;
     sendStageTick = Date.now();
     transferError = '';
-    savedRecipientOnSuccess = false;
-    recoveredEthSubmission = null;
 
     try {
       const result = await sendTransaction({ preflightId: activePreflight.preflightId });
       sendResult = result;
+      submittedTransferSnapshot = finalizeSubmittedTransferSnapshot(receiptSnapshot, result);
       if (matchedSavedRecipient) {
         void addressBookService.markAddressBookEndpointUsed(matchedSavedRecipient.endpoint.id);
       }
@@ -3208,12 +3290,12 @@
       console.error('[TransferWizard] broadcast failed', {
         type: extractWalletErrorType(error),
         message: extractWalletErrorMessage(error),
-        error
+        error,
       });
       const errorType = extractWalletErrorType(error);
       // Preflight ids are single-use on the backend; always force a fresh preflight after send failure.
       clearPreflightState();
-      currentStep = 'recipient';
+      currentStep = 'details';
       transferError = mapWalletError(error);
       if (errorType === 'EthRecoveryRequired' || errorType === 'EthBroadcastUncertain') {
         try {
@@ -3239,8 +3321,26 @@
       resume: () => resumePendingEthSubmission(reviewedSubmission.recoveryId),
       reload: getPendingEthSubmission,
       complete: (result) => {
-        recoveredEthSubmission = reviewedSubmission;
         sendResult = result;
+        submittedTransferSnapshot = {
+          walletNetwork: reviewedSubmission.context.walletNetwork,
+          sourceChannelId: reviewedSubmission.context.channelId,
+          sourceSystemId: 'ethereum',
+          conversionEnabled: reviewedSubmission.context.assetKind === 'bridge',
+          exportSystemId: reviewedSubmission.context.destinationSystemId ?? null,
+          ethereumDestination: false,
+          sourceAddress: reviewedSubmission.context.fromAddress,
+          sourceLabel: i18n.t('wallet.transfer.source.publicAddress'),
+          sourceNetworkLabel: 'Ethereum',
+          destinationAddress: result.toAddress,
+          destinationNetworkLabel:
+            reviewedSubmission.context.assetKind === 'bridge' ? 'Verus' : 'Ethereum',
+          submittedAmount: result.value,
+          submittedTicker:
+            resolveCoinPresentationById(reviewedSubmission.context.coinId)?.displayTicker ??
+            reviewedSubmission.context.feeCurrency,
+          estimatedReceive: null,
+        };
         pendingEthSubmission = null;
         const savedRecipient = findMatchingSavedEndpoint(
           addressBookContacts,
@@ -3275,7 +3375,7 @@
       },
       settle: () => {
         recoveringEthSubmission = false;
-      }
+      },
     });
   }
 
@@ -3290,8 +3390,8 @@
         ...state,
         [channelId]: {
           ...(state[channelId] ?? {}),
-          [coinId]: transactions
-        }
+          [coinId]: transactions,
+        },
       }));
     } catch {
       // Best effort refresh only.
@@ -3319,6 +3419,7 @@
   }
 
   function setTransferMode(mode: 'send' | 'convert') {
+    if (transferMutationLocked) return;
     if (mode === 'convert') {
       if (selectedCoin && !sourceSupportsConversion) return;
       conversionEnabled = true;
@@ -3331,8 +3432,69 @@
     selectedViaOptionId = '';
   }
 
-  function selectSourceCoin(coinId: string) {
+  function buildSubmittedTransferSnapshot(): SubmittedTransferSnapshot | null {
+    if (!selectedCoin || !selectedCoinOption || !selectedChannelId || !activePreflight) return null;
+    return {
+      walletNetwork,
+      sourceChannelId: selectedChannelId,
+      sourceSystemId: selectedSourceSystemId,
+      conversionEnabled,
+      exportSystemId: activeExportSystemId,
+      ethereumDestination: activeTargetOption?.ethDestination ?? false,
+      sourceAddress: activePreflight.fromAddress || selectedSourceAddress,
+      sourceLabel: i18n.t(
+        selectedCoinOption.sourceKind === 'private'
+          ? 'wallet.transfer.source.privateAddress'
+          : 'wallet.transfer.source.publicAddress'
+      ),
+      sourceNetworkLabel: sourceNetworkDisplayName,
+      destinationAddress: activePreflight.toAddress,
+      destinationNetworkLabel: reviewDestinationNetworkValue || sourceNetworkDisplayName,
+      submittedAmount: activePreflight.value,
+      submittedTicker: selectedCoinPresentation?.displayTicker ?? selectedCoin.id,
+      estimatedReceive:
+        conversionEnabled && reviewEstimatedConversionValue
+          ? `${reviewEstimatedConversionValue} ${selectedReceiveCompactTicker}`
+          : null,
+    };
+  }
+
+  function openDirectSendFeeSheet() {
+    if (
+      sending ||
+      recoveringEthSubmission ||
+      !directSendFeeEligible ||
+      !authoritativeDirectSendFeeMode
+    ) {
+      return;
+    }
+    pendingDirectSendFeeMode = directSendFeeDraftForOpen(
+      authoritativeDirectSendFeeMode,
+      directSendFeeMode
+    );
+    showFeeSheet = true;
+  }
+
+  async function applyDirectSendFeeMode() {
+    if (sending || recoveringEthSubmission) return;
+    if (
+      !directSendFeeEligible ||
+      !directSendFeeSelectionNeedsRefresh(authoritativeDirectSendFeeMode, pendingDirectSendFeeMode)
+    ) {
+      showFeeSheet = false;
+      return;
+    }
+    directSendFeeMode = pendingDirectSendFeeMode;
+    clearPreflightState();
+    showFeeSheet = false;
+    await tick();
+    await runPreflight(true);
+  }
+
+  function selectSourceCoin(coinId: string, channelId: string) {
+    if (sending || recoveringEthSubmission) return;
     selectedCoinId = coinId;
+    selectedSourceChannelId = channelId;
     selectedSendExportSystemId = null;
     sourceCoinManuallyChosen = true;
     showSourceAssetSheet = false;
@@ -3358,9 +3520,13 @@
   }
 
   function selectReceiveNetworkOption(optionId: string) {
-    const selected = pendingGroupedReceiveOption?.networkOptions?.find((option) => option.id === optionId);
+    const selected = pendingGroupedReceiveOption?.networkOptions?.find(
+      (option) => option.id === optionId
+    );
     if (!selected) return;
-    const selectedExportSystemId = selected.hasOnChainPath ? null : (selected.exportOptions[0]?.exportTo ?? null);
+    const selectedExportSystemId = selected.hasOnChainPath
+      ? null
+      : (selected.exportOptions[0]?.exportTo ?? null);
     finalizeReceiveSelection(selected, selectedExportSystemId);
   }
 
@@ -3388,26 +3554,22 @@
     showViaSheet = false;
     transferError = '';
   }
-
 </script>
 
 <WalletTransferStepperShell
   currentStep={stepNumber}
   totalSteps={OPERATIONAL_STEPS.length}
   steps={stepperSteps}
+  showProgress={false}
   {onClose}
   closeDisabled={loadingTargets || preflighting || sending || recoveringEthSubmission}
   dirty={isDirty}
-  showAside={showSummaryAside && !pendingEthSubmission}
+  showAside={false}
   mobileAsideLabel={i18n.t('wallet.transfer.viewSummary')}
   mobileAsideTitle={i18n.t('wallet.transfer.summary.title')}
 >
   {#snippet aside()}
-    <TransferSummaryRail
-      rows={summaryRows}
-      warnings={warningsSummary}
-      class="h-full"
-    />
+    <TransferSummaryRail rows={summaryRows} warnings={warningsSummary} class="h-full" />
   {/snippet}
 
   {#snippet footer()}
@@ -3419,7 +3581,7 @@
       </div>
     {:else if currentStep === 'success'}
       <div class="flex justify-end">
-        <Button onclick={handleDone}>
+        <Button class="w-full sm:w-[368px]" onclick={handleDone}>
           {i18n.t('common.done')}
         </Button>
       </div>
@@ -3432,18 +3594,24 @@
           <div class="flex items-center gap-3">
             {#if requiresUnsavedRecipientAck}
               <div class="flex items-center gap-1.5">
-                <Checkbox id="review-unsaved-recipient-footer" bind:checked={unsavedRecipientConfirmed} />
-                <Label for="review-unsaved-recipient-footer" class="text-muted-foreground text-[11px] whitespace-nowrap">
+                <Checkbox
+                  id="review-unsaved-recipient-footer"
+                  bind:checked={unsavedRecipientConfirmed}
+                />
+                <Label
+                  for="review-unsaved-recipient-footer"
+                  class="text-[11px] whitespace-nowrap text-muted-foreground"
+                >
                   {i18n.t('wallet.transfer.review.unsavedConfirmShort')}
                 </Label>
               </div>
             {/if}
-            <Button onclick={continueFlow} disabled={primaryDisabled}>
+            <Button class="w-[min(368px,45vw)]" onclick={continueFlow} disabled={primaryDisabled}>
               {primaryLabel}
             </Button>
           </div>
         {:else}
-          <Button class="md:hidden" onclick={continueFlow} disabled={primaryDisabled}>
+          <Button class="w-[min(368px,45vw)]" onclick={continueFlow} disabled={primaryDisabled}>
             {primaryLabel}
           </Button>
         {/if}
@@ -3473,10 +3641,17 @@
     {/if}
   {/snippet}
 
-  <div class={currentStep === 'details' ? 'space-y-4' : currentStep === 'review' ? 'space-y-3' : 'space-y-5'}>
-
+  <div
+    class={currentStep === 'details'
+      ? 'space-y-4'
+      : currentStep === 'review'
+        ? 'space-y-3'
+        : 'space-y-5'}
+  >
     {#if transferError}
-      <div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <div
+        class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      >
         {transferError}
       </div>
     {/if}
@@ -3488,740 +3663,886 @@
         onrecover={recoverPendingEthSubmission}
       />
     {:else}
-    {#if !transferError && sendStageGuidance}
-      <div class="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-200">
-        {sendStageGuidance}
-      </div>
-    {/if}
-    {#if shieldedSyncBlockedHelper}
-      <div class="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-200">
-        {shieldedSyncBlockedHelper}
-      </div>
-    {/if}
+      {#if !transferError && sendStageGuidance}
+        <div
+          class="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-200"
+        >
+          {sendStageGuidance}
+        </div>
+      {/if}
+      {#if shieldedSyncBlockedHelper}
+        <div
+          class="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/12 dark:text-amber-200"
+        >
+          {shieldedSyncBlockedHelper}
+        </div>
+      {/if}
 
-    {#if currentStep === 'details'}
-      <Card.Root class="border-0 bg-transparent py-0 shadow-none">
-        <Card.Content class="space-y-4 px-0">
-          <div class="-mt-1 flex w-full justify-center">
-            <Tabs.Root value={conversionEnabled ? 'convert' : 'send'} class="w-auto">
-              <Tabs.List class="mx-auto rounded-xl bg-muted/80 p-1 dark:bg-muted/55">
-                <Tabs.Trigger
-                  value="send"
-                  class="h-8 min-w-[5.75rem] rounded-lg px-3 text-sm font-semibold data-[state=active]:shadow-none"
-                  onclick={() => setTransferMode('send')}
-                >
-                  {i18n.t('wallet.overview.send')}
-                </Tabs.Trigger>
-                <Tabs.Trigger
-                  value="convert"
-                  class="h-8 min-w-[5.75rem] rounded-lg px-3 text-sm font-semibold data-[state=active]:shadow-none"
-                  disabled={!!selectedCoin && !sourceSupportsConversion}
-                  onclick={() => setTransferMode('convert')}
-                >
-                  {i18n.t('wallet.overview.convert')}
-                </Tabs.Trigger>
-              </Tabs.List>
-            </Tabs.Root>
-          </div>
+      {#if currentStep === 'details'}
+        <Card.Root class="border-0 bg-transparent py-0 shadow-none">
+          <Card.Content class="space-y-3 px-0">
+            <div class="-mt-1 flex w-full justify-start border-b border-border/70">
+              <Tabs.Root value={conversionEnabled ? 'convert' : 'send'} class="w-full">
+                <Tabs.List class="h-9 w-full justify-start rounded-none bg-transparent p-0">
+                  <Tabs.Trigger
+                    value="send"
+                    class="h-9 min-w-[6.5rem] rounded-none border-b-2 border-transparent px-1 text-[22px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+                    onclick={() => setTransferMode('send')}
+                  >
+                    {i18n.t('wallet.overview.send')}
+                  </Tabs.Trigger>
+                  <Tabs.Trigger
+                    value="convert"
+                    class="h-9 min-w-[6.5rem] rounded-none border-b-2 border-transparent px-1 text-[22px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+                    disabled={!!selectedCoin && !sourceSupportsConversion}
+                    onclick={() => setTransferMode('convert')}
+                  >
+                    {i18n.t('wallet.overview.convert')}
+                  </Tabs.Trigger>
+                </Tabs.List>
+              </Tabs.Root>
+            </div>
 
-          <div class="relative mx-auto w-full max-w-[560px] space-y-3.5">
-            <div class="space-y-1.5">
-              <p class="text-muted-foreground px-1 text-[10px] font-semibold tracking-[0.06em] uppercase">
-                {i18n.t('wallet.transfer.youSend')}
-              </p>
-              <section class="rounded-[20px] bg-transparent p-4">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <Label for="transfer-amount" class="sr-only">{i18n.t('wallet.transfer.amountLabel')}</Label>
-                    <div class="relative">
-                      <Input
-                        bind:ref={amountInputEl}
-                        id="transfer-amount"
-                        type="text"
-                        inputmode="decimal"
-                        placeholder={i18n.t('wallet.transfer.amountPlaceholder')}
-                        bind:value={amount}
-                        class="h-auto min-h-0 border-0 !bg-transparent dark:!bg-transparent px-0 py-0 pr-8 text-foreground placeholder:text-foreground dark:placeholder:text-foreground text-[2.5rem] md:text-[2.5rem] font-semibold leading-none tracking-tight focus-visible:ring-0"
-                      />
-                      {#if amount.trim()}
-                        <button
-                          type="button"
-                          class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 absolute top-1/2 right-0 -translate-y-1/2 rounded-sm p-1 transition-colors focus-visible:outline-none focus-visible:ring-2"
-                          onclick={clearAmount}
-                          aria-label={i18n.t('wallet.transfer.amountClear')}
-                          title={i18n.t('wallet.transfer.amountClear')}
-                        >
-                          <XIcon class="size-3.5" />
-                        </button>
-                      {/if}
+            <div
+              class={`relative mx-auto w-full max-w-[840px] gap-x-6 gap-y-3 ${conversionEnabled ? 'grid md:grid-cols-2' : 'space-y-3.5'}`}
+            >
+              {#if selectedCoinOption}
+                <div class={`flex items-center gap-4 ${conversionEnabled ? 'md:col-span-2' : ''}`}>
+                  <span class="text-sm text-muted-foreground">
+                    {i18n.t('wallet.transfer.source.sendFrom')}
+                  </span>
+                  <button
+                    type="button"
+                    class="flex h-10 max-w-[34rem] min-w-0 items-center gap-4 rounded-lg border border-border/70 bg-background px-3 text-left outline-none hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring/60"
+                    onclick={() => (showSourceAssetSheet = true)}
+                  >
+                    <span class="shrink-0 text-sm font-medium">
+                      {i18n.t(
+                        selectedCoinOption.sourceKind === 'private'
+                          ? 'wallet.transfer.source.privateAddress'
+                          : 'wallet.transfer.source.publicAddress'
+                      )}
+                    </span>
+                    {#if selectedSourceAddress}
+                      <span class="identifier-text truncate text-xs text-muted-foreground">
+                        {truncateAddressMiddle(selectedSourceAddress, 12, 12)}
+                      </span>
+                    {/if}
+                    <ChevronRightIcon class="size-4 text-muted-foreground" />
+                  </button>
+                </div>
+              {/if}
+              <div class="space-y-1.5">
+                <p class="px-1 text-sm text-muted-foreground">
+                  {i18n.t('wallet.transfer.youSend')}
+                </p>
+                <section class="rounded-xl border border-border/70 bg-background p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                      <Label for="transfer-amount" class="sr-only"
+                        >{i18n.t('wallet.transfer.amountLabel')}</Label
+                      >
+                      <div class="relative">
+                        <Input
+                          bind:ref={amountInputEl}
+                          id="transfer-amount"
+                          type="text"
+                          inputmode="decimal"
+                          placeholder={i18n.t('wallet.transfer.amountPlaceholder')}
+                          bind:value={amount}
+                          class="h-auto min-h-0 border-0 !bg-transparent px-0 py-0 pr-8 text-[clamp(26px,4vw,34px)] leading-10 font-medium tracking-[-0.035em] text-foreground placeholder:text-foreground focus-visible:ring-0 md:text-[34px] dark:!bg-transparent dark:placeholder:text-foreground"
+                        />
+                        {#if amount.trim()}
+                          <button
+                            type="button"
+                            class="absolute top-1/2 right-0 -translate-y-1/2 rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                            onclick={clearAmount}
+                            aria-label={i18n.t('wallet.transfer.amountClear')}
+                            title={i18n.t('wallet.transfer.amountClear')}
+                          >
+                            <XIcon class="size-3.5" />
+                          </button>
+                        {/if}
+                      </div>
+                      <p class="mt-1 px-0.5 text-xs text-muted-foreground tabular-nums">
+                        {sourceAmountFiatDisplay}
+                      </p>
                     </div>
-                    <p class="text-muted-foreground mt-1 px-0.5 text-xs tabular-nums">{sourceAmountFiatDisplay}</p>
+
+                    <div class="flex max-w-[72%] shrink-0 flex-col items-end gap-1">
+                      <Button
+                        variant={showChooseCurrencyCallToAction ? 'default' : 'ghost'}
+                        class="max-w-full
+                        {showChooseCurrencyCallToAction
+                          ? 'h-9 justify-center self-center rounded-md px-4 text-sm font-semibold'
+                          : 'h-10 justify-start gap-2 rounded-lg border border-border/70 bg-background px-3 hover:bg-muted/35 dark:bg-background dark:hover:bg-muted/35'}"
+                        onclick={() => (showSourceAssetSheet = true)}
+                      >
+                        {#if showChooseCurrencyCallToAction}
+                          <span class="truncate text-sm font-semibold"
+                            >{i18n.t('wallet.transfer.chooseCurrency')}</span
+                          >
+                        {:else}
+                          {#if selectedCoin}
+                            <CoinIcon
+                              coinId={selectedCoin.id}
+                              coinName={selectedCoinPresentation?.displayName}
+                              size={24}
+                              decorative={true}
+                            />
+                          {/if}
+                          <span class="truncate text-[15px] font-medium">
+                            {selectedCoinPresentation?.displayTicker ||
+                              i18n.t('wallet.transfer.sourceAsset')}
+                          </span>
+                          <ChevronRightIcon class="ml-auto size-4 shrink-0 text-foreground/45" />
+                        {/if}
+                      </Button>
+                    </div>
                   </div>
 
-                  <div class="flex max-w-[72%] shrink-0 flex-col items-end gap-1">
-                    <Button
-                      variant={showChooseCurrencyCallToAction ? 'default' : 'ghost'}
-                      class="max-w-full
-                        {showChooseCurrencyCallToAction
-                          ? 'h-9 self-center rounded-md px-4 justify-center text-sm font-semibold'
-                          : 'h-12 rounded-full px-3.5 justify-start gap-2.5 bg-muted/60 hover:bg-muted/70 dark:bg-muted/45 dark:hover:bg-muted/55'}"
-                      onclick={() => (showSourceAssetSheet = true)}
-                    >
-                      {#if showChooseCurrencyCallToAction}
-                        <span class="truncate text-sm font-semibold">{i18n.t('wallet.transfer.chooseCurrency')}</span>
-                      {:else}
-                        {#if selectedCoin}
+                  <div class="mt-2 flex min-h-6 items-center justify-between gap-2">
+                    <div class="min-w-0 flex-1">
+                      {#if !amountValid && amount.trim()}
+                        <p class="truncate text-xs text-destructive">
+                          {i18n.t('wallet.transfer.amountInvalid')}
+                        </p>
+                      {/if}
+                    </div>
+
+                    {#if selectedCoinOption}
+                      <div class="flex shrink-0 items-center gap-2">
+                        <p class="truncate text-xs text-muted-foreground">
+                          {i18n.t('wallet.transfer.availableBalance', {
+                            value: formatSheetBalance(selectedBalance),
+                            ticker:
+                              selectedCoinPresentation?.displayTicker ?? selectedCoin?.id ?? '',
+                          })}
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          class="h-6 rounded-full px-2.5 text-[11px]"
+                          onclick={setMaxAmount}
+                        >
+                          {i18n.t('wallet.transfer.max')}
+                        </Button>
+                      </div>
+                    {/if}
+                  </div>
+                </section>
+              </div>
+
+              {#if conversionEnabled}
+                <div class="space-y-1.5">
+                  <p class="px-1 text-sm text-muted-foreground">
+                    {i18n.t('wallet.transfer.summary.estimatedReceive')}
+                  </p>
+                  <section class="rounded-xl bg-muted/40 p-4 dark:bg-muted/30">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <p
+                          class="text-[34px] leading-10 font-medium tracking-[-0.035em] text-muted-foreground"
+                        >
+                          {estimatedConversionValue || '0'}
+                        </p>
+                        <p class="mt-1 px-0.5 text-xs text-muted-foreground tabular-nums">
+                          {receiveAmountFiatDisplay}
+                        </p>
+                      </div>
+                      <Button
+                        variant={selectedReceiveAssetOption ? 'ghost' : 'default'}
+                        class="max-w-[72%] shrink-0
+                        {selectedReceiveAssetOption
+                          ? 'h-10 justify-start gap-2 rounded-lg border border-border/70 bg-background px-3 hover:bg-muted/35 dark:bg-background dark:hover:bg-muted/35'
+                          : 'h-9 justify-center rounded-md px-4 text-sm font-semibold'}"
+                        disabled={!receiveAssetSelectionEnabled}
+                        onclick={() => {
+                          if (!receiveAssetSelectionEnabled) return;
+                          showNetworkSheet = false;
+                          showExportSheet = false;
+                          pendingGroupedReceiveOption = null;
+                          pendingTargetOption = null;
+                          showReceiveAssetSheet = true;
+                        }}
+                      >
+                        {#if selectedReceiveAssetOption}
+                          {@const receiveDisplay = getReceiveOptionDisplay(
+                            selectedReceiveAssetOption,
+                            selectedReceiveLabel,
+                            selectedExportSystemId ?? activeExportSystemId
+                          )}
                           <CoinIcon
-                            coinId={selectedCoin.id}
-                            coinName={selectedCoinPresentation?.displayName}
+                            coinId={selectedReceiveAssetOption.destinationId}
+                            coinName={receiveDisplay.primary}
                             size={24}
                             decorative={true}
                           />
-                        {/if}
-                        <span class="min-w-0 text-left leading-tight">
-                          <span class="block truncate text-base font-semibold">
-                            {selectedCoinPresentation?.displayName || i18n.t('wallet.transfer.sourceAsset')}
+                          <span class="truncate text-[15px] font-medium">
+                            {selectedReceiveCompactTicker || receiveDisplay.primary}
                           </span>
-                          {#if selectedCoinPresentation?.displayTicker}
-                            <span class="text-muted-foreground block truncate text-xs">
-                              {selectedCoinPresentation.displayTicker}
-                            </span>
-                          {/if}
-                        </span>
-                        <ChevronRightIcon class="text-foreground/45 ml-auto size-4 shrink-0" />
-                      {/if}
-                    </Button>
-                  </div>
-                </div>
-
-                <div class="mt-2 min-h-6 flex items-center justify-between gap-2">
-                  <div class="min-w-0 flex-1">
-                    {#if !amountValid && amount.trim()}
-                      <p class="text-destructive truncate text-xs">{i18n.t('wallet.transfer.amountInvalid')}</p>
-                    {/if}
-                  </div>
-
-                  {#if selectedCoinOption}
-                    <div class="flex shrink-0 items-center gap-2">
-                      <p class="text-muted-foreground truncate text-xs">{formatSheetBalance(selectedBalance)}</p>
-                      <Button variant="secondary" size="sm" class="h-6 rounded-full px-2.5 text-[11px]" onclick={setMaxAmount}>
-                        {i18n.t('wallet.transfer.max')}
+                          <ChevronRightIcon class="ml-auto size-4 shrink-0 text-foreground/45" />
+                        {:else}
+                          <span class="truncate text-sm font-semibold"
+                            >{i18n.t('wallet.transfer.receiveAsset')}</span
+                          >
+                        {/if}
                       </Button>
                     </div>
-                  {/if}
-                </div>
 
-                <div class="mt-1 min-h-6 flex items-center justify-end">
-                  {#if !showChooseCurrencyCallToAction && !conversionEnabled && sendCrossChainAvailable}
-                    <InlineTextActionButton
-                      class="max-w-full gap-1.5 text-xs"
-                      onclick={openSendDestinationNetworkSheet}
-                    >
-                      <ArrowLeftRightIcon class="size-3.5 shrink-0 opacity-70" />
-                      <span class="truncate">{i18n.t('wallet.transfer.crossChainSendAvailable')}</span>
-                      <span class="truncate opacity-80">· {sendDestinationNetworkValue}</span>
-                    </InlineTextActionButton>
-                  {:else if !showChooseCurrencyCallToAction && !conversionEnabled && selectedChannelPrefix === 'eth'}
-                    <InlineTextActionButton class="max-w-full gap-1.5 text-xs" disabled={true}>
-                      <ArrowLeftRightIcon class="size-3.5 shrink-0 opacity-50" />
-                      <span class="truncate">{i18n.t('wallet.transfer.crossChainSendUnavailable')}</span>
-                    </InlineTextActionButton>
-                  {:else if !showChooseCurrencyCallToAction && !conversionEnabled && selectedChannelPrefix === 'erc20'}
-                    <InlineTextActionButton class="max-w-full gap-1.5 text-xs" disabled={true}>
-                      <ArrowLeftRightIcon class="size-3.5 shrink-0 opacity-50" />
-                      <span class="truncate">{i18n.t('wallet.transfer.crossChainSendUnavailable')}</span>
-                    </InlineTextActionButton>
-                  {/if}
+                    {#if targetsError}
+                      <p class="mt-2 text-xs text-destructive">{targetsError}</p>
+                    {/if}
+                  </section>
                 </div>
-              </section>
+              {/if}
             </div>
 
-            {#if conversionEnabled}
-              <div class="-my-1 flex justify-center text-muted-foreground">
-                <ArrowDownIcon class="size-4" />
-              </div>
-
-              <div class="space-y-1.5">
-                <p class="text-muted-foreground px-1 text-[10px] font-semibold tracking-[0.06em] uppercase">
-                  {i18n.t('wallet.transfer.youReceive')}
-                </p>
-                <section class="rounded-[20px] bg-transparent p-4">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0 flex-1">
-                      <p class="text-muted-foreground text-[2.5rem] md:text-[2.5rem] font-semibold leading-none tracking-tight">
-                        {estimatedConversionValue || '0'}
-                      </p>
-                      <p class="text-muted-foreground mt-1 px-0.5 text-xs tabular-nums">{receiveAmountFiatDisplay}</p>
-                    </div>
-                    <Button
-                      variant={selectedReceiveAssetOption ? 'ghost' : 'default'}
-                      class="max-w-[72%] shrink-0
-                        {selectedReceiveAssetOption
-                          ? 'h-12 rounded-full px-3.5 justify-start gap-2.5 bg-muted/60 hover:bg-muted/70 dark:bg-muted/45 dark:hover:bg-muted/55'
-                          : 'h-9 rounded-md px-4 justify-center text-sm font-semibold'}"
-                      disabled={!receiveAssetSelectionEnabled}
-                      onclick={() => {
-                        if (!receiveAssetSelectionEnabled) return;
-                        showNetworkSheet = false;
-                        showExportSheet = false;
-                        pendingGroupedReceiveOption = null;
-                        pendingTargetOption = null;
-                        showReceiveAssetSheet = true;
-                      }}
-                    >
-                      {#if selectedReceiveAssetOption}
-                        {@const receiveDisplay = getReceiveOptionDisplay(
-                          selectedReceiveAssetOption,
-                          selectedReceiveLabel,
-                          selectedExportSystemId ?? activeExportSystemId
-                        )}
-                        <CoinIcon
-                          coinId={selectedReceiveAssetOption.destinationId}
-                          coinName={receiveDisplay.primary}
-                          size={24}
-                          decorative={true}
-                        />
-                        <span class="min-w-0 text-left leading-tight">
-                          <span class="block truncate text-base font-semibold">{receiveDisplay.primary}</span>
-                          {#if receiveDisplay.secondary}
-                            <span class="text-muted-foreground block truncate text-xs">{receiveDisplay.secondary}</span>
-                          {/if}
-                        </span>
-                        <ChevronRightIcon class="text-foreground/45 ml-auto size-4 shrink-0" />
-                      {:else}
-                        <span class="truncate text-sm font-semibold">{i18n.t('wallet.transfer.receiveAsset')}</span>
-                      {/if}
-                    </Button>
-                  </div>
-
-                  {#if selectedReceiveAssetOption && amountValid}
-                    <div class="mt-8 mx-auto w-full max-w-[22rem] rounded-xl bg-muted/25 p-2.5">
-                      <button
-                        type="button"
-                        class="focus-visible:ring-ring/60 hover:bg-muted/50 dark:hover:bg-muted/60 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left outline-none focus-visible:ring-2"
-                        onclick={() => (showViaSheet = true)}
-                      >
-                        <span class="text-muted-foreground text-[11px] font-medium">{i18n.t('wallet.transfer.conversionRoute')}</span>
-                        <span class="flex items-center gap-1 text-sm font-semibold">
-                          {activeConvertRoute ? getViaOptionLabel(activeConvertRoute) : i18n.t('wallet.transfer.viaBest')}
-                          <ChevronRightIcon class="text-foreground/45 size-3.5 shrink-0" />
-                        </span>
-                      </button>
-
-                      <div class="mt-1 flex items-start justify-between gap-3 px-2 py-1">
-                        <span class="text-muted-foreground text-[11px] font-medium">{i18n.t('wallet.transfer.rateLabel')}</span>
-                        <span class="text-foreground max-w-[70%] text-right text-xs font-medium tabular-nums">
-                          {activeConvertRouteRateValueText}
-                        </span>
-                      </div>
-                    </div>
-                  {/if}
-
-                  {#if targetsError}
-                    <p class="text-destructive mt-2 text-xs">{targetsError}</p>
-                  {/if}
-                </section>
-              </div>
-            {/if}
-          </div>
-
-          {#if showConvertUnavailable}
-            <div class="rounded-md border border-border/60 px-3 py-2 text-sm text-muted-foreground">
-              {convertUnavailableMessage}
-            </div>
-          {/if}
-
-          {#if !loadingTargets && conversionEnabled && rawReceiveAssetSections.allOptions.length === 0 && sourceSupportsConversion}
-            <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.noRoutes')}</p>
-          {/if}
-
-          {#if positiveSendableCoinOptions.length === 0}
-            <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.noAssets')}</p>
-          {/if}
-        </Card.Content>
-      </Card.Root>
-    {/if}
-
-    {#if currentStep === 'recipient'}
-      <div class="flex min-h-[52vh] items-center justify-center">
-        <Card.Root class="w-full border-0 bg-transparent py-0 shadow-none">
-          <Card.Header class="px-0 text-center">
-            <Card.Title>{stepCopy.recipient.title}</Card.Title>
-          </Card.Header>
-          <Card.Content class="px-0">
-            <div class="mx-auto flex w-full max-w-[560px] flex-col items-center gap-3 text-center">
-              <Label for="transfer-recipient" class="sr-only">{i18n.t('wallet.transfer.recipientLabel')}</Label>
-              <div class="relative w-full">
-                <Input
-                  id="transfer-recipient"
-                  class="identifier-text h-11 rounded-xl bg-muted/85 px-4 pr-14 text-center text-base font-medium dark:bg-muted/55 md:text-base"
-                  bind:value={destinationAddress}
-                  placeholder={recipientInputCopy.placeholder}
-                />
+            {#if conversionEnabled && selectedReceiveAssetOption && amountValid}
+              <div class="mx-auto w-full max-w-[840px] border-t border-border/70 pt-4">
                 <button
                   type="button"
-                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none transition-colors focus-visible:outline-none focus-visible:ring-2"
-                  onclick={pasteRecipientAddress}
-                  aria-label={i18n.t('wallet.transfer.recipient.paste')}
-                  title={i18n.t('wallet.transfer.recipient.paste')}
+                  class="flex w-full items-center justify-between gap-6 rounded-lg px-1 py-2 text-left outline-none hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring/60"
+                  onclick={() => (showViaSheet = true)}
                 >
-                  {i18n.t('wallet.transfer.recipient.paste')}
+                  <span>
+                    <span class="block text-sm font-medium text-muted-foreground">
+                      {i18n.t('wallet.transfer.conversionRoute')}
+                    </span>
+                    <span class="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+                      {activeConvertRouteRateValueText}
+                    </span>
+                  </span>
+                  <span class="flex items-center gap-2 text-sm font-semibold">
+                    {activeConvertRoute
+                      ? getViaOptionLabel(activeConvertRoute)
+                      : i18n.t('wallet.transfer.viaBest')}
+                    <ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" />
+                  </span>
                 </button>
               </div>
-              {#if destinationAddress.trim() && !recipientValid}
-                <p class="text-destructive text-xs">{i18n.t('wallet.transfer.recipientInvalid')}</p>
-              {/if}
-              <p class="text-muted-foreground text-xs">{recipientInputCopy.hint}</p>
+            {/if}
 
-              {#if showDlightMemoField}
-                <div class="w-full max-w-[560px] text-left">
-                  <Label for="transfer-memo" class="text-xs font-medium">
-                    {i18n.t('wallet.send.memoLabel')}
-                  </Label>
-                  <Input
-                    id="transfer-memo"
-                    class="mt-1 h-10 rounded-xl bg-muted/85 px-3 text-sm dark:bg-muted/55"
-                    bind:value={memo}
-                    maxlength={512}
-                    placeholder={i18n.t('wallet.send.memoPlaceholder')}
-                  />
-                  <p class="text-muted-foreground mt-1 text-[11px]">
-                    {i18n.t('wallet.transfer.memoHintDlight')}
-                  </p>
-                </div>
-              {/if}
-
-              <div class="mt-3 flex items-center justify-center gap-2">
-                <Button
-                  variant="secondary"
-                  class="h-9 gap-1.5 px-4"
-                  onclick={selectSelfRecipient}
-                  disabled={!selfDestinationAddress}
-                >
-                  <UserRoundIcon class="size-4" />
-                  {i18n.t('wallet.transfer.recipient.sendToSelf')}
-                </Button>
-                <Button variant="secondary" class="h-9 gap-1.5 px-4" onclick={() => (showAddressBookSheet = true)}>
-                  <BookUserIcon class="size-4" />
-                  {i18n.t('wallet.transfer.addressBook.open')}
-                </Button>
+            {#if showConvertUnavailable}
+              <div
+                class="rounded-md border border-border/60 px-3 py-2 text-sm text-muted-foreground"
+              >
+                {convertUnavailableMessage}
               </div>
+            {/if}
 
-              <div class="min-h-5">
-                {#if matchedSavedRecipient}
-                  <p class="text-emerald-700 dark:text-emerald-300 text-xs">
-                    {i18n.t('wallet.transfer.addressBook.savedMatch', {
-                      contact: matchedSavedRecipient.contact.displayName,
-                      endpoint: matchedSavedRecipient.endpoint.label
-                    })}
-                  </p>
-                {:else if hasRecipientSimilarityWarning}
-                  <p class="text-amber-700 dark:text-amber-300 text-xs">
-                    {i18n.t('wallet.transfer.addressBook.similarWarning')}
-                  </p>
-                {/if}
-              </div>
-            </div>
+            {#if !loadingTargets && conversionEnabled && rawReceiveAssetSections.allOptions.length === 0 && sourceSupportsConversion}
+              <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noRoutes')}</p>
+            {/if}
+
+            {#if positiveSendableCoinOptions.length === 0}
+              <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noAssets')}</p>
+            {/if}
           </Card.Content>
         </Card.Root>
-      </div>
-    {/if}
+      {/if}
 
-    {#if currentStep === 'review'}
-      <Card.Root class="border-0 bg-transparent py-0 shadow-none">
-        <Card.Content class="space-y-3 px-0 pt-0">
-          {#if activePreflight}
-            <div class="mx-auto w-full max-w-[430px] space-y-2">
-              <div class="space-y-2">
-                <div class="relative min-h-7 space-y-0.5 text-center">
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 absolute top-0 right-0 h-7 w-7 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
-                    onclick={() => jumpToStep('details')}
-                    title={i18n.t('wallet.transfer.review.changeDetails')}
-                    aria-label={i18n.t('wallet.transfer.review.changeDetails')}
-                  >
-                    <PencilIcon class="size-3.5" />
-                  </button>
-                  <p class="text-muted-foreground text-[10px] font-medium tracking-[0.05em] uppercase">
-                    {i18n.t('wallet.transfer.review.sending')}
+      {#if currentStep === 'details'}
+        <div class="mx-auto w-full max-w-[840px]">
+          <Card.Root class="w-full border-0 bg-transparent py-0 shadow-none">
+            <Card.Content class="px-0">
+              <div class="grid gap-4 md:grid-cols-[248px_minmax(0,1fr)]">
+                <div class="space-y-2">
+                  <p class="text-sm font-medium text-muted-foreground">
+                    {i18n.t('wallet.transfer.summary.destinationNetwork')}
                   </p>
-                  <div class="flex items-center justify-center gap-2">
-                    {#if selectedCoin}
-                      <CoinIcon
-                        coinId={selectedCoin.id}
-                        coinName={selectedCoinPresentation?.displayName}
-                        size={20}
-                        decorative={true}
-                      />
-                    {/if}
-                    <p class="min-w-0 truncate text-[1.35rem] font-semibold tabular-nums">
-                      {reviewSendingValue || i18n.t('wallet.transfer.summary.notSet')}
-                    </p>
-                  </div>
-                  {#if reviewSourceAmountFiatDisplay && reviewSourceAmountFiatDisplay !== '≈ —'}
-                    <p class="text-muted-foreground text-[11px] tabular-nums">{reviewSourceAmountFiatDisplay}</p>
+                  {#if !conversionEnabled && sendCrossChainAvailable}
+                    <button
+                      type="button"
+                      class="flex h-10 w-full items-center justify-between rounded-lg border border-border/70 bg-background px-3 text-left text-sm font-medium transition-colors outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60"
+                      onclick={openSendDestinationNetworkSheet}
+                    >
+                      <span class="truncate">
+                        {reviewDestinationNetworkValue || sourceNetworkDisplayName}
+                      </span>
+                      <ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  {:else}
+                    <div
+                      class="flex h-10 items-center rounded-lg border border-border/70 bg-muted/25 px-3 text-sm font-medium"
+                    >
+                      <span class="truncate">
+                        {reviewDestinationNetworkValue || sourceNetworkDisplayName}
+                      </span>
+                    </div>
                   {/if}
                 </div>
 
-                {#if conversionEnabled}
-                  <div class="text-muted-foreground/70 flex items-center justify-center">
-                    <ArrowDownIcon class="size-3.5" />
+                <div class="flex min-w-0 flex-col gap-2 text-left">
+                  <p class="text-sm font-medium text-muted-foreground">
+                    {i18n.t('wallet.transfer.recipientLabel')}
+                  </p>
+                  <Label for="transfer-recipient" class="sr-only"
+                    >{i18n.t('wallet.transfer.recipientLabel')}</Label
+                  >
+                  <div class="relative w-full">
+                    <Input
+                      id="transfer-recipient"
+                      class="identifier-text h-10 rounded-lg bg-muted/85 px-4 pr-14 text-left text-sm font-medium dark:bg-muted/55"
+                      bind:value={destinationAddress}
+                      placeholder={recipientInputCopy.placeholder}
+                    />
+                    <button
+                      type="button"
+                      class="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                      onclick={pasteRecipientAddress}
+                      aria-label={i18n.t('wallet.transfer.recipient.paste')}
+                      title={i18n.t('wallet.transfer.recipient.paste')}
+                    >
+                      {i18n.t('wallet.transfer.recipient.paste')}
+                    </button>
                   </div>
-                  <div class="space-y-0.5 text-center">
-                    <p class="text-muted-foreground text-[10px] font-medium tracking-[0.05em] uppercase">
-                      {i18n.t('wallet.transfer.review.receiving')}
+                  {#if destinationAddress.trim() && !recipientValid}
+                    <p class="text-xs text-destructive">
+                      {i18n.t('wallet.transfer.recipientInvalid')}
                     </p>
-                    <div class="flex items-center justify-center gap-2">
-                      {#if selectedReceiveAssetOption?.destinationId}
+                  {/if}
+                  {#if showDlightMemoField}
+                    <div class="w-full text-left">
+                      <Label for="transfer-memo" class="text-xs font-medium">
+                        {i18n.t('wallet.send.memoLabel')}
+                      </Label>
+                      <Input
+                        id="transfer-memo"
+                        class="mt-1 h-10 rounded-xl bg-muted/85 px-3 text-sm dark:bg-muted/55"
+                        bind:value={memo}
+                        maxlength={512}
+                        placeholder={i18n.t('wallet.send.memoPlaceholder')}
+                      />
+                      <p class="mt-1 text-[11px] text-muted-foreground">
+                        {i18n.t('wallet.transfer.memoHintDlight')}
+                      </p>
+                    </div>
+                  {/if}
+
+                  <div class="mt-1 flex items-center justify-start gap-6">
+                    <InlineTextActionButton onclick={() => (showAddressBookSheet = true)}>
+                      {i18n.t('wallet.transfer.addressBook.open')}
+                    </InlineTextActionButton>
+                    <InlineTextActionButton
+                      onclick={selectSelfRecipient}
+                      disabled={!selfDestinationAddress}
+                    >
+                      {i18n.t('wallet.transfer.recipient.sendToSelf')}
+                    </InlineTextActionButton>
+                  </div>
+
+                  <div class="min-h-5">
+                    {#if hasRecipientSimilarityWarning}
+                      <p class="text-xs text-amber-700 dark:text-amber-300">
+                        {i18n.t('wallet.transfer.addressBook.similarWarning')}
+                      </p>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            </Card.Content>
+          </Card.Root>
+        </div>
+      {/if}
+
+      {#if currentStep === 'review'}
+        <Card.Root class="border-0 bg-transparent py-0 shadow-none">
+          <Card.Content class="space-y-3 px-0 pt-0">
+            {#if activePreflight}
+              <div class="mx-auto w-full max-w-[840px] space-y-5">
+                <div class="flex items-center justify-between gap-4">
+                  <h2 class="text-2xl font-semibold tracking-tight">
+                    {i18n.t(
+                      conversionEnabled
+                        ? 'wallet.transfer.review.conversionTitle'
+                        : 'wallet.transfer.review.sendTitle'
+                    )}
+                  </h2>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="gap-1.5"
+                    onclick={() => jumpToStep('details')}
+                    disabled={transferMutationLocked}
+                  >
+                    <PencilIcon class="size-3.5" />
+                    {i18n.t('wallet.transfer.review.changeDetails')}
+                  </Button>
+                </div>
+                <div class={`grid gap-4 ${conversionEnabled ? 'sm:grid-cols-2' : ''}`}>
+                  <div
+                    class="min-h-24 space-y-1 rounded-xl bg-muted/40 p-4 text-left dark:bg-muted/35"
+                  >
+                    <p class="text-sm font-medium text-muted-foreground">
+                      {i18n.t('wallet.transfer.review.sending')}
+                    </p>
+                    <div class="flex items-center gap-2">
+                      {#if selectedCoin}
                         <CoinIcon
-                          coinId={selectedReceiveAssetOption.destinationId}
-                          coinName={resolveReceiveLabel(selectedReceiveAssetOption, activeExportSystemId)}
+                          coinId={selectedCoin.id}
+                          coinName={selectedCoinPresentation?.displayName}
                           size={20}
                           decorative={true}
                         />
                       {/if}
                       <p class="min-w-0 truncate text-[1.35rem] font-semibold tabular-nums">
-                        {reviewReceivingValue || i18n.t('wallet.transfer.summary.notSet')}
+                        {reviewSendingValue || i18n.t('wallet.transfer.summary.notSet')}
                       </p>
                     </div>
-                    {#if reviewReceiveAmountFiatDisplay && reviewReceiveAmountFiatDisplay !== '≈ —'}
-                      <p class="text-muted-foreground text-[11px] tabular-nums">{reviewReceiveAmountFiatDisplay}</p>
+                    {#if reviewSourceAmountFiatDisplay && reviewSourceAmountFiatDisplay !== '≈ —'}
+                      <p class="text-[11px] text-muted-foreground tabular-nums">
+                        {reviewSourceAmountFiatDisplay}
+                      </p>
                     {/if}
                   </div>
-                {/if}
-              </div>
 
-              <div class="space-y-1">
-                <div class="space-y-1 rounded-lg bg-muted/35 px-2.5 py-2 dark:bg-muted/40">
-                  <div class="flex items-start justify-between gap-3">
-                    <p class="text-muted-foreground mt-0.5 text-[11px]">{i18n.t('wallet.transfer.summary.recipient')}</p>
-                    <div class="flex min-w-0 items-start gap-1.5">
-                      <div class="min-w-0 text-right">
-                        <p class={`truncate text-[13px] font-medium ${reviewRecipientName ? '' : 'identifier-text'}`}>
-                          {reviewRecipientName || reviewRecipientAddressWithSelf || i18n.t('wallet.transfer.summary.notSet')}
-                        </p>
-                        {#if reviewRecipientName && reviewRecipientAddressWithSelf}
-                          <p class="text-muted-foreground identifier-text mt-0.5 text-[10px]">{reviewRecipientAddressWithSelf}</p>
+                  {#if conversionEnabled}
+                    <div
+                      class="min-h-24 space-y-1 rounded-xl bg-muted/40 p-4 text-left dark:bg-muted/35"
+                    >
+                      <p class="text-sm font-medium text-muted-foreground">
+                        {i18n.t('wallet.transfer.review.receiving')}
+                      </p>
+                      <div class="flex items-center gap-2">
+                        {#if selectedReceiveAssetOption?.destinationId}
+                          <CoinIcon
+                            coinId={selectedReceiveAssetOption.destinationId}
+                            coinName={resolveReceiveLabel(
+                              selectedReceiveAssetOption,
+                              activeExportSystemId
+                            )}
+                            size={20}
+                            decorative={true}
+                          />
                         {/if}
-                      </div>
-                      <button
-                        type="button"
-                        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 h-7 w-7 shrink-0 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
-                        onclick={() => jumpToStep('recipient')}
-                        title={i18n.t('wallet.transfer.review.changeRecipient')}
-                        aria-label={i18n.t('wallet.transfer.review.changeRecipient')}
-                      >
-                        <PencilIcon class="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="mt-1 min-h-4">
-                    {#if matchedSavedRecipient}
-                      <p class="text-emerald-700 dark:text-emerald-300 text-[11px]">
-                        {i18n.t('wallet.transfer.review.savedRecipient', {
-                          contact: matchedSavedRecipient.contact.displayName,
-                          endpoint: matchedSavedRecipient.endpoint.label
-                        })}
-                      </p>
-                    {:else if !isSelfRecipient}
-                      <div class="space-y-0.5">
-                        <p class="text-amber-700 dark:text-amber-300 text-[11px]">
-                          {i18n.t('wallet.transfer.review.unsavedRecipient')}
-                        </p>
-                        <p class="text-muted-foreground text-[11px]">
-                          {i18n.t('wallet.transfer.review.unsavedSettingHint')}
+                        <p class="min-w-0 truncate text-[1.35rem] font-semibold tabular-nums">
+                          {reviewReceivingValue || i18n.t('wallet.transfer.summary.notSet')}
                         </p>
                       </div>
-                    {/if}
-                  </div>
-                </div>
-
-                {#if conversionEnabled}
-                  <div class="rounded-lg bg-muted/35 px-2.5 py-2 dark:bg-muted/40">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.route')}</p>
-                      <p class="text-right text-[13px] font-medium">
-                        {reviewRouteValue || i18n.t('wallet.transfer.viaBest')}
-                      </p>
-                    </div>
-                  </div>
-                {/if}
-
-                {#if reviewDestinationNetworkValue}
-                  <div class="rounded-lg bg-muted/35 px-2.5 py-2 dark:bg-muted/40">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.destinationNetwork')}</p>
-                      <p class="text-right text-[13px] font-medium">{reviewDestinationNetworkValue}</p>
-                    </div>
-                  </div>
-                {/if}
-
-                <div class="space-y-1 rounded-lg bg-muted/35 px-2.5 py-2 dark:bg-muted/40">
-                  <div class="flex items-start justify-between gap-3">
-                    <p class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.networkFee')}</p>
-                    <p class="text-[13px] font-medium tabular-nums">
-                      {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
-                    </p>
-                  </div>
-
-                  {#if activeExportSystemId && isEthereumExport(activeExportSystemId)}
-                    <div class="flex items-start justify-between gap-3">
-                      <p class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.bridgeFeeEstimate')}</p>
-                      <div class="min-w-0 text-right">
-                        <p class="text-[13px] font-medium tabular-nums">
-                          {bridgeFeeParityEligible
-                            ? bridgeFeeEstimateValue
-                            : i18n.t('wallet.transfer.bridgeFeeUnavailable')}
-                        </p>
-                        {#if bridgeFeeParityEligible && bridgeFeeEstimateSecondary && !hideBridgeFeeEstimateFiatBreakdown}
-                          <p
-                            class={`mt-0.5 text-[11px] ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'} tabular-nums`}
-                          >
-                            {bridgeFeeEstimateSecondary}
-                          </p>
-                        {/if}
-                      </div>
-                    </div>
-                  {/if}
-
-                  {#if conversionEnabled && conversionFeeInfo}
-                    <div class="flex items-start justify-between gap-3">
-                      <p class="text-muted-foreground text-[11px]">
-                        {i18n.t('wallet.transfer.summary.conversionFeeWithRate', { rate: conversionFeeInfo.percentage })}
-                      </p>
-                      <p class="text-[13px] font-medium tabular-nums">
-                        {conversionFeeInfo.amount} {conversionFeeInfo.currency}
-                      </p>
-                    </div>
-                  {/if}
-
-                  {#if showReviewTotalFeesFiat}
-                    <p class="text-muted-foreground text-right text-[11px] tabular-nums">{reviewTotalFeesFiat}</p>
-                  {/if}
-                </div>
-
-                {#if reviewWarnings.length > 0}
-                  <div class="rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-2">
-                    <p class="text-amber-700 dark:text-amber-300 text-[11px] font-semibold">
-                      {i18n.t('wallet.transfer.warningsTitle')}
-                    </p>
-                    <div class="mt-1 space-y-1">
-                      {#each reviewWarnings as warning}
-                        <p class="text-amber-700 dark:text-amber-300 text-[11px] leading-snug">
-                          {warning}
-                        </p>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-
-                {#if estimatedArrivalInfo}
-                  <div class="rounded-lg bg-muted/35 px-2.5 py-2 dark:bg-muted/40">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.estimatedTime')}</p>
-                      <div class="flex items-center gap-1.5">
-                        <p class="text-[13px] font-medium">{estimatedArrivalInfo.value}</p>
-                        <Tooltip.Root>
-                          <Tooltip.Trigger
-                            class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex h-7 w-7 items-center justify-center rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
-                            aria-label={i18n.t('wallet.transfer.summary.estimatedTime')}
-                          >
-                            <InfoIcon class="size-3.5" />
-                          </Tooltip.Trigger>
-                          <Tooltip.Content side="top" align="end" class="max-w-72 text-xs leading-5">
-                            {estimatedArrivalInfo.tooltip}
-                          </Tooltip.Content>
-                        </Tooltip.Root>
-                      </div>
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          {:else}
-            <div class="space-y-3">
-              <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.reviewUnavailable')}</p>
-              <Button variant="outline" onclick={runPreflight} disabled={preflighting || !recipientValid}>
-                {i18n.t('wallet.transfer.review.refresh')}
-              </Button>
-            </div>
-          {/if}
-        </Card.Content>
-      </Card.Root>
-    {/if}
-
-    {#if currentStep === 'success'}
-      <Card.Root class="border-0 bg-transparent py-0 shadow-none">
-        <Card.Content class="px-0 py-6">
-          <div class="mx-auto w-full max-w-[430px] space-y-4">
-            <div class="space-y-1 text-center">
-              <CheckCircle2Icon class="mx-auto mb-4 h-12 w-12 text-emerald-600 dark:text-emerald-400" />
-              <h3 class="text-lg font-semibold">{i18n.t('wallet.transfer.step.success.title')}</h3>
-              <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.step.success.description')}</p>
-            </div>
-
-            {#if sendResult}
-              {@const formattedSentValue = formatAmountForReviewDisplay(
-                sendResult.value,
-                MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
-              )}
-              {@const successRecipientFullAddress =
-                    successResultContext?.toAddress ?? sendResult.toAddress}
-              {@const successRecipientAddress = truncateAddressMiddle(successRecipientFullAddress, 10, 10)}
-              {@const successTxid = sendResult.txid}
-              {@const sentValueWithTicker = successCoinPresentation?.displayTicker?.trim()
-                ? `${formattedSentValue} ${successCoinPresentation.displayTicker.trim()}`
-                    : formattedSentValue}
-              <dl class="space-y-1 rounded-lg bg-muted/35 px-2.5 py-2 text-left dark:bg-muted/40">
-                <div class="flex items-start justify-between gap-3">
-                  <dt class="text-muted-foreground text-[11px]">{i18n.t('wallet.transfer.summary.amount')}</dt>
-                  <dd class="text-right text-[13px] font-medium tabular-nums">{sentValueWithTicker}</dd>
-                </div>
-                <div class="flex items-start justify-between gap-3">
-                  <dt class="text-muted-foreground mt-0.5 text-[11px]">{i18n.t('wallet.transfer.summary.recipient')}</dt>
-                  <dd class="min-w-0 flex-1">
-                    <div class="flex items-start justify-end gap-1.5">
-                      <div class="min-w-0 text-right">
-                        {#if successMatchedSavedRecipient}
-                          <p class="truncate text-[13px] font-medium">{successMatchedSavedRecipient.contact.displayName}</p>
-                          <p class="text-muted-foreground identifier-text mt-0.5 truncate text-[10px]">{successRecipientAddress}</p>
-                        {:else}
-                          <p class="identifier-text truncate text-[13px] font-medium">{successRecipientAddress}</p>
-                        {/if}
-                      </div>
-                      <CopyButton
-                        copied={copiedSuccessField === 'recipient'}
-                        size="xs"
-                        class="mt-0.5"
-                        iconClass="size-3"
-                        copiedIconClass="size-3 text-emerald-600 dark:text-emerald-400"
-                        onclick={() => copySuccessFieldValue(successRecipientFullAddress, 'recipient')}
-                        title={i18n.t('wallet.receive.copy')}
-                        aria-label={i18n.t('wallet.receive.copy')}
-                      />
-                    </div>
-                  </dd>
-                </div>
-                <div class="flex items-start justify-between gap-3">
-                  <dt class="text-muted-foreground mt-0.5 text-[11px]">{i18n.t('wallet.transfer.step.success.txidLabel')}</dt>
-                  <dd class="min-w-0 flex-1">
-                    <div class="flex items-start justify-end gap-1.5">
-                      <p class="identifier-text min-w-0 text-right text-[11px] leading-5 break-all">{successTxid}</p>
-                      <CopyButton
-                        copied={copiedSuccessField === 'txid'}
-                        size="xs"
-                        class="mt-0.5"
-                        iconClass="size-3"
-                        copiedIconClass="size-3 text-emerald-600 dark:text-emerald-400"
-                        onclick={() => copySuccessFieldValue(successTxid, 'txid')}
-                        title={i18n.t('wallet.receive.copy')}
-                        aria-label={i18n.t('wallet.receive.copy')}
-                      />
-                    </div>
-                  </dd>
-                </div>
-              </dl>
-
-              {#if !isSuccessRecipientSaved}
-                <div class="bg-muted/35 w-full rounded-md p-3 text-left dark:bg-muted/40">
-                  <p class="text-sm font-medium">{i18n.t('wallet.transfer.saveRecipient.title')}</p>
-                  <p class="text-muted-foreground mt-1 text-xs">{i18n.t('wallet.transfer.saveRecipient.description')}</p>
-                  <div class="mt-3 w-full max-w-64">
-                    <Input
-                      class="h-8 px-3 text-sm"
-                      bind:value={saveRecipientName}
-                      placeholder={i18n.t('wallet.transfer.saveRecipient.namePlaceholder')}
-                    />
-                  </div>
-                  {#if saveRecipientError}
-                    <p class="text-destructive mt-2 text-xs">{saveRecipientError}</p>
-                  {/if}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    class="mt-3"
-                    onclick={saveRecipientFromSuccess}
-                    disabled={savingRecipient}
-                  >
-                    {savingRecipient
-                      ? i18n.t('wallet.transfer.saveRecipient.saving')
-                      : i18n.t('wallet.transfer.saveRecipient.save')}
-                  </Button>
-                </div>
-              {:else if savedRecipientOnSuccess}
-                <div class="rounded-md bg-emerald-500/12 px-3 py-2.5 text-left dark:bg-emerald-400/12">
-                  <div class="flex items-start gap-2">
-                    <CheckCircle2Icon class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <div class="space-y-0.5">
-                      <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                        {i18n.t('wallet.transfer.step.success.savedRecipientTitle')}
-                      </p>
-                      {#if successMatchedSavedRecipient}
-                        <p class="text-[11px] text-emerald-900/85 dark:text-emerald-200/90">
-                          {i18n.t('wallet.transfer.review.savedRecipient', {
-                            contact: successMatchedSavedRecipient.contact.displayName,
-                            endpoint: successMatchedSavedRecipient.endpoint.label
-                          })}
-                        </p>
-                      {:else}
-                        <p class="text-[11px] text-emerald-900/85 dark:text-emerald-200/90">
-                          {i18n.t('wallet.transfer.step.success.savedRecipientDescription')}
+                      {#if reviewReceiveAmountFiatDisplay && reviewReceiveAmountFiatDisplay !== '≈ —'}
+                        <p class="text-[11px] text-muted-foreground tabular-nums">
+                          {reviewReceiveAmountFiatDisplay}
                         </p>
                       {/if}
                     </div>
+                  {/if}
+                </div>
+
+                <div class="grid gap-8 py-1 sm:grid-cols-2">
+                  <div class="min-w-0 space-y-1">
+                    <p class="text-sm text-muted-foreground">
+                      {i18n.t('wallet.transfer.summary.from')}
+                    </p>
+                    <p class="truncate text-sm font-semibold">
+                      {i18n.t(
+                        selectedCoinOption?.sourceKind === 'private'
+                          ? 'wallet.transfer.source.privateAddress'
+                          : 'wallet.transfer.source.publicAddress'
+                      )} · {sourceNetworkDisplayName}
+                    </p>
+                    <p class="identifier-text truncate text-xs text-muted-foreground">
+                      {truncateAddressMiddle(selectedSourceAddress, 12, 12)}
+                    </p>
+                  </div>
+                  <div class="min-w-0 space-y-1">
+                    <p class="text-sm text-muted-foreground">
+                      {i18n.t('wallet.transfer.summary.to')} · {reviewDestinationNetworkValue ||
+                        sourceNetworkDisplayName}
+                    </p>
+                    {#if reviewRecipientName}
+                      <p class="truncate text-sm font-semibold">{reviewRecipientName}</p>
+                    {/if}
+                    <p class="identifier-text truncate text-xs text-muted-foreground">
+                      {reviewRecipientAddressWithSelf || i18n.t('wallet.transfer.summary.notSet')}
+                    </p>
+                    {#if !matchedSavedRecipient && !isSelfRecipient}
+                      <p class="text-xs text-amber-700 dark:text-amber-300">
+                        {i18n.t('wallet.transfer.review.unsavedRecipient')}
+                      </p>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="space-y-1 border-t border-border/70 pt-4">
+                  {#if conversionEnabled}
+                    <div class="px-1 py-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <p class="text-sm text-muted-foreground">
+                          {i18n.t('wallet.transfer.summary.route')}
+                        </p>
+                        <p class="text-right text-sm font-medium">
+                          {reviewRouteValue || i18n.t('wallet.transfer.viaBest')}
+                        </p>
+                      </div>
+                    </div>
+                  {/if}
+
+                  <div class="space-y-2 px-1 py-2">
+                    {#if directSendFeeEligible && authoritativeDirectSendFeeMode}
+                      <button
+                        type="button"
+                        class="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between gap-3 rounded-lg px-1 py-1 text-left transition-colors outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+                        onclick={openDirectSendFeeSheet}
+                        disabled={transferMutationLocked}
+                      >
+                        <span class="min-w-0">
+                          <span class="block text-sm text-muted-foreground">
+                            {selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20'
+                              ? i18n.t('wallet.transfer.fee.maximumNetworkFee')
+                              : i18n.t('wallet.transfer.summary.networkFee')}
+                          </span>
+                          <span class="block text-xs font-medium">
+                            {i18n.t(`wallet.transfer.fee.${authoritativeDirectSendFeeMode}`)}
+                          </span>
+                        </span>
+                        <span class="flex items-center gap-2">
+                          <span class="text-sm font-medium tabular-nums">
+                            {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
+                          </span>
+                          <ChevronRightIcon class="size-4 text-muted-foreground" />
+                        </span>
+                      </button>
+                      {#if simplePreflightResult?.feeRateSatsPerVbyte}
+                        <div class="flex items-center justify-between gap-3 pt-1">
+                          <p class="text-[11px] text-muted-foreground">
+                            {i18n.t('wallet.transfer.fee.feeRate')}
+                          </p>
+                          <p class="text-[11px] font-medium tabular-nums">
+                            {simplePreflightResult.feeRateSatsPerVbyte} sat/vB
+                          </p>
+                        </div>
+                      {/if}
+                      <div
+                        class="flex items-center justify-between gap-3 border-t border-border/60 pt-2"
+                      >
+                        <p class="text-sm text-muted-foreground">
+                          {i18n.t(
+                            selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20'
+                              ? 'wallet.transfer.fee.maximumTotalDebited'
+                              : 'wallet.transfer.fee.totalDebited'
+                          )}
+                        </p>
+                        <p class="text-sm font-semibold tabular-nums">
+                          {reviewTotalDebitedValue}
+                        </p>
+                      </div>
+                    {:else}
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="text-[11px] text-muted-foreground">
+                          {i18n.t('wallet.transfer.summary.networkFee')}
+                        </p>
+                        <p class="text-[13px] font-medium tabular-nums">
+                          {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
+                        </p>
+                      </div>
+                    {/if}
+
+                    {#if activeExportSystemId && isEthereumExport(activeExportSystemId)}
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="text-[11px] text-muted-foreground">
+                          {i18n.t('wallet.transfer.summary.bridgeFeeEstimate')}
+                        </p>
+                        <div class="min-w-0 text-right">
+                          <p class="text-[13px] font-medium tabular-nums">
+                            {bridgeFeeParityEligible
+                              ? bridgeFeeEstimateValue
+                              : i18n.t('wallet.transfer.bridgeFeeUnavailable')}
+                          </p>
+                          {#if bridgeFeeParityEligible && bridgeFeeEstimateSecondary && !hideBridgeFeeEstimateFiatBreakdown}
+                            <p
+                              class={`mt-0.5 text-[11px] ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'} tabular-nums`}
+                            >
+                              {bridgeFeeEstimateSecondary}
+                            </p>
+                          {/if}
+                        </div>
+                      </div>
+                    {/if}
+
+                    {#if conversionEnabled && conversionFeeInfo}
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="text-[11px] text-muted-foreground">
+                          {i18n.t('wallet.transfer.summary.conversionFeeWithRate', {
+                            rate: conversionFeeInfo.percentage,
+                          })}
+                        </p>
+                        <p class="text-[13px] font-medium tabular-nums">
+                          {conversionFeeInfo.amount}
+                          {conversionFeeInfo.currency}
+                        </p>
+                      </div>
+                    {/if}
+
+                    {#if showReviewTotalFeesFiat && !directSendFeeEligible}
+                      <p class="text-right text-[11px] text-muted-foreground tabular-nums">
+                        {reviewTotalFeesFiat}
+                      </p>
+                    {/if}
+                  </div>
+
+                  {#if reviewWarnings.length > 0}
+                    <div class="rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-2">
+                      <p class="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        {i18n.t('wallet.transfer.warningsTitle')}
+                      </p>
+                      <div class="mt-1 space-y-1">
+                        {#each reviewWarnings as warning}
+                          <p class="text-[11px] leading-snug text-amber-700 dark:text-amber-300">
+                            {warning}
+                          </p>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {:else}
+              <div class="space-y-3">
+                <p class="text-sm text-muted-foreground">
+                  {i18n.t('wallet.transfer.reviewUnavailable')}
+                </p>
+                <Button
+                  variant="outline"
+                  onclick={() => void runPreflight()}
+                  disabled={preflighting || !recipientValid}
+                >
+                  {i18n.t('wallet.transfer.review.refresh')}
+                </Button>
+              </div>
+            {/if}
+          </Card.Content>
+        </Card.Root>
+      {/if}
+
+      {#if currentStep === 'success'}
+        <Card.Root class="border-0 bg-transparent py-0 shadow-none">
+          <Card.Content class="px-0 py-6">
+            <div class="mx-auto w-full max-w-[760px] space-y-6">
+              {#if sendResult && submittedTransferSnapshot && submittedReceiptCopy}
+                {@const submittedResult = sendResult}
+                <div class="space-y-1 text-left">
+                  <h2 class="text-[1.75rem] leading-tight font-semibold tracking-tight">
+                    {submittedReceiptCopy.title}
+                  </h2>
+                  <p class="max-w-xl text-sm leading-5 text-muted-foreground">
+                    {submittedReceiptCopy.timing}
+                  </p>
+                </div>
+
+                <div
+                  class={`grid gap-4 ${submittedTransferSnapshot.estimatedReceive ? 'sm:grid-cols-2' : ''}`}
+                >
+                  <div class="rounded-2xl bg-muted/35 p-4 dark:bg-muted/40">
+                    <p class="text-xs text-muted-foreground">
+                      {i18n.t('wallet.transfer.receipt.submittedAmount')}
+                    </p>
+                    <p class="mt-1 text-xl font-semibold tabular-nums">
+                      {formatAmountForReviewDisplay(
+                        submittedTransferSnapshot.submittedAmount,
+                        MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
+                      )}
+                      <span class="ml-1">{submittedTransferSnapshot.submittedTicker}</span>
+                    </p>
+                  </div>
+
+                  {#if submittedTransferSnapshot.estimatedReceive}
+                    <div class="rounded-2xl bg-muted/35 p-4 dark:bg-muted/40">
+                      <p class="text-xs text-muted-foreground">
+                        {i18n.t('wallet.transfer.summary.estimatedReceive')}
+                      </p>
+                      <p class="mt-1 text-xl font-semibold tabular-nums">
+                        {submittedTransferSnapshot.estimatedReceive}
+                      </p>
+                    </div>
+                  {/if}
+                </div>
+
+                <div class="grid gap-8 sm:grid-cols-2">
+                  <div class="min-w-0 space-y-1">
+                    <p class="text-sm text-muted-foreground">
+                      {i18n.t('wallet.transfer.receipt.from')}
+                    </p>
+                    <p class="truncate text-sm font-semibold">
+                      {submittedTransferSnapshot.sourceLabel} · {submittedTransferSnapshot.sourceNetworkLabel}
+                    </p>
+                    <p class="identifier-text truncate text-xs text-muted-foreground">
+                      {truncateAddressMiddle(submittedTransferSnapshot.sourceAddress, 12, 12)}
+                    </p>
+                  </div>
+                  <div class="min-w-0 space-y-1">
+                    <p class="text-sm text-muted-foreground">
+                      {i18n.t('wallet.transfer.receipt.to')} · {submittedTransferSnapshot.destinationNetworkLabel}
+                    </p>
+                    <p class="identifier-text truncate text-xs text-muted-foreground">
+                      {truncateAddressMiddle(submittedTransferSnapshot.destinationAddress, 12, 12)}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="rounded-xl bg-muted/35 px-4 py-3 dark:bg-muted/40">
+                  <p class="text-xs text-muted-foreground">
+                    {i18n.t('wallet.transfer.receipt.transactionId')}
+                  </p>
+                  <p class="identifier-text mt-1 text-xs leading-5 break-all">
+                    {submittedResult.txid}
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-center gap-4">
+                    <InlineTextActionButton
+                      onclick={() => copySuccessFieldValue(submittedResult.txid, 'txid')}
+                    >
+                      {copiedSuccessField === 'txid'
+                        ? i18n.t('wallet.transfer.receipt.copied')
+                        : i18n.t('wallet.transfer.receipt.copy')}
+                    </InlineTextActionButton>
+                    {#if submittedExplorerUrl}
+                      <InlineTextActionButton
+                        onclick={() => void openTrustedExternalUrl(submittedExplorerUrl)}
+                      >
+                        <ExternalLinkIcon class="size-3.5" />
+                        {i18n.t('wallet.transfer.receipt.viewExplorer')}
+                      </InlineTextActionButton>
+                    {/if}
                   </div>
                 </div>
               {/if}
-            {/if}
-          </div>
-        </Card.Content>
-      </Card.Root>
-        {/if}
+            </div>
+          </Card.Content>
+        </Card.Root>
+      {/if}
     {/if}
   </div>
 </WalletTransferStepperShell>
 
-<StandardRightSheet bind:isOpen={showSourceAssetSheet} title={i18n.t('wallet.transfer.youSend')}>
+<StandardRightSheet
+  bind:isOpen={showSourceAssetSheet}
+  title={i18n.t('wallet.transfer.source.sendFrom')}
+>
   <div class="flex h-full min-h-0 flex-col">
     {#if positiveSendableCoinOptions.length === 0}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.noAssets')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noAssets')}</p>
     {:else}
-      <div class="min-h-0 flex-1 overflow-y-auto pr-1">
-        <div class="space-y-2 pb-1">
-          {#each positiveSendableCoinOptions as option}
-            <button
-              type="button"
-              class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
+      <ScrollArea.Root class="min-h-0 flex-1">
+        <ScrollArea.Viewport class="h-full pr-1">
+          <div class="space-y-2 pb-1">
+            {#each positiveSendableCoinOptions as option}
+              {@const optionAddress = option.scope.address}
+              <button
+                type="button"
+                class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                {selectedCoinId === option.coin.id
+                {selectedCoinId === option.coin.id && selectedSourceChannelId === option.channelId
                   ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
                   : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
-              onclick={() => selectSourceCoin(option.coin.id)}
-            >
-              <div class="flex min-w-0 items-center gap-2.5">
-                <CoinIcon
-                  coinId={option.coin.id}
-                  coinName={option.displayName}
-                  size={18}
-                  decorative={true}
-                />
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-semibold">{option.displayName}</p>
-                  <p class="text-muted-foreground truncate text-xs">{option.displayTicker}</p>
+                onclick={() => selectSourceCoin(option.coin.id, option.channelId)}
+              >
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <CoinIcon
+                    coinId={option.coin.id}
+                    coinName={option.displayName}
+                    size={18}
+                    decorative={true}
+                  />
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold">{option.displayName}</p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      {i18n.t(
+                        option.sourceKind === 'private'
+                          ? 'wallet.transfer.source.privateAddress'
+                          : 'wallet.transfer.source.publicAddress'
+                      )}
+                      · {resolveSourceNetworkDisplayName(
+                        option.coin.systemId ?? option.coin.id,
+                        option.channelId.split('.')[0] ?? ''
+                      )}
+                    </p>
+                    {#if optionAddress}
+                      <p class="identifier-text truncate text-[11px] text-muted-foreground">
+                        {truncateAddressMiddle(optionAddress, 10, 10)}
+                      </p>
+                    {/if}
+                  </div>
                 </div>
-              </div>
-              <p class="ml-3 shrink-0 text-sm font-medium">{formatSheetBalance(option.balanceTotal)}</p>
-            </button>
-          {/each}
-        </div>
-      </div>
+                <p class="ml-3 shrink-0 text-sm font-medium">
+                  {formatSheetBalance(option.balanceTotal)}
+                </p>
+              </button>
+            {/each}
+          </div>
+        </ScrollArea.Viewport>
+        <ScrollArea.Scrollbar orientation="vertical" />
+      </ScrollArea.Root>
     {/if}
   </div>
 </StandardRightSheet>
 
-<StandardRightSheet bind:isOpen={showAddressBookSheet} title={i18n.t('wallet.transfer.addressBook.sheetTitle')}>
+<StandardRightSheet bind:isOpen={showFeeSheet} title={i18n.t('wallet.transfer.fee.networkFee')}>
+  <div class="flex h-full min-h-0 flex-col">
+    <div class="space-y-4">
+      {#if selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20'}
+        <p class="text-sm leading-5 text-muted-foreground">
+          {i18n.t('wallet.transfer.fee.maximumExplanation')}
+        </p>
+      {/if}
+
+      <RadioGroup.Root
+        bind:value={pendingDirectSendFeeMode}
+        disabled={transferMutationLocked}
+        name="direct-send-fee-mode"
+        aria-label={i18n.t('wallet.transfer.fee.networkFee')}
+      >
+        {#each directSendFeeOptions as option}
+          <RadioGroup.Item
+            value={option.value}
+            aria-label={`${option.label} ${option.description}`}
+          >
+            <span>
+              <span class="block text-sm font-semibold">{option.label}</span>
+              <span class="block text-xs text-muted-foreground">{option.description}</span>
+            </span>
+          </RadioGroup.Item>
+        {/each}
+      </RadioGroup.Root>
+
+      {#if activePreflight && pendingFeeModeMatchesApplied}
+        <div class="rounded-xl bg-muted/35 px-4 py-3 dark:bg-muted/40">
+          <div class="flex items-center justify-between gap-4">
+            <p class="text-xs text-muted-foreground">
+              {selectedChannelPrefix === 'eth' || selectedChannelPrefix === 'erc20'
+                ? i18n.t('wallet.transfer.fee.maximumNetworkFee')
+                : i18n.t('wallet.transfer.fee.networkFee')}
+            </p>
+            <p class="text-sm font-semibold tabular-nums">{reviewNetworkFeeValue}</p>
+          </div>
+          <p class="mt-1 text-xs text-muted-foreground">
+            {i18n.t('wallet.transfer.fee.paidIn', {
+              currency: reviewNetworkFeeCurrencyLabel || activePreflight.feeCurrency,
+            })}
+          </p>
+        </div>
+      {:else if activePreflight}
+        <p class="rounded-xl bg-muted/35 px-4 py-3 text-sm text-muted-foreground dark:bg-muted/40">
+          {i18n.t('wallet.transfer.fee.refreshRequired')}
+        </p>
+      {/if}
+    </div>
+
+    <div class="mt-auto pt-6">
+      <Button
+        class="w-full"
+        onclick={() => void applyDirectSendFeeMode()}
+        disabled={transferMutationLocked || preflighting}
+      >
+        {i18n.t('wallet.transfer.fee.apply')}
+      </Button>
+    </div>
+  </div>
+</StandardRightSheet>
+
+<StandardRightSheet
+  bind:isOpen={showAddressBookSheet}
+  title={i18n.t('wallet.transfer.addressBook.sheetTitle')}
+>
   <div class="flex h-full min-h-0 flex-col gap-3">
     <SearchInput
       bind:value={addressBookSearchTerm}
@@ -4230,7 +4551,7 @@
     />
 
     {#if addressBookEndpointOptions.length === 0}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.addressBook.empty')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.addressBook.empty')}</p>
     {:else}
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport class="h-full pr-1">
@@ -4245,17 +4566,21 @@
               >
                 <div class="min-w-0">
                   <p class="truncate text-[15px] leading-tight font-medium">{option.contactName}</p>
-                  <p class="text-muted-foreground mt-0.5 flex items-center gap-1.5 truncate text-sm">
+                  <p
+                    class="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground"
+                  >
                     <span
-                      class="bg-background/60 text-muted-foreground inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-background/45"
+                      class="inline-flex shrink-0 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
                     >
                       {endpointBadgeLabel(option.endpointKind)}
                     </span>
-                    <span class="identifier-text truncate">{shortRecipientAddress(option.endpointAddress)}</span>
+                    <span class="identifier-text truncate"
+                      >{shortRecipientAddress(option.endpointAddress)}</span
+                    >
                   </p>
                 </div>
                 {#if option.lastUsedAt}
-                  <p class="text-muted-foreground ml-3 mt-0.5 text-xs">
+                  <p class="mt-0.5 ml-3 text-xs text-muted-foreground">
                     {i18n.t('wallet.transfer.addressBook.recent')}
                   </p>
                 {/if}
@@ -4269,7 +4594,10 @@
   </div>
 </StandardRightSheet>
 
-<StandardRightSheet bind:isOpen={showReceiveAssetSheet} title={i18n.t('wallet.transfer.receiveSheetTitle')}>
+<StandardRightSheet
+  bind:isOpen={showReceiveAssetSheet}
+  title={i18n.t('wallet.transfer.receiveSheetTitle')}
+>
   <div class="flex h-full min-h-0 flex-col gap-3">
     <SearchInput
       bind:value={receiveSearchTerm}
@@ -4278,20 +4606,20 @@
     />
 
     {#if targetsError}
-      <p class="text-destructive text-sm">{targetsError}</p>
+      <p class="text-sm text-destructive">{targetsError}</p>
     {/if}
 
     {#if !loadingTargets && rawReceiveAssetSections.allOptions.length === 0}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.viaNoOptions')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.viaNoOptions')}</p>
     {:else if !loadingTargets && receiveAssetOptions.length === 0}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.routeNoMatches')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.routeNoMatches')}</p>
     {:else}
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport class="h-full pr-1">
           <div class="space-y-4 pb-1">
             {#if popularReceiveAssetOptions.length > 0}
               <section class="space-y-2">
-                <p class="text-muted-foreground px-1 text-xs font-semibold">
+                <p class="px-1 text-xs font-semibold text-muted-foreground">
                   {i18n.t('wallet.transfer.routeGroupPopular')}
                 </p>
                 {#each popularReceiveAssetOptions as option}
@@ -4301,8 +4629,8 @@
                     class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                       focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                       {isReceiveOptionSelected(option)
-                        ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                        : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                      ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                      : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
                     onclick={() => selectReceiveAsset(option.id)}
                   >
                     <div class="flex min-w-0 items-center gap-2.5">
@@ -4315,7 +4643,7 @@
                       <div class="min-w-0">
                         <p class="truncate text-sm font-semibold">{display.primary}</p>
                         {#if display.secondary}
-                          <p class="text-muted-foreground truncate text-xs">{display.secondary}</p>
+                          <p class="truncate text-xs text-muted-foreground">{display.secondary}</p>
                         {/if}
                       </div>
                     </div>
@@ -4326,7 +4654,7 @@
 
             {#if otherReceiveAssetOptions.length > 0}
               <section class="space-y-2">
-                <p class="text-muted-foreground px-1 text-xs font-semibold">
+                <p class="px-1 text-xs font-semibold text-muted-foreground">
                   {popularReceiveAssetOptions.length > 0
                     ? i18n.t('wallet.transfer.routeGroupMore')
                     : i18n.t('wallet.transfer.routeGroupConversions')}
@@ -4338,8 +4666,8 @@
                     class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                       focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                       {isReceiveOptionSelected(option)
-                        ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                        : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                      ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                      : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
                     onclick={() => selectReceiveAsset(option.id)}
                   >
                     <div class="flex min-w-0 items-center gap-2.5">
@@ -4352,7 +4680,7 @@
                       <div class="min-w-0">
                         <p class="truncate text-sm font-semibold">{display.primary}</p>
                         {#if display.secondary}
-                          <p class="text-muted-foreground truncate text-xs">{display.secondary}</p>
+                          <p class="truncate text-xs text-muted-foreground">{display.secondary}</p>
                         {/if}
                       </div>
                     </div>
@@ -4368,17 +4696,24 @@
   </div>
 </StandardRightSheet>
 
-<StandardRightSheet bind:isOpen={showNetworkSheet} title={i18n.t('wallet.transfer.networkSheetTitle')}>
+<StandardRightSheet
+  bind:isOpen={showNetworkSheet}
+  title={i18n.t('wallet.transfer.networkSheetTitle')}
+>
   <div class="flex h-full min-h-0 flex-col gap-3">
     {#if pendingGroupedReceiveOption}
-      <p class="text-muted-foreground text-sm">
-        {i18n.t('wallet.transfer.networkSheetDescription', { value: pendingGroupedReceiveOption.label })}
+      <p class="text-sm text-muted-foreground">
+        {i18n.t('wallet.transfer.networkSheetDescription', {
+          value: pendingGroupedReceiveOption.label,
+        })}
       </p>
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport class="h-full pr-1">
           <div class="space-y-2 pb-1">
             {#each pendingGroupedReceiveOption.networkOptions ?? [] as option}
-              {@const optionExportSystemId = option.hasOnChainPath ? null : (option.exportOptions[0]?.exportTo ?? null)}
+              {@const optionExportSystemId = option.hasOnChainPath
+                ? null
+                : (option.exportOptions[0]?.exportTo ?? null)}
               {@const optionNetworkIconId = networkIconCoinIdForExportOption(
                 optionExportSystemId ?? selectedSourceSystemId,
                 optionExportSystemId
@@ -4393,9 +4728,10 @@
                 class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                   {optionDisabled ? 'cursor-not-allowed opacity-60' : ''}
-                  {selectedReceiveAssetId === option.id && selectedExportSystemId === optionExportSystemId
-                    ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                    : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                  {selectedReceiveAssetId === option.id &&
+                selectedExportSystemId === optionExportSystemId
+                  ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                  : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
                 disabled={optionDisabled}
                 onclick={() => {
                   if (optionDisabled) return;
@@ -4410,19 +4746,25 @@
                     decorative={true}
                   />
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-medium">{networkLabelForGroupedOption(option)}</p>
-                    <p class="text-muted-foreground truncate text-xs">
+                    <p class="truncate text-sm font-medium">
+                      {networkLabelForGroupedOption(option)}
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">
                       {i18n.t('wallet.transfer.receiveAs', {
-                        value: resolveReceiveLabel(option, optionExportSystemId)
+                        value: resolveReceiveLabel(option, optionExportSystemId),
                       })}
                     </p>
                     {#if optionBridgeFeeLine}
-                      <p class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      <p
+                        class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}
+                      >
                         {optionBridgeFeeLine}
                       </p>
                     {/if}
                     {#if optionBridgeFeeMeta}
-                      <p class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      <p
+                        class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}
+                      >
                         {optionBridgeFeeMeta}
                       </p>
                     {/if}
@@ -4435,21 +4777,24 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
     {:else}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.viaNoOptions')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.viaNoOptions')}</p>
     {/if}
   </div>
 </StandardRightSheet>
 
-<StandardRightSheet bind:isOpen={showExportSheet} title={i18n.t('wallet.transfer.exportSheetTitle')}>
+<StandardRightSheet
+  bind:isOpen={showExportSheet}
+  title={i18n.t('wallet.transfer.exportSheetTitle')}
+>
   <div class="flex h-full min-h-0 flex-col gap-3">
     {#if pendingTargetOption}
-      <p class="text-muted-foreground text-sm">
+      <p class="text-sm text-muted-foreground">
         {#if exportSheetMode !== 'send' && !pendingTargetOption.hasOnChainPath && pendingTargetOption.exportOptions.length === 1}
           {i18n.t('wallet.transfer.onlyAvailableOnNetwork', {
             value: networkLabelForExportOption(
               pendingTargetOption.exportOptions[0].exportTo,
               pendingTargetOption.exportOptions[0].exportToName
-            )
+            ),
           })}
         {:else}
           {i18n.t('wallet.transfer.exportSheetDescription', {
@@ -4458,7 +4803,7 @@
                 ? selectedCoinPresentation?.displayTicker?.trim() ||
                   selectedCoinPresentation?.displayName?.trim() ||
                   pendingTargetOption.label
-                : pendingTargetOption.label
+                : pendingTargetOption.label,
           })}
         {/if}
       </p>
@@ -4469,14 +4814,15 @@
               {@const sameNetworkSelected =
                 exportSheetMode === 'send'
                   ? selectedSendExportSystemId === null
-                  : selectedReceiveAssetId === pendingTargetOption.id && selectedExportSystemId === null}
+                  : selectedReceiveAssetId === pendingTargetOption.id &&
+                    selectedExportSystemId === null}
               <button
                 type="button"
                 class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                   {sameNetworkSelected
-                    ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                    : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                  ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                  : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
                 onclick={selectSameNetworkOption}
               >
                 <div class="flex min-w-0 items-center gap-2">
@@ -4490,13 +4836,13 @@
                     <p class="truncate text-sm font-medium">
                       {i18n.t('wallet.transfer.keepOnNetwork', { value: sourceNetworkDisplayName })}
                     </p>
-                    <p class="text-muted-foreground truncate text-xs">
+                    <p class="truncate text-xs text-muted-foreground">
                       {i18n.t('wallet.transfer.receiveAs', {
                         value:
                           exportSheetMode === 'send'
                             ? selectedCoinPresentation?.displayTicker?.trim() ||
                               resolveReceiveLabel(pendingTargetOption, null)
-                            : resolveReceiveLabel(pendingTargetOption, null)
+                            : resolveReceiveLabel(pendingTargetOption, null),
                       })}
                     </p>
                   </div>
@@ -4511,15 +4857,16 @@
               {@const optionSelected =
                 exportSheetMode === 'send'
                   ? selectedSendExportSystemId === option.exportTo
-                  : selectedReceiveAssetId === pendingTargetOption.id && selectedExportSystemId === option.exportTo}
+                  : selectedReceiveAssetId === pendingTargetOption.id &&
+                    selectedExportSystemId === option.exportTo}
               <button
                 type="button"
                 class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                   {optionDisabled ? 'cursor-not-allowed opacity-60' : ''}
                   {optionSelected
-                    ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                    : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                  ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                  : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
                 disabled={optionDisabled}
                 onclick={() => {
                   if (optionDisabled) return;
@@ -4537,18 +4884,22 @@
                     <p class="truncate text-sm font-medium">
                       {networkLabelForExportOption(option.exportTo, option.exportToName)}
                     </p>
-                    <p class="text-muted-foreground truncate text-xs">
+                    <p class="truncate text-xs text-muted-foreground">
                       {i18n.t('wallet.transfer.receiveAs', {
-                        value: resolveReceiveLabel(pendingTargetOption, option.exportTo)
+                        value: resolveReceiveLabel(pendingTargetOption, option.exportTo),
                       })}
                     </p>
                     {#if optionBridgeFeeLine}
-                      <p class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      <p
+                        class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}
+                      >
                         {optionBridgeFeeLine}
                       </p>
                     {/if}
                     {#if optionBridgeFeeMeta}
-                      <p class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      <p
+                        class={`truncate text-xs ${bridgeFeeInsufficient ? 'text-destructive' : 'text-muted-foreground'}`}
+                      >
                         {optionBridgeFeeMeta}
                       </p>
                     {/if}
@@ -4561,7 +4912,7 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
     {:else}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.viaNoOptions')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.viaNoOptions')}</p>
     {/if}
   </div>
 </StandardRightSheet>
@@ -4570,7 +4921,7 @@
   <div class="space-y-3">
     {#if selectedReceiveAssetOption}
       {#if rankedViaOptions.length === 0}
-        <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.viaNoOptions')}</p>
+        <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.viaNoOptions')}</p>
       {:else}
         <div class="space-y-2">
           {#each rankedViaOptions as option}
@@ -4581,8 +4932,8 @@
               class="group flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                 {selectedViaOptionId === option.id
-                  ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
-                  : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
+                ? 'bg-primary/14 hover:bg-primary/20 dark:bg-primary/28 dark:hover:bg-primary/36'
+                : 'bg-muted/65 hover:bg-muted/70 dark:bg-muted/55 dark:hover:bg-muted/65'}"
               onclick={() => selectViaOption(option.id)}
             >
               <div class="flex min-w-0 items-start gap-2.5">
@@ -4604,17 +4955,21 @@
                     {/if}
                   </div>
                   {#if routeSubtitle}
-                    <p class="text-muted-foreground truncate text-xs">{routeSubtitle}</p>
+                    <p class="truncate text-xs text-muted-foreground">{routeSubtitle}</p>
                   {/if}
                 </div>
               </div>
               {#if estimatedValue}
                 <div class="ml-3 min-w-0 text-right">
-                  <p class="text-muted-foreground inline-flex items-center gap-1 text-[11px] font-medium">
+                  <p
+                    class="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+                  >
                     <ArrowDownIcon class="size-3" />
                     <span>{i18n.t('wallet.transfer.estimatedLabel')}</span>
                   </p>
-                  <p class="text-foreground text-lg font-semibold leading-none tabular-nums">{estimatedValue}</p>
+                  <p class="text-lg leading-none font-semibold text-foreground tabular-nums">
+                    {estimatedValue}
+                  </p>
                 </div>
               {/if}
             </button>
@@ -4622,7 +4977,7 @@
         </div>
       {/if}
     {:else}
-      <p class="text-muted-foreground text-sm">{i18n.t('wallet.transfer.viaNoOptions')}</p>
+      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.viaNoOptions')}</p>
     {/if}
   </div>
 </StandardRightSheet>

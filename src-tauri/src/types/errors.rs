@@ -72,6 +72,9 @@ pub enum WalletError {
     #[error("Unsupported channel")]
     UnsupportedChannel,
 
+    #[error("Network fee selection is unavailable for this route")]
+    DirectSendFeeModeUnsupported,
+
     #[error("Unsupported network for this operation")]
     UnsupportedNetwork,
 

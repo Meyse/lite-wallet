@@ -16,6 +16,7 @@ vi.mock('./walletDisplayService.js', () => ({
 import {
   acknowledgePendingEthSubmission,
   getPendingEthSubmission,
+  preflightSend,
   resumePendingEthSubmission,
   sendTransaction,
 } from './txService.js';
@@ -44,6 +45,54 @@ describe('txService ETH recovery boundary', () => {
       ['send_transaction', { request: { preflightId: 'preflight-1' } }],
     ]);
     expect(invalidateWalletDisplayHistoryMock).toHaveBeenCalledOnce();
+  });
+
+  it('includes a direct fee mode only when its caller supplies one', async () => {
+    invokeWalletCommandMock.mockResolvedValue({});
+
+    await preflightSend({
+      coinId: 'BTC',
+      channelId: 'btc.BTC',
+      toAddress: 'destination',
+      amount: '0.1',
+      memo: null,
+      feeMode: 'economy',
+    });
+    await preflightSend({
+      coinId: 'VRSC',
+      channelId: 'vrpc.address.system',
+      toAddress: 'destination',
+      amount: '1',
+      memo: null,
+    });
+
+    expect(invokeWalletCommandMock.mock.calls).toEqual([
+      [
+        'preflight_send',
+        {
+          params: {
+            coinId: 'BTC',
+            channelId: 'btc.BTC',
+            toAddress: 'destination',
+            amount: '0.1',
+            memo: null,
+            feeMode: 'economy',
+          },
+        },
+      ],
+      [
+        'preflight_send',
+        {
+          params: {
+            coinId: 'VRSC',
+            channelId: 'vrpc.address.system',
+            toAddress: 'destination',
+            amount: '1',
+            memo: null,
+          },
+        },
+      ],
+    ]);
   });
 
   it('acknowledges only through the explicit command', async () => {

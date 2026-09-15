@@ -6,17 +6,21 @@
 <script lang="ts">
   import TransferWizard from './TransferWizard.svelte';
   import type { TransferEntryContext } from './transfer-wizard/types';
+  import type { WalletNetwork } from '$lib/types/wallet';
 
   type SendProps = {
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
+    walletNetwork?: WalletNetwork;
   };
 
   const defaultCloseHandler = () => {};
 
-   
-  let { entryContext = null, onClose = defaultCloseHandler }: SendProps = $props();
-   
+  let {
+    entryContext = null,
+    onClose = defaultCloseHandler,
+    walletNetwork = 'mainnet',
+  }: SendProps = $props();
 </script>
 
-<TransferWizard entryIntent="send" {entryContext} {onClose} />
+<TransferWizard entryIntent="send" {entryContext} {onClose} {walletNetwork} />

@@ -15,6 +15,7 @@
     onClose?: () => void;
     closeDisabled?: boolean;
     showCloseButton?: boolean;
+    showProgress?: boolean;
     showAside?: boolean;
     mobileAsideLabel?: string;
     mobileAsideTitle?: string;
@@ -33,13 +34,14 @@
     onClose = defaultCloseHandler,
     closeDisabled = false,
     showCloseButton = true,
+    showProgress = true,
     showAside = true,
     mobileAsideLabel = '',
     mobileAsideTitle = '',
     children,
     aside,
     footer,
-    footerAside
+    footerAside,
   }: StepperWithAsideLayoutProps = $props();
 
   const i18n = $derived($i18nStore);
@@ -78,7 +80,7 @@
     <div class="absolute top-0 right-0 z-40 flex h-[50px] items-center pr-4">
       <button
         type="button"
-        class="ring-offset-background focus-visible:ring-ring inline-flex h-8 w-8 items-center justify-center rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
         onclick={onClose}
         disabled={closeDisabled}
         aria-label={i18n.t('common.cancel')}
@@ -93,27 +95,33 @@
       ${showAside && aside ? 'md:grid-cols-[minmax(0,1fr)_220px]' : 'md:grid-cols-[minmax(0,1fr)]'}`}
   >
     <div class="relative flex min-h-0 flex-col overflow-hidden">
-      <div class="absolute top-0 right-0 left-0 z-30 h-11" data-tauri-drag-region aria-hidden="true"></div>
+      <div
+        class="absolute top-0 right-0 left-0 z-30 h-11"
+        data-tauri-drag-region
+        aria-hidden="true"
+      ></div>
 
       <header class="relative z-10 shrink-0 border-b border-border/70">
         <div class="flex h-[50px] items-center justify-center px-4">
           <div class="flex min-w-0 flex-col items-center">
-            {#if steps.length > 0}
+            {#if showProgress && steps.length > 0}
               <ol class="flex max-w-full items-center gap-1 overflow-x-auto">
                 {#each steps as step, index}
                   <li class="flex items-center gap-1">
-                    <span class={`rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClasses(step.status)}`}>
+                    <span
+                      class={`rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusClasses(step.status)}`}
+                    >
                       {step.label}
                     </span>
                     {#if index < steps.length - 1}
-                      <span class="bg-border/70 h-px w-2.5" aria-hidden="true"></span>
+                      <span class="h-px w-2.5 bg-border/70" aria-hidden="true"></span>
                     {/if}
                   </li>
                 {/each}
               </ol>
-            {:else}
+            {:else if showProgress}
               <div class="flex items-center gap-2">
-                <span class="text-muted-foreground text-sm font-medium">
+                <span class="text-sm font-medium text-muted-foreground">
                   {i18n.t('shared.stepOf', { current: currentStep, total: totalSteps })}
                 </span>
                 {#each [...Array(totalSteps).keys()] as stepIndex}
@@ -121,10 +129,10 @@
                   <div
                     class="h-2 w-2 rounded-full transition-all duration-200
                       {stepNumber === currentStep
-                        ? 'bg-primary scale-125'
-                        : stepNumber < currentStep
-                          ? 'bg-primary/60'
-                          : 'bg-muted-foreground/30'}"
+                      ? 'scale-125 bg-primary'
+                      : stepNumber < currentStep
+                        ? 'bg-primary/60'
+                        : 'bg-muted-foreground/30'}"
                   ></div>
                 {/each}
               </div>
@@ -141,13 +149,15 @@
     </div>
 
     {#if showAside && aside}
-      <aside class="bg-sidebar-surface hidden min-h-0 overflow-y-auto border-l border-border/70 px-3 py-4 md:block">
+      <aside
+        class="hidden min-h-0 overflow-y-auto border-l border-border/70 bg-sidebar-surface px-3 py-4 md:block"
+      >
         {@render aside?.()}
       </aside>
     {/if}
 
     <footer
-      class={`border-black/10 bg-muted/10 dark:border-white/20 relative z-10 shrink-0 border-t ${
+      class={`relative z-10 shrink-0 border-t border-black/10 bg-muted/10 dark:border-white/20 ${
         showAside && aside ? 'md:col-span-2' : ''
       }`}
     >
@@ -155,7 +165,12 @@
         <div class="space-y-2 px-4 py-3 sm:px-6">
           {#if showAside && aside && mobileAsideLabel}
             <div class="flex justify-end md:hidden">
-              <Button variant="ghost" size="sm" class="px-2" onclick={() => (showMobileAside = true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="px-2"
+                onclick={() => (showMobileAside = true)}
+              >
                 {mobileAsideLabel}
               </Button>
             </div>
@@ -165,7 +180,7 @@
 
         {#if showAside && aside}
           <div
-            class="bg-sidebar-surface hidden border-l border-border/70 px-3 py-3 md:flex md:items-center"
+            class="hidden border-l border-border/70 bg-sidebar-surface px-3 py-3 md:flex md:items-center"
           >
             {@render footerAside?.()}
           </div>

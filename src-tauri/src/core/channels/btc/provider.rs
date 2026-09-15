@@ -64,6 +64,30 @@ pub struct MempoolTxStatus {
     pub block_time: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecommendedFees {
+    pub fastest_fee: u64,
+    pub half_hour_fee: u64,
+    pub hour_fee: u64,
+    pub economy_fee: u64,
+    pub minimum_fee: u64,
+}
+
+impl RecommendedFees {
+    fn validate(self) -> Result<Self, WalletError> {
+        if self.fastest_fee == 0
+            || self.half_hour_fee == 0
+            || self.hour_fee == 0
+            || self.economy_fee == 0
+            || self.minimum_fee == 0
+        {
+            return Err(WalletError::NetworkError);
+        }
+        Ok(self)
+    }
+}
+
 /// HTTP REST client for Bitcoin. Base URL comes from runtime config.
 pub struct BtcProvider {
     client: Client,
@@ -166,6 +190,22 @@ impl BtcProvider {
         Ok(tx_hex.to_string())
     }
 
+    /// GET /v1/fees/recommended -> current mempool-backed sat/vB targets.
+    pub async fn get_recommended_fees(&self) -> Result<RecommendedFees, WalletError> {
+        let url = self.url("v1/fees/recommended");
+        let res = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|_| WalletError::NetworkError)?;
+        if !res.status().is_success() {
+            return Err(WalletError::NetworkError);
+        }
+        let fees: RecommendedFees = res.json().await.map_err(|_| WalletError::NetworkError)?;
+        fees.validate()
+    }
+
     /// GET /address/:address/txs/chain -> confirmed txs (first page).
     pub async fn get_address_txs(&self, address: &str) -> Result<Vec<MempoolTx>, WalletError> {
         let url = self.url(&format!("address/{}/txs/chain", address));
@@ -263,5 +303,45 @@ impl BtcProviderPool {
 impl Default for BtcProviderPool {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecommendedFees;
+    use crate::types::WalletError;
+
+    #[test]
+    fn recommended_fees_require_positive_integer_targets() {
+        let valid: RecommendedFees = serde_json::from_value(serde_json::json!({
+            "fastestFee": 12,
+            "halfHourFee": 8,
+            "hourFee": 5,
+            "economyFee": 2,
+            "minimumFee": 1
+        }))
+        .expect("valid quote shape");
+        assert!(valid.validate().is_ok());
+
+        let zero: RecommendedFees = serde_json::from_value(serde_json::json!({
+            "fastestFee": 12,
+            "halfHourFee": 8,
+            "hourFee": 5,
+            "economyFee": 0,
+            "minimumFee": 1
+        }))
+        .expect("zero remains parseable for validation");
+        assert!(matches!(zero.validate(), Err(WalletError::NetworkError)));
+
+        assert!(
+            serde_json::from_value::<RecommendedFees>(serde_json::json!({
+                "fastestFee": 12,
+                "halfHourFee": -1,
+                "hourFee": 5,
+                "economyFee": 2,
+                "minimumFee": 1
+            }))
+            .is_err()
+        );
     }
 }

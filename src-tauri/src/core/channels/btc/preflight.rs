@@ -14,15 +14,17 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::core::channels::btc::provider::{BtcProvider, UtxoEntry};
+use crate::core::channels::direct_send_fee::resolve_btc_fee_rate;
 use crate::core::channels::store::{PreflightRecord, PreflightStore};
-use crate::types::transaction::{PreflightParams, PreflightResult, PreflightWarning};
+use crate::types::transaction::{
+    DirectSendFeeMode, PreflightParams, PreflightResult, PreflightWarning,
+};
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
-const SATOSHI_PER_COIN: f64 = 100_000_000.0;
+const SATOSHIS_PER_COIN: u64 = 100_000_000;
 const DUST_SATOSHI: u64 = 1000;
-const DEFAULT_FEE_SAT: u64 = 2000;
-pub(crate) const MAX_REVIEWED_FEE_SAT: u64 = DEFAULT_FEE_SAT + DUST_SATOSHI - 1;
+pub(crate) const LEGACY_P2PKH_INPUT_VBYTES: u64 = 148;
 
 /// Payload stored in PreflightStore for BTC send. Not sent to frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +35,8 @@ pub struct BtcPreflightPayload {
     pub value: String,
     pub fee: String,
     pub fee_sats: u64,
+    pub fee_rate_sats_per_vbyte: u64,
+    pub fee_mode: DirectSendFeeMode,
     pub inputs: Vec<BtcInputRef>,
 }
 
@@ -143,6 +147,194 @@ fn p2pkh_script_from_hash160(hash: &[u8; 20]) -> ScriptBuf {
         .into_script()
 }
 
+#[derive(Debug)]
+struct BtcTransactionPlan<'a> {
+    selected: Vec<&'a UtxoEntry>,
+    send_value_sat: u64,
+    change_sat: u64,
+    fee_sat: u64,
+    change_added_to_fee: bool,
+    fee_taken_from_amount: bool,
+    fee_taken_message: Option<String>,
+}
+
+fn compact_size_len(value: usize) -> u64 {
+    match value {
+        0..=0xfc => 1,
+        0xfd..=0xffff => 3,
+        0x1_0000..=0xffff_ffff => 5,
+        _ => 9,
+    }
+}
+
+pub(crate) fn legacy_p2pkh_transaction_vbytes(
+    input_count: usize,
+    output_scripts: &[&ScriptBuf],
+) -> Result<u64, WalletError> {
+    if input_count == 0 || output_scripts.is_empty() {
+        return Err(WalletError::OperationFailed);
+    }
+
+    let inputs = u64::try_from(input_count)
+        .map_err(|_| WalletError::OperationFailed)?
+        .checked_mul(LEGACY_P2PKH_INPUT_VBYTES)
+        .ok_or(WalletError::OperationFailed)?;
+    let outputs = output_scripts.iter().try_fold(0u64, |total, script| {
+        let script_len = script.len();
+        let serialized_len = 8u64
+            .checked_add(compact_size_len(script_len))
+            .and_then(|value| value.checked_add(u64::try_from(script_len).ok()?))
+            .ok_or(WalletError::OperationFailed)?;
+        total
+            .checked_add(serialized_len)
+            .ok_or(WalletError::OperationFailed)
+    })?;
+
+    4u64.checked_add(compact_size_len(input_count))
+        .and_then(|value| value.checked_add(inputs))
+        .and_then(|value| value.checked_add(compact_size_len(output_scripts.len())))
+        .and_then(|value| value.checked_add(outputs))
+        .and_then(|value| value.checked_add(4))
+        .ok_or(WalletError::OperationFailed)
+}
+
+fn shaped_fee_sat(
+    fee_rate_sats_per_vbyte: u64,
+    input_count: usize,
+    output_scripts: &[&ScriptBuf],
+) -> Result<u64, WalletError> {
+    if fee_rate_sats_per_vbyte == 0 {
+        return Err(WalletError::NetworkError);
+    }
+    legacy_p2pkh_transaction_vbytes(input_count, output_scripts)?
+        .checked_mul(fee_rate_sats_per_vbyte)
+        .ok_or(WalletError::OperationFailed)
+}
+
+fn build_transaction_plan<'a>(
+    utxos: &'a [UtxoEntry],
+    submitted_sat: u64,
+    fee_rate_sats_per_vbyte: u64,
+    destination_script: &ScriptBuf,
+    change_script: &ScriptBuf,
+) -> Result<BtcTransactionPlan<'a>, WalletError> {
+    let mut selected = Vec::new();
+    let mut total_sat = 0u64;
+
+    for utxo in utxos {
+        selected.push(utxo);
+        total_sat = total_sat
+            .checked_add(utxo.value)
+            .ok_or(WalletError::OperationFailed)?;
+
+        let fee_with_change = shaped_fee_sat(
+            fee_rate_sats_per_vbyte,
+            selected.len(),
+            &[destination_script, change_script],
+        )?;
+        if let Some(required_with_change) = submitted_sat.checked_add(fee_with_change) {
+            if total_sat >= required_with_change {
+                let change_sat = total_sat - required_with_change;
+                if change_sat >= DUST_SATOSHI {
+                    return Ok(BtcTransactionPlan {
+                        selected,
+                        send_value_sat: submitted_sat,
+                        change_sat,
+                        fee_sat: fee_with_change,
+                        change_added_to_fee: false,
+                        fee_taken_from_amount: false,
+                        fee_taken_message: None,
+                    });
+                }
+            }
+        }
+
+        let fee_without_change = shaped_fee_sat(
+            fee_rate_sats_per_vbyte,
+            selected.len(),
+            &[destination_script],
+        )?;
+        if let Some(required_without_change) = submitted_sat.checked_add(fee_without_change) {
+            if total_sat >= required_without_change {
+                return Ok(BtcTransactionPlan {
+                    selected,
+                    send_value_sat: submitted_sat,
+                    change_sat: 0,
+                    fee_sat: total_sat - submitted_sat,
+                    change_added_to_fee: total_sat - submitted_sat > fee_without_change,
+                    fee_taken_from_amount: false,
+                    fee_taken_message: None,
+                });
+            }
+        }
+    }
+
+    if total_sat < submitted_sat || selected.is_empty() {
+        return Err(WalletError::InsufficientFunds);
+    }
+    let fee_without_change = shaped_fee_sat(
+        fee_rate_sats_per_vbyte,
+        selected.len(),
+        &[destination_script],
+    )?;
+    let (send_value_sat, fee_taken_from_amount, fee_taken_message) =
+        resolve_send_value_after_fee(submitted_sat, total_sat, fee_without_change)?;
+
+    Ok(BtcTransactionPlan {
+        selected,
+        send_value_sat,
+        change_sat: 0,
+        fee_sat: fee_without_change,
+        change_added_to_fee: false,
+        fee_taken_from_amount,
+        fee_taken_message,
+    })
+}
+
+fn parse_positive_satoshis(value: &str) -> Result<u64, WalletError> {
+    let trimmed = value.trim();
+    let mut parts = trimmed.split('.');
+    let whole = parts.next().unwrap_or_default();
+    let fraction = parts.next().unwrap_or_default();
+    if whole.is_empty()
+        || parts.next().is_some()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() > 8
+    {
+        return Err(WalletError::OperationFailed);
+    }
+    let whole_sat = whole
+        .parse::<u64>()
+        .map_err(|_| WalletError::OperationFailed)?
+        .checked_mul(SATOSHIS_PER_COIN)
+        .ok_or(WalletError::OperationFailed)?;
+    let mut fraction_text = fraction.to_string();
+    fraction_text.extend(std::iter::repeat_n('0', 8 - fraction.len()));
+    let fraction_sat = if fraction_text.is_empty() {
+        0
+    } else {
+        fraction_text
+            .parse::<u64>()
+            .map_err(|_| WalletError::OperationFailed)?
+    };
+    let total = whole_sat
+        .checked_add(fraction_sat)
+        .ok_or(WalletError::OperationFailed)?;
+    if total == 0 {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(total)
+}
+
+fn satoshis_to_decimal_string(value: u64) -> String {
+    format!(
+        "{}.{:08}",
+        value / SATOSHIS_PER_COIN,
+        value % SATOSHIS_PER_COIN
+    )
+}
+
 fn resolve_send_value_after_fee(
     submitted_sat: u64,
     total_sat: u64,
@@ -188,53 +380,40 @@ pub async fn preflight(
     let from_hash = validate_btc_source_address(from_address, network)?;
     let from_script = p2pkh_script_from_hash160(&from_hash);
 
-    let amount_sat = params
-        .amount
-        .trim()
-        .parse::<f64>()
-        .map_err(|_| WalletError::OperationFailed)?
-        * SATOSHI_PER_COIN;
-    if amount_sat <= 0.0 {
-        return Err(WalletError::OperationFailed);
-    }
-    let amount_sat = amount_sat as u64;
+    let amount_sat = parse_positive_satoshis(&params.amount)?;
+    let fee_mode = params.fee_mode.unwrap_or(DirectSendFeeMode::Standard);
+    let recommended_fees = provider.get_recommended_fees().await?;
+    let fee_rate_sats_per_vbyte = resolve_btc_fee_rate(
+        fee_mode,
+        recommended_fees.economy_fee,
+        recommended_fees.half_hour_fee,
+        recommended_fees.minimum_fee,
+    )?;
 
     let utxos = provider.get_utxos(from_address).await?;
     if utxos.is_empty() {
         return Err(WalletError::InsufficientFunds);
     }
-    let fee_sat = DEFAULT_FEE_SAT;
-    let needed = amount_sat.saturating_add(fee_sat);
-    let mut selected: Vec<&UtxoEntry> = Vec::new();
-    let mut total: u64 = 0;
-    for u in &utxos {
-        selected.push(u);
-        total = total.saturating_add(u.value);
-        if total >= needed {
-            break;
-        }
-    }
-    let selected_owned = selected
+    let plan = build_transaction_plan(
+        &utxos,
+        amount_sat,
+        fee_rate_sats_per_vbyte,
+        &to_script,
+        &from_script,
+    )?;
+    let selected_owned = plan
+        .selected
         .iter()
         .map(|utxo| (*utxo).clone())
         .collect::<Vec<_>>();
     authenticate_utxos(provider, &selected_owned, &from_script).await?;
-    let (send_value_sat, fee_taken_from_amount, fee_taken_message) =
-        resolve_send_value_after_fee(amount_sat, total, fee_sat)?;
-
-    let candidate_change = total.saturating_sub(send_value_sat).saturating_sub(fee_sat);
-    let (change, actual_fee_sat) = if candidate_change >= DUST_SATOSHI {
-        (candidate_change, fee_sat)
-    } else {
-        (0, total.saturating_sub(send_value_sat))
-    };
-    if actual_fee_sat == 0 || actual_fee_sat > MAX_REVIEWED_FEE_SAT {
+    if plan.fee_sat == 0 {
         return Err(WalletError::OperationFailed);
     }
 
     let mut inputs: Vec<TxIn> = Vec::new();
     let mut payload_inputs: Vec<BtcInputRef> = Vec::new();
-    for u in &selected {
+    for u in &plan.selected {
         let txid = Txid::from_str(&u.txid).map_err(|_| WalletError::OperationFailed)?;
         inputs.push(TxIn {
             previous_output: OutPoint { txid, vout: u.vout },
@@ -251,12 +430,12 @@ pub async fn preflight(
 
     let mut outputs: Vec<TxOut> = Vec::new();
     outputs.push(TxOut {
-        value: Amount::from_sat(send_value_sat),
+        value: Amount::from_sat(plan.send_value_sat),
         script_pubkey: to_script,
     });
-    if change >= DUST_SATOSHI {
+    if plan.change_sat >= DUST_SATOSHI {
         outputs.push(TxOut {
-            value: Amount::from_sat(change),
+            value: Amount::from_sat(plan.change_sat),
             script_pubkey: from_script,
         });
     }
@@ -273,15 +452,17 @@ pub async fn preflight(
     let unsigned_hex = hex::encode(&raw);
 
     let preflight_id = Uuid::new_v4().to_string();
-    let value_str = format!("{:.8}", send_value_sat as f64 / SATOSHI_PER_COIN);
-    let fee_str = format!("{:.8}", actual_fee_sat as f64 / SATOSHI_PER_COIN);
+    let value_str = satoshis_to_decimal_string(plan.send_value_sat);
+    let fee_str = satoshis_to_decimal_string(plan.fee_sat);
     let payload = BtcPreflightPayload {
         unsigned_hex: unsigned_hex.clone(),
         to_address: params.to_address.clone(),
         from_address: from_address.to_string(),
         value: value_str.clone(),
         fee: fee_str.clone(),
-        fee_sats: actual_fee_sat,
+        fee_sats: plan.fee_sat,
+        fee_rate_sats_per_vbyte,
+        fee_mode,
         inputs: payload_inputs,
     };
     let payload_value = serde_json::to_value(&payload).map_err(|_| WalletError::OperationFailed)?;
@@ -295,8 +476,7 @@ pub async fn preflight(
         return Err(WalletError::WalletLocked);
     }
 
-    let warnings: Vec<PreflightWarning> = if candidate_change > 0 && candidate_change < DUST_SATOSHI
-    {
+    let warnings: Vec<PreflightWarning> = if plan.change_added_to_fee {
         vec![PreflightWarning {
             warning_type: "dust_change".to_string(),
             message: "Change below dust threshold is added to fee.".to_string(),
@@ -313,10 +493,12 @@ pub async fn preflight(
         amount_submitted: params.amount,
         to_address: params.to_address,
         from_address: from_address.to_string(),
-        fee_taken_from_amount,
-        fee_taken_message,
+        fee_taken_from_amount: plan.fee_taken_from_amount,
+        fee_taken_message: plan.fee_taken_message,
         warnings,
         memo: params.memo,
+        fee_mode: Some(fee_mode),
+        fee_rate_sats_per_vbyte: Some(fee_rate_sats_per_vbyte),
     })
 }
 
@@ -388,8 +570,17 @@ mod tests {
         }])
         .to_string();
 
+        let fee_json = serde_json::json!({
+            "fastestFee": 8,
+            "halfHourFee": 5,
+            "hourFee": 3,
+            "economyFee": 2,
+            "minimumFee": 1
+        })
+        .to_string();
+
         let server = tokio::spawn(async move {
-            for response_body in [utxo_json, previous_tx_hex] {
+            for response_body in [fee_json, utxo_json, previous_tx_hex] {
                 let (mut stream, _) = listener.accept().await.expect("accept BTC request");
                 let mut request = vec![0u8; 4096];
                 let count = stream.read(&mut request).await.expect("read BTC request");
@@ -421,6 +612,7 @@ mod tests {
                 to_address: source_address.clone(),
                 amount: "0.00050000".to_string(),
                 memo: None,
+                fee_mode: None,
             },
             &store,
             "account",
@@ -475,7 +667,8 @@ mod tests {
 
         let result = result.expect("honest endpoint should preflight");
         assert_eq!(result.value, "0.00050000");
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].contains("/v1/fees/recommended"));
         assert!(requests.iter().all(|request| request.starts_with("GET ")));
     }
 
@@ -570,5 +763,65 @@ mod tests {
     fn resolve_send_value_after_fee_fails_when_total_below_submitted() {
         let result = resolve_send_value_after_fee(100_000, 99_000, 2_000);
         assert!(matches!(result, Err(WalletError::InsufficientFunds)));
+    }
+
+    #[test]
+    fn legacy_p2pkh_shape_matches_single_and_multi_input_vbytes() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        assert_eq!(
+            legacy_p2pkh_transaction_vbytes(1, &[&script, &script]).expect("one input"),
+            226
+        );
+        assert_eq!(
+            legacy_p2pkh_transaction_vbytes(2, &[&script, &script]).expect("two inputs"),
+            374
+        );
+    }
+
+    #[test]
+    fn transaction_plan_covers_change_dust_multi_input_and_max_send() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        let one = vec![reported_utxo("11".repeat(32), 60_000)];
+        let with_change =
+            build_transaction_plan(&one, 50_000, 5, &script, &script).expect("with change");
+        assert_eq!(with_change.fee_sat, 1_130);
+        assert_eq!(with_change.change_sat, 8_870);
+        assert!(!with_change.change_added_to_fee);
+
+        let dust = vec![reported_utxo("22".repeat(32), 51_500)];
+        let without_change =
+            build_transaction_plan(&dust, 50_000, 5, &script, &script).expect("dust change");
+        assert_eq!(without_change.change_sat, 0);
+        assert_eq!(without_change.fee_sat, 1_500);
+        assert!(without_change.change_added_to_fee);
+
+        let multi = vec![
+            reported_utxo("33".repeat(32), 30_000),
+            reported_utxo("44".repeat(32), 30_000),
+        ];
+        let multi_input =
+            build_transaction_plan(&multi, 50_000, 5, &script, &script).expect("multi input");
+        assert_eq!(multi_input.selected.len(), 2);
+        assert_eq!(multi_input.fee_sat, 1_870);
+        assert_eq!(multi_input.change_sat, 8_130);
+
+        let max = vec![
+            reported_utxo("55".repeat(32), 30_000),
+            reported_utxo("66".repeat(32), 20_000),
+        ];
+        let max_send = build_transaction_plan(&max, 50_000, 5, &script, &script).expect("max send");
+        assert_eq!(max_send.fee_sat, 1_700);
+        assert_eq!(max_send.send_value_sat, 48_300);
+        assert!(max_send.fee_taken_from_amount);
+    }
+
+    #[test]
+    fn amount_parsing_is_checked_and_uses_integer_satoshis() {
+        assert_eq!(
+            parse_positive_satoshis("1.00000001").expect("amount"),
+            100_000_001
+        );
+        assert!(parse_positive_satoshis("0.000000001").is_err());
+        assert!(parse_positive_satoshis("1e-8").is_err());
     }
 }

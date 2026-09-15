@@ -47,8 +47,8 @@ pub use identity::{
     SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest,
 };
 pub use transaction::{
-    BalanceResult, PreflightParams, PreflightResult, PreflightWarning, SendRequest, SendResult,
-    Transaction, TransactionHistoryPage, TransactionHistoryPageRequest,
+    BalanceResult, DirectSendFeeMode, PreflightParams, PreflightResult, PreflightWarning,
+    SendRequest, SendResult, Transaction, TransactionHistoryPage, TransactionHistoryPageRequest,
 };
 pub use vrpc_transfer::{VrpcTransferPreflightParams, VrpcTransferPreflightResult};
 pub use wallet::{
