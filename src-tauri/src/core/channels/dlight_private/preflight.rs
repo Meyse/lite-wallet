@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::core::channels::dlight_private::destination::DlightDestinationKind;
@@ -45,11 +46,16 @@ pub async fn preflight(
         u64::try_from(runtime_snapshot.confirmed_sats).map_err(|_| WalletError::OperationFailed)?
     };
 
-    tokio::task::spawn_blocking(super::spend_params::ensure_prover_ready)
-        .await
-        .map_err(|_| WalletError::OperationFailed)??;
+    let prover_started_at = Instant::now();
+    let prover_result = tokio::task::spawn_blocking(super::spend_params::ensure_prover_ready).await;
+    println!(
+        "[DLIGHT][PREFLIGHT_TIMING] stage=prover_readiness duration_ms={}",
+        prover_started_at.elapsed().as_millis()
+    );
+    prover_result.map_err(|_| WalletError::OperationFailed)??;
 
-    let preflight = compute_preflight(
+    let computation_started_at = Instant::now();
+    let preflight_result = compute_preflight(
         &request,
         &params.to_address,
         &params.amount,
@@ -57,7 +63,12 @@ pub async fn preflight(
         confirmed_balance_sats,
         vrpc_provider,
     )
-    .await?;
+    .await;
+    println!(
+        "[DLIGHT][PREFLIGHT_TIMING] stage=recipient_and_preflight_computation duration_ms={}",
+        computation_started_at.elapsed().as_millis()
+    );
+    let preflight = preflight_result?;
 
     let preflight_id = Uuid::new_v4().to_string();
     let payload = DlightPreflightPayload {

@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -440,10 +441,17 @@ async fn build_dlight_runtime_request(
             }
         }
     }
-    let (seed_material, metadata) = stronghold_store
+    let material_load_started_at = Instant::now();
+    let runtime_material = stronghold_store
         .load_dlight_runtime_material(&account_id, context.password_hash(), network)
-        .await?
-        .ok_or(WalletError::UnsupportedChannel)?;
+        .await;
+    if require_secret {
+        println!(
+            "[DLIGHT][TIMING] stage=stronghold_material_load duration_ms={}",
+            material_load_started_at.elapsed().as_millis()
+        );
+    }
+    let (seed_material, metadata) = runtime_material?.ok_or(WalletError::UnsupportedChannel)?;
     let scope_address = dlight_private::derive_scope_address(&seed_material, network)?;
     if !resolved.address.eq_ignore_ascii_case(&scope_address) {
         return Err(WalletError::UnsupportedChannel);
@@ -581,37 +589,47 @@ pub async fn route_preflight(
             .await
         }
         "dlight_private" => {
-            let session = session_manager.lock().await;
-            let account_id = session
-                .active_account_id()
-                .ok_or(WalletError::WalletLocked)?
-                .to_string();
-            let session_id = session
-                .active_session_id()
-                .ok_or(WalletError::WalletLocked)?
-                .to_string();
-            drop(session);
+            let private_preflight_started_at = Instant::now();
+            let result = async {
+                let session = session_manager.lock().await;
+                let account_id = session
+                    .active_account_id()
+                    .ok_or(WalletError::WalletLocked)?
+                    .to_string();
+                let session_id = session
+                    .active_session_id()
+                    .ok_or(WalletError::WalletLocked)?
+                    .to_string();
+                drop(session);
 
-            let request = build_dlight_runtime_request(
-                channel_id,
-                Some(&params.coin_id),
-                session_manager,
-                coin_registry,
-                true,
-            )
-            .await?;
-            let provider = vrpc_provider_pool.for_system(request.network, &request.scope_system_id);
+                let request = build_dlight_runtime_request(
+                    channel_id,
+                    Some(&params.coin_id),
+                    session_manager,
+                    coin_registry,
+                    true,
+                )
+                .await?;
+                let provider =
+                    vrpc_provider_pool.for_system(request.network, &request.scope_system_id);
 
-            dlight_private::preflight(
-                params,
-                preflight_store,
-                &account_id,
-                &session_id,
-                channel_id,
-                request,
-                provider,
-            )
-            .await
+                dlight_private::preflight(
+                    params,
+                    preflight_store,
+                    &account_id,
+                    &session_id,
+                    channel_id,
+                    request,
+                    provider,
+                )
+                .await
+            }
+            .await;
+            println!(
+                "[DLIGHT][PREFLIGHT_TIMING] stage=backend_total duration_ms={}",
+                private_preflight_started_at.elapsed().as_millis()
+            );
+            result
         }
         "btc" => {
             let session = session_manager.lock().await;
