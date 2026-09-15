@@ -74,6 +74,7 @@
     emoji: string;
     color: string;
     network: WalletNetwork;
+    sessionId: string;
   } | null>(null);
   let routeScope: DisposableScope | null = null;
   let handlingSessionExpiry = $state(false);
@@ -177,12 +178,14 @@
             emoji: active.emoji || '💰',
             color: active.color || 'blue',
             network: walletNetwork,
+            sessionId: active.session_id,
           }
         : {
             name: i18n.t('wallet.overview.mainWallet'),
             emoji: '💰',
             color: 'blue',
             network: walletNetwork,
+            sessionId: 'unavailable',
           };
       const cacheKey = activeAssetsCacheKey(walletData.name, walletNetwork);
 
@@ -261,6 +264,7 @@
           emoji: '💰',
           color: 'blue',
           network: 'mainnet',
+          sessionId: 'unavailable',
         };
       }
     } finally {

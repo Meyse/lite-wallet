@@ -637,6 +637,9 @@ export const nl: Record<string, string> = {
   'wallet.transfer.source.privateAddress': 'Privéadres',
   'wallet.transfer.chooseCurrency': 'Valuta kiezen',
   'wallet.transfer.noAssets': 'Er zijn nog geen assets beschikbaar om te versturen.',
+  'wallet.transfer.sourceLoading': 'Verzendbare assets laden…',
+  'wallet.transfer.sourceLoadFailed': 'Verzendbare assets konden niet worden geladen.',
+  'wallet.transfer.sourceLoadPartial': 'Sommige verzendbare assets konden niet worden geladen.',
   'wallet.transfer.availableBalance': 'Beschikbaar {value} {ticker}',
   'wallet.transfer.sameAssetOption': '{ticker} versturen',
   'wallet.transfer.routeGroupPopular': 'Populaire omwisselingen',
@@ -742,6 +745,8 @@ export const nl: Record<string, string> = {
   'wallet.transfer.warningsTitle': 'Waarschuwingen',
   'wallet.transfer.warning.finalAmountMayVary':
     'Definitieve hoeveelheid die je ontvangt kan iets afwijken.',
+  'wallet.transfer.warning.resolvedDestination':
+    '{entered} verwijst naar {resolved}. Controleer het opgeloste adres voordat je verzendt.',
   'wallet.transfer.review.changeDetails': 'Details wijzigen',
   'wallet.transfer.review.sendTitle': 'Verzending controleren',
   'wallet.transfer.review.conversionTitle': 'Omwisseling controleren',
@@ -766,8 +771,11 @@ export const nl: Record<string, string> = {
   'wallet.transfer.fee.maximumTotalDebited': 'Maximaal totaal afgeschreven',
   'wallet.transfer.fee.economy': 'Voordelig',
   'wallet.transfer.fee.lowerFee': 'Lagere kosten',
+  'wallet.transfer.fee.economyDescription': 'Lagere prioriteit. Kan langer duren.',
   'wallet.transfer.fee.standard': 'Standaard',
   'wallet.transfer.fee.recommended': 'Aanbevolen',
+  'wallet.transfer.fee.standardDescription': 'Aanbevolen voor tijdige opname.',
+  'wallet.transfer.fee.timingVaries': 'De timing varieert met de netwerkactiviteit.',
   'wallet.transfer.fee.feeRate': 'Kostentarief',
   'wallet.transfer.fee.paidIn': 'Betaald in {currency}.',
   'wallet.transfer.fee.apply': 'Toepassen',
@@ -839,6 +847,16 @@ export const nl: Record<string, string> = {
   'wallet.transfer.error.directSendFeeModeUnsupported':
     'Kostenkeuze is niet beschikbaar voor deze transferroute.',
   'wallet.transfer.error.invalidAddress': 'Het bestemmingsadres is ongeldig.',
+  'wallet.transfer.error.invalidAmount': 'Voer een geldig bedrag voor deze asset in.',
+  'wallet.transfer.error.gasEstimationFailed':
+    'Het netwerk kon deze transfer niet verifiëren. Controleer de ontvanger en probeer opnieuw.',
+  'wallet.transfer.error.currencyMetadataMismatch':
+    'De geselecteerde asset kon niet bij het netwerk worden geverifieerd.',
+  'wallet.transfer.error.bitcoinDustOutput':
+    'Dit Bitcoin-bedrag ligt onder het minimum voor dit bestemmingsadres.',
+  'wallet.transfer.error.ethNotConfigured': 'Ethereum is niet geconfigureerd in deze desktopapp.',
+  'wallet.transfer.error.nativeCommandUnavailable':
+    'Deze walletactie is niet beschikbaar in de geïnstalleerde desktopapp. Werk de app bij of herstart hem en probeer opnieuw.',
   'wallet.transfer.error.insufficientEthForGas':
     'Onvoldoende ETH om gaskosten voor deze transfer te betalen.',
   'wallet.transfer.error.insufficientFunds': 'Onvoldoende saldo voor deze transfer.',

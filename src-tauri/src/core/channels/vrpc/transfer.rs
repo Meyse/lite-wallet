@@ -87,6 +87,9 @@ fn resolve_send_value_for_native_fee(
     available_sat: i64,
     fee_sat: i64,
 ) -> Result<(i64, bool), WalletError> {
+    if submitted_sat > available_sat {
+        return Err(WalletError::InsufficientFunds);
+    }
     if available_sat <= fee_sat {
         return Err(WalletError::InsufficientFunds);
     }
@@ -139,13 +142,6 @@ async fn resolve_currency_id(provider: &VrpcProvider, currency: &str) -> Option<
     parse_string(resolved.get("currencyid").or(resolved.get("currencyId")))
 }
 
-fn is_known_native_symbol(currency: &str) -> bool {
-    matches!(
-        currency.trim().to_ascii_uppercase().as_str(),
-        "VRSC" | "VRSCTEST"
-    )
-}
-
 async fn resolve_effective_fee_currency_id(
     provider: &VrpcProvider,
     params: &VrpcTransferPreflightParams,
@@ -171,6 +167,7 @@ async fn estimate_transfer_fee_satoshis(
     provider: &VrpcProvider,
     from_address: &str,
     params: &VrpcTransferPreflightParams,
+    selected_source_currency_id: &str,
     normalized_destination: &str,
     parent_fee_coin: f64,
     effective_fee_currency_id: Option<&str>,
@@ -220,6 +217,7 @@ async fn estimate_transfer_fee_satoshis(
 
     let probe_output = build_sendcurrency_output(
         params,
+        selected_source_currency_id,
         normalized_destination,
         0.0,
         Some(fee_currency_id.as_str()),
@@ -270,6 +268,7 @@ async fn normalize_destination(
 
 fn build_sendcurrency_output(
     params: &VrpcTransferPreflightParams,
+    source_currency_id: &str,
     normalized_destination: &str,
     send_amount: f64,
     effective_fee_currency_id: Option<&str>,
@@ -277,7 +276,7 @@ fn build_sendcurrency_output(
     let mut out = Map::<String, Value>::new();
     out.insert(
         "currency".to_string(),
-        Value::String(params.coin_id.clone()),
+        Value::String(source_currency_id.to_string()),
     );
     out.insert("amount".to_string(), Value::from(send_amount));
     out.insert(
@@ -339,13 +338,13 @@ async fn derive_route_context(
     from_address: &str,
     normalized_destination: &str,
     system_id: &str,
+    selected_source_currency_id: &str,
 ) -> Result<TransferRouteContext, WalletError> {
-    let source_currency_id = resolve_currency_id(provider, &params.coin_id).await;
-    let source_is_native = source_currency_id
-        .as_deref()
-        .map(|currency_id| currency_id == system_id)
-        .unwrap_or(false)
-        || (source_currency_id.is_none() && is_known_native_symbol(&params.coin_id));
+    let source_currency_id = resolve_currency_id(provider, selected_source_currency_id)
+        .await
+        .filter(|resolved| is_same_currency_ref(resolved, selected_source_currency_id))
+        .ok_or(WalletError::CurrencyMetadataMismatch)?;
+    let source_is_native = is_same_currency_ref(&source_currency_id, system_id);
     let is_conversion_or_export = params.convert_to.is_some() || params.export_to.is_some();
     let (parent_fee_coin, parent_fee_sat) =
         parent_fee_for_route(is_conversion_or_export, source_is_native);
@@ -356,6 +355,7 @@ async fn derive_route_context(
         provider,
         from_address,
         params,
+        selected_source_currency_id,
         normalized_destination,
         parent_fee_coin,
         effective_fee_currency_id.as_deref(),
@@ -376,7 +376,7 @@ async fn derive_route_context(
 
     Ok(TransferRouteContext {
         source_is_native,
-        source_currency_id: source_currency_id.unwrap_or_else(|| system_id.to_string()),
+        source_currency_id,
         effective_fee_currency_id,
         transfer_fee_sat,
         parent_fee_coin,
@@ -606,6 +606,7 @@ pub async fn preflight_transfer(
     from_address: &str,
     channel_id: &str,
     system_id: &str,
+    selected_source_currency_id: &str,
     provider: &VrpcProvider,
 ) -> Result<VrpcTransferPreflightResult, WalletError> {
     let submitted_sat = parse_positive_amount_sat(&params.amount)?;
@@ -626,6 +627,7 @@ pub async fn preflight_transfer(
         from_address,
         &normalized_destination,
         system_id,
+        selected_source_currency_id,
     )
     .await?;
     let amount_plan = derive_amount_plan(
@@ -636,6 +638,7 @@ pub async fn preflight_transfer(
     let send_amount = amount_plan.send_value_sat as f64 / SATOSHIS_PER_COIN as f64;
     let output = build_sendcurrency_output(
         &params,
+        selected_source_currency_id,
         &normalized_destination,
         send_amount,
         route_context.effective_fee_currency_id.as_deref(),
@@ -681,6 +684,7 @@ pub async fn preflight_transfer(
         hex: funded_transfer.funded_hex,
         inputs: funded_transfer.payload_inputs,
         system_id: system_id.to_string(),
+        entered_to_address: Some(params.destination.clone()),
         to_address: normalized_destination.clone(),
         from_address: from_address.to_string(),
         value: sat_to_decimal_string(amount_plan.send_value_sat),
@@ -749,6 +753,7 @@ mod tests {
 
         let output = build_sendcurrency_output(
             &params,
+            "VRSC",
             "Rdest",
             1.0,
             Some("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV"),
@@ -773,6 +778,38 @@ mod tests {
     }
 
     #[test]
+    fn direct_token_sendcurrency_output_binds_selected_asset_and_destination() {
+        let mut params = base_params();
+        params.coin_id = "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd".to_string();
+        params.destination = "RtokenRecipient".to_string();
+
+        let output = build_sendcurrency_output(
+            &params,
+            "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd",
+            "RtokenRecipient",
+            1.25,
+            None,
+        )
+        .expect("direct token output");
+        assert_eq!(
+            output,
+            json!({
+                "currency": "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd",
+                "amount": 1.25,
+                "address": "RtokenRecipient"
+            })
+        );
+    }
+
+    #[test]
+    fn native_fee_adjustment_rejects_arbitrary_overbalance_amounts() {
+        assert!(matches!(
+            resolve_send_value_for_native_fee(100_001, 100_000, 10_000),
+            Err(WalletError::InsufficientFunds)
+        ));
+    }
+
+    #[test]
     fn build_sendcurrency_output_omits_mapto_for_eth_destination() {
         let mut params = base_params();
         params.export_to = Some("i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X".to_string());
@@ -780,6 +817,7 @@ mod tests {
 
         let output = build_sendcurrency_output(
             &params,
+            "VRSC",
             "0x8fda30a676fbc8f1406adeac7921998b1af4fd05",
             1.0,
             None,
@@ -885,6 +923,7 @@ mod tests {
             hex: "00".to_string(),
             inputs: vec![],
             system_id: "iSystem".to_string(),
+            entered_to_address: Some("Rto".to_string()),
             to_address: "Rto".to_string(),
             from_address: "Rfrom".to_string(),
             value: "1.00000000".to_string(),

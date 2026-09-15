@@ -32,6 +32,9 @@ pub mod eth;
 mod store;
 pub mod vrpc;
 
+#[cfg(test)]
+mod preflight_integration_tests;
+
 pub use store::{PreflightRecord, PreflightStore};
 
 const VRSC_MAINNET_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
@@ -267,6 +270,12 @@ fn is_shielded_z_destination(address: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn requires_vrpc_sendcurrency(coin: &vrpc::VrpcCoinContext, destination: &str) -> bool {
+    !coin.currency_id.eq_ignore_ascii_case(&coin.system_id)
+        || is_shielded_z_destination(destination)
+        || destination.trim().ends_with('@')
+}
+
 fn is_native_vrpc_system_coin(coin: &CoinDefinition) -> bool {
     coin_supports_vrpc(coin) && coin.currency_id.eq_ignore_ascii_case(&coin.system_id)
 }
@@ -288,7 +297,7 @@ fn is_allowed_vrpc_scope_system(
     })
 }
 
-fn resolve_vrpc_coin_context(
+pub(crate) fn resolve_vrpc_coin_context(
     coin_registry: &CoinRegistry,
     system_id: &str,
     coin_id_hint: Option<&str>,
@@ -485,7 +494,7 @@ pub async fn route_preflight(
             drop(session);
 
             let resolved = vrpc::parse_vrpc_channel_id(channel_id, Some(&session_vrpc_address))?;
-            let _coin = resolve_vrpc_coin_context(
+            let coin = resolve_vrpc_coin_context(
                 coin_registry,
                 &resolved.system_id,
                 Some(&params.coin_id),
@@ -505,8 +514,10 @@ pub async fn route_preflight(
                 );
             }
 
-            if is_shielded_z_destination(&params.to_address) {
-                // `createrawtransaction` rejects shielded recipients; use sendcurrency preflight for R/i -> zs.
+            if requires_vrpc_sendcurrency(&coin, &params.to_address) {
+                // Token outputs, shielded recipients, and VerusID handles require the
+                // semantic sendcurrency path. That path authenticates the resolved
+                // transaction intent before persisting a signing payload.
                 let sendcurrency_preflight = vrpc::preflight_transfer(
                     crate::types::VrpcTransferPreflightParams {
                         coin_id: params.coin_id.clone(),
@@ -530,6 +541,7 @@ pub async fn route_preflight(
                     &resolved.address,
                     &canonical_channel_id,
                     &resolved.system_id,
+                    &coin.currency_id,
                     vrpc_provider_pool.for_system(network, &resolved.system_id),
                 )
                 .await?;
@@ -537,7 +549,9 @@ pub async fn route_preflight(
                 return Ok(PreflightResult {
                     preflight_id: sendcurrency_preflight.preflight_id,
                     fee: sendcurrency_preflight.fee,
-                    fee_currency: sendcurrency_preflight.fee_currency,
+                    // Direct token sends pay the parent-system network fee, not the
+                    // transferred asset. Keep this canonical for review and fiat data.
+                    fee_currency: resolved.system_id.clone(),
                     value: sendcurrency_preflight.value,
                     amount_submitted: sendcurrency_preflight.amount_submitted,
                     to_address: sendcurrency_preflight.to_address,
@@ -1366,8 +1380,8 @@ pub async fn route_get_dlight_runtime_status(
 mod tests {
     use super::{
         clamp_history_limit, decode_history_cursor, encode_history_cursor,
-        is_shielded_z_destination, resolve_direct_send_fee_mode, resolve_vrpc_coin_context,
-        TransactionHistoryCursor,
+        is_shielded_z_destination, requires_vrpc_sendcurrency, resolve_direct_send_fee_mode,
+        resolve_vrpc_coin_context, TransactionHistoryCursor,
     };
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
     use crate::core::runtime_config;
@@ -1526,6 +1540,27 @@ mod tests {
         assert!(is_shielded_z_destination("ZS1abc"));
         assert!(!is_shielded_z_destination("Rabcd"));
         assert!(!is_shielded_z_destination(""));
+    }
+
+    #[test]
+    fn vrpc_direct_tokens_and_resolved_destinations_use_sendcurrency() {
+        let token = super::vrpc::VrpcCoinContext {
+            currency_id: "iToken".to_string(),
+            system_id: VRSC_SYSTEM_ID.to_string(),
+            decimals: 8,
+            seconds_per_block: 60,
+        };
+        let native = super::vrpc::VrpcCoinContext {
+            currency_id: VRSC_SYSTEM_ID.to_string(),
+            system_id: VRSC_SYSTEM_ID.to_string(),
+            decimals: 8,
+            seconds_per_block: 60,
+        };
+
+        assert!(requires_vrpc_sendcurrency(&token, "Rrecipient"));
+        assert!(requires_vrpc_sendcurrency(&native, "alice@"));
+        assert!(requires_vrpc_sendcurrency(&native, "zs1recipient"));
+        assert!(!requires_vrpc_sendcurrency(&native, "Rrecipient"));
     }
 
     #[test]

@@ -115,6 +115,15 @@ impl EthProviderPool {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn disabled_for_tests() -> Self {
+        Self {
+            mainnet: None,
+            testnet: None,
+            disabled_reason: Some("disabled for test".to_string()),
+        }
+    }
+
     pub fn is_enabled(&self) -> bool {
         #[cfg(test)]
         if self.disabled_reason.is_none() && (self.mainnet.is_some() || self.testnet.is_some()) {
@@ -424,7 +433,7 @@ impl EtherscanHistoryClient {
     }
 }
 
-fn chain_id_for_network(network: WalletNetwork) -> u64 {
+pub(crate) fn chain_id_for_network(network: WalletNetwork) -> u64 {
     match network {
         WalletNetwork::Mainnet => ETHEREUM_MAINNET_CHAIN_ID,
         WalletNetwork::Testnet => ETHEREUM_SEPOLIA_CHAIN_ID,

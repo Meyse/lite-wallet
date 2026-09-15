@@ -642,13 +642,12 @@ async fn preflight_bridge_vrpc(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
-    if coin_registry
-        .find_by_system_id(&resolved.system_id, is_testnet)
-        .is_none()
-    {
-        return Err(WalletError::UnsupportedChannel);
-    }
+    let coin = crate::core::channels::resolve_vrpc_coin_context(
+        &coin_registry,
+        &resolved.system_id,
+        Some(&params.coin_id),
+        network,
+    )?;
     if !vrpc_provider_pool.has_system_provider(network, &resolved.system_id) {
         println!(
             "[VRPC] Missing system-specific endpoint for {}. Falling back to network default.",
@@ -668,6 +667,7 @@ async fn preflight_bridge_vrpc(
         &effective_source,
         &canonical_channel_id,
         &resolved.system_id,
+        &coin.currency_id,
         vrpc_provider_pool.for_system(network, &resolved.system_id),
     )
     .await?;

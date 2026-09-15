@@ -25,7 +25,7 @@ use crate::core::channels::eth::bridge::delegator::{
     CcurrencyValueMap, CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
 };
 use crate::core::channels::eth::preflight::EthPreflightPayload;
-use crate::core::channels::eth::provider::EthProviderPool;
+use crate::core::channels::eth::provider::{chain_id_for_network, EthProviderPool};
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
 use crate::types::wallet::WalletNetwork;
@@ -328,17 +328,17 @@ pub async fn send(
 
 pub async fn get_pending_submission_review(
     session_manager: &Arc<Mutex<SessionManager>>,
-    provider_pool: &EthProviderPool,
+    _provider_pool: &EthProviderPool,
 ) -> Result<Option<EthPendingSubmissionReview>, WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
-    let network_provider = provider_pool.for_network(context.wallet_network)?;
+    let chain_id = chain_id_for_network(context.wallet_network);
     let send_lock = eth_send_lock(&context.account_id, context.wallet_network);
     let _send_guard = send_lock.lock().await;
     ensure_active_wallet_session(session_manager, &context.session_id).await?;
     let Some(pending) = load_pending_submission(&context).await? else {
         return Ok(None);
     };
-    validate_pending_binding(&pending, &context, network_provider.chain_id)?;
+    validate_pending_binding(&pending, &context, chain_id)?;
     Ok(Some(pending.review()?))
 }
 
@@ -386,10 +386,10 @@ pub async fn resume_pending_submission(
 pub async fn acknowledge_pending_submission(
     recovery_id: &str,
     session_manager: &Arc<Mutex<SessionManager>>,
-    provider_pool: &EthProviderPool,
+    _provider_pool: &EthProviderPool,
 ) -> Result<(), WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
-    let network_provider = provider_pool.for_network(context.wallet_network)?;
+    let chain_id = chain_id_for_network(context.wallet_network);
     let send_lock = eth_send_lock(&context.account_id, context.wallet_network);
     let _send_guard = send_lock.lock().await;
     ensure_active_wallet_session(session_manager, &context.session_id).await?;
@@ -399,7 +399,7 @@ pub async fn acknowledge_pending_submission(
     if pending.recovery_id != recovery_id {
         return Err(WalletError::InvalidPreflight);
     }
-    validate_pending_binding(&pending, &context, network_provider.chain_id)?;
+    validate_pending_binding(&pending, &context, chain_id)?;
     if !pending.stage.is_final() || pending.status != EthSubmissionStatus::BroadcastKnown {
         return Err(WalletError::InvalidPreflight);
     }
@@ -1784,16 +1784,17 @@ mod tests {
                 ));
                 validate_pending_binding(&loaded, &context, 1).expect("historical binding");
 
-                let providers =
-                    EthProviderPool::for_tests(WalletNetwork::Mainnet, "http://127.0.0.1:9");
-                let review = super::get_pending_submission_review(&session, &providers)
+                let disabled_providers = EthProviderPool::disabled_for_tests();
+                let review = super::get_pending_submission_review(&session, &disabled_providers)
                     .await
-                    .expect("review historical pending")
+                    .expect("local review does not require an Ethereum provider")
                     .expect("review exists");
                 assert_eq!(review.txid, expected_tx_hash);
                 assert!(review.can_acknowledge);
                 assert!(!review.requires_resume);
 
+                let providers =
+                    EthProviderPool::for_tests(WalletNetwork::Mainnet, "http://127.0.0.1:9");
                 let resumed =
                     super::resume_pending_submission(&pending.recovery_id, &session, &providers)
                         .await
@@ -1804,9 +1805,13 @@ mod tests {
                 assert_eq!(resumed.from_address, expected_result.from_address);
                 assert_eq!(resumed.to_address, expected_result.to_address);
 
-                super::acknowledge_pending_submission(&pending.recovery_id, &session, &providers)
-                    .await
-                    .expect("acknowledge historical terminal result");
+                super::acknowledge_pending_submission(
+                    &pending.recovery_id,
+                    &session,
+                    &disabled_providers,
+                )
+                .await
+                .expect("local acknowledgement does not require an Ethereum provider");
                 assert!(super::load_pending_submission(&context)
                     .await
                     .expect("load after historical ack")

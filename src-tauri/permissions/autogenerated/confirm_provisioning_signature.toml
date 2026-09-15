@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-confirm-provisioning-signature"
+description = "Enables the confirm_provisioning_signature command without any pre-configured scope."
+commands.allow = ["confirm_provisioning_signature"]
+
+[[permission]]
+identifier = "deny-confirm-provisioning-signature"
+description = "Denies the confirm_provisioning_signature command without any pre-configured scope."
+commands.deny = ["confirm_provisioning_signature"]

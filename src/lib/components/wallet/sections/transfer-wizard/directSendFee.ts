@@ -60,12 +60,12 @@ export function getDirectSendFeeOptions(t: (key: string) => string): DirectSendF
     {
       value: 'economy',
       label: t('wallet.transfer.fee.economy'),
-      description: t('wallet.transfer.fee.lowerFee'),
+      description: t('wallet.transfer.fee.economyDescription'),
     },
     {
       value: 'standard',
       label: t('wallet.transfer.fee.standard'),
-      description: t('wallet.transfer.fee.recommended'),
+      description: t('wallet.transfer.fee.standardDescription'),
     },
   ];
 }

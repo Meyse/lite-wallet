@@ -5,8 +5,24 @@ export type ResolvedPreflightRequest =
   | { kind: 'direct'; params: PreflightParams }
   | { kind: 'bridge'; params: BridgeTransferPreflightParams };
 
-export function preflightRequestSignature(request: ResolvedPreflightRequest | null): string {
-  return request ? JSON.stringify(request) : '';
+export type PreflightWalletContext = {
+  walletKey: string;
+  walletNetwork: string;
+};
+
+export function transferWalletSessionKey(
+  walletName: string,
+  walletNetwork: string,
+  walletSessionId: string
+): string {
+  return `${walletName.trim().toLowerCase()}::${walletNetwork}::${walletSessionId}`;
+}
+
+export function preflightRequestSignature(
+  request: ResolvedPreflightRequest | null,
+  context?: PreflightWalletContext
+): string {
+  return request ? JSON.stringify({ context: context ?? null, request }) : '';
 }
 
 export type GuardedPreflightOutcome<T> =

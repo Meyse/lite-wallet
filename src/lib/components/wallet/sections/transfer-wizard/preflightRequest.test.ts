@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ResolvedPreflightRequest } from './preflightRequest';
-import { preflightRequestSignature, runGuardedPreflight } from './preflightRequest';
+import {
+  preflightRequestSignature,
+  runGuardedPreflight,
+  transferWalletSessionKey,
+} from './preflightRequest';
 import { PreflightRequestGuard } from './preflightRequestGuard';
 
 const bridgeRequest: ResolvedPreflightRequest = {
@@ -59,6 +63,37 @@ describe('preflightRequestSignature', () => {
 
     expect(preflightRequestSignature(economy)).not.toBe(preflightRequestSignature(standard));
     expect(preflightRequestSignature(otherSource)).not.toBe(preflightRequestSignature(standard));
+  });
+
+  it('changes across wallets and networks even when the visible request is identical', () => {
+    expect(
+      preflightRequestSignature(bridgeRequest, {
+        walletKey: 'wallet-a::mainnet',
+        walletNetwork: 'mainnet',
+      })
+    ).not.toBe(
+      preflightRequestSignature(bridgeRequest, {
+        walletKey: 'wallet-b::mainnet',
+        walletNetwork: 'mainnet',
+      })
+    );
+    expect(
+      preflightRequestSignature(bridgeRequest, {
+        walletKey: 'wallet-a::mainnet',
+        walletNetwork: 'mainnet',
+      })
+    ).not.toBe(
+      preflightRequestSignature(bridgeRequest, {
+        walletKey: 'wallet-a::testnet',
+        walletNetwork: 'testnet',
+      })
+    );
+  });
+
+  it('changes for a replacement session of the same wallet and network', () => {
+    expect(transferWalletSessionKey('Wallet A', 'mainnet', 'session-1')).not.toBe(
+      transferWalletSessionKey('Wallet A', 'mainnet', 'session-2')
+    );
   });
 });
 

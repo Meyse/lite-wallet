@@ -4,7 +4,7 @@ export const en: Record<string, string> = {
   'common.continue': 'Continue',
   'common.back': 'Back',
   'common.done': 'Done',
-  'common.retry': 'Try Again',
+  'common.retry': 'Try again',
   'common.unknownError': 'Unknown error',
   'common.error.secureStorageUnavailable':
     'Secure wallet storage is unavailable on this device. Restore from recovery or a device backup.',
@@ -632,6 +632,9 @@ export const en: Record<string, string> = {
   'wallet.transfer.source.privateAddress': 'Private address',
   'wallet.transfer.chooseCurrency': 'Choose currency',
   'wallet.transfer.noAssets': 'No sendable assets are available yet.',
+  'wallet.transfer.sourceLoading': 'Loading sendable assets…',
+  'wallet.transfer.sourceLoadFailed': 'Could not load sendable assets.',
+  'wallet.transfer.sourceLoadPartial': 'Some sendable assets could not be loaded.',
   'wallet.transfer.availableBalance': 'Available {value} {ticker}',
   'wallet.transfer.sameAssetOption': 'Send {ticker}',
   'wallet.transfer.routeGroupPopular': 'Popular conversions',
@@ -731,6 +734,8 @@ export const en: Record<string, string> = {
     'Broadcast is taking longer than expected. Endpoint latency may be high; retry if no txid appears.',
   'wallet.transfer.warningsTitle': 'Warnings',
   'wallet.transfer.warning.finalAmountMayVary': 'Final amount you receive may vary slightly.',
+  'wallet.transfer.warning.resolvedDestination':
+    '{entered} resolves to {resolved}. Verify the resolved address before sending.',
   'wallet.transfer.review.changeDetails': 'Change details',
   'wallet.transfer.review.sendTitle': 'Review send',
   'wallet.transfer.review.conversionTitle': 'Review conversion',
@@ -753,8 +758,11 @@ export const en: Record<string, string> = {
   'wallet.transfer.fee.maximumTotalDebited': 'Maximum total debited',
   'wallet.transfer.fee.economy': 'Economy',
   'wallet.transfer.fee.lowerFee': 'Lower fee',
+  'wallet.transfer.fee.economyDescription': 'Lower priority. May take longer.',
   'wallet.transfer.fee.standard': 'Standard',
   'wallet.transfer.fee.recommended': 'Recommended',
+  'wallet.transfer.fee.standardDescription': 'Recommended for timely inclusion.',
+  'wallet.transfer.fee.timingVaries': 'Timing varies with network activity.',
   'wallet.transfer.fee.feeRate': 'Fee rate',
   'wallet.transfer.fee.paidIn': 'Paid in {currency}.',
   'wallet.transfer.fee.apply': 'Apply',
@@ -824,6 +832,16 @@ export const en: Record<string, string> = {
   'wallet.transfer.error.directSendFeeModeUnsupported':
     'Fee choice is not available for this transfer route.',
   'wallet.transfer.error.invalidAddress': 'The destination address is invalid.',
+  'wallet.transfer.error.invalidAmount': 'Enter a valid amount for this asset.',
+  'wallet.transfer.error.gasEstimationFailed':
+    'The network could not verify this transfer. Check the recipient and try again.',
+  'wallet.transfer.error.currencyMetadataMismatch':
+    'The selected asset could not be verified with the network.',
+  'wallet.transfer.error.bitcoinDustOutput':
+    'This Bitcoin amount is below the minimum accepted by the destination script.',
+  'wallet.transfer.error.ethNotConfigured': 'Ethereum is not configured in this desktop app.',
+  'wallet.transfer.error.nativeCommandUnavailable':
+    'This wallet action is unavailable in the installed desktop app. Update or restart the app and try again.',
   'wallet.transfer.error.insufficientEthForGas':
     'Insufficient ETH to cover gas fees for this transfer.',
   'wallet.transfer.error.insufficientFunds': 'Insufficient funds for this transfer.',

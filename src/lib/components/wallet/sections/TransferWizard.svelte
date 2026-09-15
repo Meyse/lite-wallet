@@ -21,6 +21,7 @@
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import TransferSummaryRail from './transfer-wizard/TransferSummaryRail.svelte';
   import EthRecoveryReviewCard from './transfer-wizard/EthRecoveryReviewCard.svelte';
+  import TransferSourceStatus from './transfer-wizard/TransferSourceStatus.svelte';
   import { i18nStore } from '$lib/i18n';
   import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
   import { coinsStore } from '$lib/stores/coins.js';
@@ -47,6 +48,7 @@
   import * as walletService from '$lib/services/walletService.js';
   import {
     getDisplayCoinScopes,
+    invalidateWalletDisplayScopes,
     isWalletDisplayRequestInvalidated,
   } from '$lib/services/walletDisplayService.js';
   import {
@@ -65,6 +67,10 @@
     preflightBridgeTransfer,
   } from '$lib/services/bridgeTransferService.js';
   import { getRecipientInputCopy, getTransferStepLabels } from '$lib/transfer/transferWizardCopy';
+  import {
+    resolveCanonicalTransferCurrency,
+    resolveCanonicalTransferCurrencyRate,
+  } from '$lib/transfer/transferCurrency';
   import { EthRecoveryLifetime, runEthRecovery } from '$lib/transfer/ethRecovery.js';
   import {
     buildReceiveAssetSections,
@@ -126,6 +132,13 @@
     transferSourceSupportsConversion,
   } from './transfer-wizard/transferSources';
   import { EntryContextGuard } from './transfer-wizard/entryContextGuard';
+  import { loadTransferScopes } from './transfer-wizard/scopeLoader';
+  import {
+    isValidTransferAmount,
+    resolveTransferNetworkName,
+    sumFiatComponents,
+    transferAmountExceedsBalance,
+  } from './transfer-wizard/transferDisplay';
 
   type EntryIntent = 'send' | 'convert';
 
@@ -185,6 +198,7 @@
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
     walletNetwork?: WalletNetwork;
+    walletKey?: string;
   };
 
   const defaultClose = () => {};
@@ -199,6 +213,7 @@
     entryContext = null,
     onClose = defaultClose,
     walletNetwork = 'mainnet',
+    walletKey = '',
   }: TransferWizardProps = $props();
 
   const i18n = $derived($i18nStore);
@@ -223,6 +238,9 @@
 
   let coinScopesByCoinId = $state<Record<string, CoinScope[]>>({});
   let loadedScopeCoinIds = $state<Record<string, true>>({});
+  let scopeLoadFailures = $state<Record<string, true>>({});
+  let scopeLoadGeneration = $state(0);
+  let scopesLoading = $state(true);
 
   const sendableCoinOptions = $derived(
     buildSpendableTransferSources(sendableCoins, coinScopesByCoinId, balances).map((option) => {
@@ -355,9 +373,13 @@
     selectedCoinOption?.scope.systemId ?? selectedCoin?.systemId ?? selectedCoin?.id ?? ''
   );
   const sourceNetworkDisplayName = $derived(
-    selectedCoinOption?.scope.systemDisplayName?.trim() ||
-      resolveSourceNetworkDisplayName(selectedSourceSystemId, selectedChannelPrefix)
+    resolveSourceNetworkDisplayName(
+      selectedSourceSystemId,
+      selectedChannelPrefix,
+      selectedCoinOption?.scope.systemDisplayName
+    )
   );
+  const scopeLoadFailed = $derived(Object.keys(scopeLoadFailures).length > 0);
   const sourceSupportsConversion = $derived(
     (() => {
       if (
@@ -374,7 +396,6 @@
   );
 
   const selectedBalance = $derived(selectedCoinOption?.balanceTotal ?? '0');
-  const selectedBalanceValue = $derived(toFiniteNumber(selectedBalance));
 
   const selectedDlightScopeAddress = $derived(
     selectedCoinOption?.sourceKind === 'private' ? selectedCoinOption.scope.address : ''
@@ -915,6 +936,9 @@
     destinationAddressKind === 'dlight' && dlightDestinationKind === 'shielded'
   );
   const amountValid = $derived(isPositiveAmount(amount));
+  const amountExceedsBalance = $derived(
+    amountValid && !!selectedCoinOption && transferAmountExceedsBalance(amount, selectedBalance)
+  );
 
   const estimatedConversionValue = $derived(
     (() => {
@@ -1090,6 +1114,14 @@
       ? `${formatAmountForReviewDisplay(activePreflight.fee, MAX_TRANSFER_AMOUNT_FRACTION_DIGITS)} ${reviewNetworkFeeCurrencyLabel || activePreflight.feeCurrency}`
       : ''
   );
+  const reviewNetworkFeeFiatDisplay = $derived(
+    activePreflight
+      ? formatFiatEstimate(
+          activePreflight.fee,
+          getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency)
+        )
+      : '≈ —'
+  );
   const reviewTotalDebitedValue = $derived(
     (() => {
       if (!activePreflight || !selectedCoinPresentation) return '';
@@ -1107,41 +1139,49 @@
       return `${reviewSendingValue} + ${reviewNetworkFeeValue}`;
     })()
   );
+  const reviewTotalDebitedFiatDisplay = $derived(
+    (() => {
+      if (!activePreflight) return '≈ —';
+      const total = sumFiatComponents([
+        { amount: effectiveSendAmount, rate: sourceFiatRate },
+        {
+          amount: activePreflight.fee,
+          rate: getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency),
+        },
+      ]);
+      return total !== null && total > 0 ? `≈ ${formatDisplayFiatAmountDynamic(total)}` : '≈ —';
+    })()
+  );
   const reviewTotalFeesFiat = $derived(
     (() => {
       if (!activePreflight) return '≈ —';
-
-      let totalFiat = 0;
       const bridgeFeeRequired =
         !!activeExportSystemId && isEthereumExport(activeExportSystemId) && bridgeFeeParityEligible;
 
-      const networkFeeAmount = parseNonNegativeAmount(activePreflight.fee);
-      const networkFeeRate =
-        getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency) ?? sourceFiatRate;
-      if (networkFeeAmount !== null && networkFeeRate !== null) {
-        totalFiat += networkFeeAmount * networkFeeRate;
-      }
+      const components = [
+        {
+          amount: activePreflight.fee,
+          rate: getDisplayCurrencyRateForCurrencyLabel(activePreflight.feeCurrency),
+        },
+      ];
 
       if (conversionEnabled && conversionFeeInfo) {
-        const conversionAmount = parseNonNegativeAmount(conversionFeeInfo.amount);
-        const conversionRate =
-          getDisplayCurrencyRateForCurrencyLabel(conversionFeeInfo.currency) ?? sourceFiatRate;
-        if (conversionAmount !== null && conversionRate !== null) {
-          totalFiat += conversionAmount * conversionRate;
-        }
+        components.push({
+          amount: conversionFeeInfo.amount,
+          rate: getDisplayCurrencyRateForCurrencyLabel(conversionFeeInfo.currency),
+        });
       }
 
       if (bridgeFeeRequired) {
         if (bridgeFeeInfo.loading || bridgeFeeInfo.error || !bridgeFeeInfo.feeCoins) return '≈ —';
-
-        const bridgeAmount = parseNonNegativeAmount(bridgeFeeInfo.feeCoins);
-        const bridgeRate =
-          getDisplayCurrencyRateForCurrencyLabel(bridgeFeeInfo.currencyTicker) ?? sourceFiatRate;
-        if (bridgeAmount === null || bridgeRate === null) return '≈ —';
-        totalFiat += bridgeAmount * bridgeRate;
+        components.push({
+          amount: bridgeFeeInfo.feeCoins,
+          rate: getDisplayCurrencyRateForCurrencyLabel(bridgeFeeInfo.currencyTicker),
+        });
       }
 
-      if (!Number.isFinite(totalFiat) || totalFiat <= 0) return '≈ —';
+      const totalFiat = sumFiatComponents(components);
+      if (totalFiat === null || totalFiat <= 0) return '≈ —';
       return `≈ ${formatDisplayFiatAmountDynamic(totalFiat)}`;
     })()
   );
@@ -1218,6 +1258,7 @@
         (!selectedCoin ||
           !selectedChannelId ||
           !amountValid ||
+          amountExceedsBalance ||
           !recipientValid ||
           !activeTargetOption ||
           (conversionEnabled && !selectedReceiveAssetOption) ||
@@ -1471,7 +1512,10 @@
       };
     })()
   );
-  const preflightInputSignature = $derived(preflightRequestSignature(resolvedPreflightRequest));
+  const preflightWalletContext = $derived({ walletKey, walletNetwork });
+  const preflightInputSignature = $derived(
+    preflightRequestSignature(resolvedPreflightRequest, preflightWalletContext)
+  );
 
   let previousPreflightInputSignature = $state<string | null>(null);
 
@@ -1483,29 +1527,20 @@
 
   $effect(() => {
     const requestedCoins = sendableCoins;
+    const generation = scopeLoadGeneration;
     let cancelled = false;
+    scopesLoading = true;
 
-    void Promise.all(
-      requestedCoins.map(async (coin) => {
-        try {
-          const result = await getDisplayCoinScopes(coin.id);
-          return { coinId: coin.id, scopes: result.scopes };
-        } catch (error) {
-          if (isWalletDisplayRequestInvalidated(error)) return null;
-          return { coinId: coin.id, scopes: [] };
-        }
-      })
-    ).then((results) => {
-      if (cancelled) return;
-      const nextScopes: Record<string, CoinScope[]> = {};
-      const nextLoaded: Record<string, true> = {};
-      for (const result of results) {
-        if (!result) continue;
-        nextScopes[result.coinId] = result.scopes;
-        nextLoaded[result.coinId] = true;
-      }
-      coinScopesByCoinId = nextScopes;
-      loadedScopeCoinIds = nextLoaded;
+    void loadTransferScopes(
+      requestedCoins.map((coin) => coin.id),
+      getDisplayCoinScopes,
+      isWalletDisplayRequestInvalidated
+    ).then((result) => {
+      if (cancelled || generation !== scopeLoadGeneration) return;
+      coinScopesByCoinId = result.scopes;
+      loadedScopeCoinIds = result.loaded;
+      scopeLoadFailures = result.failures;
+      scopesLoading = false;
     });
 
     return () => {
@@ -1787,22 +1822,6 @@
 
     previousPreflightInputSignature = signature;
     clearPreflightState();
-  });
-
-  $effect(() => {
-    const sanitizedAmount = sanitizeAmountInput(amount, MAX_TRANSFER_AMOUNT_FRACTION_DIGITS);
-    if (sanitizedAmount === amount) return;
-    amount = sanitizedAmount;
-  });
-
-  $effect(() => {
-    if (!selectedCoinOption) return;
-    const trimmedAmount = amount.trim();
-    if (!trimmedAmount) return;
-    const numericAmount = Number(trimmedAmount);
-    if (!Number.isFinite(numericAmount)) return;
-    if (numericAmount <= selectedBalanceValue) return;
-    amount = selectedBalance;
   });
 
   $effect(() => {
@@ -2205,8 +2224,17 @@
   }
 
   function isPositiveAmount(input: string): boolean {
-    const value = Number(input);
-    return Number.isFinite(value) && value > 0;
+    return isValidTransferAmount(
+      input,
+      selectedCoin?.decimals ?? MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
+    );
+  }
+
+  function retrySourceScopes(): void {
+    invalidateWalletDisplayScopes();
+    scopesLoading = true;
+    scopeLoadFailures = {};
+    scopeLoadGeneration += 1;
   }
 
   function toFiniteNumber(value: unknown): number {
@@ -2349,35 +2377,12 @@
 
   function resolveSourceNetworkDisplayName(
     systemId: string | null | undefined,
-    channelPrefix: string
+    channelPrefix: string,
+    scopeDisplayName?: string | null
   ): string {
     const normalizedSystemId = systemId?.trim() ?? '';
     const normalizedSystemIdLc = normalizedSystemId.toLowerCase();
     const normalizedPrefix = channelPrefix.trim().toLowerCase();
-
-    if (normalizedSystemIdLc === VRSC_SYSTEM_ID.toLowerCase()) {
-      return resolveCoinPresentationById('VRSC')?.displayName?.trim() || 'Verus';
-    }
-    if (normalizedSystemIdLc === VRSCTEST_SYSTEM_ID.toLowerCase()) {
-      return resolveCoinPresentationById('VRSCTEST')?.displayName?.trim() || 'Verus Testnet';
-    }
-
-    // vETH is a Verus PBaaS system for same-network semantics.
-    if (isEthereumExport(normalizedSystemId)) {
-      return resolveCoinPresentationById('VRSC')?.displayName?.trim() || 'Verus';
-    }
-
-    if (
-      normalizedPrefix === 'eth' ||
-      normalizedPrefix === 'erc20' ||
-      normalizedSystemId.toLowerCase() === '.eth'
-    ) {
-      return resolveCoinPresentationById('ETH')?.displayName?.trim() || 'Ethereum';
-    }
-
-    if (normalizedPrefix === 'btc' || normalizedSystemId.toLowerCase() === '.btc') {
-      return resolveCoinPresentationById('BTC')?.displayName?.trim() || 'Bitcoin';
-    }
 
     const systemCoin =
       coins.find(
@@ -2395,19 +2400,16 @@
         : null;
     const displayName =
       presentation?.displayName?.trim() || presentation?.displayTicker?.trim() || '';
-    if (displayName) {
-      return displayName;
-    }
-
-    // Avoid exposing raw i-addresses in user-facing copy.
-    if (/^i[a-km-zA-HJ-NP-Z1-9]{24,60}$/.test(normalizedSystemId)) {
-      if (normalizedPrefix === 'vrpc') {
-        return resolveCoinPresentationById('VRSC')?.displayName?.trim() || 'Verus';
-      }
-      return 'Network';
-    }
-
-    return normalizedSystemId || 'Verus';
+    const safeFallback = /^i[a-km-zA-HJ-NP-Z1-9]{24,60}$/.test(normalizedSystemId)
+      ? null
+      : displayName || normalizedSystemId;
+    return resolveTransferNetworkName({
+      channelPrefix: normalizedPrefix,
+      walletNetwork,
+      systemId: normalizedSystemId,
+      scopeDisplayName,
+      fallbackName: safeFallback,
+    });
   }
 
   function stripBridgeSuffix(value: string): string {
@@ -2707,30 +2709,6 @@
     return `${option.via ?? ''}|${option.exportTo ?? ''}|${option.mapTo ?? ''}`.toLowerCase();
   }
 
-  function sanitizeAmountInput(
-    rawValue: string,
-    maxFractionDigits = MAX_TRANSFER_AMOUNT_FRACTION_DIGITS
-  ): string {
-    const normalizedInput = rawValue.replace(/,/g, '.').replace(/[^\d.]/g, '');
-    if (!normalizedInput) return '';
-
-    const hasDecimalSeparator = normalizedInput.includes('.');
-    const [integerPartRaw, ...fractionSegments] = normalizedInput.split('.');
-    const fractionRaw = fractionSegments.join('');
-    const normalizedInteger = normalizeIntegerPart(integerPartRaw || '0');
-
-    if (!hasDecimalSeparator || maxFractionDigits <= 0) {
-      return normalizedInteger;
-    }
-
-    const truncatedFraction = fractionRaw.slice(0, maxFractionDigits);
-    if (!truncatedFraction && normalizedInput.endsWith('.')) {
-      return `${normalizedInteger}.`;
-    }
-
-    return truncatedFraction ? `${normalizedInteger}.${truncatedFraction}` : normalizedInteger;
-  }
-
   function isSimplePreflight(
     result: PreflightResult | BridgeTransferPreflightResult | null
   ): result is PreflightResult {
@@ -2845,46 +2823,15 @@
   }
 
   function getDisplayCurrencyRateForCurrencyLabel(label?: string | null): number | null {
-    if (typeof label !== 'string') return null;
-    const normalizedLabel = label.trim().toLowerCase();
-    if (!normalizedLabel) return null;
-
-    for (const coin of coins) {
-      const presentation = resolveCoinPresentation(coin);
-      if (
-        coin.id.toLowerCase() === normalizedLabel ||
-        coin.currencyId.toLowerCase() === normalizedLabel ||
-        coin.systemId.toLowerCase() === normalizedLabel ||
-        presentation.displayTicker.toLowerCase() === normalizedLabel ||
-        presentation.displayName.toLowerCase() === normalizedLabel
-      ) {
-        return getDisplayCurrencyRateForCoinIds([coin.id, coin.currencyId, coin.mappedTo]);
-      }
-    }
-
-    return null;
+    return resolveCanonicalTransferCurrencyRate(coins, rates, label, displayCurrency);
   }
 
   function resolveCurrencyLabelForDisplay(label?: string | null): string {
     if (typeof label !== 'string') return '';
     const trimmedLabel = label.trim();
     if (!trimmedLabel) return '';
-    const normalizedLabel = trimmedLabel.toLowerCase();
-
-    for (const coin of coins) {
-      const presentation = resolveCoinPresentation(coin);
-      if (
-        coin.id.toLowerCase() === normalizedLabel ||
-        coin.currencyId.toLowerCase() === normalizedLabel ||
-        coin.systemId.toLowerCase() === normalizedLabel ||
-        presentation.displayTicker.toLowerCase() === normalizedLabel ||
-        presentation.displayName.toLowerCase() === normalizedLabel
-      ) {
-        return presentation.displayTicker;
-      }
-    }
-
-    return trimmedLabel;
+    const coin = resolveCanonicalTransferCurrency(coins, trimmedLabel);
+    return coin ? resolveCoinPresentation(coin).displayTicker : trimmedLabel;
   }
 
   function formatFiatEstimate(
@@ -2892,12 +2839,21 @@
     fiatRate: number | null
   ): string {
     const numericAmount = parseNonNegativeAmount(amountValue);
-    if (numericAmount === null || fiatRate === null) return '≈ —';
-    return `≈ ${formatFiatAmount(numericAmount * fiatRate, i18n.intlLocale, displayCurrency)}`;
+    if (numericAmount === null || fiatRate === null || fiatRate <= 0) return '≈ —';
+    const value = numericAmount * fiatRate;
+    if (!Number.isFinite(value) || value <= 0) return '≈ —';
+    return `≈ ${formatDisplayFiatAmountDynamic(value)}`;
   }
 
   function formatDisplayFiatAmountDynamic(value: number): string {
     const absoluteValue = Math.abs(value);
+    if (absoluteValue > 0 && absoluteValue < 0.00000001) {
+      return `<${formatFiatAmount(0.00000001, i18n.intlLocale, displayCurrency, {
+        minimumFractionDigits: 8,
+        maximumFractionDigits: 8,
+      })}`;
+    }
+
     const maximumFractionDigits =
       absoluteValue < 0.0001
         ? 8
@@ -2995,6 +2951,12 @@
     if (warning.warningType === 'estimated_fee') {
       return i18n.t('wallet.transfer.warning.finalAmountMayVary');
     }
+    if (warning.warningType === 'resolved_destination' && activePreflight) {
+      return i18n.t('wallet.transfer.warning.resolvedDestination', {
+        entered: destinationAddress.trim(),
+        resolved: activePreflight.toAddress,
+      });
+    }
     return warning.message.trim();
   }
 
@@ -3049,6 +3011,15 @@
     if (errorType === 'InvalidAddress') return i18n.t('wallet.transfer.error.invalidAddress');
     if (errorType === 'InsufficientEthForGas')
       return i18n.t('wallet.transfer.error.insufficientEthForGas');
+    if (errorType === 'EthNotConfigured') return i18n.t('wallet.transfer.error.ethNotConfigured');
+    if (errorType === 'NativeCommandUnavailable')
+      return i18n.t('wallet.transfer.error.nativeCommandUnavailable');
+    if (errorType === 'GasEstimationFailed')
+      return i18n.t('wallet.transfer.error.gasEstimationFailed');
+    if (errorType === 'CurrencyMetadataMismatch')
+      return i18n.t('wallet.transfer.error.currencyMetadataMismatch');
+    if (errorType === 'BitcoinDustOutput') return i18n.t('wallet.transfer.error.bitcoinDustOutput');
+    if (errorType === 'InvalidAmount') return i18n.t('wallet.transfer.error.invalidAmount');
     if (errorType === 'InsufficientFunds') return i18n.t('wallet.transfer.error.insufficientFunds');
     if (errorType === 'NetworkError') return i18n.t('wallet.transfer.error.network');
     if (errorType === 'OperationFailed') {
@@ -3215,7 +3186,7 @@
     if (!request || !recipientValid) return;
     if (!(await ensureDlightSpendReady())) return;
 
-    const requestSignature = preflightRequestSignature(request);
+    const requestSignature = preflightRequestSignature(request, preflightWalletContext);
     preflighting = true;
     transferError = '';
 
@@ -3779,7 +3750,7 @@
                         onclick={() => (showSourceAssetSheet = true)}
                       >
                         {#if showChooseCurrencyCallToAction}
-                          <span class="truncate text-sm font-semibold"
+                          <span class="text-sm font-semibold whitespace-nowrap"
                             >{i18n.t('wallet.transfer.chooseCurrency')}</span
                           >
                         {:else}
@@ -3806,6 +3777,10 @@
                       {#if !amountValid && amount.trim()}
                         <p class="truncate text-xs text-destructive">
                           {i18n.t('wallet.transfer.amountInvalid')}
+                        </p>
+                      {:else if amountExceedsBalance}
+                        <p class="truncate text-xs text-destructive">
+                          {i18n.t('wallet.transfer.error.insufficientFunds')}
                         </p>
                       {/if}
                     </div>
@@ -3935,9 +3910,12 @@
               <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noRoutes')}</p>
             {/if}
 
-            {#if positiveSendableCoinOptions.length === 0}
-              <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noAssets')}</p>
-            {/if}
+            <TransferSourceStatus
+              loading={scopesLoading}
+              failed={scopeLoadFailed}
+              hasAssets={positiveSendableCoinOptions.length > 0}
+              onRetry={retrySourceScopes}
+            />
           </Card.Content>
         </Card.Root>
       {/if}
@@ -4196,9 +4174,16 @@
                             {i18n.t(`wallet.transfer.fee.${authoritativeDirectSendFeeMode}`)}
                           </span>
                         </span>
-                        <span class="flex items-center gap-2">
-                          <span class="text-sm font-medium tabular-nums">
-                            {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
+                        <span class="flex items-center gap-2 text-right">
+                          <span>
+                            <span class="block text-sm font-medium tabular-nums">
+                              {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
+                            </span>
+                            {#if reviewNetworkFeeFiatDisplay !== '≈ —'}
+                              <span class="block text-[11px] text-muted-foreground tabular-nums">
+                                {reviewNetworkFeeFiatDisplay}
+                              </span>
+                            {/if}
                           </span>
                           <ChevronRightIcon class="size-4 text-muted-foreground" />
                         </span>
@@ -4223,18 +4208,32 @@
                               : 'wallet.transfer.fee.totalDebited'
                           )}
                         </p>
-                        <p class="text-sm font-semibold tabular-nums">
-                          {reviewTotalDebitedValue}
-                        </p>
+                        <div class="text-right">
+                          <p class="text-sm font-semibold tabular-nums">
+                            {reviewTotalDebitedValue}
+                          </p>
+                          {#if reviewTotalDebitedFiatDisplay !== '≈ —'}
+                            <p class="text-[11px] text-muted-foreground tabular-nums">
+                              {reviewTotalDebitedFiatDisplay}
+                            </p>
+                          {/if}
+                        </div>
                       </div>
                     {:else}
                       <div class="flex items-start justify-between gap-3">
                         <p class="text-[11px] text-muted-foreground">
                           {i18n.t('wallet.transfer.summary.networkFee')}
                         </p>
-                        <p class="text-[13px] font-medium tabular-nums">
-                          {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
-                        </p>
+                        <div class="text-right">
+                          <p class="text-[13px] font-medium tabular-nums">
+                            {reviewNetworkFeeValue || i18n.t('wallet.transfer.summary.notSet')}
+                          </p>
+                          {#if reviewNetworkFeeFiatDisplay !== '≈ —'}
+                            <p class="text-[11px] text-muted-foreground tabular-nums">
+                              {reviewNetworkFeeFiatDisplay}
+                            </p>
+                          {/if}
+                        </div>
                       </div>
                     {/if}
 
@@ -4419,9 +4418,7 @@
   title={i18n.t('wallet.transfer.source.sendFrom')}
 >
   <div class="flex h-full min-h-0 flex-col">
-    {#if positiveSendableCoinOptions.length === 0}
-      <p class="text-sm text-muted-foreground">{i18n.t('wallet.transfer.noAssets')}</p>
-    {:else}
+    {#if positiveSendableCoinOptions.length > 0}
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport class="h-full pr-1">
           <div class="space-y-2 pb-1">
@@ -4452,8 +4449,9 @@
                           : 'wallet.transfer.source.publicAddress'
                       )}
                       · {resolveSourceNetworkDisplayName(
-                        option.coin.systemId ?? option.coin.id,
-                        option.channelId.split('.')[0] ?? ''
+                        option.scope.systemId ?? option.coin.systemId ?? option.coin.id,
+                        option.channelId.split('.')[0] ?? '',
+                        option.scope.systemDisplayName
                       )}
                     </p>
                     {#if optionAddress}
@@ -4473,6 +4471,14 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
     {/if}
+    <div class:pt-3={positiveSendableCoinOptions.length > 0}>
+      <TransferSourceStatus
+        loading={scopesLoading}
+        failed={scopeLoadFailed}
+        hasAssets={positiveSendableCoinOptions.length > 0}
+        onRetry={retrySourceScopes}
+      />
+    </div>
   </div>
 </StandardRightSheet>
 
@@ -4504,6 +4510,10 @@
         {/each}
       </RadioGroup.Root>
 
+      <p class="text-xs text-muted-foreground">
+        {i18n.t('wallet.transfer.fee.timingVaries')}
+      </p>
+
       {#if activePreflight && pendingFeeModeMatchesApplied}
         <div class="rounded-xl bg-muted/35 px-4 py-3 dark:bg-muted/40">
           <div class="flex items-center justify-between gap-4">
@@ -4512,7 +4522,14 @@
                 ? i18n.t('wallet.transfer.fee.maximumNetworkFee')
                 : i18n.t('wallet.transfer.fee.networkFee')}
             </p>
-            <p class="text-sm font-semibold tabular-nums">{reviewNetworkFeeValue}</p>
+            <div class="text-right">
+              <p class="text-sm font-semibold tabular-nums">{reviewNetworkFeeValue}</p>
+              {#if reviewNetworkFeeFiatDisplay !== '≈ —'}
+                <p class="text-[11px] text-muted-foreground tabular-nums">
+                  {reviewNetworkFeeFiatDisplay}
+                </p>
+              {/if}
+            </div>
           </div>
           <p class="mt-1 text-xs text-muted-foreground">
             {i18n.t('wallet.transfer.fee.paidIn', {

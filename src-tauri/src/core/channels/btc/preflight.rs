@@ -218,6 +218,7 @@ fn build_transaction_plan<'a>(
     destination_script: &ScriptBuf,
     change_script: &ScriptBuf,
 ) -> Result<BtcTransactionPlan<'a>, WalletError> {
+    validate_recipient_amount(destination_script, submitted_sat)?;
     let mut selected = Vec::new();
     let mut total_sat = 0u64;
 
@@ -279,6 +280,7 @@ fn build_transaction_plan<'a>(
     )?;
     let (send_value_sat, fee_taken_from_amount, fee_taken_message) =
         resolve_send_value_after_fee(submitted_sat, total_sat, fee_without_change)?;
+    validate_recipient_amount(destination_script, send_value_sat)?;
 
     Ok(BtcTransactionPlan {
         selected,
@@ -289,6 +291,13 @@ fn build_transaction_plan<'a>(
         fee_taken_from_amount,
         fee_taken_message,
     })
+}
+
+fn validate_recipient_amount(script: &ScriptBuf, amount_sat: u64) -> Result<(), WalletError> {
+    if amount_sat < script.dust_value().to_sat() {
+        return Err(WalletError::BitcoinDustOutput);
+    }
+    Ok(())
 }
 
 fn parse_positive_satoshis(value: &str) -> Result<u64, WalletError> {
@@ -823,5 +832,30 @@ mod tests {
         );
         assert!(parse_positive_satoshis("0.000000001").is_err());
         assert!(parse_positive_satoshis("1e-8").is_err());
+    }
+
+    #[test]
+    fn recipient_dust_threshold_follows_destination_script_type() {
+        let p2pkh = p2pkh_script_from_hash160(&[7u8; 20]);
+        let p2sh = ScriptBuf::from_bytes([vec![0xa9, 0x14], vec![7u8; 20], vec![0x87]].concat());
+        let p2wpkh = ScriptBuf::from_bytes([vec![0x00, 0x14], vec![7u8; 20]].concat());
+
+        for (script, threshold) in [(p2pkh, 546), (p2sh, 540), (p2wpkh, 294)] {
+            assert!(matches!(
+                validate_recipient_amount(&script, threshold - 1),
+                Err(WalletError::BitcoinDustOutput)
+            ));
+            validate_recipient_amount(&script, threshold).expect("at threshold");
+        }
+    }
+
+    #[test]
+    fn max_adjustment_cannot_create_a_dust_recipient_output() {
+        let script = p2pkh_script_from_hash160(&[7u8; 20]);
+        let max = vec![reported_utxo("77".repeat(32), 1_400)];
+        assert!(matches!(
+            build_transaction_plan(&max, 1_400, 5, &script, &script),
+            Err(WalletError::BitcoinDustOutput)
+        ));
     }
 }

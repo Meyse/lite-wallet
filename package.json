@@ -25,7 +25,8 @@
     "docs:check": "node ./scripts/docs-check.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test scripts/pnpmfile.node-test.cjs && vitest run",
+    "test": "node --test scripts/pnpmfile.node-test.cjs && vitest run && vitest run --config vitest.mounted.config.ts",
+    "test:mounted": "vitest run --config vitest.mounted.config.ts",
     "test:watch": "vitest",
     "pre-commit": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm docs:check"
   },
@@ -68,6 +69,7 @@
     "eslint-plugin-n": "^17.21.3",
     "eslint-plugin-svelte": "^3.11.0",
     "globals": "^16.5.0",
+    "jsdom": "27.0.0",
     "mode-watcher": "^1.1.0",
     "nanoid": "^5.1.5",
     "prettier": "^3.6.2",

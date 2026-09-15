@@ -25,6 +25,8 @@ pub(crate) struct VrpcPreflightPayload {
     #[serde(rename = "inputs")]
     pub inputs: Vec<VrpcInputRef>,
     pub system_id: String,
+    #[serde(default)]
+    pub entered_to_address: Option<String>,
     pub to_address: String,
     pub from_address: String,
     pub value: String,

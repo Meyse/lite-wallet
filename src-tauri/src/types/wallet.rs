@@ -168,6 +168,7 @@ pub struct ActiveWalletResponse {
     pub network: WalletNetwork,
     pub emoji: String,
     pub color: String,
+    pub session_id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

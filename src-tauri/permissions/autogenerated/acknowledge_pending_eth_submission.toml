@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acknowledge-pending-eth-submission"
+description = "Enables the acknowledge_pending_eth_submission command without any pre-configured scope."
+commands.allow = ["acknowledge_pending_eth_submission"]
+
+[[permission]]
+identifier = "deny-acknowledge-pending-eth-submission"
+description = "Denies the acknowledge_pending_eth_submission command without any pre-configured scope."
+commands.deny = ["acknowledge_pending_eth_submission"]

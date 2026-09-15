@@ -5,7 +5,7 @@ use ethers::contract::Contract;
 use ethers::providers::Middleware;
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{Address, Eip1559TransactionRequest, U256};
-use ethers::utils::{format_units, parse_units};
+use ethers::utils::format_units;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -36,8 +36,9 @@ const ERC20_SEND_ABI: &str = r#"[
   }
 ]"#;
 
-const ETH_GAS_LIMIT_FALLBACK: u64 = 21_000;
-const ERC20_GAS_LIMIT_FALLBACK: u64 = 120_000;
+const ETH_TRANSFER_GAS_BASELINE: u64 = 21_000;
+const EVM_ZERO_CALLDATA_GAS: u64 = 4;
+const EVM_NONZERO_CALLDATA_GAS: u64 = 16;
 const ETH_GAS_MARGIN_DIVISOR: u64 = 5;
 const ERC20_GAS_MARGIN_DIVISOR: u64 = 3;
 
@@ -130,30 +131,22 @@ pub async fn preflight_eth(
     let fee_mode = params.fee_mode.unwrap_or_default();
     let fee_params = current_fee_params(provider, fee_mode).await?;
 
-    let tx = Eip1559TransactionRequest::new()
-        .from(parsed_from)
-        .to(parsed_to)
-        .value(submitted_value);
-    let typed_tx: TypedTransaction = tx.into();
-
-    let gas_estimate = provider
-        .rpc_provider
-        .estimate_gas(&typed_tx, None)
-        .await
-        .unwrap_or_else(|_| U256::from(ETH_GAS_LIMIT_FALLBACK));
-    let gas_limit =
-        add_fraction(gas_estimate, ETH_GAS_MARGIN_DIVISOR).max(U256::from(ETH_GAS_LIMIT_FALLBACK));
-
-    let max_fee = gas_limit.saturating_mul(fee_params.max_fee_per_gas);
-
     let balance = provider
         .rpc_provider
         .get_balance(parsed_from, None)
         .await
         .map_err(|_| WalletError::NetworkError)?;
 
-    let (value, fee_taken_from_amount, fee_taken_message) =
-        resolve_eth_value_after_fee(submitted_value, balance, max_fee)?;
+    let (value, gas_limit, max_fee, fee_taken_from_amount, fee_taken_message) =
+        resolve_eth_preflight_quote(
+            provider,
+            parsed_from,
+            parsed_to,
+            submitted_value,
+            balance,
+            &fee_params,
+        )
+        .await?;
 
     let fee_display = format_units(max_fee, 18).map_err(|_| WalletError::OperationFailed)?;
     let value_display = format_units(value, 18).map_err(|_| WalletError::OperationFailed)?;
@@ -240,16 +233,20 @@ pub async fn preflight_erc20(
         return Err(WalletError::InsufficientFunds);
     }
 
-    let gas_estimate = contract
+    let transfer_call = contract
         .method::<_, bool>("transfer", (parsed_to, amount_raw))
         .map_err(|_| WalletError::OperationFailed)?
-        .from(parsed_from)
+        .from(parsed_from);
+    let calldata = transfer_call
+        .calldata()
+        .ok_or(WalletError::OperationFailed)?;
+    let gas_estimate = transfer_call
         .estimate_gas()
         .await
-        .unwrap_or_else(|_| U256::from(ERC20_GAS_LIMIT_FALLBACK));
+        .map_err(|_| WalletError::GasEstimationFailed)?;
+    let gas_estimate = validate_gas_estimate(gas_estimate, minimum_intrinsic_gas(&calldata))?;
 
-    let gas_limit = add_fraction(gas_estimate, ERC20_GAS_MARGIN_DIVISOR)
-        .max(U256::from(ERC20_GAS_LIMIT_FALLBACK));
+    let gas_limit = add_fraction(gas_estimate, ERC20_GAS_MARGIN_DIVISOR);
     let max_fee_cap = gas_limit.saturating_mul(fee_params.max_fee_per_gas);
 
     let eth_balance = provider
@@ -299,7 +296,7 @@ pub async fn preflight_erc20(
     Ok(PreflightResult {
         preflight_id,
         fee: fee_display,
-        fee_currency: "ETH".to_string(),
+        fee_currency: if coin.is_testnet { "GETH" } else { "ETH" }.to_string(),
         value: value_display,
         amount_submitted: params.amount,
         to_address: format_address(parsed_to),
@@ -327,12 +324,40 @@ async fn current_fee_params(
 }
 
 fn parse_token_amount(amount: &str, decimals: usize) -> Result<U256, WalletError> {
-    let parsed = parse_units(amount.trim(), decimals).map_err(|_| WalletError::OperationFailed)?;
-    let as_u256: U256 = parsed.into();
-    if as_u256.is_zero() {
-        return Err(WalletError::OperationFailed);
+    let trimmed = amount.trim();
+    if trimmed.is_empty() || trimmed.starts_with('+') || trimmed.starts_with('-') {
+        return Err(WalletError::InvalidAmount);
     }
-    Ok(as_u256)
+
+    let (whole, fraction) = match trimmed.split_once('.') {
+        Some((whole, fraction)) => {
+            if fraction.is_empty() || fraction.contains('.') {
+                return Err(WalletError::InvalidAmount);
+            }
+            (whole, fraction)
+        }
+        None => (trimmed, ""),
+    };
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() > decimals
+    {
+        return Err(WalletError::InvalidAmount);
+    }
+
+    let whole = whole.trim_start_matches('0');
+    let whole = if whole.is_empty() { "0" } else { whole };
+    let mut exact = String::with_capacity(whole.len().saturating_add(decimals));
+    exact.push_str(whole);
+    exact.push_str(fraction);
+    exact.extend(std::iter::repeat_n('0', decimals - fraction.len()));
+
+    let parsed = U256::from_dec_str(&exact).map_err(|_| WalletError::InvalidAmount)?;
+    if parsed.is_zero() {
+        return Err(WalletError::InvalidAmount);
+    }
+    Ok(parsed)
 }
 
 fn parse_eth_address(address: &str) -> Result<Address, WalletError> {
@@ -347,6 +372,9 @@ fn resolve_eth_value_after_fee(
     balance: U256,
     max_fee: U256,
 ) -> Result<(U256, bool, Option<String>), WalletError> {
+    if submitted_value > balance {
+        return Err(WalletError::InsufficientFunds);
+    }
     if balance <= max_fee {
         return Err(WalletError::InsufficientFunds);
     }
@@ -368,6 +396,93 @@ fn resolve_eth_value_after_fee(
     ))
 }
 
+async fn estimate_eth_transfer_gas(
+    provider: &EthNetworkProvider,
+    from: Address,
+    to: Address,
+    value: U256,
+) -> Result<U256, WalletError> {
+    let tx = Eip1559TransactionRequest::new()
+        .from(from)
+        .to(to)
+        .value(value);
+    let typed_tx: TypedTransaction = tx.into();
+    let estimate = provider
+        .rpc_provider
+        .estimate_gas(&typed_tx, None)
+        .await
+        .map_err(|_| WalletError::GasEstimationFailed)?;
+    validate_gas_estimate(estimate, U256::from(ETH_TRANSFER_GAS_BASELINE))
+}
+
+fn minimum_intrinsic_gas(calldata: &[u8]) -> U256 {
+    calldata
+        .iter()
+        .fold(U256::from(ETH_TRANSFER_GAS_BASELINE), |total, byte| {
+            total.saturating_add(U256::from(if *byte == 0 {
+                EVM_ZERO_CALLDATA_GAS
+            } else {
+                EVM_NONZERO_CALLDATA_GAS
+            }))
+        })
+}
+
+fn validate_gas_estimate(estimate: U256, minimum: U256) -> Result<U256, WalletError> {
+    if estimate < minimum {
+        return Err(WalletError::GasEstimationFailed);
+    }
+    Ok(estimate)
+}
+
+async fn resolve_eth_preflight_quote(
+    provider: &EthNetworkProvider,
+    from: Address,
+    to: Address,
+    submitted_value: U256,
+    balance: U256,
+    fee_params: &ResolvedEvmFee,
+) -> Result<(U256, U256, U256, bool, Option<String>), WalletError> {
+    if submitted_value > balance {
+        return Err(WalletError::InsufficientFunds);
+    }
+
+    let mut candidate = submitted_value;
+    let mut seeded_max_send = false;
+    for _ in 0..4 {
+        let estimate = match estimate_eth_transfer_gas(provider, from, to, candidate).await {
+            Ok(estimate) => estimate,
+            Err(WalletError::GasEstimationFailed)
+                if !seeded_max_send
+                    && submitted_value == balance
+                    && candidate == submitted_value =>
+            {
+                seeded_max_send = true;
+                let baseline_limit = add_fraction(
+                    U256::from(ETH_TRANSFER_GAS_BASELINE),
+                    ETH_GAS_MARGIN_DIVISOR,
+                );
+                let baseline_fee = baseline_limit.saturating_mul(fee_params.max_fee_per_gas);
+                candidate = balance
+                    .checked_sub(baseline_fee)
+                    .filter(|value| !value.is_zero())
+                    .ok_or(WalletError::InsufficientFunds)?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let gas_limit = add_fraction(estimate, ETH_GAS_MARGIN_DIVISOR);
+        let max_fee = gas_limit.saturating_mul(fee_params.max_fee_per_gas);
+        let (value, adjusted, message) =
+            resolve_eth_value_after_fee(submitted_value, balance, max_fee)?;
+        if value == candidate {
+            return Ok((value, gas_limit, max_fee, adjusted, message));
+        }
+        candidate = value;
+    }
+
+    Err(WalletError::GasEstimationFailed)
+}
+
 fn add_fraction(value: U256, divisor: u64) -> U256 {
     if divisor == 0 {
         return value;
@@ -382,9 +497,31 @@ fn format_address(address: Address) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_eth_address, parse_token_amount, resolve_eth_value_after_fee};
+    use super::{
+        minimum_intrinsic_gas, parse_eth_address, parse_token_amount, resolve_eth_value_after_fee,
+        validate_gas_estimate,
+    };
     use crate::types::WalletError;
     use ethers::types::U256;
+
+    #[test]
+    fn rejects_zero_and_below_intrinsic_gas_estimates() {
+        let calldata = [0u8, 1u8];
+        let minimum = minimum_intrinsic_gas(&calldata);
+        assert_eq!(minimum, U256::from(21_020u64));
+        assert!(matches!(
+            validate_gas_estimate(U256::zero(), minimum),
+            Err(WalletError::GasEstimationFailed)
+        ));
+        assert!(matches!(
+            validate_gas_estimate(U256::from(21_019u64), minimum),
+            Err(WalletError::GasEstimationFailed)
+        ));
+        assert_eq!(
+            validate_gas_estimate(minimum, minimum).expect("minimum valid"),
+            minimum
+        );
+    }
 
     #[test]
     fn resolve_eth_value_after_fee_keeps_submitted_when_balance_covers() {
@@ -425,6 +562,41 @@ mod tests {
     }
 
     #[test]
+    fn resolve_eth_value_after_fee_never_turns_an_overbalance_amount_into_max() {
+        let result = resolve_eth_value_after_fee(
+            U256::from(1_000_001u64),
+            U256::from(1_000_000u64),
+            U256::from(21_000u64),
+        );
+        assert!(matches!(result, Err(WalletError::InsufficientFunds)));
+    }
+
+    #[test]
+    fn token_amount_parser_is_exact_and_unsigned() {
+        assert_eq!(
+            parse_token_amount("1.234567", 6).expect("six decimals"),
+            U256::from(1_234_567u64)
+        );
+        assert_eq!(
+            parse_token_amount("0001.2", 6).expect("padding"),
+            U256::from(1_200_000u64)
+        );
+        for invalid in ["", "0", "-1", "+1", "1e2", "1.2345678", "1.", ".1"] {
+            assert!(matches!(
+                parse_token_amount(invalid, 6),
+                Err(WalletError::InvalidAmount)
+            ));
+        }
+        assert!(matches!(
+            parse_token_amount(
+                "999999999999999999999999999999999999999999999999999999999999999999999999999999",
+                18,
+            ),
+            Err(WalletError::InvalidAmount)
+        ));
+    }
+
+    #[test]
     fn parse_eth_address_rejects_invalid_destination() {
         let result = parse_eth_address("not-an-eth-address");
         assert!(matches!(result, Err(WalletError::InvalidAddress)));
@@ -433,6 +605,6 @@ mod tests {
     #[test]
     fn parse_token_amount_rejects_zero() {
         let result = parse_token_amount("0", 18);
-        assert!(matches!(result, Err(WalletError::OperationFailed)));
+        assert!(matches!(result, Err(WalletError::InvalidAmount)));
     }
 }

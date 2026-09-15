@@ -31,6 +31,7 @@ export interface ActiveWalletResponse {
   network: WalletNetwork;
   emoji: string;
   color: string;
+  session_id: string;
 }
 
 export interface AddressResponse {

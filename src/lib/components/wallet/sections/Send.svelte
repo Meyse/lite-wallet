@@ -12,6 +12,7 @@
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
     walletNetwork?: WalletNetwork;
+    walletKey?: string;
   };
 
   const defaultCloseHandler = () => {};
@@ -20,7 +21,8 @@
     entryContext = null,
     onClose = defaultCloseHandler,
     walletNetwork = 'mainnet',
+    walletKey = '',
   }: SendProps = $props();
 </script>
 
-<TransferWizard entryIntent="send" {entryContext} {onClose} {walletNetwork} />
+<TransferWizard entryIntent="send" {entryContext} {onClose} {walletNetwork} {walletKey} />

@@ -16,7 +16,11 @@ function toWalletErrorObject(error: unknown): Record<string, unknown> | null {
 
 export function extractWalletErrorType(error: unknown): string | null {
   const object = toWalletErrorObject(error);
-  if (!object) return null;
+  if (!object) {
+    const message =
+      typeof error === 'string' ? error.trim() : error instanceof Error ? error.message : '';
+    return isNativeCommandUnavailableMessage(message) ? 'NativeCommandUnavailable' : null;
+  }
 
   if (typeof object.type === 'string' && object.type.trim()) {
     return object.type.trim();
@@ -29,7 +33,8 @@ export function extractWalletErrorType(error: unknown): string | null {
     }
   }
 
-  return null;
+  const message = extractMessageFromObject(object);
+  return isNativeCommandUnavailableMessage(message) ? 'NativeCommandUnavailable' : null;
 }
 
 export function isWalletLockedError(error: unknown): boolean {
@@ -37,6 +42,10 @@ export function isWalletLockedError(error: unknown): boolean {
 }
 
 export function extractWalletErrorMessage(error: unknown): string | null {
+  if (typeof error === 'string') {
+    const parsed = parseWalletErrorString(error);
+    if (!parsed) return error.trim() || null;
+  }
   const object = toWalletErrorObject(error);
   if (object) {
     if (typeof object.message === 'string' && object.message.trim()) {
@@ -56,4 +65,22 @@ export function extractWalletErrorMessage(error: unknown): string | null {
   }
 
   return null;
+}
+
+function extractMessageFromObject(object: Record<string, unknown>): string {
+  if (typeof object.message === 'string') return object.message;
+  if (object.data && typeof object.data === 'object') {
+    const data = object.data as Record<string, unknown>;
+    if (typeof data.message === 'string') return data.message;
+  }
+  return '';
+}
+
+function isNativeCommandUnavailableMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes('not allowed by acl') ||
+    normalized.includes('command not found') ||
+    (normalized.includes('command') && normalized.includes('not allowed'))
+  );
 }

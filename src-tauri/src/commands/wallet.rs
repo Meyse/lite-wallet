@@ -537,6 +537,40 @@ fn channel_id_for_non_vrpc_coin(coin: &CoinDefinition) -> Option<String> {
     None
 }
 
+fn canonical_non_vrpc_network_metadata(
+    coin: &CoinDefinition,
+    network: WalletNetwork,
+) -> (String, String, String) {
+    if coin_supports_channel(coin, Channel::Btc) {
+        return match network {
+            WalletNetwork::Mainnet => ("BTC".to_string(), "BTC".to_string(), "Bitcoin".to_string()),
+            WalletNetwork::Testnet => (
+                "BTCTEST".to_string(),
+                "BTCTEST".to_string(),
+                "Bitcoin Testnet".to_string(),
+            ),
+        };
+    }
+    if coin_supports_channel(coin, Channel::Eth) || coin_supports_channel(coin, Channel::Erc20) {
+        return match network {
+            WalletNetwork::Mainnet => {
+                ("ETH".to_string(), "ETH".to_string(), "Ethereum".to_string())
+            }
+            WalletNetwork::Testnet => (
+                "GETH".to_string(),
+                "GETH".to_string(),
+                "Sepolia".to_string(),
+            ),
+        };
+    }
+
+    (
+        coin.system_id.clone(),
+        coin.display_ticker.clone(),
+        coin.display_name.clone(),
+    )
+}
+
 fn address_for_non_vrpc_coin(
     coin: &CoinDefinition,
     addresses: &(String, String, String),
@@ -1037,6 +1071,10 @@ pub async fn get_active_wallet(
         Some(id) => id.clone(),
         None => return Ok(None),
     };
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
     drop(session);
 
     let wallet_name = wallet_manager.get_wallet_by_account_id(&account_id).await?;
@@ -1046,6 +1084,7 @@ pub async fn get_active_wallet(
         network: w.network,
         emoji: w.emoji,
         color: w.color,
+        session_id,
     }))
 }
 
@@ -1538,6 +1577,8 @@ pub async fn get_coin_scopes(
 
     let channel_id = channel_id_for_non_vrpc_coin(&coin).ok_or(WalletError::UnsupportedChannel)?;
     let address = address_for_non_vrpc_coin(&coin, &addresses);
+    let (system_id, system_ticker, system_display_name) =
+        canonical_non_vrpc_network_metadata(&coin, network);
     Ok(CoinScopesResult {
         coin_id: coin.id.clone(),
         scopes: vec![CoinScope {
@@ -1545,9 +1586,9 @@ pub async fn get_coin_scopes(
             coin_id: coin.id.clone(),
             address: address.clone(),
             address_label: address,
-            system_id: coin.system_id.clone(),
-            system_ticker: coin.display_ticker.clone(),
-            system_display_name: coin.display_name.clone(),
+            system_id,
+            system_ticker,
+            system_display_name,
             is_primary_address: true,
             is_read_only: false,
             scope_kind: ScopeKind::Transparent,
@@ -1579,8 +1620,8 @@ pub async fn list_wallets(
 #[cfg(test)]
 mod tests {
     use super::{
-        channel_id_for_non_vrpc_coin, collect_vrpc_scope_addresses,
-        collect_vrpc_system_descriptors, dedupe_preserve_order,
+        canonical_non_vrpc_network_metadata, channel_id_for_non_vrpc_coin,
+        collect_vrpc_scope_addresses, collect_vrpc_system_descriptors, dedupe_preserve_order,
         dlight_recovery_secret_kind_from_seed, persist_new_account,
         recovery_secret_kind_from_wallet_secret_kind, sanitize_active_coin_ids,
         NewAccountPersistenceRequest,
@@ -1602,6 +1643,31 @@ mod tests {
     const VRSC_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
     const VETH_SYSTEM_ID: &str = "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X";
     const CHIPS_SYSTEM_ID: &str = "iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP";
+
+    #[test]
+    fn non_vrpc_scope_labels_name_execution_networks_not_tokens() {
+        let registry = CoinRegistry::new();
+        let all = registry.get_all();
+        let usdc = all.iter().find(|coin| coin.id == "USDC").expect("USDC");
+        let btc = all.iter().find(|coin| coin.id == "BTC").expect("BTC");
+
+        assert_eq!(
+            canonical_non_vrpc_network_metadata(usdc, WalletNetwork::Mainnet),
+            ("ETH".to_string(), "ETH".to_string(), "Ethereum".to_string())
+        );
+        assert_eq!(
+            canonical_non_vrpc_network_metadata(usdc, WalletNetwork::Testnet),
+            (
+                "GETH".to_string(),
+                "GETH".to_string(),
+                "Sepolia".to_string()
+            )
+        );
+        assert_eq!(
+            canonical_non_vrpc_network_metadata(btc, WalletNetwork::Mainnet),
+            ("BTC".to_string(), "BTC".to_string(), "Bitcoin".to_string())
+        );
+    }
 
     fn set_active_account(registry: &CoinRegistry) {
         registry.set_active_account(Some("wallet_tests_account".to_string()));

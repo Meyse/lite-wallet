@@ -44,12 +44,14 @@
   import type { WalletEntrySelection } from '$lib/types/wallet';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import type { GenericRequestFlowSession } from '$lib/genericRequest/session';
+  import { transferWalletSessionKey } from './sections/transfer-wizard/preflightRequest';
 
   interface WalletData {
     name: string;
     emoji: string;
     color: string;
     network?: 'mainnet' | 'testnet';
+    sessionId: string;
   }
 
   type SectionId =
@@ -92,6 +94,9 @@
   );
   const latestErrorMessage = $derived(resolveWalletErrorMessage(latestError));
   const isTransferFocusMode = $derived(activeSection === 'send' || activeSection === 'conversions');
+  const transferWalletKey = $derived(
+    transferWalletSessionKey(walletData.name, walletData.network ?? 'mainnet', walletData.sessionId)
+  );
   const queuedGenericRequest = $derived($genericRequestQueueStore);
 
   $effect(() => {
@@ -109,7 +114,11 @@
   });
 
   $effect(() => {
-    const nextWalletKey = `${walletData.name.trim().toLowerCase()}::${walletData.network ?? 'mainnet'}`;
+    const nextWalletKey = transferWalletSessionKey(
+      walletData.name,
+      walletData.network ?? 'mainnet',
+      walletData.sessionId
+    );
     if (identitySectionWalletKey === nextWalletKey) return;
 
     identitySectionWalletKey = nextWalletKey;
@@ -318,25 +327,31 @@
             />
           {/if}
         {:else if activeSection === 'send'}
-          <Send
-            entryContext={transferEntryContext}
-            walletNetwork={walletData.network ?? 'mainnet'}
-            onClose={() => {
-              activeSection = 'overview';
-              transferEntryContext = null;
-            }}
-          />
+          {#key transferWalletKey}
+            <Send
+              entryContext={transferEntryContext}
+              walletNetwork={walletData.network ?? 'mainnet'}
+              walletKey={transferWalletKey}
+              onClose={() => {
+                activeSection = 'overview';
+                transferEntryContext = null;
+              }}
+            />
+          {/key}
         {:else if activeSection === 'receive'}
           <Receive />
         {:else if activeSection === 'conversions'}
-          <Conversions
-            entryContext={transferEntryContext}
-            walletNetwork={walletData.network ?? 'mainnet'}
-            onClose={() => {
-              activeSection = 'overview';
-              transferEntryContext = null;
-            }}
-          />
+          {#key transferWalletKey}
+            <Conversions
+              entryContext={transferEntryContext}
+              walletNetwork={walletData.network ?? 'mainnet'}
+              walletKey={transferWalletKey}
+              onClose={() => {
+                activeSection = 'overview';
+                transferEntryContext = null;
+              }}
+            />
+          {/key}
         {:else if activeSection === 'identity'}
           {#key identitySectionWalletKey}
             <Identity

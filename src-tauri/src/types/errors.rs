@@ -42,6 +42,15 @@ pub enum WalletError {
     #[error("Insufficient ETH to cover transaction gas")]
     InsufficientEthForGas,
 
+    #[error("Gas estimation failed")]
+    GasEstimationFailed,
+
+    #[error("Transaction amount is below the Bitcoin dust threshold")]
+    BitcoinDustOutput,
+
+    #[error("Invalid transaction amount")]
+    InvalidAmount,
+
     #[error("Network error")]
     NetworkError,
 
@@ -53,6 +62,9 @@ pub enum WalletError {
 
     #[error("Invalid coin definition")]
     InvalidCoinDefinition,
+
+    #[error("Currency metadata does not match the selected asset")]
+    CurrencyMetadataMismatch,
 
     #[error("PBaaS currency already exists")]
     DuplicatePbaasCurrency,
