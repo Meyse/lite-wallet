@@ -242,6 +242,7 @@ export const nl: Record<string, string> = {
   'genericRequest.auth.selectIdentity': 'Selecteer VerusID',
   'genericRequest.auth.signInTo': 'Meld je aan bij {app}',
   'genericRequest.auth.requestedBy': 'Aangevraagd door {requester}',
+  'genericRequest.auth.requestedByLabel': 'Aangevraagd door',
   'genericRequest.auth.noSelection':
     'Er is nog geen VerusID geselecteerd. Kies er een om door te gaan.',
   'genericRequest.auth.selectedDescription':
@@ -467,7 +468,7 @@ export const nl: Record<string, string> = {
     'Configureer shielded privacy voor {label}. Je kunt je primaire geheime herstelzin hergebruiken of een apart privacyherstelgeheim instellen.',
   'wallet.settings.privateVerus.statusConfigured': 'Privacy is geconfigureerd.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is nog niet geconfigureerd.',
-  'wallet.settings.privateVerus.statusAddress': 'Shielded adres: {address}',
+  'wallet.settings.privateVerus.statusAddress': 'Shielded adres',
   'wallet.settings.privateVerus.statusLoadError': 'Kon de privacystatus niet laden.',
   'wallet.settings.privateVerus.reusePrimary': 'Primaire geheime herstelzin hergebruiken',
   'wallet.settings.privateVerus.createNew': 'Nieuw privacyherstelgeheim maken',
@@ -746,7 +747,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.warning.finalAmountMayVary':
     'Definitieve hoeveelheid die je ontvangt kan iets afwijken.',
   'wallet.transfer.warning.resolvedDestination':
-    '{entered} verwijst naar {resolved}. Controleer het opgeloste adres voordat je verzendt.',
+    'De ingevoerde ontvanger verwijst naar een ander adres. Controleer dit voordat je verzendt.',
   'wallet.transfer.review.changeDetails': 'Details wijzigen',
   'wallet.transfer.review.sendTitle': 'Verzending controleren',
   'wallet.transfer.review.conversionTitle': 'Omwisseling controleren',
@@ -756,7 +757,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.review.selfSuffix': '(zelf)',
   'wallet.transfer.review.savedRecipient': 'Opgeslagen ontvanger: {contact} ({endpoint})',
   'wallet.transfer.review.amountAdjustedWarning':
-    'Bedrag aangepast van {submitted} naar {adjusted} {ticker} om netwerkkosten te dekken.',
+    'Netwerkkosten afgetrokken: {submitted} → {adjusted} {ticker}.',
   'wallet.transfer.review.unsavedRecipient': 'Deze ontvanger staat niet in je adresboek.',
   'wallet.transfer.review.unsavedConfirmShort': 'Ontvanger geverifieerd',
   'wallet.transfer.review.unsavedSettingHint':
@@ -769,6 +770,7 @@ export const nl: Record<string, string> = {
   'wallet.transfer.fee.maximumNetworkFee': 'Maximale netwerkkosten',
   'wallet.transfer.fee.totalDebited': 'Totaal afgeschreven',
   'wallet.transfer.fee.maximumTotalDebited': 'Maximaal totaal afgeschreven',
+  'wallet.transfer.fee.totalFees': 'Totale kosten',
   'wallet.transfer.fee.economy': 'Voordelig',
   'wallet.transfer.fee.lowerFee': 'Lagere kosten',
   'wallet.transfer.fee.economyDescription': 'Lagere prioriteit. Kan langer duren.',
@@ -871,7 +873,7 @@ export const nl: Record<string, string> = {
     'Rond de opgeslagen Ethereum-transfer af voordat je een nieuwe start.',
   'wallet.transfer.ethRecovery.title': 'Ethereum-transfer herstellen',
   'wallet.transfer.ethRecovery.description':
-    'Controleer {value} naar {recipient} voordat je doorgaat.',
+    'Controleer de transactiegegevens voordat je doorgaat.',
   'wallet.transfer.ethRecovery.continue': 'Doorgaan met transfer',
   'wallet.transfer.ethRecovery.showResult': 'Verzonden transfer tonen',
   'wallet.transfer.ethRecovery.recovering': 'Herstellen…',

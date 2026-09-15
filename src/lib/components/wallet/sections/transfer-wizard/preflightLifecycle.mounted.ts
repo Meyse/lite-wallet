@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getPendingEthSubmission: vi.fn(),
   getDisplayCoinScopes: vi.fn(),
   getAddresses: vi.fn(),
+  getDlightRuntimeStatus: vi.fn(),
   getBridgeCapabilities: vi.fn(),
 }));
 
@@ -28,7 +29,7 @@ vi.mock('$lib/services/walletDisplayService.js', () => ({
 
 vi.mock('$lib/services/walletService.js', () => ({
   getAddresses: mocks.getAddresses,
-  getDlightRuntimeStatus: vi.fn(),
+  getDlightRuntimeStatus: mocks.getDlightRuntimeStatus,
   getTransactionHistory: vi.fn().mockResolvedValue([]),
 }));
 
@@ -90,10 +91,15 @@ import { networkStore } from '$lib/stores/network';
 import { ratesStore } from '$lib/stores/rates';
 import { localeStore } from '$lib/i18n';
 import { PreflightRequestGuard } from './preflightRequestGuard';
+import TransferWizard from '../TransferWizard.svelte';
 import WalletLayoutLifecycleHarness from './test-fixtures/WalletLayoutLifecycleHarness.svelte';
 
 const sourceAddress = `0x${'11'.repeat(20)}`;
 const destinationAddress = `0x${'22'.repeat(20)}`;
+const privateDestinationAddress = 'RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka';
+const privateSourceAddress = 'zs1syntheticprivateaddressforrenderingonly';
+const vrscSystemId = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
+const privateChannelId = `dlight_private.${privateSourceAddress}.${vrscSystemId}`;
 
 const ethCoin: CoinDefinition = {
   id: 'ETH',
@@ -122,6 +128,33 @@ const ethScope: CoinScope = {
   scopeKind: 'transparent',
 };
 
+const vrscCoin: CoinDefinition = {
+  id: 'VRSC',
+  currencyId: vrscSystemId,
+  systemId: vrscSystemId,
+  displayTicker: 'VRSC',
+  displayName: 'Verus',
+  proto: 'vrsc',
+  compatibleChannels: ['vrpc', 'dlight_private'],
+  decimals: 8,
+  vrpcEndpoints: [],
+  secondsPerBlock: 60,
+  isTestnet: false,
+};
+
+const privateScope: CoinScope = {
+  channelId: privateChannelId,
+  coinId: 'VRSC',
+  address: privateSourceAddress,
+  addressLabel: 'Private address',
+  systemId: vrscSystemId,
+  systemTicker: 'VRSC',
+  systemDisplayName: 'Verus',
+  isPrimaryAddress: false,
+  isReadOnly: false,
+  scopeKind: 'shielded',
+};
+
 function preflightResult(preflightId: string, fee: string): PreflightResult {
   return {
     preflightId,
@@ -134,6 +167,21 @@ function preflightResult(preflightId: string, fee: string): PreflightResult {
     feeTakenFromAmount: false,
     warnings: [],
     feeMode: 'standard',
+  };
+}
+
+function privatePreflightResult(): PreflightResult {
+  return {
+    preflightId: 'private-preflight',
+    fee: '0.0001',
+    feeCurrency: 'VRSC',
+    value: '0.2499',
+    amountSubmitted: '0.25',
+    toAddress: privateDestinationAddress,
+    fromAddress: privateSourceAddress,
+    feeTakenFromAmount: true,
+    warnings: [],
+    feeMode: null,
   };
 }
 
@@ -232,6 +280,58 @@ async function fillAndStartPreflight(target: HTMLElement): Promise<void> {
   await settle();
 }
 
+function configurePrivateSend(): void {
+  coinsStore.set([vrscCoin]);
+  balanceStore.set({
+    [privateChannelId]: {
+      VRSC: { confirmed: '0.25', pending: '0', total: '0.25' },
+    },
+  });
+  ratesStore.set({
+    VRSC: { rates: { USD: 100 }, usdChange24hPct: null },
+  });
+  mocks.getDisplayCoinScopes.mockResolvedValue({ coinId: 'VRSC', scopes: [privateScope] });
+  mocks.getAddresses.mockResolvedValue({
+    vrsc_address: privateDestinationAddress,
+    eth_address: '',
+    btc_address: '',
+  });
+  mocks.getDlightRuntimeStatus.mockResolvedValue({
+    channelId: privateChannelId,
+    runtimeKey: 'synthetic-runtime',
+    statusKind: 'synced',
+    scannedHeight: 100,
+    tipHeight: 100,
+    syncing: false,
+    lastUpdated: 1,
+    consecutiveFailures: 0,
+    stalled: false,
+    spendCacheReady: true,
+  });
+}
+
+async function mountPrivateSend(target: HTMLElement) {
+  const component = mount(TransferWizard, {
+    target,
+    props: {
+      entryIntent: 'send',
+      entryContext: {
+        coinId: 'VRSC',
+        channelId: privateChannelId,
+        scopeKind: 'shielded',
+        readOnly: false,
+      },
+      walletNetwork: 'mainnet',
+      walletKey: 'synthetic-wallet',
+    },
+  });
+  await waitFor(() => target.querySelector('#transfer-amount') !== null, 'the private send form');
+  enter(target, '#transfer-amount', '0.25');
+  enter(target, '#transfer-recipient', privateDestinationAddress);
+  await settle();
+  return component;
+}
+
 beforeEach(() => {
   class ResizeObserverStub {
     observe(): void {}
@@ -273,10 +373,87 @@ beforeEach(() => {
     eth_address: sourceAddress,
     btc_address: '',
   });
+  mocks.getDlightRuntimeStatus.mockReset().mockResolvedValue(null);
   mocks.getBridgeCapabilities.mockReset().mockResolvedValue({
     conversionSupported: false,
     executionEngine: 'none',
     reasonCode: 'unsupported_channel',
+  });
+});
+
+describe('transfer review refinements', () => {
+  it('keeps immediate private-preflight feedback on Details and prevents duplicate activation', async () => {
+    configurePrivateSend();
+    const pendingPreflight = deferred<PreflightResult>();
+    mocks.preflightSend.mockImplementation(() => pendingPreflight.promise);
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = await mountPrivateSend(target);
+
+    try {
+      clickReviewSend(target);
+      await settle();
+
+      const preparingButton = Array.from(target.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Preparing review…')
+      );
+      expect(preparingButton).toBeDefined();
+      expect(preparingButton?.disabled).toBe(true);
+      expect(preparingButton?.getAttribute('aria-busy')).toBe('true');
+      expect(target.querySelector('[data-transfer-preflight-spinner]')).not.toBeNull();
+      expect(target.querySelector('#transfer-amount')).not.toBeNull();
+      expect(target.textContent).not.toContain('Review send');
+      preparingButton?.click();
+      await settle();
+      expect(mocks.preflightSend).toHaveBeenCalledTimes(1);
+
+      pendingPreflight.resolve(privatePreflightResult());
+      await waitFor(() => target.textContent?.includes('Network fee') === true, 'private review');
+    } finally {
+      await unmount(component);
+      target.remove();
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('renders one private network fee and places the Max adjustment beside the amount', async () => {
+    configurePrivateSend();
+    mocks.preflightSend.mockResolvedValue(privatePreflightResult());
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = await mountPrivateSend(target);
+
+    try {
+      clickReviewSend(target);
+      await waitFor(
+        () => target.querySelector('[data-transfer-fee-kind="network"]') !== null,
+        'private review'
+      );
+
+      const networkFee = target.querySelector('[data-transfer-fee-kind="network"]');
+      expect(networkFee?.textContent).toContain('0.0001 VRSC');
+      expect(networkFee?.textContent).toContain('≈ $0.01');
+      expect(target.querySelector('[data-transfer-fee-kind="total"]')).toBeNull();
+
+      const amountNotice = target.querySelector('[data-transfer-amount-adjustment]');
+      expect(amountNotice?.textContent).toContain('0.25 → 0.2499 VRSC');
+      expect(amountNotice?.closest('[data-transfer-review-amount]')).not.toBeNull();
+      expect(target.textContent).not.toContain('Warnings');
+
+      const totalDebited = target.querySelector('[data-transfer-total-debited]');
+      expect(totalDebited?.textContent).toContain('0.25 VRSC');
+      expect(target.querySelector('[data-transfer-source-metadata]')?.className).not.toContain(
+        'font-semibold'
+      );
+      expect(target.textContent).not.toContain('Change details');
+      expect(target.textContent).toContain('Back');
+    } finally {
+      await unmount(component);
+      target.remove();
+      consoleSpy.mockRestore();
+    }
   });
 });
 

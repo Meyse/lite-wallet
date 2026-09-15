@@ -11,6 +11,7 @@
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -154,6 +155,9 @@
   );
   const selectedScopeDisplayAddress = $derived(
     selectedScope ? preferredScopeDisplayValue(selectedScope) : selectedAddress
+  );
+  const selectedScopeDisplayIsIdentifier = $derived(
+    !selectedScope || !selectedScope.addressLabel.trim().endsWith('@')
   );
   const isDlightShieldedScope = $derived(
     selectedScope?.scopeKind === 'shielded' &&
@@ -919,16 +923,11 @@
         : i18n.t('wallet.assetDetails.sentFallback');
     }
 
-    return truncateMiddle(counterparty, 10, 10);
+    return counterparty;
   }
 
   function transactionCounterpartyIsAddress(transaction: Transaction): boolean {
     return transactionCounterpartyRaw(transaction).length > 0;
-  }
-
-  function truncateMiddle(value: string, start = 8, end = 8): string {
-    if (value.length <= start + end + 3) return value;
-    return `${value.slice(0, start)}...${value.slice(-end)}`;
   }
 
   function formatTimestamp(transaction: Transaction): string {
@@ -1100,9 +1099,17 @@
               <div
                 class="flex h-[52px] min-w-0 flex-1 items-center justify-between gap-2 rounded-md bg-muted/55 pr-1.5 pl-3"
               >
-                <p class="identifier-text truncate text-sm font-medium text-foreground">
-                  {truncateMiddle(selectedScopeDisplayAddress || '—', 10, 10)}
-                </p>
+                {#if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
+                  <IdentifierText
+                    value={selectedScopeDisplayAddress}
+                    mode="compact"
+                    class="min-w-0 truncate text-sm font-medium text-foreground"
+                  />
+                {:else}
+                  <p class="min-w-0 truncate text-sm font-medium text-foreground">
+                    {selectedScopeDisplayAddress || '—'}
+                  </p>
+                {/if}
                 <CopyButton
                   copied={copiedAddressKey === 'selected-static'}
                   size="sm"
@@ -1124,12 +1131,22 @@
                   onclick={() => (showScopeSheet = true)}
                 >
                   <div class="min-w-0 flex-1 text-left">
-                    <p class="identifier-text truncate text-sm font-medium text-primary-foreground">
-                      {truncateMiddle(selectedScopeDisplayAddress || '—', 10, 10)}
-                      <span class="ml-1.5 font-normal text-primary-foreground/80"
-                        >• {selectedNetworkDisplay}</span
-                      >
-                    </p>
+                    <div class="flex min-w-0 items-baseline gap-1.5">
+                      {#if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
+                        <IdentifierText
+                          value={selectedScopeDisplayAddress}
+                          mode="compact"
+                          class="min-w-0 truncate text-sm font-medium text-primary-foreground"
+                        />
+                      {:else}
+                        <p class="min-w-0 truncate text-sm font-medium text-primary-foreground">
+                          {selectedScopeDisplayAddress || '—'}
+                        </p>
+                      {/if}
+                      <span class="shrink-0 text-sm font-normal text-primary-foreground/80">
+                        • {selectedNetworkDisplay}
+                      </span>
+                    </div>
                     <p class="mt-0.5 truncate text-xs text-primary-foreground/80">
                       {selectedCryptoAmountDisplay}
                       <span class="mx-1.5">•</span>
@@ -1266,11 +1283,17 @@
                       class="flex items-center justify-between rounded-md px-0 py-2 hover:bg-muted/45"
                     >
                       <div class="min-w-0">
-                        <p
-                          class={`truncate text-sm font-medium ${transactionCounterpartyIsAddress(transaction) ? 'identifier-text' : ''}`}
-                        >
-                          {transactionCounterparty(transaction)}
-                        </p>
+                        {#if transactionCounterpartyIsAddress(transaction)}
+                          <IdentifierText
+                            value={transactionCounterparty(transaction)}
+                            mode="compact"
+                            class="block truncate text-sm font-medium"
+                          />
+                        {:else}
+                          <p class="truncate text-sm font-medium">
+                            {transactionCounterparty(transaction)}
+                          </p>
+                        {/if}
                         <p class="mt-0.5 text-xs text-muted-foreground">
                           {formatTimestamp(transaction)}
                         </p>
@@ -1281,9 +1304,11 @@
                         >
                           {transactionAmountDisplay(transaction)}
                         </p>
-                        <p class="identifier-text mt-0.5 text-[11px] text-muted-foreground">
-                          {truncateMiddle(transaction.txid, 8, 8)}
-                        </p>
+                        <IdentifierText
+                          value={transaction.txid}
+                          mode="compact"
+                          class="mt-0.5 block text-xs text-muted-foreground"
+                        />
                       </div>
                     </li>
                   {/each}
@@ -1370,9 +1395,20 @@
                     onclick={() => selectScope(scopeOption)}
                   >
                     <div class="min-w-0">
-                      <p class="identifier-text truncate text-sm">
-                        {truncateMiddle(scopeOption.addressLabel, 10, 10)}
-                      </p>
+                      {#if scopeOption.addressLabel.trim() && scopeOption.addressLabel.trim() !== scopeOption.address.trim()}
+                        <p class="truncate text-sm font-medium">{scopeOption.addressLabel}</p>
+                        <IdentifierText
+                          value={scopeOption.address}
+                          mode="compact"
+                          class="mt-0.5 block truncate text-xs text-muted-foreground"
+                        />
+                      {:else}
+                        <IdentifierText
+                          value={scopeOption.address}
+                          mode="compact"
+                          class="block truncate text-sm"
+                        />
+                      {/if}
                       <p class="mt-0.5 text-xs text-muted-foreground">
                         {networkLabelForScope(scopeOption)}
                         <span class="mx-1.5">•</span>

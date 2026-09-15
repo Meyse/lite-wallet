@@ -22,7 +22,9 @@ const COLOR_FUNCTION_PATTERN = /\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\([^)
 const NATIVE_CONTROL_PATTERN = new RegExp(`<(${governedNativeControls.join('|')})\\b`, 'g');
 const FORM_PRIMITIVE_PATTERN = new RegExp(`<(${governedFormPrimitives.join('|')})\\b`, 'g');
 
-const HAND_CURSOR_PATTERN = /\bcursor-(?:pointer\b|\[(?:pointer|hand)\])|\bcursor\s*:\s*['"]?(?:pointer|hand)\b/g;
+const HAND_CURSOR_PATTERN =
+  /\bcursor-(?:pointer\b|\[(?:pointer|hand)\])|\bcursor\s*:\s*['"]?(?:pointer|hand)\b/g;
+const DIRECT_STATIC_IDENTIFIER_PATTERN = /<(?!Input\b)[^>]*\bidentifier-text\b[^>]*>/gs;
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const violations = [];
@@ -73,11 +75,27 @@ function walk(currentPath) {
       index: match.index ?? 0,
       value: match[0],
       defaultRule: 'ui/native-arrow-cursor',
-      message: 'Use cursor: default for clickable actions, including external links. See docs/ui-style-governance.md.',
+      message:
+        'Use cursor: default for clickable actions, including external links. See docs/ui-style-governance.md.',
     });
   }
 
   if (path.extname(currentPath) === '.svelte' && !relativePath.startsWith(nativeControlUiRoot)) {
+    if (relativePath !== 'src/lib/components/common/IdentifierText.svelte') {
+      for (const match of source.matchAll(DIRECT_STATIC_IDENTIFIER_PATTERN)) {
+        pushViolation({
+          file: relativePath,
+          lineStarts,
+          source,
+          index: match.index ?? 0,
+          value: 'identifier-text',
+          defaultRule: 'ui/static-identifier-outside-component',
+          message:
+            'Use IdentifierText for static identifiers. Reserve the identifier-text class for editable Input fields.',
+        });
+      }
+    }
+
     for (const match of source.matchAll(NATIVE_CONTROL_PATTERN)) {
       const tagName = match[1];
       pushViolation({

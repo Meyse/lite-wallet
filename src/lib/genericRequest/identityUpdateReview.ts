@@ -1,5 +1,6 @@
 import { ContentMultiMapRemoveKey } from 'verus-typescript-primitives';
 import type { TranslationParams } from '$lib/i18n';
+import { formatIdentifierForDisplay } from '$lib/utils/identifierDisplay';
 import { formatIdentityFullyQualifiedName } from '$lib/utils/identityDisplay';
 import type {
   GenericIdentityAuthorities,
@@ -187,15 +188,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function isRevokedIdentity(identity: Record<string, unknown>): boolean {
   const flags = getField(identity, 'flags');
   const numericFlags =
-    typeof flags === 'number'
-      ? flags
-      : typeof flags === 'string'
-        ? Number(flags)
-        : NaN;
-  return Number.isFinite(numericFlags) && (numericFlags & IDENTITY_FLAG_REVOKED) === IDENTITY_FLAG_REVOKED;
+    typeof flags === 'number' ? flags : typeof flags === 'string' ? Number(flags) : NaN;
+  return (
+    Number.isFinite(numericFlags) &&
+    (numericFlags & IDENTITY_FLAG_REVOKED) === IDENTITY_FLAG_REVOKED
+  );
 }
 
-function normalizeFriendlyLabel(value: string | null, friendlyNames: Record<string, string>): string | null {
+function normalizeFriendlyLabel(
+  value: string | null,
+  friendlyNames: Record<string, string>
+): string | null {
   if (!value) return null;
   const friendly = friendlyNames[value];
   if (!friendly) return value;
@@ -205,7 +208,7 @@ function normalizeFriendlyLabel(value: string | null, friendlyNames: Record<stri
 function formatContentKeyLabel(
   key: string,
   signerCmmKeyLabels: Record<string, string>,
-  t: TranslateFn,
+  t: TranslateFn
 ): string {
   const explicitLabel = normalizeString(signerCmmKeyLabels[key]);
   if (explicitLabel) return explicitLabel;
@@ -213,12 +216,12 @@ function formatContentKeyLabel(
     return t('genericRequest.update.content.currentIdentityContent');
   }
   if (key.length <= 12) return key;
-  return `${key.slice(0, 6)}...${key.slice(-6)}`;
+  return formatIdentifierForDisplay(key, 'compact');
 }
 
 function hasReadableContentKeyLabel(
   key: string,
-  signerCmmKeyLabels: Record<string, string>,
+  signerCmmKeyLabels: Record<string, string>
 ): boolean {
   const explicitLabel = normalizeString(signerCmmKeyLabels[key]);
   if (explicitLabel) return true;
@@ -231,7 +234,7 @@ function walkNestedContentDiff(
   requestedValue: unknown,
   path: string,
   output: IdentityUpdateContentItem[],
-  t: TranslateFn,
+  t: TranslateFn
 ): void {
   if (JSON.stringify(currentValue) === JSON.stringify(requestedValue)) {
     return;
@@ -264,8 +267,7 @@ function walkNestedContentDiff(
     rawRequestedValue: requestedValue,
     inspectTitle: humanizeContentPath(path, t),
     inspectPayload: buildInspectPayload(currentValue, requestedValue),
-    isInspectable:
-      isInspectableValue(currentValue) || isInspectableValue(requestedValue),
+    isInspectable: isInspectableValue(currentValue) || isInspectableValue(requestedValue),
   });
 }
 
@@ -296,7 +298,7 @@ function isInspectableValue(value: unknown): boolean {
 
 function buildInspectPayload(
   currentValue: unknown,
-  requestedValue: unknown,
+  requestedValue: unknown
 ): IdentityUpdateContentItem['inspectPayload'] {
   const payload: NonNullable<IdentityUpdateContentItem['inspectPayload']> = {};
   if (currentValue !== undefined) {
@@ -312,7 +314,7 @@ function buildInspectPayload(
 function makeBadge(
   id: string,
   label: string,
-  tone: 'add' | 'remove' | 'info',
+  tone: 'add' | 'remove' | 'info'
 ): IdentityUpdateContentItem['badges'][number] {
   return { id, label, tone };
 }
@@ -346,7 +348,7 @@ function buildContentMultiMapRemoval(
   removeMeta: ContentMultiMapRemoveMeta,
   currentContentMap: Record<string, unknown>,
   signerCmmKeyLabels: Record<string, string>,
-  t: TranslateFn,
+  t: TranslateFn
 ): IdentityUpdateContentItem | IdentityUpdateHighRiskItem {
   const targetKey = removeMeta.action === 4 ? null : (removeMeta.entryKey ?? key);
   const targetLabel = targetKey
@@ -381,10 +383,9 @@ function buildContentMultiMapRemoval(
   const currentValue = currentContentMap[targetKey ?? key] ?? null;
   const requestedValue = removeMeta;
   const inspectPayload = buildInspectPayload(currentValue, requestedValue);
-  const detailBody =
-    useGenericKeyTitle
-      ? t('genericRequest.update.content.keyLine', { label: targetLabel })
-      : null;
+  const detailBody = useGenericKeyTitle
+    ? t('genericRequest.update.content.keyLine', { label: targetLabel })
+    : null;
   const currentLabel =
     removeMeta.action === 1
       ? t('genericRequest.update.content.currentValueLabel')
@@ -396,9 +397,7 @@ function buildContentMultiMapRemoval(
     changeType: 'removed',
     label: targetLabel,
     title: t(useGenericKeyTitle ? titleKeyGeneric : titleKey, { label: targetLabel }),
-    badges: [
-      makeBadge('remove', t('genericRequest.update.content.badge.remove'), 'remove'),
-    ],
+    badges: [makeBadge('remove', t('genericRequest.update.content.badge.remove'), 'remove')],
     currentLabel,
     currentPreview: stablePreview(currentValue),
     nextLabel: t('genericRequest.update.content.afterUpdateLabel'),
@@ -424,7 +423,7 @@ function buildContentChanges(
   requestedIdentity: Record<string, unknown>,
   rawRequestedIdentity: Record<string, unknown>,
   signerCmmKeyLabels: Record<string, string>,
-  t: TranslateFn,
+  t: TranslateFn
 ): ContentChangeAccumulator {
   const contentChanges: IdentityUpdateContentItem[] = [];
   const highRiskItems: IdentityUpdateHighRiskItem[] = [];
@@ -433,7 +432,7 @@ function buildContentChanges(
   const rawRequestedContentMapRoot = getField(
     rawRequestedIdentity,
     'contentmultimap',
-    'contentMultiMap',
+    'contentMultiMap'
   );
   const keys = new Set([...Object.keys(currentIdentity), ...Object.keys(requestedIdentity)]);
   let contentMapHandled = false;
@@ -452,7 +451,9 @@ function buildContentChanges(
 
       const currentMap = isPlainObject(currentContentMapRoot) ? currentContentMapRoot : {};
       const requestedMap = isPlainObject(requestedContentMapRoot) ? requestedContentMapRoot : {};
-      const rawRequestedMap = isPlainObject(rawRequestedContentMapRoot) ? rawRequestedContentMapRoot : {};
+      const rawRequestedMap = isPlainObject(rawRequestedContentMapRoot)
+        ? rawRequestedContentMapRoot
+        : {};
       const contentKeys = new Set([
         ...Object.keys(currentMap),
         ...Object.keys(requestedMap),
@@ -473,7 +474,7 @@ function buildContentChanges(
             removeMeta,
             currentMap,
             signerCmmKeyLabels,
-            t,
+            t
           );
           if ('description' in change) {
             highRiskItems.push(change);
@@ -503,7 +504,7 @@ function buildContentChanges(
               hasExistingValue
                 ? t('genericRequest.update.content.badge.append')
                 : t('genericRequest.update.content.badge.add'),
-              'add',
+              'add'
             ),
           ],
           currentLabel: hasExistingValue ? t('genericRequest.update.content.existingLabel') : null,
@@ -536,7 +537,7 @@ function buildContentChanges(
 
 function buildPrimaryAddressOutcome(
   info: GenericIdentityPrimaryAddressInfo,
-  t: TranslateFn,
+  t: TranslateFn
 ): IdentityUpdateOutcome | null {
   if (!info.addresses.length) return null;
 
@@ -564,7 +565,7 @@ function buildPrimaryAddressOutcome(
 }
 
 export function buildGenericIdentityUpdateReview(
-  params: BuildIdentityUpdateReviewParams,
+  params: BuildIdentityUpdateReviewParams
 ): IdentityUpdateReviewModel {
   const {
     currentIdentity,
@@ -578,14 +579,21 @@ export function buildGenericIdentityUpdateReview(
   } = params;
 
   const authorityChanges: IdentityUpdateAuthorityChange[] = [];
-  const nextRevocation = getStringField(requestedIdentity, 'revocationauthority', 'revocationAuthority');
+  const nextRevocation = getStringField(
+    requestedIdentity,
+    'revocationauthority',
+    'revocationAuthority'
+  );
   const nextRecovery = getStringField(requestedIdentity, 'recoveryauthority', 'recoveryAuthority');
 
   if (normalizeString(currentAuthorities.revocation) !== nextRevocation && nextRevocation) {
     authorityChanges.push({
       id: 'revocation',
       title: t('genericRequest.update.authority.changeRevocation'),
-      currentValue: normalizeFriendlyLabel(normalizeString(currentAuthorities.revocation), friendlyNames),
+      currentValue: normalizeFriendlyLabel(
+        normalizeString(currentAuthorities.revocation),
+        friendlyNames
+      ),
       nextValue: normalizeFriendlyLabel(nextRevocation, friendlyNames) ?? nextRevocation,
     });
   }
@@ -594,13 +602,22 @@ export function buildGenericIdentityUpdateReview(
     authorityChanges.push({
       id: 'recovery',
       title: t('genericRequest.update.authority.changeRecovery'),
-      currentValue: normalizeFriendlyLabel(normalizeString(currentAuthorities.recovery), friendlyNames),
+      currentValue: normalizeFriendlyLabel(
+        normalizeString(currentAuthorities.recovery),
+        friendlyNames
+      ),
       nextValue: normalizeFriendlyLabel(nextRecovery, friendlyNames) ?? nextRecovery,
     });
   }
 
-  const currentPrimaryAddresses = getStringArrayField(currentIdentity, 'primaryaddresses', 'primaryAddresses');
-  const nextPrimaryAddresses = primaryAddressAfterUpdateInfo.addresses.map((entry) => entry.address);
+  const currentPrimaryAddresses = getStringArrayField(
+    currentIdentity,
+    'primaryaddresses',
+    'primaryAddresses'
+  );
+  const nextPrimaryAddresses = primaryAddressAfterUpdateInfo.addresses.map(
+    (entry) => entry.address
+  );
   const currentPrimarySet = new Set(currentPrimaryAddresses);
   const nextPrimarySet = new Set(nextPrimaryAddresses);
   const hasPrimaryAddressChanges =
@@ -622,7 +639,7 @@ export function buildGenericIdentityUpdateReview(
     for (const address of nextPrimaryAddresses) {
       if (currentPrimarySet.has(address)) continue;
       const inWallet = primaryAddressAfterUpdateInfo.addresses.some(
-        (entry) => entry.address === address && entry.inWallet,
+        (entry) => entry.address === address && entry.inWallet
       );
       primaryAddressChanges.push({
         id: `primary:add:${address}`,
@@ -656,7 +673,7 @@ export function buildGenericIdentityUpdateReview(
     requestedIdentity,
     rawRequestedIdentity,
     signerCmmKeyLabels,
-    t,
+    t
   );
   otherHighRiskItems.push(...contentRiskItems);
 
@@ -685,9 +702,7 @@ export function buildGenericIdentityUpdateReview(
     otherHighRiskItems[0].id.startsWith('content-clear:');
 
   const isAuthorityOnly =
-    authorityChanges.length > 0 &&
-    !primaryAddressChanges.length &&
-    !otherHighRiskItems.length;
+    authorityChanges.length > 0 && !primaryAddressChanges.length && !otherHighRiskItems.length;
 
   let outcome: IdentityUpdateOutcome | null = null;
   if (hasPrimaryAddressChanges) {

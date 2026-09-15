@@ -239,6 +239,7 @@ export const en: Record<string, string> = {
   'genericRequest.auth.selectIdentity': 'Select VerusID',
   'genericRequest.auth.signInTo': 'Sign in to {app}',
   'genericRequest.auth.requestedBy': 'Requested by {requester}',
+  'genericRequest.auth.requestedByLabel': 'Requested by',
   'genericRequest.auth.noSelection': 'No VerusID selected yet. Choose one to continue.',
   'genericRequest.auth.selectedDescription':
     'This VerusID will sign the response sent back to the requester.',
@@ -463,7 +464,7 @@ export const en: Record<string, string> = {
     'Configure shielded privacy for {label}. You can reuse your primary Secret Recovery Phrase or set a separate privacy recovery secret.',
   'wallet.settings.privateVerus.statusConfigured': 'Privacy is configured.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is not configured yet.',
-  'wallet.settings.privateVerus.statusAddress': 'Shielded address: {address}',
+  'wallet.settings.privateVerus.statusAddress': 'Shielded address',
   'wallet.settings.privateVerus.statusLoadError': 'Could not load privacy status.',
   'wallet.settings.privateVerus.reusePrimary': 'Reuse primary Secret Recovery Phrase',
   'wallet.settings.privateVerus.createNew': 'Create new privacy recovery secret',
@@ -735,7 +736,7 @@ export const en: Record<string, string> = {
   'wallet.transfer.warningsTitle': 'Warnings',
   'wallet.transfer.warning.finalAmountMayVary': 'Final amount you receive may vary slightly.',
   'wallet.transfer.warning.resolvedDestination':
-    '{entered} resolves to {resolved}. Verify the resolved address before sending.',
+    'The entered recipient resolves to a different address. Verify it before sending.',
   'wallet.transfer.review.changeDetails': 'Change details',
   'wallet.transfer.review.sendTitle': 'Review send',
   'wallet.transfer.review.conversionTitle': 'Review conversion',
@@ -745,7 +746,7 @@ export const en: Record<string, string> = {
   'wallet.transfer.review.selfSuffix': '(self)',
   'wallet.transfer.review.savedRecipient': 'Saved recipient: {contact} ({endpoint})',
   'wallet.transfer.review.amountAdjustedWarning':
-    'Amount changed from {submitted} to {adjusted} {ticker} to cover network fees.',
+    'Network fee deducted: {submitted} → {adjusted} {ticker}.',
   'wallet.transfer.review.unsavedRecipient': 'This recipient is not saved in your address book.',
   'wallet.transfer.review.unsavedConfirmShort': 'Recipient verified',
   'wallet.transfer.review.unsavedSettingHint': 'You can change this security setting in Settings.',
@@ -756,6 +757,7 @@ export const en: Record<string, string> = {
   'wallet.transfer.fee.maximumNetworkFee': 'Maximum network fee',
   'wallet.transfer.fee.totalDebited': 'Total debited',
   'wallet.transfer.fee.maximumTotalDebited': 'Maximum total debited',
+  'wallet.transfer.fee.totalFees': 'Total fees',
   'wallet.transfer.fee.economy': 'Economy',
   'wallet.transfer.fee.lowerFee': 'Lower fee',
   'wallet.transfer.fee.economyDescription': 'Lower priority. May take longer.',
@@ -855,7 +857,7 @@ export const en: Record<string, string> = {
   'wallet.transfer.error.ethRecoveryRequired':
     'Finish the saved Ethereum transfer before starting another one.',
   'wallet.transfer.ethRecovery.title': 'Ethereum transfer recovery',
-  'wallet.transfer.ethRecovery.description': 'Review {value} to {recipient} before continuing.',
+  'wallet.transfer.ethRecovery.description': 'Review the transaction details before continuing.',
   'wallet.transfer.ethRecovery.continue': 'Continue transfer',
   'wallet.transfer.ethRecovery.showResult': 'Show submitted transfer',
   'wallet.transfer.ethRecovery.recovering': 'Recovering…',

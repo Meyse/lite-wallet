@@ -154,6 +154,7 @@ export const de: Record<string, string> = {
   'genericRequest.auth.selectIdentity': 'Select VerusID',
   'genericRequest.auth.signInTo': 'Sign in to {app}',
   'genericRequest.auth.requestedBy': 'Requested by {requester}',
+  'genericRequest.auth.requestedByLabel': 'Angefordert von',
   'genericRequest.auth.noSelection': 'No VerusID selected yet. Choose one to continue.',
   'genericRequest.auth.selectedDescription':
     'This VerusID will sign the response sent back to the requester.',
@@ -402,7 +403,7 @@ export const de: Record<string, string> = {
   'wallet.transfer.error.ethRecoveryRequired':
     'Schließe die gespeicherte Ethereum-Übertragung ab, bevor du eine neue startest.',
   'wallet.transfer.ethRecovery.title': 'Ethereum-Übertragung wiederherstellen',
-  'wallet.transfer.ethRecovery.description': 'Prüfe {value} an {recipient}, bevor du fortfährst.',
+  'wallet.transfer.ethRecovery.description': 'Prüfe die Transaktionsdetails, bevor du fortfährst.',
   'wallet.transfer.ethRecovery.continue': 'Übertragung fortsetzen',
   'wallet.transfer.ethRecovery.showResult': 'Gesendete Übertragung anzeigen',
   'wallet.transfer.ethRecovery.recovering': 'Wiederherstellung…',
@@ -432,7 +433,7 @@ export const de: Record<string, string> = {
     'Konfiguriere shielded Privatsphare fur {label}. Du kannst deine primare geheime Wiederherstellungsphrase wiederverwenden oder ein separates Privacy-Wiederherstellungsgeheimnis setzen.',
   'wallet.settings.privateVerus.statusConfigured': 'Privatsphare ist konfiguriert.',
   'wallet.settings.privateVerus.statusNotConfigured': 'Privatsphare ist noch nicht konfiguriert.',
-  'wallet.settings.privateVerus.statusAddress': 'Shielded-Adresse: {address}',
+  'wallet.settings.privateVerus.statusAddress': 'Shielded-Adresse',
   'wallet.settings.privateVerus.statusLoadError':
     'Privatsphare-Status konnte nicht geladen werden.',
   'wallet.settings.privateVerus.reusePrimary':

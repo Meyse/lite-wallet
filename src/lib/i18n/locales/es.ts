@@ -153,6 +153,7 @@ export const es: Record<string, string> = {
   'genericRequest.auth.selectIdentity': 'Select VerusID',
   'genericRequest.auth.signInTo': 'Sign in to {app}',
   'genericRequest.auth.requestedBy': 'Requested by {requester}',
+  'genericRequest.auth.requestedByLabel': 'Solicitado por',
   'genericRequest.auth.noSelection': 'No VerusID selected yet. Choose one to continue.',
   'genericRequest.auth.selectedDescription':
     'This VerusID will sign the response sent back to the requester.',
@@ -402,7 +403,8 @@ export const es: Record<string, string> = {
   'wallet.transfer.error.ethRecoveryRequired':
     'Termina la transferencia de Ethereum guardada antes de iniciar otra.',
   'wallet.transfer.ethRecovery.title': 'Recuperar transferencia de Ethereum',
-  'wallet.transfer.ethRecovery.description': 'Revisa {value} a {recipient} antes de continuar.',
+  'wallet.transfer.ethRecovery.description':
+    'Revisa los detalles de la transacción antes de continuar.',
   'wallet.transfer.ethRecovery.continue': 'Continuar transferencia',
   'wallet.transfer.ethRecovery.showResult': 'Mostrar transferencia enviada',
   'wallet.transfer.ethRecovery.recovering': 'Recuperando…',
@@ -432,7 +434,7 @@ export const es: Record<string, string> = {
     'Configura privacidad shielded para {label}. Puedes reutilizar tu frase secreta de recuperacion principal o definir un secreto de recuperacion de privacidad separado.',
   'wallet.settings.privateVerus.statusConfigured': 'La privacidad esta configurada.',
   'wallet.settings.privateVerus.statusNotConfigured': 'La privacidad aun no esta configurada.',
-  'wallet.settings.privateVerus.statusAddress': 'Direccion shielded: {address}',
+  'wallet.settings.privateVerus.statusAddress': 'Direccion shielded',
   'wallet.settings.privateVerus.statusLoadError': 'No se pudo cargar el estado de privacidad.',
   'wallet.settings.privateVerus.reusePrimary': 'Reutilizar frase secreta de recuperacion principal',
   'wallet.settings.privateVerus.createNew': 'Crear nuevo secreto de recuperacion de privacidad',

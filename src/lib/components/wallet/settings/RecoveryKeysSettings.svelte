@@ -8,6 +8,7 @@
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import PasswordConfirmOverlay from '$lib/components/common/PasswordConfirmOverlay.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyActionButton } from '$lib/components/ui/copy-action-button';
@@ -18,7 +19,7 @@
   import type {
     DlightRecoverySecretKind,
     RecoverySecretKind,
-    WalletRecoverySecretsResult
+    WalletRecoverySecretsResult,
   } from '$lib/types/wallet';
 
   type RecoveryKeysSettingsProps = {
@@ -51,8 +52,8 @@
             id: 'primarySecret',
             label: i18n.t('wallet.settings.recovery.field.primarySecret'),
             value: secrets.primarySecret,
-            isSecret: true
-          }
+            isSecret: true,
+          },
         ]
       : []
   );
@@ -64,20 +65,20 @@
             id: 'verusWif',
             label: i18n.t('wallet.settings.recovery.field.verusWif'),
             value: secrets.verusWif,
-            isSecret: true
+            isSecret: true,
           },
           {
             id: 'btcWif',
             label: i18n.t('wallet.settings.recovery.field.btcWif'),
             value: secrets.btcWif,
-            isSecret: true
+            isSecret: true,
           },
           {
             id: 'ethPrivateKey',
             label: i18n.t('wallet.settings.recovery.field.ethPrivateKey'),
             value: secrets.ethPrivateKey,
-            isSecret: true
-          }
+            isSecret: true,
+          },
         ]
       : []
   );
@@ -89,20 +90,20 @@
             id: 'verusAddress',
             label: i18n.t('wallet.settings.recovery.field.verusAddress'),
             value: secrets.verusAddress,
-            isSecret: false
+            isSecret: false,
           },
           {
             id: 'btcAddress',
             label: i18n.t('wallet.settings.recovery.field.btcAddress'),
             value: secrets.btcAddress,
-            isSecret: false
+            isSecret: false,
           },
           {
             id: 'ethAddress',
             label: i18n.t('wallet.settings.recovery.field.ethAddress'),
             value: secrets.ethAddress,
-            isSecret: false
-          }
+            isSecret: false,
+          },
         ]
       : []
   );
@@ -114,20 +115,20 @@
             id: 'dlightSecret',
             label: i18n.t('wallet.settings.recovery.field.dlightSecret'),
             value: secrets.dlightSecret,
-            isSecret: true
+            isSecret: true,
           },
           {
             id: 'dlightShieldedAddress',
             label: i18n.t('wallet.settings.recovery.field.dlightShieldedAddress'),
             value: secrets.dlightShieldedAddress ?? '',
-            isSecret: false
+            isSecret: false,
           },
           {
             id: 'dlightDerivedSpendingKey',
             label: i18n.t('wallet.settings.recovery.field.dlightDerivedSpendingKey'),
             value: secrets.dlightDerivedSpendingKey ?? '',
-            isSecret: true
-          }
+            isSecret: true,
+          },
         ]
       : []
   );
@@ -174,7 +175,7 @@
   function toggleSecretVisibility(id: string): void {
     visibleSecretById = {
       ...visibleSecretById,
-      [id]: !visibleSecretById[id]
+      [id]: !visibleSecretById[id],
     };
   }
 
@@ -225,12 +226,12 @@
   });
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pb-6 pt-0 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pt-0 pb-6 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-3">
     <div class="space-y-4">
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm"
+        class="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         onclick={handleBack}
       >
         <ArrowLeftIcon class="size-4" />
@@ -250,13 +251,17 @@
           </div>
         {:else}
           <div class="space-y-4">
-            <div class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/12 dark:text-amber-100">
+            <div
+              class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/12 dark:text-amber-100"
+            >
               {i18n.t('wallet.settings.recovery.warningInline')}
             </div>
 
             <div class="rounded-lg p-1">
-              <p class="text-sm font-medium">{i18n.t('wallet.settings.recovery.primaryKindLabel')}</p>
-              <p class="text-muted-foreground mt-1 text-sm">
+              <p class="text-sm font-medium">
+                {i18n.t('wallet.settings.recovery.primaryKindLabel')}
+              </p>
+              <p class="mt-1 text-sm text-muted-foreground">
                 {recoverySecretKindLabel(secrets.primarySecretKind)}
               </p>
             </div>
@@ -267,7 +272,11 @@
                 {#each primaryEntries as entry (entry.id)}
                   <div class="space-y-1 rounded-md p-3">
                     <p class="text-xs font-medium">{entry.label}</p>
-                    <p class="rounded px-2 py-1.5 font-mono text-xs break-all">{renderedEntryValue(entry)}</p>
+                    <IdentifierText
+                      value={renderedEntryValue(entry)}
+                      mode="full"
+                      class="block rounded px-2 py-1.5 text-xs"
+                    />
                     <div class="flex flex-wrap items-center gap-2">
                       <Button
                         size="sm"
@@ -298,12 +307,18 @@
             </div>
 
             <div class="rounded-lg p-1">
-              <p class="text-sm font-medium">{i18n.t('wallet.settings.recovery.derivedKeysSection')}</p>
+              <p class="text-sm font-medium">
+                {i18n.t('wallet.settings.recovery.derivedKeysSection')}
+              </p>
               <div class="mt-3 space-y-3">
                 {#each derivedKeyEntries as entry (entry.id)}
                   <div class="space-y-1 rounded-md p-3">
                     <p class="text-xs font-medium">{entry.label}</p>
-                    <p class="rounded px-2 py-1.5 font-mono text-xs break-all">{renderedEntryValue(entry)}</p>
+                    <IdentifierText
+                      value={renderedEntryValue(entry)}
+                      mode="full"
+                      class="block rounded px-2 py-1.5 text-xs"
+                    />
                     <div class="flex flex-wrap items-center gap-2">
                       <Button
                         size="sm"
@@ -334,12 +349,18 @@
             </div>
 
             <div class="rounded-lg p-1">
-              <p class="text-sm font-medium">{i18n.t('wallet.settings.recovery.addressesSection')}</p>
+              <p class="text-sm font-medium">
+                {i18n.t('wallet.settings.recovery.addressesSection')}
+              </p>
               <div class="mt-3 space-y-3">
                 {#each addressEntries as entry (entry.id)}
                   <div class="space-y-1 rounded-md p-3">
                     <p class="text-xs font-medium">{entry.label}</p>
-                    <p class="rounded px-2 py-1.5 font-mono text-xs break-all">{renderedEntryValue(entry)}</p>
+                    <IdentifierText
+                      value={renderedEntryValue(entry)}
+                      mode="full"
+                      class="block rounded px-2 py-1.5 text-xs"
+                    />
                     <div class="flex items-center gap-2">
                       <CopyActionButton
                         state={copyStatusById[entry.id] ?? 'idle'}
@@ -358,8 +379,10 @@
 
             {#if shouldShowDlightSection}
               <div class="rounded-lg p-1">
-                <p class="text-sm font-medium">{i18n.t('wallet.settings.recovery.dlightSection')}</p>
-                <p class="text-muted-foreground mt-1 text-xs">
+                <p class="text-sm font-medium">
+                  {i18n.t('wallet.settings.recovery.dlightSection')}
+                </p>
+                <p class="mt-1 text-xs text-muted-foreground">
                   {i18n.t('wallet.settings.recovery.dlightKindLabel')}:
                   {dlightSecretKindLabel(secrets.dlightSecretKind)}
                 </p>
@@ -367,7 +390,11 @@
                   {#each dlightEntries as entry (entry.id)}
                     <div class="space-y-1 rounded-md p-3">
                       <p class="text-xs font-medium">{entry.label}</p>
-                      <p class="rounded px-2 py-1.5 font-mono text-xs break-all">{renderedEntryValue(entry)}</p>
+                      <IdentifierText
+                        value={renderedEntryValue(entry)}
+                        mode="full"
+                        class="block rounded px-2 py-1.5 text-xs"
+                      />
                       <div class="flex flex-wrap items-center gap-2">
                         {#if entry.isSecret && entry.value.trim()}
                           <Button

@@ -5,6 +5,7 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -15,7 +16,11 @@
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
-  import { addressBookStore, removeAddressBookContact, upsertAddressBookContact } from '$lib/stores/addressBook';
+  import {
+    addressBookStore,
+    removeAddressBookContact,
+    upsertAddressBookContact,
+  } from '$lib/stores/addressBook';
   import * as addressBookService from '$lib/services/addressBookService';
   import type { AddressBookContact, AddressEndpointKind } from '$lib/types/addressBook';
 
@@ -76,7 +81,9 @@
   );
 
   const selectedContact = $derived(
-    selectedContactId ? contacts.find((contact) => contact.id === selectedContactId) ?? null : null
+    selectedContactId
+      ? (contacts.find((contact) => contact.id === selectedContactId) ?? null)
+      : null
   );
 
   $effect(() => {
@@ -90,7 +97,7 @@
   function newEndpointDraft(): EndpointDraft {
     return {
       address: '',
-      kind: null
+      kind: null,
     };
   }
 
@@ -102,7 +109,8 @@
       return 'zs';
     }
     if (VRPC_HANDLE_PATTERN.test(trimmed) || VRPC_ADDRESS_PATTERN.test(trimmed)) return 'vrpc';
-    if (BTC_BECH32_ADDRESS_PATTERN.test(trimmed) || BTC_BASE58_ADDRESS_PATTERN.test(trimmed)) return 'btc';
+    if (BTC_BECH32_ADDRESS_PATTERN.test(trimmed) || BTC_BASE58_ADDRESS_PATTERN.test(trimmed))
+      return 'btc';
     return null;
   }
 
@@ -117,9 +125,17 @@
     return kind.toUpperCase();
   }
 
-  async function resolveEndpointKind(address: string, initialKind: AddressEndpointKind | null): Promise<AddressEndpointKind | null> {
+  async function resolveEndpointKind(
+    address: string,
+    initialKind: AddressEndpointKind | null
+  ): Promise<AddressEndpointKind | null> {
     const orderedCandidates: AddressEndpointKind[] = initialKind
-      ? [initialKind, ...(['zs', 'vrpc', 'btc', 'eth'] as AddressEndpointKind[]).filter((kind) => kind !== initialKind)]
+      ? [
+          initialKind,
+          ...(['zs', 'vrpc', 'btc', 'eth'] as AddressEndpointKind[]).filter(
+            (kind) => kind !== initialKind
+          ),
+        ]
       : ['zs', 'vrpc', 'btc', 'eth'];
 
     for (const kind of orderedCandidates) {
@@ -151,7 +167,7 @@
     formEndpoints = contact.endpoints.map((endpoint) => ({
       id: endpoint.id,
       address: endpoint.address,
-      kind: endpoint.kind
+      kind: endpoint.kind,
     }));
     nameError = '';
     endpointsError = '';
@@ -192,7 +208,7 @@
   function updateEndpointAddress(index: number, value: string) {
     updateEndpointDraft(index, {
       address: value,
-      kind: inferEndpointKind(value)
+      kind: inferEndpointKind(value),
     });
     endpointsError = '';
     formError = '';
@@ -242,7 +258,12 @@
 
     saving = true;
     try {
-      const saveEndpoints: Array<{ id?: string; kind: AddressEndpointKind; label: string; address: string }> = [];
+      const saveEndpoints: Array<{
+        id?: string;
+        kind: AddressEndpointKind;
+        label: string;
+        address: string;
+      }> = [];
 
       for (const endpoint of formEndpoints) {
         const trimmedAddress = endpoint.address.trim();
@@ -264,7 +285,7 @@
           id: endpoint.id,
           kind: resolvedKind,
           label: buildEndpointLabel(saveEndpoints.length),
-          address: trimmedAddress
+          address: trimmedAddress,
         });
       }
 
@@ -272,7 +293,7 @@
         id: formContactId ?? undefined,
         displayName,
         note: formNote.trim() ? formNote.trim() : null,
-        endpoints: saveEndpoints
+        endpoints: saveEndpoints,
       });
 
       upsertAddressBookContact(savedContact);
@@ -311,13 +332,18 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <header class="border-border/70 flex items-center justify-between border-b px-6 py-5">
+  <header class="flex items-center justify-between border-b border-border/70 px-6 py-5">
     <div>
       <h2 class="text-2xl font-semibold">{i18n.t('wallet.addressBook.title')}</h2>
-      <p class="text-muted-foreground mt-1 text-sm">{i18n.t('wallet.addressBook.description')}</p>
+      <p class="mt-1 text-sm text-muted-foreground">{i18n.t('wallet.addressBook.description')}</p>
     </div>
     {#if !formMode}
-      <Button variant="secondary" size="lg" class="h-10 gap-1.5 rounded-md px-3" onclick={startCreateContact}>
+      <Button
+        variant="secondary"
+        size="lg"
+        class="h-10 gap-1.5 rounded-md px-3"
+        onclick={startCreateContact}
+      >
         <CirclePlusIcon class="size-4" />
         {i18n.t('wallet.addressBook.addContact')}
       </Button>
@@ -325,15 +351,18 @@
   </header>
 
   <div class="flex min-h-0 flex-1">
-    <aside class="border-border/70 w-[256px] shrink-0 border-r">
+    <aside class="w-[256px] shrink-0 border-r border-border/70">
       <div class="p-4">
-        <SearchInput bind:value={searchTerm} placeholder={i18n.t('wallet.addressBook.searchPlaceholder')} />
+        <SearchInput
+          bind:value={searchTerm}
+          placeholder={i18n.t('wallet.addressBook.searchPlaceholder')}
+        />
       </div>
 
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport class="h-full px-3 pb-3">
           {#if filteredContacts.length === 0}
-            <div class="text-muted-foreground rounded-md px-3 py-5 text-sm">
+            <div class="rounded-md px-3 py-5 text-sm text-muted-foreground">
               {i18n.t('wallet.addressBook.empty')}
             </div>
           {:else}
@@ -343,14 +372,13 @@
                   <button
                     type="button"
                     class="w-full rounded-md px-3 py-2 text-left transition-colors
-                      {selectedContactId === contact.id
-                        ? 'bg-primary/10'
-                        : 'hover:bg-muted/45'}"
+                      {selectedContactId === contact.id ? 'bg-primary/10' : 'hover:bg-muted/45'}"
                     onclick={() => (selectedContactId = contact.id)}
                   >
                     <p class="truncate text-sm font-medium">{contact.displayName}</p>
-                    <p class="text-muted-foreground mt-1 truncate text-xs">
-                      {contact.endpoints.length} {i18n.t('wallet.addressBook.endpointsCount')}
+                    <p class="mt-1 truncate text-xs text-muted-foreground">
+                      {contact.endpoints.length}
+                      {i18n.t('wallet.addressBook.endpointsCount')}
                     </p>
                   </button>
                 </li>
@@ -371,13 +399,14 @@
               bind:ref={nameInputEl}
               id="address-book-name"
               value={formDisplayName}
-              oninput={(event) => updateDisplayName((event.currentTarget as HTMLInputElement).value)}
+              oninput={(event) =>
+                updateDisplayName((event.currentTarget as HTMLInputElement).value)}
               class={nameError ? 'border-destructive focus-visible:ring-destructive/40' : ''}
               aria-invalid={nameError ? 'true' : 'false'}
               aria-describedby="address-book-name-error"
               placeholder={i18n.t('wallet.addressBook.form.namePlaceholder')}
             />
-            <p id="address-book-name-error" class="text-destructive min-h-5 text-sm">{nameError}</p>
+            <p id="address-book-name-error" class="min-h-5 text-sm text-destructive">{nameError}</p>
           </div>
 
           <div class="space-y-2">
@@ -402,11 +431,17 @@
               <div class="rounded-md p-3">
                 <div class="flex items-start gap-2">
                   <div class="min-w-0 flex-1 space-y-1">
-                    <Label for={`endpoint-address-${index}`}>{i18n.t('wallet.addressBook.form.addressLabel')}</Label>
+                    <Label for={`endpoint-address-${index}`}
+                      >{i18n.t('wallet.addressBook.form.addressLabel')}</Label
+                    >
                     <Input
                       id={`endpoint-address-${index}`}
                       value={endpoint.address}
-                      oninput={(event) => updateEndpointAddress(index, (event.currentTarget as HTMLInputElement).value)}
+                      oninput={(event) =>
+                        updateEndpointAddress(
+                          index,
+                          (event.currentTarget as HTMLInputElement).value
+                        )}
                       placeholder={i18n.t('wallet.addressBook.form.addressPlaceholder')}
                       class="identifier-text"
                     />
@@ -415,7 +450,7 @@
                   <div class="pt-6">
                     <button
                       type="button"
-                      class="text-destructive hover:text-destructive/90 focus-visible:ring-ring/50 h-8 w-8 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:opacity-40"
+                      class="h-8 w-8 rounded-sm p-0 text-destructive transition-colors hover:text-destructive/90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-40"
                       disabled={formEndpoints.length <= 1}
                       onclick={() => removeEndpointDraft(index)}
                       title={i18n.t('wallet.addressBook.deleteContact')}
@@ -429,7 +464,7 @@
             {/each}
           </div>
 
-          <p class="text-destructive min-h-5 text-sm">{endpointsError || formError}</p>
+          <p class="min-h-5 text-sm text-destructive">{endpointsError || formError}</p>
 
           <div class="flex justify-end gap-2">
             <Button variant="secondary" onclick={cancelForm} disabled={saving}>
@@ -446,13 +481,13 @@
             <div>
               <h3 class="text-lg font-semibold">{selectedContact.displayName}</h3>
               {#if selectedContact.note}
-                <p class="text-muted-foreground mt-1 text-sm">{selectedContact.note}</p>
+                <p class="mt-1 text-sm text-muted-foreground">{selectedContact.note}</p>
               {/if}
             </div>
             <div class="flex items-center gap-1">
               <button
                 type="button"
-                class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 h-8 w-8 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
+                class="h-8 w-8 rounded-sm p-0 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
                 onclick={() => startEditContact(selectedContact)}
                 title={i18n.t('wallet.addressBook.editContact')}
                 aria-label={i18n.t('wallet.addressBook.editContact')}
@@ -461,7 +496,7 @@
               </button>
               <button
                 type="button"
-                class="text-destructive hover:text-destructive/90 focus-visible:ring-ring/50 h-8 w-8 rounded-sm p-0 transition-colors focus-visible:outline-none focus-visible:ring-2"
+                class="h-8 w-8 rounded-sm p-0 text-destructive transition-colors hover:text-destructive/90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
                 onclick={() => (showDeleteDialog = true)}
                 title={i18n.t('wallet.addressBook.deleteContact')}
                 aria-label={i18n.t('wallet.addressBook.deleteContact')}
@@ -473,14 +508,18 @@
 
           <div class="space-y-2">
             {#each selectedContact.endpoints as endpoint}
-              <div class="bg-muted/35 rounded-md p-3">
+              <div class="rounded-md bg-muted/35 p-3">
                 <div class="flex min-h-8 items-center gap-2">
                   <span
-                    class="bg-background/60 text-muted-foreground inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-background/45"
+                    class="inline-flex shrink-0 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
                   >
                     {endpointBadgeLabel(endpoint.kind)}
                   </span>
-                  <p class="identifier-text min-w-0 flex-1 break-all text-sm leading-6">{endpoint.address}</p>
+                  <IdentifierText
+                    value={endpoint.address}
+                    mode="full"
+                    class="block min-w-0 flex-1 text-sm leading-6"
+                  />
                   <CopyButton
                     copied={copiedEndpointId === endpoint.id}
                     size="sm"
@@ -495,7 +534,9 @@
           </div>
         </div>
       {:else}
-        <div class="text-muted-foreground flex h-full flex-col items-center justify-center text-center">
+        <div
+          class="flex h-full flex-col items-center justify-center text-center text-muted-foreground"
+        >
           <BookUserIcon class="mb-3 h-10 w-10" />
           <p class="text-base font-medium">{i18n.t('wallet.addressBook.noSelectionTitle')}</p>
           <p class="mt-1 text-sm">{i18n.t('wallet.addressBook.noSelectionDescription')}</p>
@@ -514,7 +555,9 @@
   <Dialog.Content class="max-w-md">
     <Dialog.Header>
       <Dialog.Title>{i18n.t('wallet.addressBook.deleteConfirmTitle')}</Dialog.Title>
-      <Dialog.Description>{i18n.t('wallet.addressBook.deleteConfirmDescription')}</Dialog.Description>
+      <Dialog.Description
+        >{i18n.t('wallet.addressBook.deleteConfirmDescription')}</Dialog.Description
+      >
     </Dialog.Header>
     <Dialog.Footer class="flex justify-end gap-3">
       <Button variant="secondary" onclick={() => (showDeleteDialog = false)} disabled={deleting}>
@@ -526,3 +569,4 @@
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
+import IdentifierText from '$lib/components/common/IdentifierText.svelte';

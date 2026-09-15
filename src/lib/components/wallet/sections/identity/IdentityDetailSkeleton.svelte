@@ -1,10 +1,13 @@
 <script lang="ts">
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { i18nStore } from '$lib/i18n';
   import type { LinkedIdentity } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
 
   let { identity }: { identity: LinkedIdentity | null } = $props();
   const i18n = $derived($i18nStore);
+  const displayName = $derived(identity ? formatIdentityDisplayName(identity) : '');
+  const displayNameIsAddress = $derived(!!identity && displayName === identity.identityAddress);
 </script>
 
 <!-- Match the detail view's header, card, and row geometry before data arrives. -->
@@ -16,12 +19,24 @@
   </div>
 
   <div class="rounded-xl bg-muted/20 p-4">
-    <p class="text-sm font-semibold text-foreground">
-      {identity ? formatIdentityDisplayName(identity) : '\u00a0'}
-    </p>
-    <p class="mt-1 font-mono text-xs text-muted-foreground">
-      {identity?.identityAddress ?? '\u00a0'}
-    </p>
+    {#if identity && displayNameIsAddress}
+      <IdentifierText
+        value={identity.identityAddress}
+        mode="full"
+        class="block text-sm font-semibold text-foreground"
+      />
+    {:else}
+      <p class="text-sm font-semibold text-foreground">{displayName || '\u00a0'}</p>
+      {#if identity}
+        <IdentifierText
+          value={identity.identityAddress}
+          mode="full"
+          class="mt-1 block text-xs text-muted-foreground"
+        />
+      {:else}
+        <p class="mt-1 text-xs text-muted-foreground">\u00a0</p>
+      {/if}
+    {/if}
   </div>
 
   {#each [{ title: 'wallet.identity.detail.sections.base', fields: ['name', 'iAddress', 'status', 'system'] }, { title: 'wallet.identity.detail.sections.authorities', fields: ['revocationAuthority', 'recoveryAuthority'] }] as section}

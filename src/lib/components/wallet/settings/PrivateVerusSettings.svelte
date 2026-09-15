@@ -6,6 +6,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Label } from '$lib/components/ui/label';
   import { Textarea } from '$lib/components/ui/textarea';
@@ -64,7 +65,7 @@
     try {
       const result = await walletService.setupDlightSeed({
         mode,
-        importText: mode === 'import_text' ? importText : undefined
+        importText: mode === 'import_text' ? importText : undefined,
       });
       configured = result.configured;
       if (result.generatedSeedPhrase) {
@@ -88,12 +89,12 @@
   });
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pb-6 pt-0 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pt-0 pb-6 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-3">
     <div class="space-y-4">
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm"
+        class="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         onclick={onBack}
       >
         <ArrowLeftIcon class="size-4" />
@@ -103,13 +104,13 @@
       <section class="space-y-4">
         <div class="space-y-1">
           <h2 class="text-xl font-semibold">{i18n.t('wallet.settings.privateVerus.title')}</h2>
-          <p class="text-muted-foreground text-sm">
+          <p class="text-sm text-muted-foreground">
             {i18n.t('wallet.settings.privateVerus.description', { label: privateLabel })}
           </p>
         </div>
 
         {#if loadingStatus}
-          <p class="text-muted-foreground text-sm">{i18n.t('common.loading')}</p>
+          <p class="text-sm text-muted-foreground">{i18n.t('common.loading')}</p>
         {:else}
           <div class="rounded-lg p-4">
             <p class="text-sm font-medium">
@@ -118,11 +119,14 @@
                 : i18n.t('wallet.settings.privateVerus.statusNotConfigured')}
             </p>
             {#if configured && shieldedAddress}
-              <p class="text-muted-foreground mt-1 break-all text-xs">
-                {i18n.t('wallet.settings.privateVerus.statusAddress', {
-                  address: shieldedAddress
-                })}
+              <p class="mt-2 text-xs text-muted-foreground">
+                {i18n.t('wallet.settings.privateVerus.statusAddress')}
               </p>
+              <IdentifierText
+                value={shieldedAddress}
+                mode="full"
+                class="mt-1 block text-xs text-foreground"
+              />
             {/if}
           </div>
         {/if}
@@ -141,7 +145,9 @@
                 ? i18n.t('wallet.settings.privateVerus.advancedToggleHide')
                 : i18n.t('wallet.settings.privateVerus.advancedToggleShow')}
             </Button>
-            <p class="text-muted-foreground text-xs">{i18n.t('wallet.settings.privateVerus.advancedWarning')}</p>
+            <p class="text-xs text-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.advancedWarning')}
+            </p>
           </div>
         {/if}
 
@@ -152,15 +158,21 @@
         {/if}
 
         {#if successMessage}
-          <div class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/12 dark:text-emerald-200">
+          <div
+            class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/12 dark:text-emerald-200"
+          >
             {successMessage}
           </div>
         {/if}
 
         {#if generatedSeedPhrase}
           <div class="rounded-lg p-4">
-            <p class="text-sm font-medium">{i18n.t('wallet.settings.privateVerus.generatedSeedTitle')}</p>
-            <p class="text-muted-foreground mt-2 break-all text-sm leading-relaxed">{generatedSeedPhrase}</p>
+            <p class="text-sm font-medium">
+              {i18n.t('wallet.settings.privateVerus.generatedSeedTitle')}
+            </p>
+            <p class="mt-2 text-sm leading-relaxed break-all text-muted-foreground">
+              {generatedSeedPhrase}
+            </p>
           </div>
         {/if}
 

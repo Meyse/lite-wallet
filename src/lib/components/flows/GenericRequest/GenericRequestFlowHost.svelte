@@ -18,6 +18,7 @@
   import { toast } from 'svelte-sonner';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { Label } from '$lib/components/ui/label';
@@ -60,7 +61,6 @@
     IdentityDetails,
     LinkedIdentity
   } from '$lib/types/wallet.js';
-  import { truncateIdentityAddress } from '$lib/utils/identityDisplay.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay.js';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
@@ -479,24 +479,17 @@
     };
   }
 
-  function fundingSourcePrimaryLabel(source: FundingSource): string {
+  function fundingSourceDisplayLabel(source: FundingSource): string {
     const label = source.addressLabel.trim();
     if (label && !equalsIgnoreCase(label, source.address)) {
       return label;
     }
 
-    return truncateIdentityAddress(source.address, 10, 8);
+    return '';
   }
 
-  function fundingSourceSecondaryLabel(source: FundingSource): string {
-    const networkLabel = resolveSystemDisplayLabel(source.systemId);
-    const label = source.addressLabel.trim();
-    if (!label || equalsIgnoreCase(label, source.address)) {
-      return networkLabel;
-    }
-
-    const shortAddress = truncateIdentityAddress(source.address, 8, 6);
-    return `${shortAddress} • ${networkLabel}`;
+  function fundingSourceNetworkLabel(source: FundingSource): string {
+    return resolveSystemDisplayLabel(source.systemId);
   }
 
   async function loadIdentityDetailsMap(identities: LinkedIdentity[]): Promise<Record<string, IdentityDetails>> {
@@ -719,9 +712,9 @@
             return right.balanceValue - left.balanceValue;
           }
 
-          return fundingSourcePrimaryLabel(left)
+          return (fundingSourceDisplayLabel(left) || left.address)
             .toLowerCase()
-            .localeCompare(fundingSourcePrimaryLabel(right).toLowerCase());
+            .localeCompare((fundingSourceDisplayLabel(right) || right.address).toLowerCase());
         });
 
       fundingSources = nextSources;
@@ -1189,6 +1182,17 @@
                     </h1>
                     {#if requesterIdentityLoading}
                       <Skeleton class="h-6 w-52 rounded-sm" />
+                    {:else if session.signer.identityId && authRequesterLabel() === session.signer.identityId}
+                      <div>
+                        <p class="text-sm text-foreground/70">
+                          {i18n.t('genericRequest.auth.requestedByLabel')}
+                        </p>
+                        <IdentifierText
+                          value={session.signer.identityId}
+                          mode="review"
+                          class="mt-1 block text-sm font-medium text-foreground/70"
+                        />
+                      </div>
                     {:else}
                       <p class="text-base font-medium text-foreground/70">
                         {i18n.t('genericRequest.auth.requestedBy', { requester: authRequesterLabel() })}
@@ -1227,6 +1231,8 @@
                               <span>{i18n.t('genericRequest.auth.loading')}</span>
                             </div>
                           {:else if activeAuthIdentity}
+                            {@const activeIdentityDisplayName = formatIdentityDisplayName(activeAuthIdentity)}
+                            {@const activeIdentityHasFriendlyName = activeIdentityDisplayName !== activeAuthIdentity.identityAddress}
                             <div class="flex items-start gap-3">
                               <div class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-background/70 text-primary shadow-sm dark:bg-background/40">
                                 <ShieldCheckIcon class="size-5" />
@@ -1234,12 +1240,22 @@
                               <div class="min-w-0 flex-1">
                                 <div class="flex items-start justify-between gap-3">
                                   <div class="min-w-0">
-                                    <p class="truncate text-base font-semibold text-foreground">
-                                      {formatIdentityDisplayName(activeAuthIdentity)}
-                                    </p>
-                                    <p class="identifier-text mt-1 truncate text-xs text-foreground/72">
-                                      {activeAuthIdentity.identityAddress}
-                                    </p>
+                                    {#if activeIdentityHasFriendlyName}
+                                      <p class="truncate text-base font-semibold text-foreground">
+                                        {activeIdentityDisplayName}
+                                      </p>
+                                      <IdentifierText
+                                        value={activeAuthIdentity.identityAddress}
+                                        mode="compact"
+                                        class="mt-1 block truncate text-xs text-foreground/72"
+                                      />
+                                    {:else}
+                                      <IdentifierText
+                                        value={activeAuthIdentity.identityAddress}
+                                        mode="compact"
+                                        class="block truncate text-base font-semibold text-foreground"
+                                      />
+                                    {/if}
                                   </div>
 
                                   <div class="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
@@ -1339,9 +1355,11 @@
                             {#each authDetail.constraints as constraint (`${constraint.type}:${constraint.identity}`)}
                               <li class="flex items-start justify-between gap-4">
                                 <p class="text-muted-foreground">{authConstraintLabel(constraint.type)}</p>
-                                <p class="identifier-text max-w-[16rem] break-all text-right font-medium text-foreground">
-                                  {constraint.identity}
-                                </p>
+                                <IdentifierText
+                                  value={constraint.identity}
+                                  mode="full"
+                                  class="max-w-[16rem] text-right font-medium text-foreground"
+                                />
                               </li>
                             {/each}
                           </ul>
@@ -1466,11 +1484,19 @@
                     <div class="flex items-start justify-between gap-4">
                       <dt class="text-muted-foreground">{i18n.t('genericRequest.summary.signer')}</dt>
                       <dd class="max-w-[22rem] text-right font-medium text-foreground">
-                        <p>{authRequesterLabel()}</p>
                         {#if authRequesterLabel() !== session.signer.identityId}
-                          <p class="identifier-text mt-1 break-all text-xs text-muted-foreground">
-                            {session.signer.identityId}
-                          </p>
+                          <p>{authRequesterLabel()}</p>
+                          <IdentifierText
+                            value={session.signer.identityId}
+                            mode="full"
+                            class="mt-1 block text-xs text-muted-foreground"
+                          />
+                        {:else}
+                          <IdentifierText
+                            value={session.signer.identityId}
+                            mode="full"
+                            class="block"
+                          />
                         {/if}
                       </dd>
                     </div>
@@ -1506,9 +1532,22 @@
                   <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {i18n.t('genericRequest.update.targetIdentity')}
                   </p>
-                  <p class="mt-2 text-sm font-semibold text-foreground">
-                    {updateReviewSource.fullyQualifiedName || updateReviewSource.targetIdentity}
-                  </p>
+                  {#if updateReviewSource.fullyQualifiedName}
+                    <p class="mt-2 text-sm font-semibold text-foreground">
+                      {updateReviewSource.fullyQualifiedName}
+                    </p>
+                    <IdentifierText
+                      value={updateReviewSource.targetIdentity}
+                      mode="compact"
+                      class="mt-1 block text-xs text-muted-foreground"
+                    />
+                  {:else}
+                    <IdentifierText
+                      value={updateReviewSource.targetIdentity}
+                      mode="review"
+                      class="mt-2 block text-sm font-semibold text-foreground"
+                    />
+                  {/if}
                 </div>
 
                 <div class="rounded-xl border border-border/70 bg-muted/20 p-4">
@@ -1614,19 +1653,22 @@
                                 <p class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                   {i18n.t('genericRequest.update.currentValue')}
                                 </p>
-                                <p
-                                  class="identifier-text truncate text-sm text-muted-foreground"
-                                  title={change.currentValue}
-                                >
-                                  {truncateIdentityAddress(change.currentValue, 14, 12)}
-                                </p>
+                                <IdentifierText
+                                  value={change.currentValue}
+                                  mode="review"
+                                  class="block truncate text-sm text-muted-foreground"
+                                />
                               </div>
                             {/if}
                             <div>
                               <p class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                 {i18n.t('genericRequest.update.newValue')}
                               </p>
-                              <p class="identifier-text break-all text-sm font-medium text-foreground">{change.nextValue}</p>
+                              <IdentifierText
+                                value={change.nextValue}
+                                mode="review"
+                                class="block text-sm font-medium text-foreground"
+                              />
                             </div>
                           </div>
                         </div>
@@ -1658,7 +1700,11 @@
                             </span>
                           {/if}
                         </div>
-                        <p class="identifier-text mt-3 break-all text-sm text-foreground">{change.address}</p>
+                        <IdentifierText
+                          value={change.address}
+                          mode="review"
+                          class="mt-3 block text-sm text-foreground"
+                        />
                       </div>
                     {/each}
                   </div>
@@ -1670,9 +1716,24 @@
                     <div class="mt-3 space-y-2">
                       {#each updateReview.primaryAddressesAfterUpdate as entry (entry.address)}
                         <div class="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2">
-                          <p class="identifier-text min-w-0 flex-1 truncate text-sm text-foreground" title={entry.displayAddress}>
-                            {entry.displayAddress}
-                          </p>
+                          <div class="min-w-0 flex-1">
+                            {#if entry.displayAddress !== entry.address}
+                              <p class="truncate text-sm font-medium text-foreground">
+                                {entry.displayAddress}
+                              </p>
+                              <IdentifierText
+                                value={entry.address}
+                                mode="compact"
+                                class="mt-0.5 block truncate text-xs text-muted-foreground"
+                              />
+                            {:else}
+                              <IdentifierText
+                                value={entry.address}
+                                mode="review"
+                                class="block truncate text-sm text-foreground"
+                              />
+                            {/if}
+                          </div>
                           <span class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${badgeClass(entry.badge.tone)}`}>
                             {#if entry.badge.tone === 'wallet'}
                               <WalletIcon class="size-3.5" />
@@ -1693,14 +1754,24 @@
                   <p class="text-sm font-semibold text-foreground">{item.title}</p>
                   <p class="mt-2 text-sm text-muted-foreground">{item.description}</p>
                   {#if item.currentValue}
-                    <p class="mt-3 text-xs text-muted-foreground">
-                      {i18n.t('genericRequest.update.beforeValue')}: <span class="identifier-text">{item.currentValue}</span>
-                    </p>
+                    <div class="mt-3 text-xs text-muted-foreground">
+                      <p>{i18n.t('genericRequest.update.beforeValue')}</p>
+                      <IdentifierText
+                        value={item.currentValue}
+                        mode="review"
+                        class="mt-0.5 block text-foreground"
+                      />
+                    </div>
                   {/if}
                   {#if item.nextValue}
-                    <p class="mt-1 text-xs text-muted-foreground">
-                      {i18n.t('genericRequest.update.afterValue')}: <span class="identifier-text">{item.nextValue}</span>
-                    </p>
+                    <div class="mt-2 text-xs text-muted-foreground">
+                      <p>{i18n.t('genericRequest.update.afterValue')}</p>
+                      <IdentifierText
+                        value={item.nextValue}
+                        mode="review"
+                        class="mt-0.5 block text-foreground"
+                      />
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -1837,12 +1908,30 @@
                         <div class="min-w-0 flex-1">
                           <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                              <p class="truncate text-base font-semibold text-foreground">
-                                {fundingSourcePrimaryLabel(selectedFundingSource)}
-                              </p>
-                              <p class="identifier-text mt-1 truncate text-xs text-foreground/72">
-                                {fundingSourceSecondaryLabel(selectedFundingSource)}
-                              </p>
+                              {#if fundingSourceDisplayLabel(selectedFundingSource)}
+                                <p class="truncate text-base font-semibold text-foreground">
+                                  {fundingSourceDisplayLabel(selectedFundingSource)}
+                                </p>
+                                <div class="mt-1 flex min-w-0 items-baseline gap-1.5 text-xs text-foreground/72">
+                                  <IdentifierText
+                                    value={selectedFundingSource.address}
+                                    mode="compact"
+                                    class="min-w-0 truncate"
+                                  />
+                                  <span class="shrink-0">
+                                    • {fundingSourceNetworkLabel(selectedFundingSource)}
+                                  </span>
+                                </div>
+                              {:else}
+                                <IdentifierText
+                                  value={selectedFundingSource.address}
+                                  mode="compact"
+                                  class="block truncate text-base font-semibold text-foreground"
+                                />
+                                <p class="mt-1 truncate text-xs text-foreground/72">
+                                  {fundingSourceNetworkLabel(selectedFundingSource)}
+                                </p>
+                              {/if}
                             </div>
 
                             <p class="shrink-0 text-sm font-medium text-primary">
@@ -1876,12 +1965,30 @@
                             <div class="min-w-0 flex-1">
                               <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0">
-                                  <p class="truncate text-base font-semibold text-foreground">
-                                    {fundingSourcePrimaryLabel(source)}
-                                  </p>
-                                  <p class="identifier-text mt-1 truncate text-xs text-foreground/72">
-                                    {fundingSourceSecondaryLabel(source)}
-                                  </p>
+                                  {#if fundingSourceDisplayLabel(source)}
+                                    <p class="truncate text-base font-semibold text-foreground">
+                                      {fundingSourceDisplayLabel(source)}
+                                    </p>
+                                    <div class="mt-1 flex min-w-0 items-baseline gap-1.5 text-xs text-foreground/72">
+                                      <IdentifierText
+                                        value={source.address}
+                                        mode="compact"
+                                        class="min-w-0 truncate"
+                                      />
+                                      <span class="shrink-0">
+                                        • {fundingSourceNetworkLabel(source)}
+                                      </span>
+                                    </div>
+                                  {:else}
+                                    <IdentifierText
+                                      value={source.address}
+                                      mode="compact"
+                                      class="block truncate text-base font-semibold text-foreground"
+                                    />
+                                    <p class="mt-1 truncate text-xs text-foreground/72">
+                                      {fundingSourceNetworkLabel(source)}
+                                    </p>
+                                  {/if}
                                 </div>
 
                                 <p class="shrink-0 text-sm font-medium text-primary">
@@ -1961,7 +2068,11 @@
                   {i18n.t('genericRequest.complete.txidLabel')}
                 </p>
                 <div class="mt-2 flex items-start justify-between gap-2">
-                  <p class="identifier-text min-w-0 flex-1 break-all text-sm font-medium text-foreground">{completionTxid}</p>
+                  <IdentifierText
+                    value={completionTxid}
+                    mode="full"
+                    class="min-w-0 flex-1 text-sm font-medium text-foreground"
+                  />
                   <CopyButton
                     copied={copiedCompletionField === 'txid'}
                     size="xs"
@@ -2014,6 +2125,8 @@
               {:else}
                 <ul class="mt-2 space-y-2 pb-4">
                   {#each eligibleLinkedIdentities as identity (identity.identityAddress)}
+                    {@const identityDisplayName = formatIdentityDisplayName(identity)}
+                    {@const identityHasFriendlyName = identityDisplayName !== identity.identityAddress}
                     <li>
                       <button
                         type="button"
@@ -2029,12 +2142,22 @@
                       >
                         <div class="flex items-center justify-between gap-3">
                           <div class="min-w-0">
-                            <p class="truncate text-sm font-semibold text-foreground">
-                              {formatIdentityDisplayName(identity)}
-                            </p>
-                            <p class="identifier-text mt-1 truncate text-xs text-muted-foreground">
-                              {identity.identityAddress}
-                            </p>
+                            {#if identityHasFriendlyName}
+                              <p class="truncate text-sm font-semibold text-foreground">
+                                {identityDisplayName}
+                              </p>
+                              <IdentifierText
+                                value={identity.identityAddress}
+                                mode="compact"
+                                class="mt-1 block truncate text-xs text-muted-foreground"
+                              />
+                            {:else}
+                              <IdentifierText
+                                value={identity.identityAddress}
+                                mode="compact"
+                                class="block truncate text-sm font-semibold text-foreground"
+                              />
+                            {/if}
                           </div>
 
                           {#if selectedAuthIdentityAddress === identity.identityAddress}

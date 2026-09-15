@@ -1,5 +1,6 @@
 <script lang="ts">
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import { i18nStore } from '$lib/i18n';
   import { cn } from '$lib/utils.js';
@@ -22,13 +23,7 @@
     class?: string;
   };
 
-   
-  let {
-    rows,
-    warnings = [],
-    class: className = ''
-  }: TransferSummaryRailProps = $props();
-   
+  let { rows, warnings = [], class: className = '' }: TransferSummaryRailProps = $props();
 
   const i18n = $derived($i18nStore);
   const labels = $derived(getTransferSummaryLabels(i18n.t));
@@ -82,15 +77,24 @@
   {#if rows.length > 0}
     <dl class="mt-3">
       {#each rows as row, index}
-        {@const isAssetFlowRow = !!assetFlowPair && (index === assetFlowPair.fromIndex || index === assetFlowPair.toIndex)}
+        {@const isAssetFlowRow =
+          !!assetFlowPair && (index === assetFlowPair.fromIndex || index === assetFlowPair.toIndex)}
         {@const showAssetFlowArrow = !!assetFlowPair && index === assetFlowPair.fromIndex}
-        {@const isAmountEstimateRow = !!amountEstimatePair && (index === amountEstimatePair.amountIndex || index === amountEstimatePair.estimatedIndex)}
-        {@const showAmountEstimateArrow = !!amountEstimatePair && index === amountEstimatePair.amountIndex}
+        {@const isAmountEstimateRow =
+          !!amountEstimatePair &&
+          (index === amountEstimatePair.amountIndex || index === amountEstimatePair.estimatedIndex)}
+        {@const showAmountEstimateArrow =
+          !!amountEstimatePair && index === amountEstimatePair.amountIndex}
         {@const groupId = rowGroupId(row, index)}
         {@const previousGroupId = index > 0 ? rowGroupId(rows[index - 1], index - 1) : ''}
         {@const startsNewGroup = index > 0 && groupId !== previousGroupId}
         <div class={cn(startsNewGroup ? 'mt-6' : '')}>
-          <dt class={cn('text-muted-foreground text-xs leading-tight', isAssetFlowRow || isAmountEstimateRow ? 'sr-only' : '')}>
+          <dt
+            class={cn(
+              'text-xs leading-tight text-muted-foreground',
+              isAssetFlowRow || isAmountEstimateRow ? 'sr-only' : ''
+            )}
+          >
             {row.label}
           </dt>
           {#if row.iconCoinId}
@@ -103,45 +107,75 @@
                   decorative={true}
                 />
                 <div class="min-w-0">
-                  <p
-                    class={cn(
-                      'truncate text-sm leading-tight font-semibold',
-                      row.breakAll ? 'break-all' : '',
-                      row.primaryIdentifier ? 'identifier-text' : ''
-                    )}
-                  >
-                    {row.primary}
-                  </p>
-                  {#if row.secondary}
-                    <p class={cn('text-muted-foreground mt-0.5 truncate text-xs', row.secondaryIdentifier ? 'identifier-text' : '')}>
-                      {row.secondary}
+                  {#if row.primaryIdentifier}
+                    <IdentifierText
+                      value={row.primary}
+                      mode="compact"
+                      class="block truncate text-sm leading-tight font-semibold"
+                    />
+                  {:else}
+                    <p
+                      class={cn(
+                        'truncate text-sm leading-tight font-semibold',
+                        row.breakAll ? 'break-all' : ''
+                      )}
+                    >
+                      {row.primary}
                     </p>
+                  {/if}
+                  {#if row.secondary}
+                    {#if row.secondaryIdentifier}
+                      <IdentifierText
+                        value={row.secondary}
+                        mode="compact"
+                        class="mt-0.5 block truncate text-xs text-muted-foreground"
+                      />
+                    {:else}
+                      <p class="mt-0.5 truncate text-xs text-muted-foreground">
+                        {row.secondary}
+                      </p>
+                    {/if}
                   {/if}
                 </div>
               </div>
             </dd>
             {#if showAssetFlowArrow}
-              <div class="text-muted-foreground/70 my-2 flex h-4 w-[18px] items-center justify-center">
+              <div
+                class="my-2 flex h-4 w-[18px] items-center justify-center text-muted-foreground/70"
+              >
                 <ArrowDownIcon class="size-3.5" />
               </div>
             {/if}
           {:else}
             <dd
               class={cn(
-                isAmountEstimateRow ? 'mt-0 text-sm leading-tight font-medium' : 'mt-1.5 text-sm leading-tight font-medium',
-                row.breakAll ? 'break-all' : '',
-                row.primaryIdentifier ? 'identifier-text' : ''
+                isAmountEstimateRow
+                  ? 'mt-0 text-sm leading-tight font-medium'
+                  : 'mt-1.5 text-sm leading-tight font-medium',
+                row.breakAll ? 'break-all' : ''
               )}
             >
-              <p>{row.primary}</p>
+              {#if row.primaryIdentifier}
+                <IdentifierText value={row.primary} mode="compact" class="block" />
+              {:else}
+                <p>{row.primary}</p>
+              {/if}
               {#if row.secondary}
-                <p class={cn('text-muted-foreground mt-0.5 text-xs', row.secondaryIdentifier ? 'identifier-text' : '')}>
-                  {row.secondary}
-                </p>
+                {#if row.secondaryIdentifier}
+                  <IdentifierText
+                    value={row.secondary}
+                    mode="compact"
+                    class="mt-0.5 block text-xs text-muted-foreground"
+                  />
+                {:else}
+                  <p class="mt-0.5 text-xs text-muted-foreground">{row.secondary}</p>
+                {/if}
               {/if}
             </dd>
             {#if showAmountEstimateArrow}
-              <div class="text-muted-foreground/70 my-2 flex h-4 w-[18px] items-center justify-center">
+              <div
+                class="my-2 flex h-4 w-[18px] items-center justify-center text-muted-foreground/70"
+              >
                 <ArrowDownIcon class="size-3.5" />
               </div>
             {/if}
@@ -155,7 +189,7 @@
     <div class="mt-4 space-y-1.5">
       <p class="text-xs font-medium">{labels.warnings}</p>
       {#each warnings as warning}
-        <p class="text-amber-600 dark:text-amber-400 text-xs">{warning}</p>
+        <p class="text-xs text-amber-600 dark:text-amber-400">{warning}</p>
       {/each}
     </div>
   {/if}

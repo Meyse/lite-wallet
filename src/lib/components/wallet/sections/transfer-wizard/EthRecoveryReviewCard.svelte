@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { resolveCoinPresentationById } from '$lib/coins/presentation.js';
   import { i18nStore } from '$lib/i18n';
   import type { EthPendingSubmissionReview } from '$lib/types/wallet.js';
@@ -14,10 +15,6 @@
   const i18n = $derived($i18nStore);
   const presentation = $derived(resolveCoinPresentationById(review.context.coinId));
   const ticker = $derived(presentation?.displayTicker?.trim() || review.context.coinId);
-
-  function truncateAddress(value: string): string {
-    return value.length <= 23 ? value : `${value.slice(0, 10)}…${value.slice(-10)}`;
-  }
 
   function stageLabel(stage: string): string {
     if (
@@ -43,10 +40,7 @@
         {i18n.t('wallet.transfer.ethRecovery.title')}
       </p>
       <p class="mt-0.5 text-xs opacity-80">
-        {i18n.t('wallet.transfer.ethRecovery.description', {
-          value: `${review.context.value} ${ticker}`,
-          recipient: truncateAddress(review.context.toAddress),
-        })}
+        {i18n.t('wallet.transfer.ethRecovery.description')}
       </p>
     </div>
     <dl
@@ -67,7 +61,9 @@
       </div>
       <div class="sm:col-span-2">
         <dt class="opacity-65">{i18n.t('wallet.transfer.summary.recipient')}</dt>
-        <dd class="identifier-text mt-0.5 font-medium break-all">{review.context.toAddress}</dd>
+        <dd class="mt-0.5">
+          <IdentifierText value={review.context.toAddress} mode="full" class="font-medium" />
+        </dd>
       </div>
       <div>
         <dt class="opacity-65">{i18n.t('wallet.transfer.summary.networkFee')}</dt>
@@ -83,32 +79,48 @@
       {#if review.context.contractAddress}
         <div class="sm:col-span-2">
           <dt class="opacity-65">{i18n.t('wallet.transfer.ethRecovery.assetContract')}</dt>
-          <dd class="identifier-text mt-0.5 font-medium break-all">
-            {review.context.contractAddress}
+          <dd class="mt-0.5">
+            <IdentifierText
+              value={review.context.contractAddress}
+              mode="full"
+              class="font-medium"
+            />
           </dd>
         </div>
       {/if}
       {#if review.context.bridgeContractAddress}
         <div class="sm:col-span-2">
           <dt class="opacity-65">{i18n.t('wallet.transfer.ethRecovery.bridgeContract')}</dt>
-          <dd class="identifier-text mt-0.5 font-medium break-all">
-            {review.context.bridgeContractAddress}
+          <dd class="mt-0.5">
+            <IdentifierText
+              value={review.context.bridgeContractAddress}
+              mode="full"
+              class="font-medium"
+            />
           </dd>
         </div>
       {/if}
       {#if review.context.mappedCurrencyId}
         <div>
           <dt class="opacity-65">{i18n.t('wallet.transfer.ethRecovery.mappedCurrency')}</dt>
-          <dd class="identifier-text mt-0.5 font-medium break-all">
-            {review.context.mappedCurrencyId}
+          <dd class="mt-0.5">
+            <IdentifierText
+              value={review.context.mappedCurrencyId}
+              mode="full"
+              class="font-medium"
+            />
           </dd>
         </div>
       {/if}
       {#if review.context.destinationSystemId}
         <div>
           <dt class="opacity-65">{i18n.t('wallet.transfer.ethRecovery.destinationSystem')}</dt>
-          <dd class="identifier-text mt-0.5 font-medium break-all">
-            {review.context.destinationSystemId}
+          <dd class="mt-0.5">
+            <IdentifierText
+              value={review.context.destinationSystemId}
+              mode="full"
+              class="font-medium"
+            />
           </dd>
         </div>
       {/if}

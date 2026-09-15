@@ -17,7 +17,9 @@ function isLikelySystemSuffix(value: string): boolean {
   return value.length > 0 && [...value].every((char) => /[A-Z0-9]/.test(char));
 }
 
-export function formatIdentityFullyQualifiedName(rawValue: string | null | undefined): string | null {
+export function formatIdentityFullyQualifiedName(
+  rawValue: string | null | undefined
+): string | null {
   const normalized = normalizeNonEmpty(rawValue);
   if (!normalized) return null;
 
@@ -44,11 +46,4 @@ export function formatIdentityDisplayName(input: IdentityDisplayInput): string {
   if (normalizedName) return ensureHandleSuffix(normalizedName);
 
   return input.identityAddress;
-}
-
-export function truncateIdentityAddress(value: string, start = 10, end = 10): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (trimmed.length <= start + end + 3) return trimmed;
-  return `${trimmed.slice(0, start)}...${trimmed.slice(-end)}`;
 }

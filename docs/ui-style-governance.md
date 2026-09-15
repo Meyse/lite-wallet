@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-03-07
+last_reviewed: 2026-09-15
 ---
 
 # UI style governance
@@ -41,6 +41,29 @@ Preserve text-entry, resize, and disabled-state cursors when appropriate.
 The base styles and shared Button implement this convention. `pnpm lint:ui`
 rejects pointer/hand cursor declarations and Tailwind utilities in `src/**`.
 
+## Identifier typography and truncation
+
+Raw machine-readable identifiers use the shared
+`src/lib/components/common/IdentifierText.svelte` component. This includes
+transparent and shielded addresses, identity i-addresses, transaction IDs,
+contract addresses, and preflight IDs. Human-readable VerusIDs, contact names,
+network names, badges, and prose stay in the regular interface font.
+
+Use the component modes by context:
+
+- `compact` shows the first and last 6 characters for dense lists, pickers, and
+  narrow summary rails.
+- `review` shows the first and last 12 characters where a user is checking a
+  transaction or consequential change.
+- `full` never truncates and may wrap. Use it in dedicated detail views and next
+  to copy actions.
+
+Editable identifier inputs must never truncate; apply the shared
+`identifier-text` class to the input instead. Copy actions must receive their
+full source value directly, never the shortened display string. Keep suffixes
+such as “(self),” network names, and explanatory text outside the identifier
+component.
+
 ## Semantic tokens in `src/app.css`
 
 | Token                            | Light     | Dark      | Purpose                                      |
@@ -70,6 +93,9 @@ rejects pointer/hand cursor declarations and Tailwind utilities in `src/**`.
   outside `src/lib/components/ui/**`.
 - `pnpm lint:ui` rejects raw `<label>` usage in feature code so label styling
   stays centralized.
+- `pnpm lint:ui` rejects direct static `identifier-text` classes so identifier
+  display behavior stays centralized in `IdentifierText`. Editable `Input`
+  fields remain the exception.
 - The linter fails when a color is outside the approved palette or when an
   approved color is declared outside its token or registry source file.
 - Context-specific errors are surfaced for inline styles and arbitrary Tailwind
