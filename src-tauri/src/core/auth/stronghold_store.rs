@@ -1188,21 +1188,75 @@ impl StrongholdStore {
         identities: &[LinkedIdentity],
     ) -> Result<(), WalletError> {
         let path = self.linked_identities_snapshot_path(account_id);
-        let mut snapshot = self
-            .load_linked_identities_snapshot(account_id, password_hash)
-            .await?;
-        snapshot.schema_version = LINKED_IDENTITIES_SCHEMA_VERSION;
-
+        let account_id = account_id.to_string();
+        let password_hash = Zeroizing::new(password_hash.to_vec());
         let sanitized = Self::sanitize_linked_identities(identities);
-        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = sanitized;
-        self.store_json_snapshot_to_path(
-            account_id,
-            password_hash,
-            &path,
-            LINKED_IDENTITIES_RECORD_KEY,
-            &snapshot,
-            "linked identities",
-        )
+
+        tokio::task::spawn_blocking(move || {
+            let snapshot_path = SnapshotPath::from_path(&path);
+            let keyprovider = Self::keyprovider_from_hash(password_hash.as_ref())?;
+            let stronghold = Stronghold::default();
+            let client = if path.exists() {
+                stronghold
+                    .load_client_from_snapshot(account_id.as_bytes(), &keyprovider, &snapshot_path)
+                    .map_err(|error| {
+                        println!("[AUTH] Load linked identities snapshot failed: {}", error);
+                        WalletError::OperationFailed
+                    })?
+            } else {
+                stronghold
+                    .create_client(account_id.as_bytes())
+                    .map_err(|error| {
+                        println!("[AUTH] Create linked identities client failed: {}", error);
+                        WalletError::OperationFailed
+                    })?
+            };
+
+            let stored = client
+                .store()
+                .get(LINKED_IDENTITIES_RECORD_KEY)
+                .map_err(|error| {
+                    println!("[AUTH] Read linked identities record failed: {}", error);
+                    WalletError::OperationFailed
+                })?;
+            let mut snapshot = match stored {
+                Some(payload) => serde_json::from_slice::<LinkedIdentitiesSnapshot>(&payload)
+                    .map_err(|error| {
+                        println!("[AUTH] Parse linked identities snapshot failed: {}", error);
+                        WalletError::OperationFailed
+                    })?,
+                None => LinkedIdentitiesSnapshot::default(),
+            };
+
+            snapshot.schema_version = LINKED_IDENTITIES_SCHEMA_VERSION;
+            *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = sanitized;
+            let payload = serde_json::to_vec(&snapshot).map_err(|error| {
+                println!(
+                    "[AUTH] Serialize linked identities snapshot failed: {}",
+                    error
+                );
+                WalletError::OperationFailed
+            })?;
+
+            client
+                .store()
+                .insert(LINKED_IDENTITIES_RECORD_KEY.to_vec(), payload, None)
+                .map_err(|error| {
+                    println!("[AUTH] Store linked identities record failed: {}", error);
+                    WalletError::OperationFailed
+                })?;
+            stronghold
+                .commit_with_keyprovider(&snapshot_path, &keyprovider)
+                .map_err(|error| {
+                    println!("[AUTH] Commit linked identities snapshot failed: {}", error);
+                    WalletError::OperationFailed
+                })
+        })
+        .await
+        .map_err(|error| {
+            println!("[AUTH] Linked identities snapshot worker failed: {}", error);
+            WalletError::OperationFailed
+        })?
     }
 
     pub async fn load_dlight_seed(
@@ -1565,6 +1619,57 @@ mod tests {
         assert!(mainnet[0].favorite);
         assert!(mainnet[1].favorite);
         assert!(!mainnet[2].favorite);
+
+        let _ = std::fs::remove_dir_all(store.base_path);
+    }
+
+    #[tokio::test]
+    async fn linked_identity_failed_update_preserves_persisted_records() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+
+        let store = temp_store();
+        let account_id = "account_linked_ids_failed_update";
+        let password_hash = StrongholdStore::derive_legacy_password_hash("test-password");
+        let wrong_password_hash = StrongholdStore::derive_legacy_password_hash("wrong-password");
+        let original = LinkedIdentity {
+            identity_address: "iFavorite".to_string(),
+            name: Some("favorite".to_string()),
+            fully_qualified_name: Some("favorite@".to_string()),
+            status: Some("active".to_string()),
+            system_id: None,
+            favorite: true,
+        };
+
+        store
+            .store_linked_identities(
+                account_id,
+                password_hash.as_ref(),
+                WalletNetwork::Mainnet,
+                std::slice::from_ref(&original),
+            )
+            .await
+            .expect("store original linked identity");
+
+        let failed_update = store
+            .store_linked_identities(
+                account_id,
+                wrong_password_hash.as_ref(),
+                WalletNetwork::Mainnet,
+                &[LinkedIdentity {
+                    favorite: false,
+                    ..original.clone()
+                }],
+            )
+            .await;
+        assert!(failed_update.is_err());
+
+        let persisted = store
+            .load_linked_identities(account_id, password_hash.as_ref(), WalletNetwork::Mainnet)
+            .await
+            .expect("load original linked identity after failed update");
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].identity_address, original.identity_address);
+        assert!(persisted[0].favorite);
 
         let _ = std::fs::remove_dir_all(store.base_path);
     }

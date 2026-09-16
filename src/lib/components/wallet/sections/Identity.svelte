@@ -79,6 +79,7 @@
 
   const showingDetail = $derived(Boolean(selectedIdentityAddress));
   const compactMode = $derived(linkedIdentities.length >= 7);
+  const favoriteToggleDisabled = $derived(favoriteBusyIdentityAddress !== null);
   const selectedLinkedIdentity = $derived(
     selectedIdentityAddress
       ? linkedIdentities.find(
@@ -238,6 +239,10 @@
       details = null;
       detailsError = '';
     }
+  }
+
+  function isFavoriteToggleBusy(identity: LinkedIdentity): boolean {
+    return favoriteBusyIdentityAddress?.toLowerCase() === identity.identityAddress.toLowerCase();
   }
 
   async function toggleFavorite(identity: LinkedIdentity) {
@@ -638,12 +643,16 @@
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
+                            favoriteBusy={isFavoriteToggleBusy(identity)}
+                            favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
                             onToggleFavorite={toggleFavorite}
                           />
                         {:else}
                           <LinkedIdentityCard
                             {identity}
+                            favoriteBusy={isFavoriteToggleBusy(identity)}
+                            favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
                             onToggleFavorite={toggleFavorite}
                           />
@@ -668,12 +677,16 @@
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
+                            favoriteBusy={isFavoriteToggleBusy(identity)}
+                            favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
                             onToggleFavorite={toggleFavorite}
                           />
                         {:else}
                           <LinkedIdentityCard
                             {identity}
+                            favoriteBusy={isFavoriteToggleBusy(identity)}
+                            favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
                             onToggleFavorite={toggleFavorite}
                           />

@@ -1,5 +1,6 @@
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import StarIcon from '@lucide/svelte/icons/star';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { i18nStore } from '$lib/i18n';
@@ -13,15 +14,30 @@
 
   type LinkedIdentityCardProps = {
     identity: LinkedIdentity;
+    favoriteBusy?: boolean;
+    favoriteDisabled?: boolean;
     onSelect?: typeof noop;
     onToggleFavorite?: typeof noop;
   };
 
-  let { identity, onSelect = noop, onToggleFavorite = noop }: LinkedIdentityCardProps = $props();
+  let {
+    identity,
+    favoriteBusy = false,
+    favoriteDisabled = false,
+    onSelect = noop,
+    onToggleFavorite = noop,
+  }: LinkedIdentityCardProps = $props();
 
   const i18n = $derived($i18nStore);
   const displayName = $derived(formatIdentityDisplayName(identity));
   const displayNameIsAddress = $derived(displayName === identity.identityAddress);
+  const favoriteActionLabel = $derived(
+    favoriteBusy
+      ? i18n.t('wallet.identity.favorite.saving')
+      : identity.favorite
+        ? i18n.t('wallet.identity.favorite.remove')
+        : i18n.t('wallet.identity.favorite.add')
+  );
 </script>
 
 <div
@@ -56,15 +72,18 @@
 
   <button
     type="button"
-    class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+    class={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${favoriteBusy ? 'text-amber-500' : 'text-muted-foreground enabled:hover:text-foreground disabled:opacity-45'}`}
     onclick={() => onToggleFavorite(identity)}
-    aria-label={identity.favorite
-      ? i18n.t('wallet.identity.favorite.remove')
-      : i18n.t('wallet.identity.favorite.add')}
-    title={identity.favorite
-      ? i18n.t('wallet.identity.favorite.remove')
-      : i18n.t('wallet.identity.favorite.add')}
+    disabled={favoriteDisabled}
+    aria-busy={favoriteBusy}
+    aria-label={favoriteActionLabel}
+    title={favoriteActionLabel}
+    data-favorite-state={favoriteBusy ? 'saving' : identity.favorite ? 'favorite' : 'not-favorite'}
   >
-    <StarIcon class={`size-4 ${identity.favorite ? 'fill-current text-amber-500' : ''}`} />
+    {#if favoriteBusy}
+      <LoaderCircleIcon class="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+    {:else}
+      <StarIcon class={`size-4 ${identity.favorite ? 'fill-current text-amber-500' : ''}`} />
+    {/if}
   </button>
 </div>

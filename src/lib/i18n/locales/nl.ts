@@ -938,6 +938,7 @@ export const nl: Record<string, string> = {
   'wallet.identity.list.searchPlaceholder': 'Zoek gekoppelde identiteiten',
   'wallet.identity.favorite.add': 'Toevoegen aan favorieten',
   'wallet.identity.favorite.remove': 'Verwijderen uit favorieten',
+  'wallet.identity.favorite.saving': 'Wijziging opslaan…',
   'wallet.identity.favorite.limitReached': 'Je kunt maximaal 2 identiteiten favoriet maken.',
   'wallet.identity.sheet.title': 'VerusID koppelen',
   'wallet.identity.sheet.searchPlaceholder': 'Zoek op naam of i-adres',

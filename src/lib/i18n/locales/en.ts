@@ -922,6 +922,7 @@ export const en: Record<string, string> = {
   'wallet.identity.list.searchPlaceholder': 'Search linked identities',
   'wallet.identity.favorite.add': 'Add to favorites',
   'wallet.identity.favorite.remove': 'Remove from favorites',
+  'wallet.identity.favorite.saving': 'Saving change…',
   'wallet.identity.favorite.limitReached': 'You can only favorite up to 2 identities.',
   'wallet.identity.sheet.title': 'Link VerusID',
   'wallet.identity.sheet.searchPlaceholder': 'Search by name or i-address',
