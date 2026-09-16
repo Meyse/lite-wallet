@@ -4,7 +4,11 @@
   import StarIcon from '@lucide/svelte/icons/star';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { i18nStore } from '$lib/i18n';
-  import type { LinkedIdentity } from '$lib/types/wallet.js';
+  import type {
+    IdentityProfileLoadResult,
+    LinkedIdentity,
+    PendingIdentityProfileUpdate,
+  } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import IdentityAvatar from './IdentityAvatar.svelte';
 
@@ -14,6 +18,8 @@
 
   type LinkedIdentityRowProps = {
     identity: LinkedIdentity;
+    profile?: IdentityProfileLoadResult | null;
+    pendingProfile?: PendingIdentityProfileUpdate | null;
     favoriteBusy?: boolean;
     favoriteDisabled?: boolean;
     onSelect?: typeof noop;
@@ -22,6 +28,8 @@
 
   let {
     identity,
+    profile = null,
+    pendingProfile = null,
     favoriteBusy = false,
     favoriteDisabled = false,
     onSelect = noop,
@@ -31,6 +39,22 @@
   const i18n = $derived($i18nStore);
   const displayName = $derived(formatIdentityDisplayName(identity));
   const displayNameIsAddress = $derived(displayName === identity.identityAddress);
+  const usePendingProfileFallback = $derived(!profile || profile.state === 'unavailable');
+  const displayedAvatarBase64 = $derived(
+    usePendingProfileFallback
+      ? (pendingProfile?.previousProfile.avatarBase64 ?? null)
+      : (profile?.avatar?.value.base64 ?? null)
+  );
+  const avatarUrl = $derived(
+    displayedAvatarBase64
+      ? `data:${profile?.avatar?.value.mimeType ?? 'image/jpeg'};base64,${displayedAvatarBase64}`
+      : null
+  );
+  const description = $derived(
+    usePendingProfileFallback
+      ? (pendingProfile?.previousProfile.description?.trim() ?? '')
+      : (profile?.description?.value?.trim() ?? '')
+  );
   const favoriteActionLabel = $derived(
     favoriteBusy
       ? i18n.t('wallet.identity.favorite.saving')
@@ -51,6 +75,7 @@
     <IdentityAvatar
       seed={identity.identityAddress}
       label={displayName}
+      imageUrl={avatarUrl}
       class="size-8 text-[10px]"
     />
     <div class="min-w-0">
@@ -63,13 +88,11 @@
       {:else}
         <p class="truncate text-sm font-semibold text-foreground">{displayName}</p>
       {/if}
-      {#if identity.status}
-        <p
-          class="mt-0.5 truncate text-[11px] font-semibold tracking-wide text-muted-foreground uppercase"
-        >
-          {identity.status}
-        </p>
-      {/if}
+      <p class="mt-0.5 truncate text-xs text-muted-foreground">
+        {pendingProfile
+          ? i18n.t('wallet.identity.profile.pendingShort')
+          : description || i18n.t('wallet.identity.profile.noProfile')}
+      </p>
     </div>
     <ChevronRightIcon
       class="size-4 shrink-0 text-muted-foreground/80 transition-colors group-hover:text-foreground"

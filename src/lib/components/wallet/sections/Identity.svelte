@@ -21,8 +21,19 @@
   import * as genericRequestService from '$lib/services/genericRequestService.js';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
-  import type { IdentityDetails, LinkedIdentity, ProvisioningJobRecord } from '$lib/types/wallet.js';
+  import type {
+    IdentityDetails,
+    IdentityProfileLoadResult,
+    LinkedIdentity,
+    PendingIdentityProfileUpdate,
+    ProvisioningJobRecord,
+  } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
+  import {
+    isCompleteProfileRemoval,
+    pendingProfileMatches,
+    profileMatchesSnapshot,
+  } from '$lib/utils/identityProfileUpdate';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import IdentityDetailView from './identity/IdentityDetailView.svelte';
   import IdentityDetailSkeleton from './identity/IdentityDetailSkeleton.svelte';
@@ -32,10 +43,9 @@
   import LinkedIdentityRow from './identity/LinkedIdentityRow.svelte';
   import {
     createIdentitySectionSessionState,
-    type IdentitySectionSessionState
+    type IdentitySectionSessionState,
   } from './identity/identitySectionSessionState.js';
 
-   
   const IDENTITY_SKELETON_DELAY_MS = 240;
 
   const noop = (_nextState?: IdentitySectionSessionState): void => {};
@@ -43,16 +53,16 @@
   let {
     walletNetwork = 'mainnet',
     sessionState = createIdentitySectionSessionState(),
-    onSessionStateChange = noop
+    onSessionStateChange = noop,
   }: {
     walletNetwork?: 'mainnet' | 'testnet';
     sessionState?: IdentitySectionSessionState;
     onSessionStateChange?: (nextState: IdentitySectionSessionState) => void;
   } = $props();
-   
 
   const i18n = $derived($i18nStore);
   const initialSessionState = untrack(() => sessionState);
+  const announcedProfileConfirmations = new Set<string>();
 
   let loading = $state(!initialSessionState.hasLoadedLinkedIdentitiesOnce);
   let hasLoadedLinkedIdentitiesOnce = $state(initialSessionState.hasLoadedLinkedIdentitiesOnce);
@@ -73,6 +83,13 @@
   let details = $state<IdentityDetails | null>(null);
   let unlinking = $state(false);
   let favoriteBusyIdentityAddress = $state<string | null>(null);
+  let profilesByAddress = $state<Record<string, IdentityProfileLoadResult>>({
+    ...initialSessionState.profilesByAddress,
+  });
+  let profileLoadingByAddress = $state<Record<string, boolean>>({});
+  let pendingProfilesByAddress = $state<Record<string, PendingIdentityProfileUpdate>>({
+    ...initialSessionState.pendingProfilesByAddress,
+  });
 
   let listSearchInput = $state('');
   let listDebouncedSearch = $state('');
@@ -82,9 +99,25 @@
   const favoriteToggleDisabled = $derived(favoriteBusyIdentityAddress !== null);
   const selectedLinkedIdentity = $derived(
     selectedIdentityAddress
-      ? linkedIdentities.find(
-          (identity) => identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
-        ) ?? null
+      ? (linkedIdentities.find(
+          (identity) =>
+            identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
+        ) ?? null)
+      : null
+  );
+  const selectedProfile = $derived(
+    selectedIdentityAddress
+      ? (profilesByAddress[selectedIdentityAddress.toLowerCase()] ?? null)
+      : null
+  );
+  const selectedProfileLoading = $derived(
+    selectedIdentityAddress
+      ? Boolean(profileLoadingByAddress[selectedIdentityAddress.toLowerCase()])
+      : false
+  );
+  const selectedPendingProfile = $derived(
+    selectedIdentityAddress
+      ? (pendingProfilesByAddress[selectedIdentityAddress.toLowerCase()] ?? null)
       : null
   );
 
@@ -95,7 +128,10 @@
   function sortLinkedIdentities(left: LinkedIdentity, right: LinkedIdentity): number {
     const leftDisplay = formatIdentityDisplayName(left).toLowerCase();
     const rightDisplay = formatIdentityDisplayName(right).toLowerCase();
-    return leftDisplay.localeCompare(rightDisplay) || left.identityAddress.localeCompare(right.identityAddress);
+    return (
+      leftDisplay.localeCompare(rightDisplay) ||
+      left.identityAddress.localeCompare(right.identityAddress)
+    );
   }
 
   function identityMatchesQuery(identity: LinkedIdentity, query: string): boolean {
@@ -105,7 +141,7 @@
       formatIdentityDisplayName(identity),
       identity.name,
       identity.fullyQualifiedName,
-      identity.identityAddress
+      identity.identityAddress,
     ]
       .map((value) => value?.toLowerCase() ?? '')
       .filter(Boolean);
@@ -114,14 +150,22 @@
   }
 
   const sortedLinkedIdentities = $derived([...linkedIdentities].sort(sortLinkedIdentities));
-  const favoriteIdentities = $derived(sortedLinkedIdentities.filter((identity) => identity.favorite));
-  const nonFavoriteIdentities = $derived(sortedLinkedIdentities.filter((identity) => !identity.favorite));
+  const favoriteIdentities = $derived(
+    sortedLinkedIdentities.filter((identity) => identity.favorite)
+  );
+  const nonFavoriteIdentities = $derived(
+    sortedLinkedIdentities.filter((identity) => !identity.favorite)
+  );
 
   const filteredFavoriteIdentities = $derived(
-    favoriteIdentities.filter((identity) => identityMatchesQuery(identity, listDebouncedSearch.trim().toLowerCase()))
+    favoriteIdentities.filter((identity) =>
+      identityMatchesQuery(identity, listDebouncedSearch.trim().toLowerCase())
+    )
   );
   const filteredNonFavoriteIdentities = $derived(
-    nonFavoriteIdentities.filter((identity) => identityMatchesQuery(identity, listDebouncedSearch.trim().toLowerCase()))
+    nonFavoriteIdentities.filter((identity) =>
+      identityMatchesQuery(identity, listDebouncedSearch.trim().toLowerCase())
+    )
   );
   const hasVisibleIdentities = $derived(
     filteredFavoriteIdentities.length + filteredNonFavoriteIdentities.length > 0
@@ -142,8 +186,22 @@
       hasLoadedLinkedIdentitiesOnce,
       provisioningJobs,
       provisioningError,
-      hasLoadedProvisioningOnce
+      hasLoadedProvisioningOnce,
+      profilesByAddress,
+      pendingProfilesByAddress,
     });
+  });
+
+  $effect(() => {
+    const pending = Object.values(pendingProfilesByAddress);
+    if (pending.length === 0) return undefined;
+
+    const timer = setInterval(() => {
+      for (const record of pending) {
+        void loadIdentityProfile(record.identityAddress, true);
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
   });
 
   $effect(() => {
@@ -173,6 +231,7 @@
   });
 
   onMount(() => {
+    void loadPendingProfiles();
     if (hasLoadedLinkedIdentitiesOnce) {
       void loadLinkedIdentities({ background: true });
     } else {
@@ -183,6 +242,43 @@
       void loadProvisioningJobs(false);
     }
   });
+
+  async function loadPendingProfiles(): Promise<void> {
+    try {
+      const records = await identityLinkService.getPendingIdentityProfileUpdates();
+      const activeRecords: Array<[string, PendingIdentityProfileUpdate]> = [];
+      const confirmedRecords: PendingIdentityProfileUpdate[] = [];
+      for (const record of records) {
+        const key = record.identityAddress.toLowerCase();
+        const profile = profilesByAddress[key];
+        if (profile && pendingProfileMatches(record, profile)) {
+          showProfileConfirmation(record);
+          confirmedRecords.push(record);
+        } else {
+          activeRecords.push([key, record]);
+        }
+      }
+      pendingProfilesByAddress = Object.fromEntries(
+        activeRecords.filter(
+          ([, record]) => !announcedProfileConfirmations.has(profileConfirmationKey(record))
+        )
+      );
+      for (const record of confirmedRecords) {
+        try {
+          await identityLinkService.clearPendingIdentityProfileUpdate(
+            record.identityAddress,
+            record.txid
+          );
+        } catch {
+          // The confirmed profile remains authoritative. A later session can
+          // retry cleanup of this non-secret local pending marker.
+        }
+      }
+    } catch {
+      // Pending metadata is a progressive enhancement. Profile and identity
+      // reads remain available when local public state cannot be loaded.
+    }
+  }
 
   function mapIdentityError(errorValue: unknown, fallbackKey: string): string {
     if (isForcedWalletLockError(errorValue)) {
@@ -217,10 +313,91 @@
     try {
       linkedIdentities = normalizeLinkedIdentities(await identityLinkService.getLinkedIdentities());
       hasLoadedLinkedIdentitiesOnce = true;
+      void loadIdentityProfiles(linkedIdentities, background);
     } catch (errorValue) {
       error = mapIdentityError(errorValue, 'wallet.identity.error.load');
     } finally {
       loading = false;
+    }
+  }
+
+  function profileConfirmationKey(pending: PendingIdentityProfileUpdate): string {
+    return `${pending.identityAddress.toLowerCase()}:${pending.txid.toLowerCase()}`;
+  }
+
+  function showProfileConfirmation(pending: PendingIdentityProfileUpdate): void {
+    const confirmationKey = profileConfirmationKey(pending);
+    if (announcedProfileConfirmations.has(confirmationKey)) return;
+    announcedProfileConfirmations.add(confirmationKey);
+    toast.success(
+      i18n.t(
+        isCompleteProfileRemoval(pending.previousProfile, pending.proposedProfile)
+          ? 'wallet.identity.profile.confirmed.removalToast'
+          : 'wallet.identity.profile.confirmed.title'
+      )
+    );
+  }
+
+  async function loadIdentityProfile(
+    identityAddress: string,
+    preserveOnFailure = false
+  ): Promise<void> {
+    const key = identityAddress.toLowerCase();
+    if (profileLoadingByAddress[key]) return;
+    profileLoadingByAddress = { ...profileLoadingByAddress, [key]: true };
+    try {
+      const profile = await identityLinkService.getIdentityProfile(identityAddress);
+      const pending = pendingProfilesByAddress[key];
+      if (pending && pendingProfileMatches(pending, profile)) {
+        profilesByAddress = { ...profilesByAddress, [key]: profile };
+        showProfileConfirmation(pending);
+        const { [key]: _confirmed, ...remaining } = pendingProfilesByAddress;
+        pendingProfilesByAddress = remaining;
+        try {
+          await identityLinkService.clearPendingIdentityProfileUpdate(
+            pending.identityAddress,
+            pending.txid
+          );
+        } catch {
+          // The verified profile is already confirmed; only local marker cleanup failed.
+        }
+      } else if (!pending || profileMatchesSnapshot(pending.previousProfile, profile)) {
+        // While a publication is pending, only replace the visible profile
+        // with the last prepared snapshot or the proven submitted revision.
+        profilesByAddress = { ...profilesByAddress, [key]: profile };
+      }
+    } catch {
+      if ((preserveOnFailure || pendingProfilesByAddress[key]) && profilesByAddress[key]) return;
+      profilesByAddress = {
+        ...profilesByAddress,
+        [key]: {
+          state: 'unavailable',
+          avatar: null,
+          description: null,
+          issues: [{ field: null, code: 'profile_load_failed' }],
+          readHeight: null,
+          revisionTxid: null,
+        },
+      };
+    } finally {
+      const { [key]: _finished, ...remaining } = profileLoadingByAddress;
+      profileLoadingByAddress = remaining;
+    }
+  }
+
+  async function loadIdentityProfiles(
+    identities: LinkedIdentity[],
+    refreshExisting = false
+  ): Promise<void> {
+    const candidates = refreshExisting
+      ? identities
+      : identities.filter((identity) => !profilesByAddress[identity.identityAddress.toLowerCase()]);
+    for (let index = 0; index < candidates.length; index += 4) {
+      await Promise.all(
+        candidates
+          .slice(index, index + 4)
+          .map((identity) => loadIdentityProfile(identity.identityAddress, refreshExisting))
+      );
     }
   }
 
@@ -231,7 +408,8 @@
     if (!selectedIdentityAddress) return;
 
     const stillExists = linkedIdentities.some(
-      (identity) => identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
+      (identity) =>
+        identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
     );
 
     if (!stillExists) {
@@ -253,7 +431,7 @@
     try {
       const updated = await identityLinkService.setLinkedIdentityFavorite({
         identityAddress: identity.identityAddress,
-        favorite: !identity.favorite
+        favorite: !identity.favorite,
       });
       applyLinkedIdentities(updated);
     } catch (errorValue) {
@@ -271,6 +449,7 @@
     details = null;
     detailsError = '';
     detailsLoading = true;
+    void loadIdentityProfile(identityAddress);
 
     try {
       details = await identityLinkService.getIdentityDetails(identityAddress);
@@ -279,6 +458,15 @@
     } finally {
       detailsLoading = false;
     }
+  }
+
+  function handleProfileSubmitted(update: PendingIdentityProfileUpdate): void {
+    if (!selectedIdentityAddress) return;
+    const key = selectedIdentityAddress.toLowerCase();
+    pendingProfilesByAddress = {
+      ...pendingProfilesByAddress,
+      [key]: update,
+    };
   }
 
   function closeDetailView() {
@@ -296,7 +484,7 @@
 
     try {
       const updatedLinked = await identityLinkService.unlinkIdentity({
-        identityAddress: selectedIdentityAddress
+        identityAddress: selectedIdentityAddress,
       });
 
       applyLinkedIdentities(updatedLinked);
@@ -405,7 +593,7 @@
         queueGenericRequest({
           input: job.requestHex,
           passthroughAutoLinkFqn: job.requestedFqn,
-          source: 'provisioning'
+          source: 'provisioning',
         });
         toast.success(i18n.t('wallet.identity.provisioning.linkAndContinueQueued'));
       } else {
@@ -430,7 +618,7 @@
     <div class="mx-auto flex h-full w-full max-w-4xl min-w-0 flex-col gap-3 px-6 pt-3 pb-6">
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
+        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         onclick={closeDetailView}
       >
         {i18n.t('wallet.identity.detail.back')}
@@ -451,9 +639,13 @@
   {:else if details}
     <IdentityDetailView
       {details}
+      profile={selectedProfile}
+      profileLoading={selectedProfileLoading}
+      pendingProfile={selectedPendingProfile}
       {unlinking}
       onBack={closeDetailView}
       onUnlink={unlinkSelectedIdentity}
+      onProfileSubmitted={handleProfileSubmitted}
     />
   {/if}
 {:else}
@@ -463,10 +655,14 @@
     {/if}
 
     {#if provisioningLoading || provisioningError || visibleProvisioningJobs.length > 0}
-      <section class={`${linkedIdentities.length === 0 ? 'mb-8' : 'mb-6'} rounded-2xl border border-border/70 bg-muted/18 p-4`}>
+      <section
+        class={`${linkedIdentities.length === 0 ? 'mb-8' : 'mb-6'} rounded-2xl bg-muted/30 p-4`}
+      >
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="text-sm font-semibold text-foreground">{i18n.t('wallet.identity.provisioning.title')}</p>
+            <p class="text-sm font-semibold text-foreground">
+              {i18n.t('wallet.identity.provisioning.title')}
+            </p>
             <p class="mt-1 text-sm text-muted-foreground">
               {i18n.t('wallet.identity.provisioning.description')}
             </p>
@@ -497,25 +693,33 @@
         {:else if visibleProvisioningJobs.length > 0}
           <div class="mt-4 space-y-3">
             {#each visibleProvisioningJobs as job (job.jobId)}
-              <div class="rounded-xl border border-border/70 bg-background/85 p-4">
+              <div class="rounded-xl bg-background/75 p-4 dark:bg-background/35">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${provisioningStatusBadgeClass(job.status)}`}>
+                      <span
+                        class={`rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-wide uppercase ${provisioningStatusBadgeClass(job.status)}`}
+                      >
                         {provisioningStatusLabel(job.status)}
                       </span>
                       {#if job.hasResponseUris}
-                        <span class="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                        <span
+                          class="rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-primary uppercase"
+                        >
                           {i18n.t('wallet.identity.provisioning.callbackPending')}
                         </span>
                       {/if}
                     </div>
 
-                    <p class="mt-3 truncate text-sm font-semibold text-foreground">{job.requestedFqn}</p>
+                    <p class="mt-3 truncate text-sm font-semibold text-foreground">
+                      {job.requestedFqn}
+                    </p>
 
                     {#if job.signingId}
-                      <p class="mt-1 break-all text-xs text-muted-foreground">
-                        {i18n.t('wallet.identity.provisioning.serviceLabel', { value: job.signingId })}
+                      <p class="mt-1 text-xs break-all text-muted-foreground">
+                        {i18n.t('wallet.identity.provisioning.serviceLabel', {
+                          value: job.signingId,
+                        })}
                       </p>
                     {/if}
 
@@ -531,7 +735,9 @@
                     {/if}
 
                     {#if job.error}
-                      <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-xs text-destructive">
+                      <p
+                        class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-xs text-destructive"
+                      >
                         {job.error}
                       </p>
                     {/if}
@@ -596,7 +802,6 @@
             {i18n.t('wallet.identity.list.linkButton')}
           </Button>
         </div>
-
       {/if}
 
       {#if showInlineIdentityError}
@@ -610,10 +815,14 @@
 
       {#if linkedIdentities.length === 0}
         <div class="-mt-6 flex h-full flex-col items-center justify-center px-6 py-12 text-center">
-          <div class="bg-background/70 text-primary inline-flex size-14 items-center justify-center rounded-full dark:bg-background/40">
+          <div
+            class="inline-flex size-14 items-center justify-center rounded-full bg-background/70 text-primary dark:bg-background/40"
+          >
             <VerusIdAtIcon class="size-6" inverted />
           </div>
-          <h2 class="mt-4 text-xl font-semibold text-foreground">{i18n.t('wallet.identity.empty.title')}</h2>
+          <h2 class="mt-4 text-xl font-semibold text-foreground">
+            {i18n.t('wallet.identity.empty.title')}
+          </h2>
           <p class="mt-2 max-w-lg text-sm text-muted-foreground">
             {i18n.t('wallet.identity.empty.description')}
           </p>
@@ -623,7 +832,9 @@
         </div>
       {:else}
         {#if !hasVisibleIdentities}
-          <p class="mt-4 rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground dark:bg-muted/50">
+          <p
+            class="mt-4 rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground dark:bg-muted/50"
+          >
             {i18n.t('wallet.identity.sheet.emptySearch')}
           </p>
         {:else}
@@ -632,17 +843,28 @@
               <ScrollArea.Viewport class="h-full pr-1">
                 {#if filteredFavoriteIdentities.length > 0}
                   <section>
-                    <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <div
+                      class="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+                    >
                       <StarIcon class="size-3.5 fill-current text-amber-500" />
                       <span>{i18n.t('wallet.identity.list.favorites')}</span>
-                      <span class="text-[11px] text-muted-foreground/80">{favoriteIdentities.length}/2</span>
+                      <span class="text-[11px] text-muted-foreground/80"
+                        >{favoriteIdentities.length}/2</span
+                      >
                     </div>
 
-                    <div class={`${compactMode ? 'mt-2 space-y-2' : 'mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
+                    <div
+                      class={`${compactMode ? 'mt-2 space-y-2' : 'mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}
+                    >
                       {#each filteredFavoriteIdentities as identity (identity.identityAddress)}
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
+                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                              null}
+                            pendingProfile={pendingProfilesByAddress[
+                              identity.identityAddress.toLowerCase()
+                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -651,6 +873,11 @@
                         {:else}
                           <LinkedIdentityCard
                             {identity}
+                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                              null}
+                            pendingProfile={pendingProfilesByAddress[
+                              identity.identityAddress.toLowerCase()
+                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -665,18 +892,27 @@
                 {#if filteredNonFavoriteIdentities.length > 0}
                   <section class={`${filteredFavoriteIdentities.length > 0 ? 'mt-5' : ''}`}>
                     {#if filteredFavoriteIdentities.length > 0}
-                      <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <p
+                        class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+                      >
                         {i18n.t('wallet.identity.list.all')}
                       </p>
                     {/if}
 
-                    <div class={`${filteredFavoriteIdentities.length > 0 ? 'mt-2' : ''} ${compactMode
-                      ? 'space-y-2'
-                      : 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'}`}>
+                    <div
+                      class={`${filteredFavoriteIdentities.length > 0 ? 'mt-2' : ''} ${
+                        compactMode ? 'space-y-2' : 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+                      }`}
+                    >
                       {#each filteredNonFavoriteIdentities as identity (identity.identityAddress)}
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
+                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                              null}
+                            pendingProfile={pendingProfilesByAddress[
+                              identity.identityAddress.toLowerCase()
+                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -685,6 +921,11 @@
                         {:else}
                           <LinkedIdentityCard
                             {identity}
+                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                              null}
+                            pendingProfile={pendingProfilesByAddress[
+                              identity.identityAddress.toLowerCase()
+                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}

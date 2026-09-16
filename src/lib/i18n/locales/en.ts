@@ -966,30 +966,142 @@ export const en: Record<string, string> = {
   'wallet.identity.detail.copyFailed': 'Copy failed',
   'wallet.identity.detail.notAvailable': 'Not available',
   'wallet.identity.detail.noPrimaryAddresses': 'No primary addresses listed.',
-  'wallet.identity.detail.noWarnings': 'No warnings for this identity.',
+  'wallet.identity.detail.noWarnings': 'No authority warnings',
+  'wallet.identity.detail.warningCount.one': '{count} warning',
+  'wallet.identity.detail.warningCount.other': '{count} warnings',
   'wallet.identity.detail.sections.base': 'Base',
   'wallet.identity.detail.sections.authorities': 'Authorities',
   'wallet.identity.detail.sections.primaryAddresses': 'Primary addresses',
   'wallet.identity.detail.sections.privateAddress': 'Private address',
   'wallet.identity.detail.sections.warnings': 'Warnings',
+  'wallet.identity.detail.sections.identityDetails': 'Identity details',
+  'wallet.identity.detail.sections.authoritiesAndSafety': 'Authorities and safety',
   'wallet.identity.detail.fields.name': 'Name',
   'wallet.identity.detail.fields.iAddress': 'i-address',
   'wallet.identity.detail.fields.status': 'Status',
-  'wallet.identity.detail.fields.system': 'System',
+  'wallet.identity.detail.fields.system': 'Blockchain',
   'wallet.identity.detail.fields.revocationAuthority': 'Revocation authority',
   'wallet.identity.detail.fields.recoveryAuthority': 'Recovery authority',
-  'wallet.identity.detail.warningCards.spendAndSign.title': 'Spend and sign',
+  'wallet.identity.detail.warningCards.spendAndSign.title': 'Primary address control',
   'wallet.identity.detail.warningCards.spendAndSign.safe': 'Owned by this wallet address only.',
   'wallet.identity.detail.warningCards.spendAndSign.warning':
     'Funds can be spent or signed by other primary addresses.',
+  'wallet.identity.detail.warningCards.spendAndSign.namedWarning':
+    'Signing control includes these primary addresses:',
   'wallet.identity.detail.warningCards.revoke.title': 'Revoke',
   'wallet.identity.detail.warningCards.revoke.safe': 'Revocation authority is set to this VerusID.',
   'wallet.identity.detail.warningCards.revoke.warning':
     'Another VerusID can revoke access and signing.',
+  'wallet.identity.detail.warningCards.revoke.namedWarning': '{value} can revoke this VerusID.',
   'wallet.identity.detail.warningCards.recover.title': 'Recover',
   'wallet.identity.detail.warningCards.recover.safe': 'Recovery authority is set to this VerusID.',
   'wallet.identity.detail.warningCards.recover.warning':
     'Another VerusID can recover and change ownership.',
+  'wallet.identity.detail.warningCards.recover.namedWarning':
+    '{value} can recover and change this VerusID.',
+  'wallet.identity.profile.noProfile': 'No public profile yet.',
+  'wallet.identity.profile.edit': 'Edit profile',
+  'wallet.identity.profile.unavailable':
+    'Profile data could not be verified. Core identity details remain available.',
+  'wallet.identity.profile.pendingShort': 'Update submitted · awaiting confirmation',
+  'wallet.identity.profile.pending.title': 'Profile update submitted',
+  'wallet.identity.profile.pending.description':
+    'The previous confirmed profile remains visible until this transaction is confirmed.',
+  'wallet.identity.profile.pending.removalTitle': 'Profile removal pending',
+  'wallet.identity.profile.pending.removalDescription':
+    'Your current profile remains visible until this transaction is confirmed.',
+  'wallet.identity.profile.pending.viewChanges': 'View submitted changes',
+  'wallet.identity.profile.pending.hideChanges': 'Hide submitted changes',
+  'wallet.identity.profile.pending.status': 'Status',
+  'wallet.identity.profile.pending.notConfirmed': 'Not confirmed',
+  'wallet.identity.profile.pending.transaction': 'Transaction ID',
+  'wallet.identity.profile.confirmed.title': 'Profile updated',
+  'wallet.identity.profile.confirmed.description': 'The published profile is confirmed on-chain.',
+  'wallet.identity.profile.confirmed.removalToast':
+    'Profile data removed from the current profile.',
+  'wallet.identity.profile.readOnly.testnet_only':
+    'Profile publishing is currently available on VRSCTEST only.',
+  'wallet.identity.profile.readOnly.inactive': 'Only active VerusIDs can publish a profile.',
+  'wallet.identity.profile.readOnly.not_owned':
+    'This wallet does not control the address required to publish this profile.',
+  'wallet.identity.profile.readOnly.unsupported_control':
+    'This VerusID uses a control setup that profile publishing does not support yet.',
+  'wallet.identity.profile.readOnly.tokenized_control':
+    'Token-controlled VerusIDs cannot publish profiles from this wallet yet.',
+  'wallet.identity.profile.editor.back': 'Back to profile',
+  'wallet.identity.profile.editor.title': 'Edit profile',
+  'wallet.identity.profile.editor.description':
+    'Choose the public avatar and description shown for this VerusID.',
+  'wallet.identity.profile.editor.avatarLabel': 'Avatar',
+  'wallet.identity.profile.editor.choose': 'Choose image',
+  'wallet.identity.profile.editor.replace': 'Replace image',
+  'wallet.identity.profile.editor.adjust': 'Adjust crop',
+  'wallet.identity.profile.editor.remove': 'Remove',
+  'wallet.identity.profile.editor.removeProfileData': 'Remove profile data…',
+  'wallet.identity.profile.editor.preparingRemoval': 'Preparing removal…',
+  'wallet.identity.profile.editor.imageHelp':
+    'JPEG, PNG, or WebP up to 10 MB. The wallet crops and prepares a 256 × 256 JPEG.',
+  'wallet.identity.profile.editor.cropHorizontal': 'Horizontal position',
+  'wallet.identity.profile.editor.cropVertical': 'Vertical position',
+  'wallet.identity.profile.editor.cropZoom': 'Zoom',
+  'wallet.identity.profile.editor.descriptionLabel': 'Description',
+  'wallet.identity.profile.editor.descriptionPlaceholder': 'Add a short public description',
+  'wallet.identity.profile.editor.descriptionSizeHelp':
+    'Use fewer emoji or complex characters to stay within the 1 KB on-chain limit.',
+  'wallet.identity.profile.editor.publicDisclosure':
+    'Profile changes are public and require a blockchain transaction.',
+  'wallet.identity.profile.editor.review': 'Review publication',
+  'wallet.identity.profile.editor.preparingReview': 'Preparing review…',
+  'wallet.identity.profile.editor.preview': 'Profile preview',
+  'wallet.identity.profile.review.back': 'Back to editing',
+  'wallet.identity.profile.review.title': 'Review profile publication',
+  'wallet.identity.profile.review.description':
+    'Check the public changes and fresh network fee before signing.',
+  'wallet.identity.profile.review.removalTitle': 'Review profile removal',
+  'wallet.identity.profile.review.removalDescription':
+    'Check the removal and network fee before signing.',
+  'wallet.identity.profile.review.changes': 'Changes',
+  'wallet.identity.profile.review.avatar': 'Avatar',
+  'wallet.identity.profile.review.descriptionLabel': 'Description',
+  'wallet.identity.profile.review.replaced': 'Replaced',
+  'wallet.identity.profile.review.removed': 'Removed',
+  'wallet.identity.profile.review.cost': 'Funding and fee',
+  'wallet.identity.profile.review.fee': 'Network fee',
+  'wallet.identity.profile.review.funding': 'Funding address',
+  'wallet.identity.profile.review.confirmationDisclosure':
+    'Publishing submits a transaction. The profile changes are not confirmed until the network includes it in a block.',
+  'wallet.identity.profile.review.confirmationDisclosureWithHistory':
+    'Publishing submits a transaction. The profile changes are not confirmed until the network includes it in a block. Removed data remains public in blockchain history.',
+  'wallet.identity.profile.review.removalDisclosure':
+    'Publishing this removal submits a new blockchain transaction. After it confirms, apps will stop showing this profile data. The VerusID remains active, and earlier versions remain public in blockchain history.',
+  'wallet.identity.profile.review.publish': 'Publish profile',
+  'wallet.identity.profile.review.publishRemoval': 'Publish removal',
+  'wallet.identity.profile.publishing.title': 'Preparing, signing, and submitting…',
+  'wallet.identity.profile.publishing.description':
+    'The wallet is validating the transaction and submitting it to VRSCTEST.',
+  'wallet.identity.profile.publishing.removalTitle': 'Publishing profile removal…',
+  'wallet.identity.profile.publishing.removalDescription':
+    'The wallet is validating the removal transaction and submitting it to VRSCTEST.',
+  'wallet.identity.profile.publishing.keepOpen': 'Keep the wallet open. Nothing is confirmed yet.',
+  'wallet.identity.profile.submitted.title': 'Profile update submitted',
+  'wallet.identity.profile.submitted.description':
+    'The transaction was submitted. Your previous confirmed profile stays visible while the update awaits confirmation.',
+  'wallet.identity.profile.submitted.removalTitle': 'Profile removal submitted',
+  'wallet.identity.profile.submitted.removalDescription':
+    'The transaction was submitted but is not confirmed. Your current profile remains visible until it confirms.',
+  'wallet.identity.profile.submitted.done': 'Done',
+  'wallet.identity.profile.error.noChanges': 'Change the avatar or description before continuing.',
+  'wallet.identity.profile.error.readOnly': 'This profile cannot be published from this wallet.',
+  'wallet.identity.profile.error.avatarInvalid':
+    'Choose a valid JPEG, PNG, or WebP image up to 10 MB.',
+  'wallet.identity.profile.error.avatarTooLarge':
+    'This image could not be reduced to the profile size limit. Choose a simpler image.',
+  'wallet.identity.profile.error.descriptionInvalid':
+    'Keep the description within 160 characters and 1 KB.',
+  'wallet.identity.profile.error.insufficientFunds':
+    'The funding address does not have enough VRSCTEST for this publication.',
+  'wallet.identity.profile.error.generic':
+    'The profile publication could not be prepared. Try again with a fresh review.',
   'wallet.addressBook.title': 'Address book',
   'wallet.addressBook.description': 'Save trusted recipients in encrypted storage.',
   'wallet.addressBook.addContact': 'Add contact',

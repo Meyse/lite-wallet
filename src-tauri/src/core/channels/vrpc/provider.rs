@@ -36,6 +36,7 @@ const TTL_CURRENCY_CONVERSION_PATHS: u64 = 15;
 const READ_RETRY_ATTEMPTS: u8 = 3;
 const READ_RETRY_BASE_DELAY_MS: u64 = 250;
 const STALE_CACHE_MAX_AGE_SECS: u64 = 120;
+const PROFILE_RPC_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 fn params_getaddressbalance(addresses: &[String]) -> Result<Value, WalletError> {
     if addresses.is_empty() {
@@ -408,6 +409,50 @@ impl VrpcProvider {
         })
     }
 
+    async fn request_json_once_bounded(
+        &self,
+        method: &str,
+        body: &Value,
+        maximum_bytes: usize,
+    ) -> Result<Value, WalletError> {
+        let mut res = self
+            .client
+            .post(&self.base_url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|err| {
+                println!("[VRPC] {} network failure: {}", method, err);
+                WalletError::NetworkError
+            })?;
+
+        if !res.status().is_success() {
+            println!("[VRPC] {} HTTP {}", method, res.status());
+            return Err(WalletError::OperationFailed);
+        }
+        if res
+            .content_length()
+            .is_some_and(|length| length > maximum_bytes as u64)
+        {
+            return Err(WalletError::IdentityProfileUnavailable);
+        }
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = res.chunk().await.map_err(|err| {
+            println!("[VRPC] {} response body failure: {}", method, err);
+            WalletError::NetworkError
+        })? {
+            if bytes.len().saturating_add(chunk.len()) > maximum_bytes {
+                return Err(WalletError::IdentityProfileUnavailable);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes).map_err(|err| {
+            println!("[VRPC] {} response parse failure: {}", method, err);
+            WalletError::NetworkError
+        })
+    }
+
     async fn call_uncached_with_mode(
         &self,
         method: &str,
@@ -416,6 +461,20 @@ impl VrpcProvider {
     ) -> Result<Value, WalletError> {
         let body = Self::rpc_body(method, params);
         let json = self.request_json_once(method, &body).await?;
+        Self::extract_result_from_json(method, json, mode)
+    }
+
+    async fn call_uncached_bounded_with_mode(
+        &self,
+        method: &str,
+        params: Value,
+        maximum_bytes: usize,
+        mode: RpcErrorMode,
+    ) -> Result<Value, WalletError> {
+        let body = Self::rpc_body(method, params);
+        let json = self
+            .request_json_once_bounded(method, &body, maximum_bytes)
+            .await?;
         Self::extract_result_from_json(method, json, mode)
     }
 
@@ -842,6 +901,96 @@ impl VrpcProvider {
             .await
     }
 
+    /// getidentitycontent with the bounded profile query parameters used by the
+    /// public profile reader. The caller still validates the response size and
+    /// every returned descriptor locally.
+    pub async fn getidentitycontent_for_key(
+        &self,
+        identity: &str,
+        start_height: u32,
+        end_height: u32,
+        keep_deleted: bool,
+        key: &str,
+    ) -> Result<Value, WalletError> {
+        if identity.trim().is_empty() || key.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        let params = serde_json::json!([
+            identity,
+            start_height,
+            end_height,
+            true,
+            0,
+            key,
+            keep_deleted
+        ]);
+        self.call_uncached_bounded_with_mode(
+            "getidentitycontent",
+            params,
+            PROFILE_RPC_MAX_BYTES,
+            RpcErrorMode::Identity,
+        )
+        .await
+    }
+
+    /// getidentityhistory: return revision provenance for an identity.
+    pub async fn getidentityhistory(&self, identity: &str) -> Result<Value, WalletError> {
+        if identity.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        self.call_uncached_bounded_with_mode(
+            "getidentityhistory",
+            serde_json::json!([identity]),
+            PROFILE_RPC_MAX_BYTES,
+            RpcErrorMode::Identity,
+        )
+        .await
+    }
+
+    /// Bounded raw-transaction lookup for public profile evidence assembly.
+    pub async fn getrawtransaction_for_profile(
+        &self,
+        txid: &str,
+        verbose: u8,
+    ) -> Result<Value, WalletError> {
+        if txid.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        self.call_uncached_bounded_with_mode(
+            "getrawtransaction",
+            serde_json::json!([txid, verbose]),
+            PROFILE_RPC_MAX_BYTES,
+            RpcErrorMode::Identity,
+        )
+        .await
+    }
+
+    /// Bounded block-header lookup for public profile provenance checks.
+    pub async fn getblockheader_for_profile(&self, blockhash: &str) -> Result<Value, WalletError> {
+        if blockhash.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        self.call_uncached_bounded_with_mode(
+            "getblockheader",
+            serde_json::json!([blockhash]),
+            PROFILE_RPC_MAX_BYTES,
+            RpcErrorMode::Identity,
+        )
+        .await
+    }
+
+    /// decoderawtransaction: decode a locally held candidate without broadcasting it.
+    pub async fn decoderawtransaction(&self, tx_hex: &str) -> Result<Value, WalletError> {
+        if tx_hex.trim().is_empty() {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        self.call_without_cache_with_error_mapping(
+            "decoderawtransaction",
+            serde_json::json!([tx_hex]),
+        )
+        .await
+    }
+
     /// getidentitieswithaddress: discover identities associated with an R-address.
     pub async fn getidentitieswithaddress(
         &self,
@@ -873,9 +1022,47 @@ impl VrpcProvider {
         identity_json: &Value,
         return_tx_hex: bool,
     ) -> Result<Value, WalletError> {
-        let params = serde_json::json!([identity_json, return_tx_hex]);
-        self.call_without_cache_with_error_mapping("updateidentity", params)
+        self.updateidentity_with_options(identity_json, return_tx_hex, false, None, None)
             .await
+    }
+
+    /// updateidentity with the complete public RPC parameter set. Profile
+    /// publication uses a no-fee template and funds it locally afterwards.
+    pub async fn updateidentity_with_options(
+        &self,
+        identity_json: &Value,
+        return_tx_hex: bool,
+        tokenized_control: bool,
+        fee_offer: Option<&str>,
+        source_address: Option<&str>,
+    ) -> Result<Value, WalletError> {
+        let mut params = vec![identity_json.clone(), Value::Bool(return_tx_hex)];
+        if tokenized_control || fee_offer.is_some() || source_address.is_some() {
+            params.push(Value::Bool(tokenized_control));
+        }
+        if fee_offer.is_some() || source_address.is_some() {
+            params.push(
+                fee_offer
+                    .map(|value| Value::String(value.to_string()))
+                    .unwrap_or_else(|| Value::String("0".to_string())),
+            );
+        }
+        if let Some(source_address) = source_address {
+            params.push(Value::String(source_address.to_string()));
+        }
+        self.call_without_cache_with_error_mapping("updateidentity", Value::Array(params))
+            .await
+    }
+
+    /// Ask the public node to verify a supplied signature without giving it any
+    /// signing authority. Used as a compatibility check for locally produced
+    /// VerusID data signatures before requesting a transaction template.
+    pub async fn verifysignature(&self, request: &Value) -> Result<Value, WalletError> {
+        self.call_without_cache_with_error_mapping(
+            "verifysignature",
+            Value::Array(vec![request.clone()]),
+        )
+        .await
     }
 }
 

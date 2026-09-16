@@ -6,18 +6,23 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::core::auth::session::ActiveWalletAccessContext;
-use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
+use crate::core::auth::{
+    capture_active_wallet_access_context, load_primary_private_scalar_for_context, SessionManager,
+};
 use crate::core::channels::vrpc::identity as vrpc_identity;
-use crate::core::channels::vrpc::{self, VrpcProviderPool};
+use crate::core::channels::vrpc::{self, VrpcProvider, VrpcProviderPool};
 use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
+use crate::core::crypto::wif_encoding::Network;
 use crate::core::identity_display::{ensure_identity_handle_suffix, format_identity_display_name};
 use crate::core::wallet::AccountStateStore;
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
     IdentityDetailWarning, IdentityDetails, IdentityPreflightParams, IdentityPreflightResult,
+    IdentityProfileLoadResult, IdentityProfilePreflightRequest, IdentityProfilePreflightResult,
     IdentitySendRequest, IdentitySendResult, LinkIdentityRequest, LinkableIdentity, LinkedIdentity,
-    SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest, WalletError,
+    PendingIdentityProfileUpdate, SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest,
+    WalletError,
 };
 use serde_json::Value;
 use tauri::State;
@@ -166,6 +171,49 @@ pub(crate) fn parse_getidentity_payload(
     })
 }
 
+async fn resolve_identity_reference_display_name(
+    provider: &VrpcProvider,
+    identity_id: Option<&str>,
+    current_identity_address: &str,
+    current_identity_display_name: Option<&str>,
+) -> Option<String> {
+    let identity_id = identity_id.and_then(normalize_non_empty)?;
+
+    if identity_id.eq_ignore_ascii_case(current_identity_address) {
+        return current_identity_display_name.and_then(normalize_non_empty);
+    }
+
+    let raw = provider.getidentity(&identity_id).await.ok()?;
+    let parsed = parse_getidentity_payload(raw).ok()?;
+    resolve_identity_display_name(
+        &parsed.identity,
+        parsed.fully_qualified_name.as_deref(),
+        parsed.friendly_name.as_deref(),
+    )
+}
+
+fn registered_system_display_name(
+    coin_registry: &CoinRegistry,
+    system_id: Option<&str>,
+    is_testnet: bool,
+) -> Option<String> {
+    let system_id = system_id.and_then(normalize_non_empty)?;
+    coin_registry
+        .get_all()
+        .into_iter()
+        .find(|coin| {
+            coin.is_testnet == is_testnet
+                && coin.system_id.eq_ignore_ascii_case(&system_id)
+                && coin.currency_id.eq_ignore_ascii_case(&system_id)
+        })
+        .and_then(|coin| normalize_non_empty(&coin.display_name))
+}
+
+fn identity_label_as_system_name(label: Option<String>) -> Option<String> {
+    let label = normalize_non_empty(&label?)?;
+    normalize_non_empty(label.trim_end_matches('@'))
+}
+
 fn is_owned_by_primary(primary_addresses: &[String], session_primary_address: &str) -> bool {
     primary_addresses
         .iter()
@@ -229,6 +277,33 @@ pub(crate) fn build_identity_details_from_payload(
         first_non_empty_field(identity, &["recoveryauthority", "recoveryAuthority"]);
     let parent = first_non_empty_field(identity, &["parent", "parentid", "parentID"]);
     let owned_by_primary_address = is_owned_by_primary(&primary_addresses, session_primary_address);
+    let minimum_signatures = identity
+        .get("minimumsignatures")
+        .or_else(|| identity.get("minimumSignatures"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(1);
+    let flags = identity
+        .get("flags")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or_default();
+    let tokenized_control = flags & 0x4 != 0;
+    let is_active = status
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("active"))
+        .unwrap_or(false);
+    let profile_editability_reason = if !is_active {
+        Some("inactive".to_string())
+    } else if !owned_by_primary_address {
+        Some("not_owned".to_string())
+    } else if minimum_signatures != 1 || primary_addresses.len() != 1 {
+        Some("unsupported_control".to_string())
+    } else if tokenized_control {
+        Some("tokenized_control".to_string())
+    } else {
+        None
+    };
 
     let warnings = build_identity_warnings(
         &identity_address,
@@ -248,12 +323,19 @@ pub(crate) fn build_identity_details_from_payload(
         ),
         status,
         system: first_non_empty_field(identity, &["systemid", "system"]),
+        system_display_name: None,
         parent,
         revocation_authority,
+        revocation_authority_name: None,
         recovery_authority,
+        recovery_authority_name: None,
         primary_addresses,
         private_address: first_non_empty_field(identity, &["privateaddress", "privateAddress"]),
         owned_by_primary_address,
+        minimum_signatures,
+        tokenized_control,
+        profile_editable: profile_editability_reason.is_none(),
+        profile_editability_reason,
         warnings,
     })
 }
@@ -578,6 +660,7 @@ pub async fn send_identity_update(
     request: IdentitySendRequest,
     preflight_store: State<'_, PreflightStore>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<IdentitySendResult, WalletError> {
     let session = session_manager.lock().await;
@@ -586,13 +669,38 @@ pub async fn send_identity_update(
     }
     drop(session);
 
-    vrpc_identity::send(
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    let result = vrpc_identity::send(
         &request.preflight_id,
         &preflight_store,
         &session_manager,
         vrpc_provider_pool.inner().as_ref(),
     )
-    .await
+    .await?;
+
+    if let Some(profile_update) = result.profile_update.as_ref() {
+        if let Ok(mut pending) =
+            account_state_store.load_pending_identity_profiles(&context.account_id, context.network)
+        {
+            pending.retain(|record| {
+                !record
+                    .identity_address
+                    .eq_ignore_ascii_case(&profile_update.identity_address)
+            });
+            pending.push(profile_update.clone());
+            // Broadcast already succeeded. A local persistence failure must not turn a
+            // submitted transaction into a reported send failure; the UI also keeps
+            // this record for the current wallet session.
+            let _ = account_state_store.store_pending_identity_profiles(
+                &context.account_id,
+                context.network,
+                &pending,
+            );
+        }
+    }
+
+    Ok(result)
 }
 
 /// Discover linkable identities for the active wallet primary VRSC address.
@@ -772,6 +880,7 @@ pub async fn get_identity_details(
     identity_address: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<IdentityDetails, WalletError> {
     let requested_identity_address =
@@ -780,22 +889,194 @@ pub async fn get_identity_details(
     let context =
         identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
 
-    let raw_identity = vrpc_provider_pool
-        .for_network(context.network)
+    let provider = vrpc_provider_pool.for_network(context.network);
+    let raw_identity = provider
         .getidentity(&requested_identity_address)
         .await
         .map_err(map_identity_lookup_error)?;
 
     let parsed = parse_getidentity_payload(raw_identity)?;
 
-    build_identity_details_from_payload(
+    let mut details = build_identity_details_from_payload(
         &parsed.identity,
         parsed.status,
         &context.primary_address,
         Some(&requested_identity_address),
         parsed.fully_qualified_name.as_deref(),
         parsed.friendly_name.as_deref(),
+    )?;
+
+    let current_identity_address = details.identity_address.clone();
+    let current_identity_display_name = details.fully_qualified_name.clone();
+    let revocation_authority = details.revocation_authority.clone();
+    let recovery_authority = details.recovery_authority.clone();
+    let system_id = details.system.clone();
+    let registered_system_name = registered_system_display_name(
+        coin_registry.inner().as_ref(),
+        system_id.as_deref(),
+        matches!(context.network, WalletNetwork::Testnet),
+    );
+    let system_lookup_id = if registered_system_name.is_none() {
+        system_id.as_deref()
+    } else {
+        None
+    };
+
+    let (revocation_authority_name, recovery_authority_name, system_identity_name) = tokio::join!(
+        resolve_identity_reference_display_name(
+            provider,
+            revocation_authority.as_deref(),
+            &current_identity_address,
+            current_identity_display_name.as_deref(),
+        ),
+        resolve_identity_reference_display_name(
+            provider,
+            recovery_authority.as_deref(),
+            &current_identity_address,
+            current_identity_display_name.as_deref(),
+        ),
+        resolve_identity_reference_display_name(provider, system_lookup_id, "", None),
+    );
+
+    details.system_display_name =
+        registered_system_name.or_else(|| identity_label_as_system_name(system_identity_name));
+    details.revocation_authority_name = revocation_authority_name;
+    details.recovery_authority_name = recovery_authority_name;
+
+    if matches!(context.network, WalletNetwork::Mainnet) && details.profile_editable {
+        details.profile_editable = false;
+        details.profile_editability_reason = Some("testnet_only".to_string());
+    }
+    Ok(details)
+}
+
+/// Load an optional, independently verified public profile for a VerusID.
+/// Profile failures remain isolated from the core identity details command.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_identity_profile(
+    identity_address: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<IdentityProfileLoadResult, WalletError> {
+    let requested_identity_address =
+        normalize_non_empty(&identity_address).ok_or(WalletError::InvalidAddress)?;
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    let signature_network = match context.network {
+        WalletNetwork::Mainnet => Network::Mainnet,
+        WalletNetwork::Testnet => Network::Testnet,
+    };
+    vrpc_identity::profile::load(
+        vrpc_provider_pool.for_network(context.network),
+        &requested_identity_address,
+        signature_network,
     )
+    .await
+}
+
+/// Return account- and network-scoped public pending profile records.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_pending_identity_profile_updates(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+) -> Result<Vec<PendingIdentityProfileUpdate>, WalletError> {
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    let mut pending =
+        account_state_store.load_pending_identity_profiles(&context.account_id, context.network)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let oldest = now.saturating_sub(30 * 24 * 60 * 60);
+    let initial_len = pending.len();
+    pending.retain(|record| record.submitted_at >= oldest);
+    if pending.len() != initial_len {
+        account_state_store.store_pending_identity_profiles(
+            &context.account_id,
+            context.network,
+            &pending,
+        )?;
+    }
+    Ok(pending)
+}
+
+/// Clear a pending record only after the verified profile reader observes the
+/// expected confirmed field digests.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn clear_pending_identity_profile_update(
+    identity_address: String,
+    txid: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+) -> Result<bool, WalletError> {
+    let identity_address =
+        normalize_non_empty(&identity_address).ok_or(WalletError::InvalidAddress)?;
+    if txid.len() != 64 || !txid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(WalletError::InvalidPreflight);
+    }
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    let mut pending =
+        account_state_store.load_pending_identity_profiles(&context.account_id, context.network)?;
+    let initial_len = pending.len();
+    pending.retain(|record| {
+        !(record
+            .identity_address
+            .eq_ignore_ascii_case(&identity_address)
+            && record.txid.eq_ignore_ascii_case(&txid))
+    });
+    if pending.len() == initial_len {
+        return Ok(false);
+    }
+    account_state_store.store_pending_identity_profiles(
+        &context.account_id,
+        context.network,
+        &pending,
+    )?;
+    Ok(true)
+}
+
+/// Review a profile update. The backend owns all profile serialization,
+/// transaction construction, fee calculation, and signing boundaries.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn preflight_identity_profile_update(
+    request: IdentityProfilePreflightRequest,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+    preflight_store: State<'_, PreflightStore>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<IdentityProfilePreflightResult, WalletError> {
+    let context =
+        identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    if !matches!(context.network, WalletNetwork::Testnet) {
+        return Err(WalletError::IdentityProfileWriteUnsupported);
+    }
+    let resolved =
+        vrpc::parse_vrpc_channel_id(&request.channel_id, Some(&context.primary_address))?;
+    if resolved.address != context.primary_address
+        || resolved.system_id != "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+        || !coin_registry
+            .find_by_system_id(&resolved.system_id, true)
+            .map(|coin| coin.id == request.coin_id)
+            .unwrap_or(false)
+    {
+        return Err(WalletError::UnsupportedChannel);
+    }
+    let private_key = load_primary_private_scalar_for_context(&context.access).await?;
+    vrpc_identity::profile::preflight(
+        request,
+        &preflight_store,
+        &context.account_id,
+        &context.session_id,
+        &context.primary_address,
+        &resolved.canonical_channel_id(),
+        &private_key,
+        vrpc_provider_pool.for_network(context.network),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1028,5 +1309,56 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.warning_type == "spend_and_sign"));
+    }
+
+    #[test]
+    fn build_identity_details_warns_for_additional_primary_address() {
+        let identity = json!({
+            "identityaddress": "iAlpha",
+            "name": "alpha",
+            "primaryaddresses": ["RWalletPrimary", "RSomeoneElse"],
+            "revocationauthority": "iAlpha",
+            "recoveryauthority": "iAlpha"
+        });
+
+        let details = build_identity_details_from_payload(
+            &identity,
+            Some("active".to_string()),
+            "RWalletPrimary",
+            None,
+            None,
+            None,
+        )
+        .expect("details");
+
+        assert!(details.owned_by_primary_address);
+        assert!(details
+            .warnings
+            .iter()
+            .any(|warning| warning.warning_type == "spend_and_sign"));
+    }
+
+    #[test]
+    fn resolves_registered_system_id_to_blockchain_name() {
+        let registry = CoinRegistry::new();
+
+        assert_eq!(
+            registered_system_display_name(
+                &registry,
+                Some("iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"),
+                true,
+            )
+            .as_deref(),
+            Some("Verus Testnet")
+        );
+    }
+
+    #[test]
+    fn formats_identity_label_as_blockchain_name_without_handle_suffix() {
+        assert_eq!(
+            identity_label_as_system_name(Some("vDEX@".to_string())).as_deref(),
+            Some("vDEX")
+        );
+        assert_eq!(identity_label_as_system_name(Some(" @ ".to_string())), None);
     }
 }

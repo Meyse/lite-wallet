@@ -137,13 +137,19 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
     guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success else { return [] }
     return value as? [AXUIElement] ?? []
 }
+func isFixtureWalletSelectorLabel(_ label: String) -> Bool {
+    return [
+        "Switch wallet, current wallet: \(fixtureName)",
+        "Wallet wisselen, huidige wallet: \(fixtureName)",
+    ].contains(label)
+}
 struct ScreenFacts {
     var names = 0; var secureFields = 0; var inputs = 0; var webAreas = 0; var windows = 0
     var modal = false; var truncated = false; var fieldSettable = false
 }
 func validateScreen(_ facts: ScreenFacts) throws {
     try require(!facts.truncated && !facts.modal && facts.windows == 1 && facts.webAreas == 1,
-                "Refusing an ambiguous wallet window or an open dialog.")
+                "Refusing an ambiguous wallet window or an open dialog (windows: \(facts.windows), web areas: \(facts.webAreas), modal: \(facts.modal), truncated: \(facts.truncated)).")
     try require(facts.names == 1 && facts.secureFields == 1 && facts.inputs == 1 && facts.fieldSettable,
                 "Select ‘mijn app’ on the normal unlock screen with the password hidden, then retry.")
 }
@@ -166,7 +172,17 @@ func target(_ fixture: Fixture) throws -> Target {
         if role == "AXWindow" { facts.windows += 1 }
         if role == "AXWebArea" { facts.webAreas += 1 }
         if role == "AXSheet" || role == "AXDialog" || stringAttribute(element, kAXSubroleAttribute) == "AXDialog" { facts.modal = true }
-        if role == "AXStaticText", stringAttribute(element, kAXValueAttribute) == fixtureName { facts.names += 1 }
+        if role == "AXStaticText", stringAttribute(element, kAXValueAttribute) == fixtureName {
+            facts.names += 1
+        } else if role == "AXPopUpButton" {
+            // WebKit may expose the button's visible contents as one accessible label.
+            // Match only the exact localized label for the designated fixture wallet.
+            let title = stringAttribute(element, kAXTitleAttribute)
+            let description = stringAttribute(element, kAXDescriptionAttribute)
+            if isFixtureWalletSelectorLabel(title) || isFixtureWalletSelectorLabel(description) {
+                facts.names += 1
+            }
+        }
         if role == "AXTextField" || role == "AXTextArea" {
             facts.inputs += 1
             // Never read AXValue on any input, including revealed password fields.
@@ -330,6 +346,12 @@ func selfTest() throws {
         do { try validateScreen(facts) } catch { rejected += 1 }
     }
     try require(rejected == 11, "Guard regression test failed.")
+    try require(isFixtureWalletSelectorLabel("Switch wallet, current wallet: \(fixtureName)"),
+                "English wallet selector label must be accepted.")
+    try require(isFixtureWalletSelectorLabel("Wallet wisselen, huidige wallet: \(fixtureName)"),
+                "Dutch wallet selector label must be accepted.")
+    try require(!isFixtureWalletSelectorLabel("Switch wallet, current wallet: other"),
+                "Another wallet selector must be rejected.")
     let dummy = "test-only 🔑 é漢字 quotes'\"$`"
     try require(String(data: Data(dummy.utf8), encoding: .utf8) == dummy, "UTF-8 round-trip failed.")
     try require(dummy.unicodeScalars.map(String.init).joined() == dummy, "Unicode event chunks must preserve the full password.")

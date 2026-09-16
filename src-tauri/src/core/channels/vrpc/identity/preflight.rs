@@ -13,6 +13,7 @@ use crate::core::channels::vrpc::common::{
     authenticate_payload_inputs, parse_result_string, parse_string, parse_u32, parse_utxo_entry,
     sat_to_decimal_string as shared_sat_to_decimal_string, VrpcInputRef, VrpcUtxo,
 };
+use crate::core::channels::vrpc::identity::profile::intent::ProfileTransactionIntent;
 use crate::core::channels::vrpc::identity::validate::{
     apply_identity_operation, classify_high_risk_changes, validate_operation_authority,
     validate_target_state,
@@ -74,6 +75,8 @@ pub struct IdentityPreflightPayload {
     pub fee: String,
     pub memo: Option<String>,
     pub control_intent: IdentityControlIntent,
+    #[serde(default)]
+    pub profile_intent: Option<ProfileTransactionIntent>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,6 +449,7 @@ pub async fn preflight(
         fee: fee.clone(),
         memo: params.memo.clone(),
         control_intent,
+        profile_intent: None,
     };
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;

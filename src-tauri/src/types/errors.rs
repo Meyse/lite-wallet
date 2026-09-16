@@ -174,6 +174,24 @@ pub enum WalletError {
     #[error("Failed to sign identity transaction")]
     IdentitySignFailed,
 
+    #[error("This VerusID profile cannot be edited with the current wallet configuration")]
+    IdentityProfileReadOnly,
+
+    #[error("VerusID profile publishing is available on testnet only")]
+    IdentityProfileWriteUnsupported,
+
+    #[error("The profile image is invalid or exceeds the supported limits")]
+    IdentityProfileInvalidAvatar,
+
+    #[error("The profile description exceeds the supported limits")]
+    IdentityProfileInvalidDescription,
+
+    #[error("The profile update does not change any fields")]
+    IdentityProfileNoChanges,
+
+    #[error("The VerusID profile format is unavailable from this provider")]
+    IdentityProfileUnavailable,
+
     #[error("Generic request envelope is invalid")]
     GenericRequestInvalidEnvelope,
 

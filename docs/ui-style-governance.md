@@ -51,12 +51,14 @@ network names, badges, and prose stay in the regular interface font.
 
 Use the component modes by context:
 
-- `compact` shows the first and last 6 characters for dense lists, pickers, and
-  narrow summary rails.
+- `compact` shows the first and last 6 characters for dense lists, pickers,
+  narrow summary rails, and secondary authority disclosures where the full value
+  would add bulk without helping the decision.
 - `review` shows the first and last 12 characters where a user is checking a
   transaction or consequential change.
-- `full` never truncates and may wrap. Use it in dedicated detail views and next
-  to copy actions.
+- `full` never truncates and may wrap. Use it when the exact identifier is the
+  primary detail being inspected. A compact identifier may still have a nearby
+  copy action when the full value is available from the title and copy target.
 
 Editable identifier inputs must never truncate; apply the shared
 `identifier-text` class to the input instead. Copy actions must receive their

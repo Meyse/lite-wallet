@@ -9,9 +9,13 @@ import {
 } from './walletDisplayService.js';
 import type {
   IdentityDetails,
+  IdentityProfileLoadResult,
+  IdentityProfilePreflightRequest,
+  IdentityProfilePreflightResult,
   LinkableIdentity,
   LinkedIdentity,
   LinkIdentityRequest,
+  PendingIdentityProfileUpdate,
   SetLinkedIdentityFavoriteRequest,
   UnlinkIdentityRequest,
 } from '$lib/types/wallet.js';
@@ -49,6 +53,44 @@ export async function unlinkIdentity(request: UnlinkIdentityRequest): Promise<Li
 export async function getIdentityDetails(identityAddress: string): Promise<IdentityDetails> {
   return invokeWalletCommand<IdentityDetails>('get_identity_details', {
     identity_address: identityAddress,
+  });
+}
+
+export async function getIdentityProfile(
+  identityAddress: string
+): Promise<IdentityProfileLoadResult> {
+  return invokeWalletCommand<IdentityProfileLoadResult>('get_identity_profile', {
+    identity_address: identityAddress,
+  });
+}
+
+export async function preflightIdentityProfileUpdate(
+  request: IdentityProfilePreflightRequest
+): Promise<IdentityProfilePreflightResult> {
+  return invokeWalletCommand<IdentityProfilePreflightResult>('preflight_identity_profile_update', {
+    request: {
+      coinId: request.coinId,
+      channelId: request.channelId,
+      identityAddress: request.identityAddress,
+      avatar: request.avatar,
+      description: request.description,
+    },
+  });
+}
+
+export async function getPendingIdentityProfileUpdates(): Promise<PendingIdentityProfileUpdate[]> {
+  return invokeWalletCommand<PendingIdentityProfileUpdate[]>(
+    'get_pending_identity_profile_updates'
+  );
+}
+
+export async function clearPendingIdentityProfileUpdate(
+  identityAddress: string,
+  txid: string
+): Promise<boolean> {
+  return invokeWalletCommand<boolean>('clear_pending_identity_profile_update', {
+    identity_address: identityAddress,
+    txid,
   });
 }
 

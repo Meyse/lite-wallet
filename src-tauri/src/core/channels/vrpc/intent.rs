@@ -379,9 +379,19 @@ fn decode_primary_destination(value: &str) -> Result<Vec<u8>, WalletError> {
     Ok(decode_base58_destination(trimmed)?.destination_bytes)
 }
 
-fn normalize_vdxf_univalue(value: &Value) -> Result<Vec<u8>, WalletError> {
+pub(crate) fn normalize_vdxf_univalue(value: &Value) -> Result<Vec<u8>, WalletError> {
     if let Some(raw) = value.as_str() {
         return decode_identity_hex(raw);
+    }
+    if let Some(values) = value.as_array() {
+        let mut encoded = Vec::new();
+        for value in values {
+            encoded.extend_from_slice(&normalize_vdxf_univalue(value)?);
+        }
+        if encoded.is_empty() {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        return Ok(encoded);
     }
     let object = value.as_object().ok_or(WalletError::IdentityBuildFailed)?;
     if object.len() != 1 {
@@ -422,8 +432,149 @@ fn normalize_vdxf_univalue(value: &Value) -> Result<Vec<u8>, WalletError> {
                 decode_identity_hex(value.as_str().ok_or(WalletError::IdentityBuildFailed)?)?;
             encode_length_prefixed_vdxf_value(key, &bytes)
         }
+        // CDataDescriptor. Profile updates return these structured objects from
+        // decoderawtransaction; normalize them to the exact identity bytes so
+        // the transaction intent binds the provider-built template.
+        "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv" => {
+            let descriptor = value.as_object().ok_or(WalletError::IdentityBuildFailed)?;
+            let version = descriptor
+                .get("version")
+                .and_then(Value::as_u64)
+                .ok_or(WalletError::IdentityBuildFailed)?;
+            let flags = descriptor
+                .get("flags")
+                .and_then(Value::as_u64)
+                .ok_or(WalletError::IdentityBuildFailed)?;
+            if version != 1 || flags & !0xff != 0 {
+                return Err(WalletError::IdentityBuildFailed);
+            }
+            let mut inner = varint_bytes(version);
+            inner.extend_from_slice(&varint_bytes(flags));
+            if flags & 0x80 != 0 {
+                let vdxf_key = descriptor
+                    .get("vdxfkey")
+                    .and_then(Value::as_str)
+                    .ok_or(WalletError::IdentityBuildFailed)?;
+                inner.extend_from_slice(&decode_base58_destination(vdxf_key)?.destination_bytes);
+            }
+            push_hex_vector(&mut inner, descriptor.get("objectdata"), 2 * 1024 * 1024)?;
+            if flags & 0x20 != 0 {
+                push_string(&mut inner, descriptor.get("label"), 64)?;
+            }
+            if flags & 0x40 != 0 {
+                push_string(&mut inner, descriptor.get("mimetype"), 128)?;
+            }
+            if flags & 0x02 != 0 {
+                push_hex_vector(&mut inner, descriptor.get("salt"), 64)?;
+            }
+            if flags & 0x04 != 0 {
+                push_hex_vector(&mut inner, descriptor.get("epk"), 32)?;
+            }
+            if flags & 0x08 != 0 {
+                push_hex_vector(&mut inner, descriptor.get("ivk"), 32)?;
+            }
+            if flags & 0x10 != 0 {
+                push_hex_vector(&mut inner, descriptor.get("ssk"), 32)?;
+            }
+            encode_vdxf_wrapper(key, version, &inner)
+        }
+        // CContentMultiMapRemove with exact key/value-hash semantics.
+        "i5Zkx5Z7tEfh42xtKfwbJ5LgEWE9rEgpFY" => {
+            let removal = value.as_object().ok_or(WalletError::IdentityBuildFailed)?;
+            let version = removal.get("version").and_then(Value::as_u64).unwrap_or(1);
+            let action = removal
+                .get("action")
+                .and_then(Value::as_u64)
+                .ok_or(WalletError::IdentityBuildFailed)?;
+            if version != 1 || !(1..=4).contains(&action) {
+                return Err(WalletError::IdentityBuildFailed);
+            }
+            let mut inner = varint_bytes(version);
+            inner.extend_from_slice(&varint_bytes(action));
+            if action != 4 {
+                let entry_key = removal
+                    .get("entrykey")
+                    .and_then(Value::as_str)
+                    .ok_or(WalletError::IdentityBuildFailed)?;
+                inner.extend_from_slice(&decode_base58_destination(entry_key)?.destination_bytes);
+                if action != 3 {
+                    let mut value_hash = decode_identity_hex(
+                        removal
+                            .get("valuehash")
+                            .and_then(Value::as_str)
+                            .ok_or(WalletError::IdentityBuildFailed)?,
+                    )?;
+                    if value_hash.len() != 32 {
+                        return Err(WalletError::IdentityBuildFailed);
+                    }
+                    value_hash.reverse();
+                    inner.extend_from_slice(&value_hash);
+                }
+            }
+            encode_vdxf_wrapper(key, version, &inner)
+        }
         _ => Err(WalletError::IdentityBuildFailed),
     }
+}
+
+fn push_hex_vector(
+    target: &mut Vec<u8>,
+    value: Option<&Value>,
+    maximum: usize,
+) -> Result<(), WalletError> {
+    let bytes = decode_identity_hex(
+        value
+            .and_then(Value::as_str)
+            .ok_or(WalletError::IdentityBuildFailed)?,
+    )?;
+    if bytes.len() > maximum {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    target.extend_from_slice(&compact_size_bytes(bytes.len()));
+    target.extend_from_slice(&bytes);
+    Ok(())
+}
+
+fn push_string(
+    target: &mut Vec<u8>,
+    value: Option<&Value>,
+    maximum: usize,
+) -> Result<(), WalletError> {
+    let bytes = value
+        .and_then(Value::as_str)
+        .ok_or(WalletError::IdentityBuildFailed)?
+        .as_bytes();
+    if bytes.len() > maximum {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    target.extend_from_slice(&compact_size_bytes(bytes.len()));
+    target.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn encode_vdxf_wrapper(key: &str, version: u64, inner: &[u8]) -> Result<Vec<u8>, WalletError> {
+    let mut encoded = decode_base58_destination(key)?.destination_bytes;
+    encoded.extend_from_slice(&varint_bytes(version));
+    encoded.extend_from_slice(&compact_size_bytes(inner.len()));
+    encoded.extend_from_slice(inner);
+    Ok(encoded)
+}
+
+fn varint_bytes(mut value: u64) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        if !encoded.is_empty() {
+            byte |= 0x80;
+        }
+        encoded.push(byte);
+        if value <= 0x7f {
+            break;
+        }
+        value = (value >> 7).saturating_sub(1);
+    }
+    encoded.reverse();
+    encoded
 }
 
 fn encode_length_prefixed_vdxf_value(key: &str, value: &[u8]) -> Result<Vec<u8>, WalletError> {

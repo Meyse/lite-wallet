@@ -250,6 +250,24 @@ pub fn compute_identity_signature_hash(
     Err(WalletError::GenericRequestUnsupportedSignature)
 }
 
+/// Hash used by Verus identity signatures over ordinary signed data. The
+/// prefix includes its CompactSize byte, matching serialization of the core
+/// `verusDataSignaturePrefix` string.
+pub(crate) fn compute_verus_data_identity_hash(
+    system_hash: [u8; 20],
+    identity_hash: [u8; 20],
+    signed_block_height: u32,
+    message_hash: [u8; 32],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(system_hash);
+    hasher.update(signed_block_height.to_le_bytes());
+    hasher.update(identity_hash);
+    hasher.update(VERUS_DATA_SIGNATURE_PREFIX);
+    hasher.update(message_hash);
+    hasher.finalize().into()
+}
+
 pub fn sign_identity_hash(
     identity_hash: [u8; 32],
     signed_block_height: u32,

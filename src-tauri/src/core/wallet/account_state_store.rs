@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::generic_request::ProvisioningJobRecord;
 use crate::types::wallet::WalletNetwork;
-use crate::types::WalletError;
+use crate::types::{PendingIdentityProfileUpdate, WalletError};
 
 const ACCOUNT_STATE_SCHEMA_VERSION: u8 = 1;
 const ACTIVE_ASSETS_SCHEMA_VERSION: u8 = 1;
@@ -32,6 +32,8 @@ struct AccountStateNetwork {
     active_assets: AccountStateActiveAssets,
     #[serde(default)]
     provisioning_jobs: Vec<ProvisioningJobRecord>,
+    #[serde(default)]
+    pending_identity_profiles: Vec<PendingIdentityProfileUpdate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +155,51 @@ impl AccountStateStore {
         self.save_snapshot(account_id, &state)
     }
 
+    pub fn load_pending_identity_profiles(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+    ) -> Result<Vec<PendingIdentityProfileUpdate>, WalletError> {
+        let state = self.load_snapshot(account_id)?;
+        Ok(self
+            .network_ref(&state, network)
+            .pending_identity_profiles
+            .clone())
+    }
+
+    pub fn store_pending_identity_profiles(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+        records: &[PendingIdentityProfileUpdate],
+    ) -> Result<(), WalletError> {
+        let mut normalized = Vec::new();
+        for record in records.iter().rev() {
+            if record.identity_address.trim().is_empty()
+                || record.txid.len() != 64
+                || normalized
+                    .iter()
+                    .any(|existing: &PendingIdentityProfileUpdate| {
+                        existing
+                            .identity_address
+                            .eq_ignore_ascii_case(&record.identity_address)
+                    })
+            {
+                continue;
+            }
+            normalized.push(record.clone());
+            if normalized.len() == 20 {
+                break;
+            }
+        }
+        normalized.reverse();
+
+        let mut state = self.load_snapshot(account_id)?;
+        self.network_mut(&mut state, network)
+            .pending_identity_profiles = normalized;
+        self.save_snapshot(account_id, &state)
+    }
+
     fn load_snapshot(&self, account_id: &str) -> Result<AccountStateSnapshot, WalletError> {
         let path = self.account_state_path(account_id);
         if !path.exists() {
@@ -212,6 +259,7 @@ mod tests {
     use super::AccountStateStore;
     use crate::core::auth::stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION;
     use crate::types::wallet::WalletNetwork;
+    use crate::types::{IdentityProfileSnapshot, PendingIdentityProfileUpdate};
 
     fn temp_store() -> AccountStateStore {
         let unique = SystemTime::now()
@@ -267,5 +315,46 @@ mod tests {
         assert_eq!(loaded.0, true);
         assert_eq!(loaded.1, vec!["VRSC".to_string(), "BTC".to_string()]);
         assert_eq!(loaded.2, ACTIVE_ASSETS_PROFILE_VERSION);
+    }
+
+    #[test]
+    fn pending_identity_profiles_are_network_scoped_and_replace_by_identity() {
+        let store = temp_store();
+        let snapshot = IdentityProfileSnapshot {
+            avatar_base64: None,
+            avatar_digest: None,
+            description: Some("Profile".to_string()),
+            description_digest: Some("aa".repeat(32)),
+        };
+        let record = |txid: &str, submitted_at: u64| PendingIdentityProfileUpdate {
+            identity_address: "iSduGc7La416e3SfLD17tCe4Qvreg2i6br".to_string(),
+            txid: txid.to_string(),
+            submitted_at,
+            previous_profile: IdentityProfileSnapshot {
+                avatar_base64: None,
+                avatar_digest: None,
+                description: None,
+                description_digest: None,
+            },
+            proposed_profile: snapshot.clone(),
+        };
+
+        store
+            .store_pending_identity_profiles(
+                "account",
+                WalletNetwork::Testnet,
+                &[record(&"11".repeat(32), 1), record(&"22".repeat(32), 2)],
+            )
+            .expect("store testnet pending");
+
+        let testnet = store
+            .load_pending_identity_profiles("account", WalletNetwork::Testnet)
+            .expect("load testnet pending");
+        assert_eq!(testnet.len(), 1);
+        assert_eq!(testnet[0].txid, "22".repeat(32));
+        assert!(store
+            .load_pending_identity_profiles("account", WalletNetwork::Mainnet)
+            .expect("load mainnet pending")
+            .is_empty());
     }
 }

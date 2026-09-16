@@ -982,30 +982,147 @@ export const nl: Record<string, string> = {
   'wallet.identity.detail.copyFailed': 'Kopiëren mislukt',
   'wallet.identity.detail.notAvailable': 'Niet beschikbaar',
   'wallet.identity.detail.noPrimaryAddresses': 'Geen primaire adressen gevonden.',
-  'wallet.identity.detail.noWarnings': 'Geen waarschuwingen voor deze identiteit.',
+  'wallet.identity.detail.noWarnings': 'Geen autoriteitswaarschuwingen',
+  'wallet.identity.detail.warningCount.one': '{count} waarschuwing',
+  'wallet.identity.detail.warningCount.other': '{count} waarschuwingen',
   'wallet.identity.detail.sections.base': 'Basis',
   'wallet.identity.detail.sections.authorities': 'Autoriteiten',
   'wallet.identity.detail.sections.primaryAddresses': 'Primaire adressen',
   'wallet.identity.detail.sections.privateAddress': 'Privéadres',
   'wallet.identity.detail.sections.warnings': 'Waarschuwingen',
+  'wallet.identity.detail.sections.identityDetails': 'Identiteitsgegevens',
+  'wallet.identity.detail.sections.authoritiesAndSafety': 'Autoriteiten en veiligheid',
   'wallet.identity.detail.fields.name': 'Naam',
   'wallet.identity.detail.fields.iAddress': 'i-adres',
   'wallet.identity.detail.fields.status': 'Status',
-  'wallet.identity.detail.fields.system': 'Systeem',
+  'wallet.identity.detail.fields.system': 'Blockchain',
   'wallet.identity.detail.fields.revocationAuthority': 'Intrekkingsautoriteit',
   'wallet.identity.detail.fields.recoveryAuthority': 'Herstelautoriteit',
-  'wallet.identity.detail.warningCards.spendAndSign.title': 'Uitgeven en ondertekenen',
+  'wallet.identity.detail.warningCards.spendAndSign.title': 'Beheer via primaire adressen',
   'wallet.identity.detail.warningCards.spendAndSign.safe': 'Alleen beheerd door dit walletadres.',
   'wallet.identity.detail.warningCards.spendAndSign.warning':
     'Geld kan door andere primaire adressen worden uitgegeven of ondertekend.',
+  'wallet.identity.detail.warningCards.spendAndSign.namedWarning':
+    'Ondertekeningsbeheer omvat deze primaire adressen:',
   'wallet.identity.detail.warningCards.revoke.title': 'Intrekken',
   'wallet.identity.detail.warningCards.revoke.safe': 'Intrekkingsautoriteit staat op deze VerusID.',
   'wallet.identity.detail.warningCards.revoke.warning':
     'Een andere VerusID kan toegang en ondertekenen intrekken.',
+  'wallet.identity.detail.warningCards.revoke.namedWarning': '{value} kan deze VerusID intrekken.',
   'wallet.identity.detail.warningCards.recover.title': 'Herstellen',
   'wallet.identity.detail.warningCards.recover.safe': 'Herstelautoriteit staat op deze VerusID.',
   'wallet.identity.detail.warningCards.recover.warning':
     'Een andere VerusID kan herstellen en eigenaarschap wijzigen.',
+  'wallet.identity.detail.warningCards.recover.namedWarning':
+    '{value} kan deze VerusID herstellen en wijzigen.',
+  'wallet.identity.profile.noProfile': 'Nog geen openbaar profiel.',
+  'wallet.identity.profile.edit': 'Profiel bewerken',
+  'wallet.identity.profile.unavailable':
+    'Profielgegevens konden niet worden geverifieerd. De identiteitsgegevens blijven beschikbaar.',
+  'wallet.identity.profile.pendingShort': 'Update verzonden · wacht op bevestiging',
+  'wallet.identity.profile.pending.title': 'Profielupdate verzonden',
+  'wallet.identity.profile.pending.description':
+    'Het vorige bevestigde profiel blijft zichtbaar tot deze transactie is bevestigd.',
+  'wallet.identity.profile.pending.removalTitle': 'Profielverwijdering in behandeling',
+  'wallet.identity.profile.pending.removalDescription':
+    'Je huidige profiel blijft zichtbaar totdat deze transactie is bevestigd.',
+  'wallet.identity.profile.pending.viewChanges': 'Verzonden wijzigingen bekijken',
+  'wallet.identity.profile.pending.hideChanges': 'Verzonden wijzigingen verbergen',
+  'wallet.identity.profile.pending.status': 'Status',
+  'wallet.identity.profile.pending.notConfirmed': 'Niet bevestigd',
+  'wallet.identity.profile.pending.transaction': 'Transactie-ID',
+  'wallet.identity.profile.confirmed.title': 'Profiel bijgewerkt',
+  'wallet.identity.profile.confirmed.description':
+    'Het gepubliceerde profiel is on-chain bevestigd.',
+  'wallet.identity.profile.confirmed.removalToast':
+    'Profielgegevens verwijderd uit het huidige profiel.',
+  'wallet.identity.profile.readOnly.testnet_only':
+    'Profielen publiceren is momenteel alleen beschikbaar op VRSCTEST.',
+  'wallet.identity.profile.readOnly.inactive':
+    'Alleen actieve VerusIDs kunnen een profiel publiceren.',
+  'wallet.identity.profile.readOnly.not_owned':
+    'Deze wallet beheert niet het adres dat nodig is om dit profiel te publiceren.',
+  'wallet.identity.profile.readOnly.unsupported_control':
+    'Deze VerusID gebruikt een beheerinstelling die nog niet wordt ondersteund.',
+  'wallet.identity.profile.readOnly.tokenized_control':
+    'VerusIDs met tokenbeheer kunnen nog geen profiel vanuit deze wallet publiceren.',
+  'wallet.identity.profile.editor.back': 'Terug naar profiel',
+  'wallet.identity.profile.editor.title': 'Profiel bewerken',
+  'wallet.identity.profile.editor.description':
+    'Kies de openbare avatar en beschrijving voor deze VerusID.',
+  'wallet.identity.profile.editor.avatarLabel': 'Avatar',
+  'wallet.identity.profile.editor.choose': 'Afbeelding kiezen',
+  'wallet.identity.profile.editor.replace': 'Afbeelding vervangen',
+  'wallet.identity.profile.editor.adjust': 'Uitsnede aanpassen',
+  'wallet.identity.profile.editor.remove': 'Verwijderen',
+  'wallet.identity.profile.editor.removeProfileData': 'Profielgegevens verwijderen…',
+  'wallet.identity.profile.editor.preparingRemoval': 'Verwijdering voorbereiden…',
+  'wallet.identity.profile.editor.imageHelp':
+    'JPEG, PNG of WebP tot 10 MB. De wallet snijdt de afbeelding bij en maakt een JPEG van 256 × 256.',
+  'wallet.identity.profile.editor.cropHorizontal': 'Horizontale positie',
+  'wallet.identity.profile.editor.cropVertical': 'Verticale positie',
+  'wallet.identity.profile.editor.cropZoom': 'Zoom',
+  'wallet.identity.profile.editor.descriptionLabel': 'Beschrijving',
+  'wallet.identity.profile.editor.descriptionPlaceholder':
+    'Voeg een korte openbare beschrijving toe',
+  'wallet.identity.profile.editor.descriptionSizeHelp':
+    'Gebruik minder emoji of complexe tekens om binnen de on-chainlimiet van 1 KB te blijven.',
+  'wallet.identity.profile.editor.publicDisclosure':
+    'Profielwijzigingen zijn openbaar en vereisen een blockchaintransactie.',
+  'wallet.identity.profile.editor.review': 'Publicatie controleren',
+  'wallet.identity.profile.editor.preparingReview': 'Controle voorbereiden…',
+  'wallet.identity.profile.editor.preview': 'Profielvoorbeeld',
+  'wallet.identity.profile.review.back': 'Terug naar bewerken',
+  'wallet.identity.profile.review.title': 'Profielpublicatie controleren',
+  'wallet.identity.profile.review.description':
+    'Controleer de openbare wijzigingen en de actuele netwerkkosten voordat je ondertekent.',
+  'wallet.identity.profile.review.removalTitle': 'Profielverwijdering controleren',
+  'wallet.identity.profile.review.removalDescription':
+    'Controleer de verwijdering en netwerkkosten voordat je ondertekent.',
+  'wallet.identity.profile.review.changes': 'Wijzigingen',
+  'wallet.identity.profile.review.avatar': 'Avatar',
+  'wallet.identity.profile.review.descriptionLabel': 'Beschrijving',
+  'wallet.identity.profile.review.replaced': 'Vervangen',
+  'wallet.identity.profile.review.removed': 'Verwijderd',
+  'wallet.identity.profile.review.cost': 'Financiering en kosten',
+  'wallet.identity.profile.review.fee': 'Netwerkkosten',
+  'wallet.identity.profile.review.funding': 'Financieringsadres',
+  'wallet.identity.profile.review.confirmationDisclosure':
+    'Publiceren verzendt een transactie. De profielwijzigingen zijn pas bevestigd nadat het netwerk de transactie in een blok heeft opgenomen.',
+  'wallet.identity.profile.review.confirmationDisclosureWithHistory':
+    'Publiceren verzendt een transactie. De profielwijzigingen zijn pas bevestigd nadat het netwerk de transactie in een blok heeft opgenomen. Verwijderde gegevens blijven openbaar in de blockchainhistorie.',
+  'wallet.identity.profile.review.removalDisclosure':
+    'Als je deze verwijdering publiceert, dien je een nieuwe blockchaintransactie in. Nadat deze is bevestigd, tonen apps deze profielgegevens niet meer. De VerusID blijft actief en eerdere versies blijven openbaar in de blockchainhistorie.',
+  'wallet.identity.profile.review.publish': 'Profiel publiceren',
+  'wallet.identity.profile.review.publishRemoval': 'Verwijdering publiceren',
+  'wallet.identity.profile.publishing.title': 'Voorbereiden, ondertekenen en verzenden…',
+  'wallet.identity.profile.publishing.description':
+    'De wallet valideert de transactie en verzendt deze naar VRSCTEST.',
+  'wallet.identity.profile.publishing.removalTitle': 'Profielverwijdering publiceren…',
+  'wallet.identity.profile.publishing.removalDescription':
+    'De wallet valideert de verwijderingstransactie en verzendt deze naar VRSCTEST.',
+  'wallet.identity.profile.publishing.keepOpen': 'Houd de wallet open. Er is nog niets bevestigd.',
+  'wallet.identity.profile.submitted.title': 'Profielupdate verzonden',
+  'wallet.identity.profile.submitted.description':
+    'De transactie is verzonden. Je vorige bevestigde profiel blijft zichtbaar terwijl de update op bevestiging wacht.',
+  'wallet.identity.profile.submitted.removalTitle': 'Profielverwijdering ingediend',
+  'wallet.identity.profile.submitted.removalDescription':
+    'De transactie is ingediend maar nog niet bevestigd. Je huidige profiel blijft zichtbaar totdat de transactie is bevestigd.',
+  'wallet.identity.profile.submitted.done': 'Klaar',
+  'wallet.identity.profile.error.noChanges':
+    'Wijzig de avatar of beschrijving voordat je doorgaat.',
+  'wallet.identity.profile.error.readOnly':
+    'Dit profiel kan niet vanuit deze wallet worden gepubliceerd.',
+  'wallet.identity.profile.error.avatarInvalid':
+    'Kies een geldige JPEG-, PNG- of WebP-afbeelding tot 10 MB.',
+  'wallet.identity.profile.error.avatarTooLarge':
+    'Deze afbeelding kon niet tot de profiellimiet worden verkleind. Kies een eenvoudigere afbeelding.',
+  'wallet.identity.profile.error.descriptionInvalid':
+    'Houd de beschrijving binnen 160 tekens en 1 KB.',
+  'wallet.identity.profile.error.insufficientFunds':
+    'Het financieringsadres heeft niet genoeg VRSCTEST voor deze publicatie.',
+  'wallet.identity.profile.error.generic':
+    'De profielpublicatie kon niet worden voorbereid. Probeer het opnieuw met een nieuwe controle.',
   'wallet.addressBook.title': 'Adresboek',
   'wallet.addressBook.description': 'Sla vertrouwde ontvangers versleuteld op.',
   'wallet.addressBook.addContact': 'Contact toevoegen',

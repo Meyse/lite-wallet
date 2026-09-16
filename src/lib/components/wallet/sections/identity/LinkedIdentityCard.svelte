@@ -4,7 +4,11 @@
   import StarIcon from '@lucide/svelte/icons/star';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { i18nStore } from '$lib/i18n';
-  import type { LinkedIdentity } from '$lib/types/wallet.js';
+  import type {
+    IdentityProfileLoadResult,
+    LinkedIdentity,
+    PendingIdentityProfileUpdate,
+  } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import IdentityAvatar from './IdentityAvatar.svelte';
 
@@ -14,6 +18,8 @@
 
   type LinkedIdentityCardProps = {
     identity: LinkedIdentity;
+    profile?: IdentityProfileLoadResult | null;
+    pendingProfile?: PendingIdentityProfileUpdate | null;
     favoriteBusy?: boolean;
     favoriteDisabled?: boolean;
     onSelect?: typeof noop;
@@ -22,6 +28,8 @@
 
   let {
     identity,
+    profile = null,
+    pendingProfile = null,
     favoriteBusy = false,
     favoriteDisabled = false,
     onSelect = noop,
@@ -31,6 +39,22 @@
   const i18n = $derived($i18nStore);
   const displayName = $derived(formatIdentityDisplayName(identity));
   const displayNameIsAddress = $derived(displayName === identity.identityAddress);
+  const usePendingProfileFallback = $derived(!profile || profile.state === 'unavailable');
+  const displayedAvatarBase64 = $derived(
+    usePendingProfileFallback
+      ? (pendingProfile?.previousProfile.avatarBase64 ?? null)
+      : (profile?.avatar?.value.base64 ?? null)
+  );
+  const avatarUrl = $derived(
+    displayedAvatarBase64
+      ? `data:${profile?.avatar?.value.mimeType ?? 'image/jpeg'};base64,${displayedAvatarBase64}`
+      : null
+  );
+  const description = $derived(
+    usePendingProfileFallback
+      ? (pendingProfile?.previousProfile.description?.trim() ?? '')
+      : (profile?.description?.value?.trim() ?? '')
+  );
   const favoriteActionLabel = $derived(
     favoriteBusy
       ? i18n.t('wallet.identity.favorite.saving')
@@ -48,7 +72,12 @@
     class="group flex min-w-0 flex-1 items-center gap-3 text-left"
     onclick={() => onSelect(identity)}
   >
-    <IdentityAvatar seed={identity.identityAddress} label={displayName} />
+    <IdentityAvatar
+      seed={identity.identityAddress}
+      label={displayName}
+      imageUrl={avatarUrl}
+      class="size-12"
+    />
     <div class="min-w-0 flex-1 space-y-1">
       {#if displayNameIsAddress}
         <IdentifierText
@@ -59,9 +88,12 @@
       {:else}
         <p class="truncate text-sm font-semibold text-foreground">{displayName}</p>
       {/if}
-      {#if identity.status}
-        <p class="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          {identity.status}
+      <p class="line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
+        {description || i18n.t('wallet.identity.profile.noProfile')}
+      </p>
+      {#if pendingProfile}
+        <p class="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+          {i18n.t('wallet.identity.profile.pendingShort')}
         </p>
       {/if}
     </div>

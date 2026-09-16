@@ -63,7 +63,7 @@
   const selectedWallet = $derived(
     wallets.length === 0
       ? null
-      : wallets.find((wallet) => wallet.account_id === effectiveAccountId) ?? wallets[0]
+      : (wallets.find((wallet) => wallet.account_id === effectiveAccountId) ?? wallets[0])
   );
 
   $effect(() => {
@@ -174,7 +174,7 @@
     try {
       await walletService.unlockWallet({
         account_id: effectiveAccountId,
-        password
+        password,
       });
 
       try {
@@ -215,8 +215,8 @@
   }
 </script>
 
-<main class="bg-background relative flex min-h-screen overflow-hidden">
-  <div class="bg-app-canvas absolute inset-0"></div>
+<main class="relative flex min-h-screen overflow-hidden bg-background">
+  <div class="absolute inset-0 bg-app-canvas"></div>
   <div
     class="absolute top-0 right-0 left-0 z-20 h-11"
     data-tauri-drag-region
@@ -234,38 +234,43 @@
         {#if selectedWallet}
           {#snippet walletIdentity()}
             <span
-              class="flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-xl text-2xl leading-none text-white"
+              class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl leading-none text-white select-none"
               style={`background-color: ${walletColorHex(selectedWallet.color)};`}
               aria-hidden="true"
             >
               {walletEmoji(selectedWallet.emoji)}
             </span>
-            <span class="text-foreground min-w-0 truncate text-xl font-semibold leading-tight">
+            <span class="min-w-0 truncate text-xl leading-tight font-semibold text-foreground">
               {selectedWallet.wallet_name}
             </span>
           {/snippet}
 
-          <div>
-            {#if wallets.length > 1}
-              <button
-                type="button"
-                class="hover:bg-muted/60 focus-visible:ring-ring -m-2 flex max-w-[calc(100%+1rem)] cursor-default items-center gap-3 rounded-xl p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2"
-                aria-label={i18n.t('unlock.switchLabel', { name: selectedWallet.wallet_name })}
-                aria-haspopup="dialog"
-                aria-expanded={showWalletSwitcherDrawer}
-                onclick={() => {
-                  showWalletSwitcherDrawer = true;
-                }}
-              >
-                {@render walletIdentity()}
-                <ChevronRightIcon class="text-muted-foreground -ml-1 size-4 shrink-0" aria-hidden="true" />
-              </button>
-            {:else}
-              <div class="flex min-w-0 items-center gap-3">
-                {@render walletIdentity()}
-              </div>
-            {/if}
-          </div>
+          {#key selectedWallet.account_id}
+            <div>
+              {#if wallets.length > 1}
+                <button
+                  type="button"
+                  class="-m-2 flex max-w-[calc(100%+1rem)] cursor-default items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  aria-label={i18n.t('unlock.switchLabel', { name: selectedWallet.wallet_name })}
+                  aria-haspopup="dialog"
+                  aria-expanded={showWalletSwitcherDrawer}
+                  onclick={() => {
+                    showWalletSwitcherDrawer = true;
+                  }}
+                >
+                  {@render walletIdentity()}
+                  <ChevronRightIcon
+                    class="-ml-1 size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                </button>
+              {:else}
+                <div class="flex min-w-0 items-center gap-3">
+                  {@render walletIdentity()}
+                </div>
+              {/if}
+            </div>
+          {/key}
         {/if}
 
         <div class="space-y-2">
@@ -282,7 +287,7 @@
                 onkeydown={(e) => e.key === 'Enter' && handleUnlock()}
               />
             </div>
-            <p class="text-destructive min-h-8 text-sm leading-5" aria-live="polite">
+            <p class="min-h-8 text-sm leading-5 text-destructive" aria-live="polite">
               {errorMessage || ' '}
             </p>
           </div>
@@ -297,20 +302,20 @@
                 {#if isLoading}
                   <Spinner class="h-4 w-4" />
                 {/if}
-                <span>{isLoading ? i18n.t('unlock.button.unlocking') : i18n.t('unlock.button.unlock')}</span>
+                <span
+                  >{isLoading
+                    ? i18n.t('unlock.button.unlocking')
+                    : i18n.t('unlock.button.unlock')}</span
+                >
               </span>
             </Button>
 
-            <Button
-              variant="secondary"
-              class="w-full"
-              onclick={handleCreateWallet}
-            >
+            <Button variant="secondary" class="w-full" onclick={handleCreateWallet}>
               {i18n.t('unlock.button.createWallet')}
             </Button>
           </div>
 
-          <div class="pt-2 text-muted-foreground text-xs">
+          <div class="pt-2 text-xs text-muted-foreground">
             <HelpDrawerLink
               linkText={i18n.t('help.link.needHelp')}
               title={i18n.t('help.sheet.title')}
@@ -349,14 +354,14 @@
       >
         <div class="flex items-center gap-3">
           <div
-            class="flex h-9 w-9 shrink-0 cursor-default select-none items-center justify-center rounded-lg text-base text-white"
+            class="flex h-9 w-9 shrink-0 cursor-default items-center justify-center rounded-lg text-base text-white select-none"
             style={`background-color: ${walletColorHex(wallet.color)};`}
           >
             {walletEmoji(wallet.emoji)}
           </div>
           <div class="min-w-0 text-left">
-            <p class="text-foreground truncate text-sm font-semibold">{wallet.wallet_name}</p>
-            <p class="text-muted-foreground text-xs">{networkLabel(wallet.network)}</p>
+            <p class="truncate text-sm font-semibold text-foreground">{wallet.wallet_name}</p>
+            <p class="text-xs text-muted-foreground">{networkLabel(wallet.network)}</p>
           </div>
         </div>
       </button>
@@ -383,8 +388,8 @@
             aria-hidden="true"
           />
           <div class="min-w-0">
-            <p class="text-foreground text-sm font-semibold">{i18n.t('unlock.create.newTitle')}</p>
-            <p class="text-muted-foreground mt-1 text-xs">
+            <p class="text-sm font-semibold text-foreground">{i18n.t('unlock.create.newTitle')}</p>
+            <p class="mt-1 text-xs text-muted-foreground">
               {i18n.t('unlock.create.newDescription')}
             </p>
           </div>
@@ -404,8 +409,10 @@
             aria-hidden="true"
           />
           <div class="min-w-0">
-            <p class="text-foreground text-sm font-semibold">{i18n.t('unlock.create.importTitle')}</p>
-            <p class="text-muted-foreground mt-1 text-xs">
+            <p class="text-sm font-semibold text-foreground">
+              {i18n.t('unlock.create.importTitle')}
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
               {i18n.t('unlock.create.importDescription')}
             </p>
           </div>
@@ -416,7 +423,7 @@
     <div class="space-y-3">
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
+        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         onclick={() => {
           createDrawerView = 'root';
         }}

@@ -1967,6 +1967,7 @@ pub async fn preflight_generic_identity_update(
         fee: fee.clone(),
         memo: None,
         control_intent,
+        profile_intent: None,
     };
     let payload_value =
         serde_json::to_value(payload).map_err(|_| WalletError::IdentityBuildFailed)?;

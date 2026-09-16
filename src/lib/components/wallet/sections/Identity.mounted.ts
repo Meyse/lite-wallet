@@ -2,7 +2,11 @@
 
 import { mount, tick, unmount } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LinkedIdentity } from '$lib/types/wallet';
+import type {
+  IdentityProfileLoadResult,
+  LinkedIdentity,
+  PendingIdentityProfileUpdate,
+} from '$lib/types/wallet';
 
 const mocks = vi.hoisted(() => ({
   getLinkedIdentities: vi.fn(),
@@ -12,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   setLinkedIdentityFavorite: vi.fn(),
   listIdentityProvisioningJobs: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock('$lib/services/identityLinkService.js', () => ({
@@ -41,7 +46,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 vi.mock('svelte-sonner', () => ({
   toast: {
     error: mocks.toastError,
-    success: vi.fn(),
+    success: mocks.toastSuccess,
   },
 }));
 
@@ -70,6 +75,27 @@ const otherIdentity: LinkedIdentity = {
   systemId: null,
   favorite: false,
 };
+
+const TXID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const OTHER_TXID = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+
+const pendingRemoval: PendingIdentityProfileUpdate = {
+  identityAddress: favoriteIdentity.identityAddress,
+  txid: TXID,
+  submittedAt: 1,
+  previousProfile: { description: 'Previous', descriptionDigest: 'previous-digest' },
+  proposedProfile: {},
+};
+
+function pendingSessionState(profile: IdentityProfileLoadResult) {
+  return {
+    ...initialSessionState(),
+    profilesByAddress: { [favoriteIdentity.identityAddress.toLowerCase()]: profile },
+    pendingProfilesByAddress: {
+      [favoriteIdentity.identityAddress.toLowerCase()]: pendingRemoval,
+    },
+  };
+}
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -105,17 +131,19 @@ beforeEach(() => {
   localeStore.set('en');
   mocks.getLinkedIdentities.mockReset().mockResolvedValue([favoriteIdentity, otherIdentity]);
   mocks.getIdentityProfile.mockReset().mockResolvedValue({
-    state: 'missing',
+    state: 'empty',
     avatar: null,
     description: null,
     issues: [],
     readHeight: null,
+    revisionTxid: null,
   });
   mocks.getPendingIdentityProfileUpdates.mockReset().mockResolvedValue([]);
   mocks.clearPendingIdentityProfileUpdate.mockReset().mockResolvedValue(true);
   mocks.setLinkedIdentityFavorite.mockReset();
   mocks.listIdentityProvisioningJobs.mockReset().mockResolvedValue([]);
   mocks.toastError.mockReset();
+  mocks.toastSuccess.mockReset();
 });
 
 describe('mounted identity favorite toggle', () => {
@@ -207,6 +235,167 @@ describe('mounted identity favorite toggle', () => {
       expect(restoredButton).not.toBeNull();
       expect(restoredButton?.disabled).toBe(false);
       expect(mocks.toastError).toHaveBeenCalledOnce();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+});
+
+describe('mounted profile confirmation reconciliation', () => {
+  it('shows one removal toast and clears the marker only for the matching canonical revision', async () => {
+    const confirmedEmpty: IdentityProfileLoadResult = {
+      state: 'empty',
+      avatar: null,
+      description: null,
+      issues: [],
+      revisionTxid: TXID,
+      readHeight: 10,
+    };
+    mocks.getPendingIdentityProfileUpdates.mockResolvedValue([pendingRemoval]);
+    mocks.getIdentityProfile.mockResolvedValue(confirmedEmpty);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: { sessionState: pendingSessionState(confirmedEmpty) },
+    });
+    try {
+      await settle();
+      await vi.waitFor(() => expect(mocks.clearPendingIdentityProfileUpdate).toHaveBeenCalled());
+      expect(mocks.toastSuccess).toHaveBeenCalledOnce();
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        'Profile data removed from the current profile.'
+      );
+      expect(target.textContent).not.toContain('Profile updated');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it.each([
+    [
+      'an unavailable read',
+      {
+        state: 'unavailable',
+        avatar: null,
+        description: null,
+        issues: [],
+        revisionTxid: TXID,
+        readHeight: 10,
+      } satisfies IdentityProfileLoadResult,
+    ],
+    [
+      'an issue-bearing read',
+      {
+        state: 'empty',
+        avatar: null,
+        description: null,
+        issues: [{ field: 'description', code: 'invalid_or_unavailable' }],
+        revisionTxid: TXID,
+        readHeight: 10,
+      } satisfies IdentityProfileLoadResult,
+    ],
+    [
+      'the wrong revision',
+      {
+        state: 'empty',
+        avatar: null,
+        description: null,
+        issues: [],
+        revisionTxid: OTHER_TXID,
+        readHeight: 10,
+      } satisfies IdentityProfileLoadResult,
+    ],
+    [
+      'a mismatched snapshot',
+      {
+        state: 'ready',
+        avatar: null,
+        description: {
+          value: 'Previous',
+          source: {
+            systemId: 'i-system',
+            txid: TXID,
+            vout: 0,
+            height: 10,
+            blockhash: 'block',
+            digest: 'previous-digest',
+          },
+        },
+        issues: [],
+        revisionTxid: TXID,
+        readHeight: 10,
+      } satisfies IdentityProfileLoadResult,
+    ],
+  ])('keeps the pending marker for %s', async (_label, profile) => {
+    mocks.getPendingIdentityProfileUpdates.mockResolvedValue([pendingRemoval]);
+    mocks.getIdentityProfile.mockResolvedValue(profile);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: { sessionState: pendingSessionState(profile) },
+    });
+    try {
+      await settle();
+      expect(mocks.toastSuccess).not.toHaveBeenCalled();
+      expect(mocks.clearPendingIdentityProfileUpdate).not.toHaveBeenCalled();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('keeps the previous confirmed profile visible when a refresh cannot prove the removal', async () => {
+    const previousProfile: IdentityProfileLoadResult = {
+      state: 'ready',
+      avatar: null,
+      description: {
+        value: 'Previous',
+        source: {
+          systemId: 'i-system',
+          txid: OTHER_TXID,
+          vout: 0,
+          height: 9,
+          blockhash: 'previous-block',
+          digest: 'previous-digest',
+        },
+      },
+      issues: [],
+      revisionTxid: OTHER_TXID,
+      readHeight: 9,
+    };
+    const unprovenEmpty: IdentityProfileLoadResult = {
+      state: 'empty',
+      avatar: null,
+      description: null,
+      issues: [],
+      revisionTxid: null,
+      readHeight: 10,
+    };
+    mocks.getPendingIdentityProfileUpdates.mockResolvedValue([pendingRemoval]);
+    mocks.getIdentityProfile.mockResolvedValue(unprovenEmpty);
+    let latestState = pendingSessionState(previousProfile);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: {
+        sessionState: latestState,
+        onSessionStateChange: (nextState) => (latestState = nextState),
+      },
+    });
+    try {
+      await settle();
+      const retained =
+        latestState.profilesByAddress[favoriteIdentity.identityAddress.toLowerCase()];
+      expect(retained.description?.value).toBe('Previous');
+      expect(latestState.pendingProfilesByAddress).toHaveProperty(
+        favoriteIdentity.identityAddress.toLowerCase()
+      );
+      expect(mocks.toastSuccess).not.toHaveBeenCalled();
     } finally {
       await unmount(component);
       target.remove();

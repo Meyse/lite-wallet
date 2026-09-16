@@ -242,6 +242,7 @@ export interface IdentitySendResult {
   targetIdentity: string;
   fee: string;
   fromAddress: string;
+  profileUpdate?: PendingIdentityProfileUpdate | null;
 }
 
 export interface LinkableIdentity {
@@ -285,13 +286,99 @@ export interface IdentityDetails {
   fullyQualifiedName?: string | null;
   status?: string | null;
   system?: string | null;
+  systemDisplayName?: string | null;
   parent?: string | null;
   revocationAuthority?: string | null;
+  revocationAuthorityName?: string | null;
   recoveryAuthority?: string | null;
+  recoveryAuthorityName?: string | null;
   primaryAddresses: string[];
   privateAddress?: string | null;
   ownedByPrimaryAddress: boolean;
+  minimumSignatures: number;
+  tokenizedControl: boolean;
+  profileEditable: boolean;
+  profileEditabilityReason?: string | null;
   warnings: IdentityDetailWarning[];
+}
+
+export type IdentityProfileState = 'ready' | 'empty' | 'unavailable';
+
+export interface IdentityProfileSource {
+  systemId: string;
+  txid: string;
+  vout: number;
+  height: number;
+  blockhash: string;
+  digest: string;
+}
+
+export interface IdentityProfileAvatar {
+  base64: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  byteLength: number;
+}
+
+export interface IdentityProfileField<T> {
+  value: T;
+  source: IdentityProfileSource;
+}
+
+export interface IdentityProfileIssue {
+  field?: string | null;
+  code: string;
+}
+
+export interface IdentityProfileLoadResult {
+  state: IdentityProfileState;
+  avatar?: IdentityProfileField<IdentityProfileAvatar> | null;
+  description?: IdentityProfileField<string> | null;
+  issues: IdentityProfileIssue[];
+  readHeight?: number | null;
+  revisionTxid: string | null;
+}
+
+export type IdentityProfileAvatarChange =
+  { action: 'keep' } | { action: 'set'; value: string } | { action: 'remove' };
+
+export type IdentityProfileDescriptionChange =
+  { action: 'keep' } | { action: 'set'; value: string } | { action: 'remove' };
+
+export interface IdentityProfilePreflightRequest {
+  coinId: string;
+  channelId: string;
+  identityAddress: string;
+  avatar: IdentityProfileAvatarChange;
+  description: IdentityProfileDescriptionChange;
+}
+
+export interface IdentityProfileSnapshot {
+  avatarBase64?: string | null;
+  avatarDigest?: string | null;
+  description?: string | null;
+  descriptionDigest?: string | null;
+}
+
+export interface IdentityProfilePreflightResult {
+  preflightId: string;
+  expiresAt: number;
+  currentProfile: IdentityProfileSnapshot;
+  proposedProfile: IdentityProfileSnapshot;
+  feeSats: string;
+  feeDisplay: string;
+  fundingSummary: string;
+  evidenceBytes: number;
+  changedFields: Array<'avatar' | 'description' | string>;
+}
+
+export interface PendingIdentityProfileUpdate {
+  identityAddress: string;
+  txid: string;
+  submittedAt: number;
+  previousProfile: IdentityProfileSnapshot;
+  proposedProfile: IdentityProfileSnapshot;
 }
 
 export interface GenericRequestVerificationResult {

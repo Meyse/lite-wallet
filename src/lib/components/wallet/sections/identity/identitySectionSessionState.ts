@@ -1,4 +1,9 @@
-import type { LinkedIdentity, ProvisioningJobRecord } from '$lib/types/wallet.js';
+import type {
+  IdentityProfileLoadResult,
+  LinkedIdentity,
+  PendingIdentityProfileUpdate,
+  ProvisioningJobRecord,
+} from '$lib/types/wallet.js';
 
 export type IdentitySectionSessionState = {
   linkedIdentities: LinkedIdentity[];
@@ -7,6 +12,8 @@ export type IdentitySectionSessionState = {
   provisioningJobs: ProvisioningJobRecord[];
   provisioningError: string;
   hasLoadedProvisioningOnce: boolean;
+  profilesByAddress: Record<string, IdentityProfileLoadResult>;
+  pendingProfilesByAddress: Record<string, PendingIdentityProfileUpdate>;
 };
 
 export function createIdentitySectionSessionState(): IdentitySectionSessionState {
@@ -16,6 +23,8 @@ export function createIdentitySectionSessionState(): IdentitySectionSessionState
     hasLoadedLinkedIdentitiesOnce: false,
     provisioningJobs: [],
     provisioningError: '',
-    hasLoadedProvisioningOnce: false
+    hasLoadedProvisioningOnce: false,
+    profilesByAddress: {},
+    pendingProfilesByAddress: {},
   };
 }

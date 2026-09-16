@@ -42,8 +42,12 @@ pub use guard::{
 };
 pub use identity::{
     HighRiskChange, IdentityDetailWarning, IdentityDetails, IdentityOperation, IdentityPatch,
-    IdentityPreflightParams, IdentityPreflightResult, IdentitySendRequest, IdentitySendResult,
-    IdentityWarning, LinkIdentityRequest, LinkableIdentity, LinkedIdentity,
+    IdentityPreflightParams, IdentityPreflightResult, IdentityProfileAvatar,
+    IdentityProfileAvatarChange, IdentityProfileDescriptionChange, IdentityProfileField,
+    IdentityProfileIssue, IdentityProfileLoadResult, IdentityProfilePreflightRequest,
+    IdentityProfilePreflightResult, IdentityProfileSnapshot, IdentityProfileSource,
+    IdentityProfileState, IdentitySendRequest, IdentitySendResult, IdentityWarning,
+    LinkIdentityRequest, LinkableIdentity, LinkedIdentity, PendingIdentityProfileUpdate,
     SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest,
 };
 pub use transaction::{

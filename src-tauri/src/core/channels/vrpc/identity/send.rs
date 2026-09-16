@@ -2,6 +2,7 @@
 // Identity send flow: sign all signable inputs from preflight payload and broadcast.
 
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use tokio::sync::Mutex;
@@ -15,6 +16,7 @@ use crate::core::channels::vrpc::common::parse_txid_from_result;
 use crate::core::channels::vrpc::identity::preflight::{
     IdentityPreflightPayload, IdentitySignMode,
 };
+use crate::core::channels::vrpc::identity::profile::intent::validate as validate_profile_intent;
 use crate::core::channels::vrpc::identity::verus_tx::codec::{
     decode_hex as decode_verus_tx, encode_hex as encode_verus_tx_hex,
 };
@@ -29,7 +31,7 @@ use crate::core::channels::vrpc::intent::validate_identity_transaction_intent;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::wallet::WalletNetwork;
-use crate::types::{IdentitySendResult, WalletError};
+use crate::types::{IdentitySendResult, PendingIdentityProfileUpdate, WalletError};
 
 pub async fn send(
     preflight_id: &str,
@@ -109,22 +111,65 @@ pub async fn send_with_private_key_material(
         .ok_or(WalletError::InvalidPreflight)?;
     let fee_sats = crate::core::channels::vrpc::common::parse_positive_amount_sat(&payload.fee)
         .map_err(|_| WalletError::InvalidPreflight)?;
-    validate_identity_transaction_intent(
-        &payload.unsigned_hex,
-        &payload.control_intent,
-        &payload.from_address,
-        input_total,
-        fee_sats,
-    )
-    .map_err(|_| WalletError::InvalidPreflight)?;
+    if let Some(profile_intent) = payload.profile_intent.as_ref() {
+        validate_profile_intent(
+            &payload.unsigned_hex,
+            profile_intent,
+            &payload.from_address,
+            input_total,
+            fee_sats,
+        )
+        .map_err(|_| WalletError::InvalidPreflight)?;
+    } else {
+        validate_identity_transaction_intent(
+            &payload.unsigned_hex,
+            &payload.control_intent,
+            &payload.from_address,
+            input_total,
+            fee_sats,
+        )
+        .map_err(|_| WalletError::InvalidPreflight)?;
+    }
 
     let signed_hex = sign_payload(&payload, private_key)?;
+    let provider = provider_pool.for_network(wallet_network);
+    if let Some(profile_intent) = payload.profile_intent.as_ref() {
+        let current = provider
+            .getidentity(&payload.target_identity)
+            .await
+            .map_err(|_| WalletError::InvalidPreflight)?;
+        let current_txid = current.get("txid").and_then(serde_json::Value::as_str);
+        let current_vout = current
+            .get("vout")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok());
+        if current_txid != Some(profile_intent.identity_txid.as_str())
+            || current_vout != Some(profile_intent.identity_vout)
+        {
+            return Err(WalletError::InvalidPreflight);
+        }
+    }
+    // The profile outpoint lookup can outlive the wallet session. Recheck only
+    // after it completes, immediately before crossing the broadcast boundary.
     if let Some(session_manager) = session_manager {
         ensure_active_wallet_session(session_manager, expected_session_id).await?;
     }
-    let provider = provider_pool.for_network(wallet_network);
     let txid_raw = provider.sendrawtransaction(&signed_hex).await?;
     let txid = parse_txid_from_result(&txid_raw).ok_or(WalletError::IdentityBuildFailed)?;
+    let profile_update =
+        payload
+            .profile_intent
+            .as_ref()
+            .map(|intent| PendingIdentityProfileUpdate {
+                identity_address: payload.target_identity.clone(),
+                txid: txid.clone(),
+                submitted_at: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or_default(),
+                previous_profile: intent.previous_profile.clone(),
+                proposed_profile: intent.proposed_profile.clone(),
+            });
 
     Ok(IdentitySendResult {
         txid,
@@ -132,6 +177,7 @@ pub async fn send_with_private_key_material(
         target_identity: payload.target_identity,
         fee: payload.fee,
         from_address: payload.from_address,
+        profile_update,
     })
 }
 
