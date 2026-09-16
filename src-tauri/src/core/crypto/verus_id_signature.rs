@@ -1,12 +1,13 @@
 use std::convert::TryInto;
 
+use ripemd::Ripemd160;
 use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use secp256k1::{Message, Secp256k1, SecretKey};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::core::channels::vrpc::VrpcProvider;
-use crate::core::crypto::wif_encoding::{decode_wif, generate_p2pkh_address, Network};
+use crate::core::crypto::wif_encoding::{decode_wif, Network};
 use crate::types::WalletError;
 
 const GENERIC_ENVELOPE_FLAG_SIGNED: u64 = 1;
@@ -21,6 +22,7 @@ const VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEYS: u64 = 1;
 const VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEY_NAMES: u64 = 2;
 const VERIFIABLE_SIGNATURE_FLAG_HAS_BOUND_HASHES: u64 = 4;
 const VERIFIABLE_SIGNATURE_FLAG_HAS_STATEMENTS: u64 = 8;
+pub(crate) const VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM: u64 = 16;
 
 const COMPACT_ADDRESS_TYPE_FQN: u64 = 1;
 const COMPACT_ADDRESS_TYPE_I_ADDRESS: u64 = 2;
@@ -108,7 +110,11 @@ pub fn parse_generic_envelope_bytes(bytes: &[u8]) -> Result<ParsedGenericEnvelop
     }
 
     let prefix_without_signature = bytes[..offset].to_vec();
-    let (signature_data, signature_end) = parse_verifiable_signature_data(bytes, offset)?;
+    let (signature_data, signature_end) = parse_verifiable_signature_data(
+        bytes,
+        offset,
+        (flags & GENERIC_ENVELOPE_FLAG_IS_TESTNET) != 0,
+    )?;
     let tail_after_signature = bytes[signature_end..].to_vec();
 
     let mut scan = signature_end;
@@ -402,6 +408,7 @@ pub async fn validate_identity_control_for_active_wallet(
 fn parse_verifiable_signature_data(
     bytes: &[u8],
     offset: usize,
+    is_testnet: bool,
 ) -> Result<(ParsedVerifiableSignatureData, usize), WalletError> {
     let start = offset;
     let mut cursor = offset;
@@ -418,25 +425,81 @@ fn parse_verifiable_signature_data(
     let (hash_type, hash_type_len) = read_compact_size(bytes, cursor)?;
     cursor += hash_type_len;
 
-    let (signer_system, next) = parse_compact_address(bytes, cursor)?;
-    cursor = next;
+    let signer_system = if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM) != 0 {
+        let (system, next) = parse_compact_address(bytes, cursor)?;
+        cursor = next;
+        system
+    } else {
+        // Older valid envelopes may omit their root system. It is selected by
+        // the envelope network flag, never by the active wallet or a UI field.
+        let address = if is_testnet {
+            "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+        } else {
+            "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV"
+        };
+        let decoded = bs58::decode(address)
+            .with_check(None)
+            .into_vec()
+            .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+        ParsedCompactAddress {
+            address: address.to_string(),
+            hash160: decoded[1..]
+                .try_into()
+                .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?,
+            raw_bytes: Vec::new(),
+        }
+    };
     let (signer_identity, next) = parse_compact_address(bytes, cursor)?;
     cursor = next;
 
-    let extra_hash_start = cursor;
-    if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEYS) != 0 {
-        cursor = skip_fixed_array(bytes, cursor, 20)?;
-    }
-    if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEY_NAMES) != 0 {
-        cursor = skip_vector(bytes, cursor)?;
-    }
-    if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_BOUND_HASHES) != 0 {
-        cursor = skip_vector(bytes, cursor)?;
+    // The wire representation retains its original order. IdentitySignatureHash
+    // hashes sorted keys, UTF-8 names, and fixed-width bound hashes; statements
+    // are part of the envelope but are not extra identity-hash metadata.
+    let mut extra_hash_data = Vec::new();
+    for (flag, fixed_width) in [
+        (VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEYS, Some(20usize)),
+        (VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEY_NAMES, None),
+        (VERIFIABLE_SIGNATURE_FLAG_HAS_BOUND_HASHES, Some(32usize)),
+    ] {
+        if flags & flag == 0 {
+            continue;
+        }
+        let (count, count_len) = read_compact_size(bytes, cursor)?;
+        cursor += count_len;
+        if count > bytes.len().saturating_sub(cursor) as u64 {
+            return Err(WalletError::GenericRequestInvalidEnvelope);
+        }
+        let mut values = Vec::new();
+        for _ in 0..count {
+            let value = if flag == VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEYS {
+                let value = read_fixed_hash160(bytes, &mut cursor)?;
+                value.to_vec()
+            } else {
+                let (value, next) = read_var_slice(bytes, cursor)?;
+                cursor = next;
+                if fixed_width.is_some_and(|width| value.len() != width) {
+                    return Err(WalletError::GenericRequestInvalidEnvelope);
+                }
+                value.to_vec()
+            };
+            values.push(value);
+        }
+        // Upstream omits empty collections from the hash preimage.
+        if !values.is_empty() {
+            values.sort();
+            write_compact_size(&mut extra_hash_data, values.len());
+            for value in values {
+                if fixed_width.is_some() {
+                    extra_hash_data.extend_from_slice(&value);
+                } else {
+                    write_var_slice(&mut extra_hash_data, &value);
+                }
+            }
+        }
     }
     if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_STATEMENTS) != 0 {
         cursor = skip_vector(bytes, cursor)?;
     }
-    let extra_hash_data = bytes[extra_hash_start..cursor].to_vec();
 
     let prefix_without_signature_value = bytes[start..cursor].to_vec();
     let (signature_as_vch, signature_end) = read_var_slice(bytes, cursor)?;
@@ -579,7 +642,13 @@ fn recover_address_from_compact_signature(
     let public_key = secp
         .recover_ecdsa(message, &signature)
         .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
-    generate_p2pkh_address(&public_key, network)
+    let public_bytes = if (flag - 27) & 4 != 0 {
+        public_key.serialize().to_vec()
+    } else {
+        public_key.serialize_uncompressed().to_vec()
+    };
+    let hash: [u8; 20] = Ripemd160::digest(Sha256::digest(&public_bytes)).into();
+    Ok(to_base58_check(&hash, network.p2pkh_version() as u16))
 }
 
 pub(crate) fn extract_primary_addresses(raw_identity: &Value) -> Vec<String> {
@@ -795,21 +864,6 @@ fn skip_vector(bytes: &[u8], offset: usize) -> Result<usize, WalletError> {
     Ok(cursor)
 }
 
-fn skip_fixed_array(bytes: &[u8], offset: usize, item_len: usize) -> Result<usize, WalletError> {
-    let (count, count_size) = read_compact_size(bytes, offset)?;
-    let total_len = (count as usize)
-        .checked_mul(item_len)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
-    let start = offset + count_size;
-    let end = start
-        .checked_add(total_len)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
-    if bytes.len() < end {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-    Ok(end)
-}
-
 pub(crate) fn write_compact_size(out: &mut Vec<u8>, value: usize) {
     match value {
         0x00..=0xfc => out.push(value as u8),
@@ -902,6 +956,70 @@ mod tests {
         )
         .expect("identity hash");
         assert_eq!(hex::encode(identity_hash), EXPECTED_IDENTITY_HASH);
+    }
+
+    #[test]
+    fn candidate_signature_context_and_metadata_match_independent_vectors() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../src/lib/genericRequest/fixtures/signature-parity.json"
+        ))
+        .expect("public protocol fixtures");
+        for fixture in fixtures["cases"].as_array().expect("cases") {
+            let parsed = parse_generic_envelope_hex(fixture["hex"].as_str().unwrap())
+                .expect("candidate envelope parses");
+            assert_eq!(parsed.is_testnet, fixture["isTestnet"].as_bool().unwrap());
+            assert_eq!(
+                parsed.signature_data.signer_system_id,
+                fixture["system"].as_str().unwrap()
+            );
+            let raw = get_raw_envelope_sha256(&parsed);
+            assert_eq!(hex::encode(raw), fixture["rawHash"].as_str().unwrap());
+            let identity =
+                compute_identity_signature_hash(&parsed.signature_data, SIGNED_BLOCK_HEIGHT, raw)
+                    .expect("candidate identity hash");
+            assert_eq!(
+                hex::encode(identity),
+                fixture["identityHash"].as_str().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn compact_signer_names_remain_explicitly_unsupported() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../src/lib/genericRequest/fixtures/signature-parity.json"
+        ))
+        .expect("public protocol fixtures");
+        for hex in fixtures["unsupportedNames"].as_array().unwrap() {
+            assert!(matches!(
+                parse_generic_envelope_hex(hex.as_str().unwrap()),
+                Err(crate::types::WalletError::GenericRequestUnsupportedSignature)
+            ));
+        }
+    }
+
+    #[test]
+    fn compact_recovery_preserves_the_public_key_compression_flag() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../src/lib/genericRequest/fixtures/signature-parity.json"
+        ))
+        .expect("public protocol fixtures");
+        let secp = secp256k1::Secp256k1::new();
+        let message = secp256k1::Message::from_digest([42; 32]);
+        for fixture in fixtures["recovery"].as_array().unwrap() {
+            let signature: [u8; 65] = hex::decode(fixture["signature"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let address = super::recover_address_from_compact_signature(
+                &secp,
+                &message,
+                &signature,
+                Network::Mainnet,
+            )
+            .expect("recover synthetic public key");
+            assert_eq!(address, fixture["address"].as_str().unwrap());
+        }
     }
 
     #[test]

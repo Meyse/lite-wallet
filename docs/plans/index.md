@@ -15,6 +15,9 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- Verus and Noble dependency upgrade (maintenance integration; generic-request
+  acceptance deferred):
+  [`./active/verus-dependency-upgrade.md`](./active/verus-dependency-upgrade.md)
 - VerusID avatar and description (proposed; storage feasibility first):
   [`./active/verusid-profile-avatar-description.md`](./active/verusid-profile-avatar-description.md)
 - Direct-send Economy and Standard network fees:

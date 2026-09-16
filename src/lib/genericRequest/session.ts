@@ -1,4 +1,4 @@
-import type { Buffer } from 'buffer';
+import { Buffer } from 'buffer';
 import {
   APP_ENCRYPTION_REQUEST_VDXF_KEY,
   AUTHENTICATION_REQUEST_VDXF_KEY,
@@ -67,9 +67,7 @@ export type IdentityUpdateDetailSession = {
 };
 
 export type SupportedGenericRequestDetail =
-  | AuthenticationDetailSession
-  | ProvisionIdentityDetailSession
-  | IdentityUpdateDetailSession;
+  AuthenticationDetailSession | ProvisionIdentityDetailSession | IdentityUpdateDetailSession;
 
 export type GenericRequestFlowSession = {
   request: GenericRequest;
@@ -94,7 +92,7 @@ type ParsedRequestEnvelope = {
 };
 
 function asBuffer(bytes: Uint8Array): Buffer {
-  return bytes as unknown as Buffer;
+  return Buffer.from(bytes);
 }
 
 function normalizeHex(input: string): string | null {
@@ -117,6 +115,13 @@ function parseRequestEnvelope(input: string): ParsedRequestEnvelope {
 
   if (trimmed.includes('://') || trimmed.startsWith('verus:')) {
     const request = GenericRequest.fromWalletDeeplinkUri(trimmed);
+    // The upstream URI parser discards the consumed offset. Do not let trailing
+    // or noncanonical bytes disappear before backend signature verification.
+    const encoded = trimmed.split('/')[3];
+    const original = Buffer.from(encoded.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    if (!original.equals(request.toBuffer())) {
+      throw new Error('genericRequest.import.error.invalid');
+    }
     return {
       request,
       requestHex: bytesToHex(request.toBuffer()),
@@ -129,7 +134,11 @@ function parseRequestEnvelope(input: string): ParsedRequestEnvelope {
   }
 
   const request = new GenericRequest();
-  request.fromBuffer(asBuffer(hexToBytes(normalizedHex)), 0);
+  const bytes = asBuffer(hexToBytes(normalizedHex));
+  const consumed = request.fromBuffer(bytes, 0);
+  if (consumed !== bytes.length || !bytes.equals(request.toBuffer())) {
+    throw new Error('genericRequest.import.error.invalid');
+  }
   return { request, requestHex: normalizedHex };
 }
 

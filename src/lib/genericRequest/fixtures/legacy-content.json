@@ -1,0 +1,75 @@
+[
+  {
+    "name": "omitted",
+    "hex": "0001a6ef9ea235635e328124ff3429db9f9e91b64e2d05616c696365",
+    "json": {
+      "name": "alice",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "identityaddress": "i5f5njYtso65186mo5WHMkRme9YG6hrZE2"
+    }
+  },
+  {
+    "name": "empty",
+    "hex": "0003a6ef9ea235635e328124ff3429db9f9e91b64e2d05616c69636500",
+    "json": {
+      "contentmultimap": {},
+      "name": "alice",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "identityaddress": "i5f5njYtso65186mo5WHMkRme9YG6hrZE2"
+    }
+  },
+  {
+    "name": "unknown",
+    "hex": "0003a6ef9ea235635e328124ff3429db9f9e91b64e2d05616c6963650101021af5b8015c64d39ab44c60ead8317f9f5a9b6c4c0104deadbeef",
+    "json": {
+      "contentmultimap": {
+        "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV": ["deadbeef"]
+      },
+      "name": "alice",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "identityaddress": "i5f5njYtso65186mo5WHMkRme9YG6hrZE2"
+    }
+  },
+  {
+    "name": "remove",
+    "hex": "0003a6ef9ea235635e328124ff3429db9f9e91b64e2d05616c69636501010216ed9d732d8886b1972dc8beb72df8e486b993d3012e010216ed9d732d8886b1972dc8beb72df8e486b993d3011601031af5b8015c64d39ab44c60ead8317f9f5a9b6c4c",
+    "json": {
+      "contentmultimap": {
+        "i5Zkx5Z7tEfh42xtKfwbJ5LgEWE9rEgpFY": [
+          {
+            "i5Zkx5Z7tEfh42xtKfwbJ5LgEWE9rEgpFY": {
+              "version": 1,
+              "action": 3,
+              "entrykey": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV"
+            }
+          }
+        ]
+      },
+      "name": "alice",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "identityaddress": "i5f5njYtso65186mo5WHMkRme9YG6hrZE2"
+    }
+  },
+  {
+    "name": "descriptor",
+    "hex": "0003a6ef9ea235635e328124ff3429db9f9e91b64e2d05616c6963650101021af5b8015c64d39ab44c60ead8317f9f5a9b6c4c0142010208a2ebb2c55f83a8e2a426a53320ed4d42124f4d012a016004deadbeef0973796e746865746963186170706c69636174696f6e2f6f637465742d73747265616d",
+    "json": {
+      "contentmultimap": {
+        "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV": [
+          {
+            "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv": {
+              "version": 1,
+              "flags": 96,
+              "mimetype": "application/octet-stream",
+              "objectdata": "deadbeef",
+              "label": "synthetic"
+            }
+          }
+        ]
+      },
+      "name": "alice",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "identityaddress": "i5f5njYtso65186mo5WHMkRme9YG6hrZE2"
+    }
+  }
+]

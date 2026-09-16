@@ -12,11 +12,11 @@ overrides:
   yaml: ^2.8.1
 
 allowBuilds:
-  '@bitgo/utxo-lib@https://codeload.github.com/VerusCoin/BitGoJS/tar.gz/f39bb2206bac9c3fbf199f7496e495e3a427c771': false
+  '@bitgo/utxo-lib@https://codeload.github.com/VerusCoin/BitGoJS/tar.gz/9582a20f7211a7a6aed7bfae3c651e6b76c1f9bb': false
   esbuild: true
-  verus-typescript-primitives@https://codeload.github.com/VerusCoin/verus-typescript-primitives/tar.gz/30c951804228a285546a45457be57ead39d90888: false
-  verusd-rpc-ts-client@https://codeload.github.com/VerusCoin/verusd-rpc-ts-client/tar.gz/fd2c6b0d35d468ee6174bcdd569f5aa990b05282: false
-  verusid-ts-client@https://codeload.github.com/VerusCoin/verusid-ts-client/tar.gz/48a1d48a5d076f313022a5891986339851ad7c0c: false
+  verus-typescript-primitives@https://codeload.github.com/VerusCoin/verus-typescript-primitives/tar.gz/7a7b01db697222cd68507a9dbf15f289615ea890: false
+  verusd-rpc-ts-client@https://codeload.github.com/VerusCoin/verusd-rpc-ts-client/tar.gz/58689ea52500a6a6e4aa741e5d2ed41d7bc6ddd7: false
+  verusid-ts-client@https://codeload.github.com/VerusCoin/verusid-ts-client/tar.gz/0c39c0a4ba81378ac898cbe75ae1da7511617ccd: false
 
 patchedDependencies:
   # The pinned commit contains evals.json, but its package files allowlist omits it.

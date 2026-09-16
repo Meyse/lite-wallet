@@ -9,10 +9,12 @@ test('promotes each trusted Git edge to a peer dependency', () => {
     version: '0.1.0',
     dependencies: {
       axios: '1.13.5',
-      '@bitgo/utxo-lib': 'git+https://github.com/VerusCoin/BitGoJS.git#utxo-lib-verus',
+      '@bitgo/utxo-lib':
+        'git+https://github.com/VerusCoin/BitGoJS.git#9582a20f7211a7a6aed7bfae3c651e6b76c1f9bb',
       'verus-typescript-primitives':
-        'git+https://github.com/VerusCoin/verus-typescript-primitives.git',
-      'verusd-rpc-ts-client': 'git+https://github.com/VerusCoin/verusd-rpc-ts-client',
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git#7a7b01db697222cd68507a9dbf15f289615ea890',
+      'verusd-rpc-ts-client':
+        'git+https://github.com/VerusCoin/verusd-rpc-ts-client#58689ea52500a6a6e4aa741e5d2ed41d7bc6ddd7',
     },
   };
 
@@ -54,3 +56,65 @@ test('leaves unrelated packages unchanged', () => {
   const pkg = { name: 'example', version: '1.0.0', dependencies: { leftpad: '1.0.0' } };
   assert.strictEqual(hooks.readPackage(pkg), pkg);
 });
+
+const reviewedManifests = [
+  {
+    name: 'verusid-ts-client',
+    version: '0.1.0',
+    dependencies: {
+      '@bitgo/utxo-lib':
+        'git+https://github.com/VerusCoin/BitGoJS.git#9582a20f7211a7a6aed7bfae3c651e6b76c1f9bb',
+      'verus-typescript-primitives':
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git#7a7b01db697222cd68507a9dbf15f289615ea890',
+      'verusd-rpc-ts-client':
+        'git+https://github.com/VerusCoin/verusd-rpc-ts-client#58689ea52500a6a6e4aa741e5d2ed41d7bc6ddd7',
+    },
+  },
+  {
+    name: '@bitgo/utxo-lib',
+    version: '1.9.6',
+    dependencies: {
+      'bitcoin-ops': 'git+https://github.com/VerusCoin/bitcoin-ops',
+      'verus-typescript-primitives':
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git',
+    },
+  },
+  {
+    name: 'verus-typescript-primitives',
+    version: '1.0.0',
+    dependencies: {
+      blake2b: 'https://github.com/VerusCoin/blake2b',
+    },
+  },
+  {
+    name: 'verusd-rpc-ts-client',
+    version: '0.1.0',
+    dependencies: {
+      blake2b: 'https://github.com/VerusCoin/blake2b',
+      'verus-typescript-primitives':
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git#7a7b01db697222cd68507a9dbf15f289615ea890',
+    },
+  },
+];
+for (const manifest of reviewedManifests) {
+  test(`accepts reviewed ${manifest.name} and rejects every altered edge`, () => {
+    const result = hooks.readPackage(structuredClone(manifest));
+    for (const [name, url] of Object.entries(manifest.dependencies)) {
+      assert.equal(result.dependencies[name], undefined);
+      assert.equal(result.peerDependencies[name], '*');
+      for (const altered of [
+        url + '#unreviewed',
+        url.replace('github.com', 'example.invalid'),
+        undefined,
+      ]) {
+        const changed = structuredClone(manifest);
+        changed.dependencies[name] = altered;
+        assert.throws(() => hooks.readPackage(changed), /Unexpected dependency/);
+      }
+    }
+    assert.throws(
+      () => hooks.readPackage({ ...structuredClone(manifest), version: '9.9.9' }),
+      /Unexpected package version/
+    );
+  });
+}
