@@ -12,35 +12,38 @@
     isOpen?: boolean;
     title: string;
     hideTitle?: boolean;
+    closeLabel?: string;
     onOpenAutoFocus?: (event: Event) => void;
     titleClass?: string;
     bodyClass?: string;
     children?: Snippet;
   };
 
-   
   let {
     isOpen = $bindable(false),
     title,
     hideTitle = false,
+    closeLabel = 'Close',
     onOpenAutoFocus = undefined,
     titleClass = '',
     bodyClass = '',
-    children
+    children,
   }: StandardRightSheetProps = $props();
-   
 </script>
 
 <Sheet.Root bind:open={isOpen}>
   <Sheet.Content
     side="right"
-    class="w-[378px] max-w-[92vw] p-6 data-[state=open]:duration-200 data-[state=closed]:duration-150"
+    class="settings-sheet-panel w-[378px] max-w-[92vw] border-0 bg-settings-sheet-surface p-6 data-[state=closed]:duration-150 data-[state=open]:duration-200"
+    overlayClass="bg-black/15 dark:bg-black/45"
+    closeClass="end-6 top-9 size-7 rounded-md text-settings-muted-foreground hover:text-foreground focus-visible:ring-settings-focus-ring"
+    {closeLabel}
     {onOpenAutoFocus}
   >
     {#snippet children()}
       <div class="flex h-full flex-col">
         {#if !hideTitle}
-          <Sheet.Header class="gap-1 p-0 pr-8 pt-4">
+          <Sheet.Header class="mt-3 h-7 gap-1 p-0 pr-8">
             <Sheet.Title class={cn('text-base', titleClass)}>{title}</Sheet.Title>
           </Sheet.Header>
         {/if}

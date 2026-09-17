@@ -3,6 +3,18 @@ export const approvedUiHexColorRegistry = {
   appCanvas: ['#FBFBFB', '#111111'],
   sidebarSurface: ['#EDEDED', '#28282B'],
   sidebarInteraction: ['#E0E0E0', '#D8D8D8', '#E5E5E5', '#36373B', '#323338', '#303136'],
+  settingsSurfaces: [
+    '#F2F2F4',
+    '#FFFFFF',
+    '#E6E6EA',
+    '#E9F0FF',
+    '#1D1D20',
+    '#223353',
+    '#6B6B73',
+    '#A9A9B2',
+    '#89AEFF',
+    '#C4C4CA',
+  ],
   guardActions: ['#D4313E', '#4AA658'],
   communityBrand: ['#5865F2', '#4752C4', '#3F49B7', '#7B86F8', '#A0A8FF'],
   walletPalette: [
@@ -32,6 +44,7 @@ export const approvedUiColorFunctionRegistry = {
     'rgba(0, 0, 0, 0)',
   ],
   overviewShadow: ['rgba(0,0,0,0.72)'],
+  settingsShadows: ['rgba(0,0,0,0.125)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.07)'],
 };
 
 export const approvedUiHexSources = {
@@ -40,6 +53,7 @@ export const approvedUiHexSources = {
     'appCanvas',
     'sidebarSurface',
     'sidebarInteraction',
+    'settingsSurfaces',
     'guardActions',
     'communityBrand',
   ],
@@ -48,7 +62,7 @@ export const approvedUiHexSources = {
 };
 
 export const approvedUiColorFunctionSources = {
-  'src/app.css': ['coinIconShadowStops', 'overviewShadow'],
+  'src/app.css': ['coinIconShadowStops', 'overviewShadow', 'settingsShadows'],
 };
 
 export const colorFunctionTokenFiles = new Set(['src/app.css']);

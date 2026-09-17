@@ -9,12 +9,14 @@
   import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
   import '../app.css';
   import '$lib/shims/node-globals';
-  import { ModeWatcher } from 'mode-watcher';
+  import { mode, ModeWatcher } from 'mode-watcher';
   import { Toaster } from 'svelte-sonner';
   import { initI18n } from '$lib/i18n';
   import { hydrateQueuedGenericRequest, queueGenericRequest } from '$lib/stores/genericRequest.js';
+  import { settingsStore } from '$lib/stores/settings.js';
 
   const { children } = $props();
+  const settings = $derived($settingsStore);
 
   function findLatestVerusDeepLink(urls: string[] | null | undefined): string | null {
     if (!urls?.length) {
@@ -59,7 +61,7 @@
       queueGenericRequest({
         input: nextDeepLink,
         passthroughAutoLinkFqn: null,
-        source: 'deep-link'
+        source: 'deep-link',
       });
     };
 
@@ -84,8 +86,8 @@
 </script>
 
 <!-- Theme detection and system preference monitoring -->
-<ModeWatcher />
-<Toaster theme="system" richColors position="bottom-right" />
+<ModeWatcher defaultMode={settings.theme} />
+<Toaster theme={mode.current ?? 'system'} richColors position="bottom-right" />
 
 <!-- Render page content -->
 {@render children?.()}

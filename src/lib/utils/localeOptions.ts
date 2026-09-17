@@ -5,21 +5,19 @@ type TranslateFn = (key: string) => string;
 
 export interface LocaleOption {
   value: Locale;
-  flag: string;
   label: string;
 }
 
-const localeMetadata: Record<Locale, { flag: string; labelKey: string }> = {
-  en: { flag: '🇺🇸', labelKey: 'languageGate.option.en' },
-  nl: { flag: '🇳🇱', labelKey: 'languageGate.option.nl' },
-  de: { flag: '🇩🇪', labelKey: 'languageGate.option.de' },
-  es: { flag: '🇪🇸', labelKey: 'languageGate.option.es' }
+const localeMetadata: Record<Locale, { labelKey: string }> = {
+  en: { labelKey: 'languageGate.option.en' },
+  nl: { labelKey: 'languageGate.option.nl' },
+  de: { labelKey: 'languageGate.option.de' },
+  es: { labelKey: 'languageGate.option.es' },
 };
 
 export function buildLocaleOptions(t: TranslateFn): LocaleOption[] {
   return SUPPORTED_LOCALES.map((locale) => ({
     value: locale,
-    flag: localeMetadata[locale].flag,
-    label: t(localeMetadata[locale].labelKey)
+    label: t(localeMetadata[locale].labelKey),
   }));
 }

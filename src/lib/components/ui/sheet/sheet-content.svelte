@@ -32,17 +32,23 @@
 		class: className,
 		side = "right",
 		portalProps,
+		overlayClass,
+		closeClass,
+		closeLabel = "Close",
 		children,
 		...restProps
 	}: WithoutChildrenOrChild<SheetPrimitive.ContentProps> & {
 		portalProps?: WithoutChildrenOrChild<ComponentProps<typeof SheetPortal>>;
+		overlayClass?: string;
+		closeClass?: string;
+		closeLabel?: string;
 		side?: Side;
 		children: Snippet;
 	} = $props();
 </script>
 
 <SheetPortal {...portalProps}>
-	<SheetOverlay />
+	<SheetOverlay class={overlayClass} />
 	<SheetPrimitive.Content
 		bind:ref
 		data-slot="sheet-content"
@@ -51,10 +57,14 @@
 	>
 		{@render children?.()}
 		<SheetPrimitive.Close
-			class="ring-offset-background focus-visible:ring-ring absolute end-4 top-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none"
+			data-slot="sheet-close"
+			class={cn(
+				"ring-offset-background focus-visible:ring-ring absolute end-4 top-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none",
+				closeClass
+			)}
 		>
 			<XIcon class="size-4" />
-			<span class="sr-only">Close</span>
+			<span class="sr-only">{closeLabel}</span>
 		</SheetPrimitive.Close>
 	</SheetPrimitive.Content>
 </SheetPortal>
