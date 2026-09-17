@@ -12,6 +12,9 @@ overrides:
   yaml: ^2.8.1
 
 allowBuilds:
+  # Native Tauri tests use the embedded driver, not downloaded browser drivers.
+  edgedriver: false
+  geckodriver: false
   '@bitgo/utxo-lib@https://codeload.github.com/VerusCoin/BitGoJS/tar.gz/9582a20f7211a7a6aed7bfae3c651e6b76c1f9bb': false
   esbuild: true
   verus-typescript-primitives@https://codeload.github.com/VerusCoin/verus-typescript-primitives/tar.gz/7a7b01db697222cd68507a9dbf15f289615ea890: false

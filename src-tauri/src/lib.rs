@@ -92,12 +92,30 @@ fn configure_stronghold_encrypt_work_factor() {
 #[cfg(not(debug_assertions))]
 fn configure_stronghold_encrypt_work_factor() {}
 
+// Never ship the local automation endpoint in a release build.
+#[cfg(all(feature = "e2e-webdriver", not(debug_assertions)))]
+compile_error!("e2e-webdriver is for debug test builds only");
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     load_runtime_env_files();
     configure_stronghold_encrypt_work_factor();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(all(feature = "e2e-webdriver", debug_assertions, target_os = "macos"))]
+    let builder = if let Ok(port) = std::env::var("TAURI_WEBDRIVER_PORT") {
+        let port: u16 = port
+            .parse()
+            .expect("TAURI_WEBDRIVER_PORT must be a valid port");
+        assert!(port > 1024, "Use an unprivileged WebDriver port");
+        // The pinned plugin binds to 127.0.0.1 on macOS. No endpoint is started
+        // unless both the Cargo feature and explicit port are present.
+        builder.plugin(tauri_plugin_wdio_webdriver::init_with_port(port))
+    } else {
+        builder
+    };
+
+    builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
