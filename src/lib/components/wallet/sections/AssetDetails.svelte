@@ -6,8 +6,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-  import SendIcon from '@lucide/svelte/icons/send';
-  import DownloadIcon from '@lucide/svelte/icons/download';
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -1177,7 +1177,7 @@
                 title={i18n.t('wallet.overview.receive')}
                 onclick={onNavigateToReceive}
               >
-                <DownloadIcon class="h-[18px] w-[18px]" />
+                <ArrowDownIcon class="h-[18px] w-[18px]" />
               </Button>
               <Button
                 variant="secondary"
@@ -1191,7 +1191,7 @@
                   onNavigateToSend(toTransferContext(selectedScope));
                 }}
               >
-                <SendIcon class="h-[18px] w-[18px]" />
+                <ArrowUpIcon class="h-[18px] w-[18px]" />
               </Button>
               <Button
                 variant="secondary"

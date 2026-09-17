@@ -10,8 +10,8 @@
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip';
-  import SendIcon from '@lucide/svelte/icons/send';
-  import DownloadIcon from '@lucide/svelte/icons/download';
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -529,7 +529,7 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-0 pb-6 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-3 pb-6 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div
       class={`z-10 shrink-0 bg-background pb-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
@@ -587,7 +587,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="rounded-full text-(--wallet-balance-muted) hover:bg-white/10 hover:text-white focus-visible:ring-white dark:hover:bg-white/10"
+          class="rounded-full text-(--wallet-balance-muted) hover:bg-transparent hover:text-white focus-visible:ring-white dark:hover:bg-transparent"
           aria-label={hideHoldings
             ? i18n.t('wallet.overview.showHoldings')
             : i18n.t('wallet.overview.hideHoldings')}
@@ -605,7 +605,7 @@
           {/if}
         </Button>
       </div>
-      <div class="mt-1.5 w-full">
+      <div class="mt-2 w-full">
         <div class="flex w-full gap-2">
           <div class="grid w-full flex-1 grid-cols-3 gap-2">
             <Button
@@ -614,7 +614,7 @@
               class="h-10 w-full gap-1.5 rounded-md px-3"
               onclick={onNavigateToReceive}
             >
-              <DownloadIcon class="h-4 w-4" />
+              <ArrowDownIcon class="h-4 w-4" />
               <span>{i18n.t('wallet.overview.receive')}</span>
             </Button>
             <Button
@@ -623,7 +623,7 @@
               class="h-10 w-full gap-1.5 rounded-md px-3"
               onclick={onNavigateToSend}
             >
-              <SendIcon class="h-4 w-4" />
+              <ArrowUpIcon class="h-4 w-4" />
               <span>{i18n.t('wallet.overview.send')}</span>
             </Button>
             <Button
