@@ -1,0 +1,132 @@
+{
+  "request": {
+    "vdxfkey": "iAN8hxt2pkU32jvBsXtJ7Nu9sfn9QDgr5q",
+    "system_id": null,
+    "signing_address": "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka",
+    "signing_id": null,
+    "challenge": {
+      "vdxfkey": "iLvLAJ2YycueCYMDPJA8DwrenULPJkJgKE",
+      "challenge_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+      "created_at": 1700000000,
+      "name": "alice",
+      "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+      "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+    }
+  },
+  "cases": [
+    {
+      "state": "PENDINGAPPROVAL",
+      "json": {
+        "vdxfkey": "i85sHR4C9BqZkP7BMses4UaggJXwnc4nSx",
+        "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+        "signing_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+        "decision": {
+          "vdxfkey": "i6VH8kxLH3ERRf7dQCupRW8VKjs7kVAsxR",
+          "decision_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+          "created_at": 1700000001,
+          "result": {
+            "vdxfkey": "iGV8yvy8YqLxrd5GcHbX9vRpbajpM1px3w",
+            "state": "i4MTVaYamSYTSEMRJaaHxKypmmCMack2LZ",
+            "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "fully_qualified_name": "alice.VRSCTEST@"
+          },
+          "request": {
+            "vdxfkey": "iAN8hxt2pkU32jvBsXtJ7Nu9sfn9QDgr5q",
+            "system_id": null,
+            "signing_address": "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka",
+            "signing_id": null,
+            "challenge": {
+              "vdxfkey": "iLvLAJ2YycueCYMDPJA8DwrenULPJkJgKE",
+              "challenge_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+              "created_at": 1700000000,
+              "name": "alice",
+              "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+              "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+            }
+          },
+          "context": {
+            "kv": {},
+            "vdxfkey": "iBMochrKPSQfua5yZYWyd6p4QnREakqU44"
+          }
+        }
+      },
+      "hash": "c8db03cf6a27d64b9364ea1fab24a0f22430daa756816f61db247368c76a31ca"
+    },
+    {
+      "state": "COMPLETE",
+      "json": {
+        "vdxfkey": "i85sHR4C9BqZkP7BMses4UaggJXwnc4nSx",
+        "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+        "signing_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+        "decision": {
+          "vdxfkey": "i6VH8kxLH3ERRf7dQCupRW8VKjs7kVAsxR",
+          "decision_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+          "created_at": 1700000001,
+          "result": {
+            "vdxfkey": "iGV8yvy8YqLxrd5GcHbX9vRpbajpM1px3w",
+            "state": "iG89yjgnQEqSVv3dShPHpTUkCtJt96gzVU",
+            "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "fully_qualified_name": "alice.VRSCTEST@"
+          },
+          "request": {
+            "vdxfkey": "iAN8hxt2pkU32jvBsXtJ7Nu9sfn9QDgr5q",
+            "system_id": null,
+            "signing_address": "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka",
+            "signing_id": null,
+            "challenge": {
+              "vdxfkey": "iLvLAJ2YycueCYMDPJA8DwrenULPJkJgKE",
+              "challenge_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+              "created_at": 1700000000,
+              "name": "alice",
+              "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+              "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+            }
+          },
+          "context": {
+            "kv": {},
+            "vdxfkey": "iBMochrKPSQfua5yZYWyd6p4QnREakqU44"
+          }
+        }
+      },
+      "hash": "91c4a1be2d846ff0e0599a134b706e6c24defaf0a857d416fd8cd1f1ba8c6241"
+    },
+    {
+      "state": "FAILED",
+      "json": {
+        "vdxfkey": "i85sHR4C9BqZkP7BMses4UaggJXwnc4nSx",
+        "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+        "signing_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+        "decision": {
+          "vdxfkey": "i6VH8kxLH3ERRf7dQCupRW8VKjs7kVAsxR",
+          "decision_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+          "created_at": 1700000001,
+          "result": {
+            "vdxfkey": "iGV8yvy8YqLxrd5GcHbX9vRpbajpM1px3w",
+            "state": "iCF1tj2zY83mgB8JbNg4dvfD2yefvMGZ4p",
+            "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "fully_qualified_name": "alice.VRSCTEST@"
+          },
+          "request": {
+            "vdxfkey": "iAN8hxt2pkU32jvBsXtJ7Nu9sfn9QDgr5q",
+            "system_id": null,
+            "signing_address": "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka",
+            "signing_id": null,
+            "challenge": {
+              "vdxfkey": "iLvLAJ2YycueCYMDPJA8DwrenULPJkJgKE",
+              "challenge_id": "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
+              "created_at": 1700000000,
+              "name": "alice",
+              "system_id": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+              "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+            }
+          },
+          "context": {
+            "kv": {},
+            "vdxfkey": "iBMochrKPSQfua5yZYWyd6p4QnREakqU44"
+          }
+        }
+      },
+      "hash": "5a136f8b15a22f8c1def3d6d770f08695b7ba8027b78f504718c5e06d5578402"
+    }
+  ]
+}

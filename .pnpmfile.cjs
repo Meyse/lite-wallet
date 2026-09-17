@@ -18,16 +18,18 @@ const trustedGitPackageEdges = {
     dependencies: {
       blake2b: 'https://github.com/VerusCoin/blake2b',
       'verus-typescript-primitives':
-        'git+https://github.com/VerusCoin/verus-typescript-primitives.git',
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git#7a7b01db697222cd68507a9dbf15f289615ea890',
     },
   },
   'verusid-ts-client': {
     version: '0.1.0',
     dependencies: {
-      '@bitgo/utxo-lib': 'git+https://github.com/VerusCoin/BitGoJS.git#utxo-lib-verus',
+      '@bitgo/utxo-lib':
+        'git+https://github.com/VerusCoin/BitGoJS.git#9582a20f7211a7a6aed7bfae3c651e6b76c1f9bb',
       'verus-typescript-primitives':
-        'git+https://github.com/VerusCoin/verus-typescript-primitives.git',
-      'verusd-rpc-ts-client': 'git+https://github.com/VerusCoin/verusd-rpc-ts-client',
+        'git+https://github.com/VerusCoin/verus-typescript-primitives.git#7a7b01db697222cd68507a9dbf15f289615ea890',
+      'verusd-rpc-ts-client':
+        'git+https://github.com/VerusCoin/verusd-rpc-ts-client#58689ea52500a6a6e4aa741e5d2ed41d7bc6ddd7',
     },
   },
 };

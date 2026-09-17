@@ -870,7 +870,10 @@ fn build_unsigned_generic_response_hex(
     write_compact_size(&mut response, flags as usize);
 
     write_varint(&mut response, 0);
-    write_compact_size(&mut response, 0);
+    write_compact_size(
+        &mut response,
+        crate::core::crypto::verus_id_signature::VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM as usize,
+    );
     write_compact_size(&mut response, VERIFIABLE_SIGNATURE_VERSION_V2 as usize);
     write_compact_size(&mut response, HASH_TYPE_SHA256 as usize);
     response.extend_from_slice(&encode_compact_i_address(&request.signer.system_id)?);
@@ -2481,7 +2484,10 @@ mod tests {
         write_compact_size(&mut request, 1);
         write_compact_size(&mut request, flags as usize);
         write_varint(&mut request, 0);
-        write_compact_size(&mut request, 0);
+        write_compact_size(
+            &mut request,
+            crate::core::crypto::verus_id_signature::VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM as usize,
+        );
         write_compact_size(&mut request, VERIFIABLE_SIGNATURE_VERSION_V2 as usize);
         write_compact_size(&mut request, HASH_TYPE_SHA256 as usize);
         request.extend_from_slice(&encode_compact_i_address(TEST_SYSTEM_ID).expect("system id"));
@@ -2497,6 +2503,25 @@ mod tests {
         }
 
         hex::encode(request)
+    }
+
+    #[test]
+    fn response_system_flag_and_bytes_match_typescript_candidate() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../src/lib/genericRequest/fixtures/unsigned-response.json"
+        ))
+        .expect("public response fixture");
+        let request = test_request(
+            fixture["requestHex"].as_str().unwrap().to_string(),
+            Some(GenericAuthenticationResponseInput {
+                request_id: Some(fixture["authId"].as_str().unwrap().to_string()),
+            }),
+            None,
+        );
+        let response =
+            build_unsigned_generic_response_hex(&request, fixture["createdAt"].as_u64().unwrap())
+                .expect("unsigned response");
+        assert_eq!(response, fixture["responseHex"].as_str().unwrap());
     }
 
     fn test_signing_context(network: crate::core::crypto::Network, seed: u8) -> ([u8; 32], String) {
