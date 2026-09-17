@@ -28,9 +28,7 @@
     "test": "node --test scripts/pnpmfile.node-test.cjs && vitest run && vitest run --config vitest.mounted.config.ts",
     "test:mounted": "vitest run --config vitest.mounted.config.ts",
     "test:watch": "vitest",
-    "pre-commit": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm docs:check",
-    "dev:e2e:appearance": "TAURI_WEBDRIVER_PORT=4445 tauri dev --features e2e-webdriver",
-    "test:e2e:appearance": "node --test tests/native/appearance-light.test.mjs"
+    "pre-commit": "pnpm lint && pnpm format:check && pnpm check && pnpm test && pnpm docs:check"
   },
   "license": "MIT",
   "dependencies": {

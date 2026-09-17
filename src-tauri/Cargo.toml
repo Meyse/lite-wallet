@@ -21,7 +21,7 @@ sha2 = "0.10"
 blake2b_simd = "1.0"
 
 [features]
-# Explicitly opt in for the local native appearance smoke test.
+# Explicitly opt in for local native UI automation.
 e2e-webdriver = ["dep:tauri-plugin-wdio-webdriver"]
 
 [dependencies]
