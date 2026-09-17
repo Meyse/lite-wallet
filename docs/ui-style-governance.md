@@ -83,6 +83,15 @@ component.
 
 ## Approved literal registries
 
+The wallet overview balance banner follows the approved Paper design at
+`https://app.paper.design/file/01M2QVY623ETT6FS77D9T0RMDN`:
+`wallet-balance-gradient-start` and `wallet-balance-gradient-end` define its
+theme-specific blue gradient. `wallet-balance-foreground` and
+`wallet-balance-muted` define the amount and secondary controls. The
+`wallet-balance-edge` token is applied only to the bottom edge in light mode and
+the top edge in dark mode. The banner keeps live totals and their loading,
+partial-total, and hide/show states; Paper sample amounts are not app data.
+
 - Wallet palette: `src/lib/constants/walletColors.ts`
 - Identity avatar gradients: `src/lib/styles/identityAvatarGradients.ts`
 - Core theme tokens and semantic UI tokens: `src/app.css`

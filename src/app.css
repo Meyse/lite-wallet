@@ -107,6 +107,11 @@
   --sidebar-item-hover: #e0e0e0;
   --sidebar-item-pressed: #d8d8d8;
   --sidebar-item-active: #e5e5e5;
+  --wallet-balance-gradient-start: oklab(53.6% -0.022 -0.179);
+  --wallet-balance-gradient-end: oklab(70.5% -0.019 -0.153);
+  --wallet-balance-foreground: #ffffff;
+  --wallet-balance-muted: #c2d7ff;
+  --wallet-balance-edge: #3266d5;
   --settings-surface: #f2f2f4;
   --settings-control-surface: #ffffff;
   --settings-segment-surface: #e6e6ea;
@@ -163,6 +168,9 @@
   --sidebar-item-hover: #36373b;
   --sidebar-item-pressed: #323338;
   --sidebar-item-active: #303136;
+  --wallet-balance-gradient-start: oklab(34.3% -0.017 -0.138);
+  --wallet-balance-gradient-end: oklab(43.2% -0.018 -0.147);
+  --wallet-balance-edge: #21499f;
   --settings-surface: #1d1d20;
   --settings-control-surface: #303136;
   --settings-segment-surface: #111111;

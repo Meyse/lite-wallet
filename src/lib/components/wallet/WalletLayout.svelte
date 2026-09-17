@@ -254,7 +254,11 @@
     {/if}
     <Sidebar.Inset class="h-full min-h-0 min-w-0 dark:bg-app-canvas">
       {#if !isTransferFocusMode}
-        <div class="h-6 shrink-0" data-tauri-drag-region aria-hidden="true"></div>
+        <div
+          class={`${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
+          data-tauri-drag-region
+          aria-hidden="true"
+        ></div>
       {/if}
       {#if latestError}
         <div class="pointer-events-none absolute right-6 bottom-6 left-6 z-50 flex justify-end">

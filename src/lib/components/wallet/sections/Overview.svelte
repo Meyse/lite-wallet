@@ -532,24 +532,30 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-0 pb-6 sm:px-8">
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <div
-      class={`z-10 bg-background pt-3 pb-4 sm:pt-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
+      class={`z-10 shrink-0 bg-background pb-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
-      <div class="flex items-start justify-between gap-4">
+      <div
+        class="balance-banner flex min-h-[92px] items-center justify-between gap-4 rounded-md py-4 pr-3.5 pl-[22px]"
+      >
         <div class="relative z-20 min-w-0">
-          <div class="holdings-obscured-bleed flex items-start">
+          <div class="flex flex-wrap items-center gap-2">
             {#if heroValueIsLoading}
               <div class="flex h-[49px] items-center" aria-label={i18n.t('common.loading')}>
-                <Skeleton class="h-9 w-40 rounded-md sm:h-10 sm:w-48" />
+                <Skeleton class="h-9 w-40 rounded-md bg-white/20 sm:h-10 sm:w-48" />
               </div>
             {:else}
-              <div class={`flex h-[49px] items-start ${hideHoldings ? 'holdings-obscured' : ''}`}>
+              <div
+                class={`flex min-h-[49px] min-w-0 items-center ${hideHoldings ? 'holdings-obscured' : ''}`}
+              >
                 {#if heroSummary.symbol}
-                  <span class="mt-1 mr-1.5 text-xl font-semibold text-muted-foreground sm:text-2xl">
+                  <span
+                    class="balance-banner-muted mr-1.5 shrink-0 text-xl font-semibold sm:text-2xl"
+                  >
                     {heroSummary.symbol}
                   </span>
                 {/if}
                 <p
-                  class="font-google-sans-17pt text-4xl leading-[1.02] font-semibold tracking-tight sm:text-5xl"
+                  class="font-google-sans-17pt min-w-0 text-4xl leading-[1.02] font-semibold tracking-tight break-all sm:text-5xl"
                 >
                   {heroSummary.value}
                 </p>
@@ -562,7 +568,7 @@
                         {...props}
                         type="button"
                         aria-describedby={partialTotalTooltipId}
-                        class="mt-2 ml-2 inline-flex h-5 items-center rounded-sm border border-border/80 bg-muted/60 px-1.5 text-[11px] leading-none font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                        class="inline-flex h-5 items-center rounded-sm border border-white/30 bg-white/10 px-1.5 text-[11px] leading-none font-medium text-white transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
                       >
                         {i18n.t('wallet.overview.partialTotalLabel')}
                       </button>
@@ -581,7 +587,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="mt-0.5 rounded-full text-muted-foreground/85 hover:text-foreground"
+          class="rounded-full text-(--wallet-balance-muted) hover:bg-white/10 hover:text-white focus-visible:ring-white dark:hover:bg-white/10"
           aria-label={hideHoldings
             ? i18n.t('wallet.overview.showHoldings')
             : i18n.t('wallet.overview.hideHoldings')}
@@ -599,7 +605,7 @@
           {/if}
         </Button>
       </div>
-      <div class="mt-5 w-full">
+      <div class="mt-1.5 w-full">
         <div class="flex w-full gap-2">
           <div class="grid w-full flex-1 grid-cols-3 gap-2">
             <Button
@@ -793,6 +799,25 @@
 <AddAssetSheet bind:isOpen={showAddAssetSheet} network={walletNetwork} />
 
 <style>
+  .balance-banner {
+    color: var(--wallet-balance-foreground);
+    background: linear-gradient(
+      180deg in oklab,
+      var(--wallet-balance-gradient-start) 0.01%,
+      var(--wallet-balance-gradient-end) 99.99%
+    );
+    border-bottom: 1px solid var(--wallet-balance-edge);
+  }
+
+  :global(.dark) .balance-banner {
+    border-top: 1px solid var(--wallet-balance-edge);
+    border-bottom: 0;
+  }
+
+  .balance-banner-muted {
+    color: var(--wallet-balance-muted);
+  }
+
   /* Fast requests should not flash a notice; persistent partial data stays visible. */
   .overview-notice {
     animation: reveal-notice 0s 400ms both;
@@ -814,10 +839,6 @@
     user-select: none;
     pointer-events: none;
     transition: filter 120ms ease;
-  }
-
-  .holdings-obscured-bleed {
-    padding: 0.3rem 0.45rem;
   }
 
   .scroll-hint {

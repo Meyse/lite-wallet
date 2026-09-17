@@ -3,6 +3,7 @@ export const approvedUiHexColorRegistry = {
   appCanvas: ['#FBFBFB', '#111111'],
   sidebarSurface: ['#EDEDED', '#28282B'],
   sidebarInteraction: ['#E0E0E0', '#D8D8D8', '#E5E5E5', '#36373B', '#323338', '#303136'],
+  walletBalance: ['#FFFFFF', '#C2D7FF', '#3266D5', '#21499F'],
   settingsSurfaces: [
     '#F2F2F4',
     '#FFFFFF',
@@ -53,6 +54,7 @@ export const approvedUiHexSources = {
     'appCanvas',
     'sidebarSurface',
     'sidebarInteraction',
+    'walletBalance',
     'settingsSurfaces',
     'guardActions',
     'communityBrand',
