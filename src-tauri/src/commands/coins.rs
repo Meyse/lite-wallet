@@ -201,6 +201,7 @@ fn build_erc20_coin_definition(
     name: &str,
     decimals: u8,
     mapped_to: Option<String>,
+    network: WalletNetwork,
 ) -> Result<CoinDefinition, WalletError> {
     let symbol_trimmed = symbol.trim();
     if symbol_trimmed.is_empty() {
@@ -239,8 +240,16 @@ fn build_erc20_coin_definition(
                     Some(trimmed.to_string())
                 }
             })
-            .or_else(|| Some("ETH".to_string())),
-        is_testnet: false,
+            .or_else(|| {
+                Some(
+                    match network {
+                        WalletNetwork::Mainnet => "ETH",
+                        WalletNetwork::Testnet => "GETH",
+                    }
+                    .to_string(),
+                )
+            }),
+        is_testnet: matches!(network, WalletNetwork::Testnet),
     })
 }
 
@@ -407,7 +416,7 @@ pub async fn resolve_pbaas_currency(
     })
 }
 
-/// Resolves ERC20 metadata by contract on Ethereum mainnet.
+/// Resolves ERC20 metadata by contract on the active Ethereum network.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn resolve_erc20_contract(
     contract: String,
@@ -416,11 +425,8 @@ pub async fn resolve_erc20_contract(
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<Erc20ResolveResult, WalletError> {
     let network = require_active_network(session_manager.inner()).await?;
-    if !matches!(network, WalletNetwork::Mainnet) {
-        return Err(WalletError::UnsupportedNetwork);
-    }
-
     let provider = eth_provider_pool.for_network(network)?;
+    provider.validate_rpc_identity().await?;
     let contract_address = parse_contract_address(&contract)?;
 
     let bytecode = provider
@@ -473,7 +479,14 @@ pub async fn resolve_erc20_contract(
             Err(_) => None,
         };
 
-    let coin = build_erc20_coin_definition(contract_address, &symbol, &name, decimals, mapped_to)?;
+    let coin = build_erc20_coin_definition(
+        contract_address,
+        &symbol,
+        &name,
+        decimals,
+        mapped_to,
+        network,
+    )?;
 
     Ok(Erc20ResolveResult::Resolved { coin })
 }
@@ -492,13 +505,40 @@ mod tests {
     fn build_erc20_coin_definition_uses_deterministic_id() {
         let contract = parse_contract_address("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
             .expect("valid contract");
-        let coin = build_erc20_coin_definition(contract, "usdc", "USD Coin", 6, None)
-            .expect("coin definition");
+        let coin = build_erc20_coin_definition(
+            contract,
+            "usdc",
+            "USD Coin",
+            6,
+            None,
+            WalletNetwork::Mainnet,
+        )
+        .expect("coin definition");
 
         assert_eq!(coin.id, "erc20_0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
         assert_eq!(coin.display_ticker, "USDC");
         assert_eq!(coin.decimals, 6);
         assert_eq!(coin.proto, Protocol::Erc20);
+        assert!(!coin.is_testnet);
+        assert_eq!(coin.mapped_to.as_deref(), Some("ETH"));
+    }
+
+    #[test]
+    fn build_erc20_coin_definition_scopes_sepolia_assets_to_testnet() {
+        let contract = parse_contract_address("0x1111111111111111111111111111111111111111")
+            .expect("valid contract");
+        let coin = build_erc20_coin_definition(
+            contract,
+            "test",
+            "Test token",
+            18,
+            None,
+            WalletNetwork::Testnet,
+        )
+        .expect("coin definition");
+
+        assert!(coin.is_testnet);
+        assert_eq!(coin.mapped_to.as_deref(), Some("GETH"));
     }
 
     #[test]

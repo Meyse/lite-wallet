@@ -1,6 +1,6 @@
 mod balance;
 pub mod bridge;
-mod config;
+pub(crate) mod config;
 mod preflight;
 mod provider;
 mod send;

@@ -2971,6 +2971,8 @@
       return i18n.t('wallet.transfer.error.bridgeNotImplemented');
     if (errorType === 'BridgeRouteInvalid')
       return i18n.t('wallet.transfer.error.bridgeRouteInvalid');
+    if (errorType === 'BridgeDeploymentUnavailable')
+      return i18n.t('wallet.transfer.error.bridgeDeploymentUnavailable');
     if (errorType === 'BridgeUnsupportedDestinationCombination') {
       return i18n.t('wallet.transfer.error.bridgeUnsupportedDestinationCombination');
     }
@@ -3011,6 +3013,10 @@
     if (errorType === 'InsufficientEthForGas')
       return i18n.t('wallet.transfer.error.insufficientEthForGas');
     if (errorType === 'EthNotConfigured') return i18n.t('wallet.transfer.error.ethNotConfigured');
+    if (errorType === 'EthNetworkMismatch')
+      return i18n.t('wallet.transfer.error.ethNetworkMismatch');
+    if (errorType === 'UnsupportedNetwork')
+      return i18n.t('wallet.transfer.error.unsupportedNetwork');
     if (errorType === 'NativeCommandUnavailable')
       return i18n.t('wallet.transfer.error.nativeCommandUnavailable');
     if (errorType === 'GasEstimationFailed')

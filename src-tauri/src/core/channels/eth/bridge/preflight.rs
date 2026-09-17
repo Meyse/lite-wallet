@@ -9,7 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::core::channels::eth::bridge::delegator::{
-    delegator_contract_for_chain_id, VerusBridgeDelegatorContract,
+    validate_delegator_contract, VerusBridgeDelegatorContract,
 };
 use crate::core::channels::eth::bridge::fees::{
     add_fraction, approval_estimate_skip, approval_zero_out_required, base_bridge_fee_wei,
@@ -64,6 +64,7 @@ pub async fn preflight(
     vrpc_provider: &VrpcProvider,
     provider: &EthNetworkProvider,
 ) -> Result<BridgeTransferPreflightResult, WalletError> {
+    let (delegator_address, past_prelaunch) = validate_delegator_contract(provider).await?;
     let from = from_address
         .trim()
         .parse::<Address>()
@@ -113,17 +114,10 @@ pub async fn preflight(
         extract_currency_id(&veth_definition).ok_or(WalletError::BridgeRouteInvalid)?;
     let veth_hex = to_eth_address_from_iaddress(&veth_iaddress)?;
 
-    let delegator_address = delegator_contract_for_chain_id(provider.chain_id)?;
     let delegator = VerusBridgeDelegatorContract::new(
         delegator_address,
         Arc::new(provider.rpc_provider.clone()),
     );
-    let past_prelaunch = delegator
-        .bridge_converter_active()
-        .call()
-        .await
-        .map_err(|_| WalletError::NetworkError)?;
-
     if is_conversion && !past_prelaunch {
         return Err(WalletError::BridgeRouteInvalid);
     }

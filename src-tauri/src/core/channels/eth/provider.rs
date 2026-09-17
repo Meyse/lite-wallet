@@ -1,22 +1,40 @@
 use std::time::Duration;
 
-use ethers::providers::{Http, Provider};
+use ethers::providers::{Http, Middleware, Provider};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::core::channels::eth::config::EthChannelConfig;
+use crate::core::channels::eth::config::{
+    metadata_for_network, ETHEREUM_MAINNET_CHAIN_ID, ETHEREUM_SEPOLIA_CHAIN_ID,
+};
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
-
-const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
-const ETHEREUM_SEPOLIA_CHAIN_ID: u64 = 11155111;
 
 #[derive(Debug, Clone)]
 pub struct EthNetworkProvider {
     pub chain_id: u64,
     pub rpc_provider: Provider<Http>,
     pub history_provider: EtherscanHistoryClient,
+}
+
+impl EthNetworkProvider {
+    /// Re-read the endpoint identity for every independent operation. The URL
+    /// may be overridden or change upstream, so the configured chain id alone
+    /// is never treated as proof of the connected network.
+    pub async fn validate_rpc_identity(&self) -> Result<(), WalletError> {
+        let observed_chain_id = self
+            .rpc_provider
+            .get_chainid()
+            .await
+            .map_err(|_| WalletError::NetworkError)?
+            .as_u64();
+        if observed_chain_id != self.chain_id {
+            return Err(WalletError::EthNetworkMismatch);
+        }
+        Ok(())
+    }
 }
 
 pub struct EthProviderPool {
@@ -434,10 +452,7 @@ impl EtherscanHistoryClient {
 }
 
 pub(crate) fn chain_id_for_network(network: WalletNetwork) -> u64 {
-    match network {
-        WalletNetwork::Mainnet => ETHEREUM_MAINNET_CHAIN_ID,
-        WalletNetwork::Testnet => ETHEREUM_SEPOLIA_CHAIN_ID,
-    }
+    metadata_for_network(network).chain_id
 }
 
 fn is_rate_limited_result(result: &Value) -> bool {
@@ -471,16 +486,72 @@ fn log_history_api_error(
 
 #[cfg(test)]
 mod tests {
-    use super::EtherscanHistoryClient;
+    use super::{EthProviderPool, EtherscanHistoryClient};
     use crate::types::wallet::WalletNetwork;
     use crate::types::WalletError;
     use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn chain_id_fixture(chain_id: &str) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind chain-id fixture");
+        let url = format!("http://{}", listener.local_addr().expect("fixture address"));
+        let result = chain_id.to_string();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept chain-id request");
+            let mut request = vec![0u8; 4096];
+            let read = socket.read(&mut request).await.expect("read request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("eth_chainId"));
+            let body = serde_json::json!({"jsonrpc":"2.0","id":1,"result":result}).to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+        (url, task)
+    }
 
     fn query_value(query: &[(String, String)], key: &str) -> Option<String> {
         query
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, value)| value.clone())
+    }
+
+    #[tokio::test]
+    async fn rpc_identity_accepts_the_expected_sepolia_chain() {
+        let (url, fixture) = chain_id_fixture("0xaa36a7").await;
+        let pool = EthProviderPool::for_tests(WalletNetwork::Testnet, &url);
+
+        pool.for_network(WalletNetwork::Testnet)
+            .expect("testnet provider")
+            .validate_rpc_identity()
+            .await
+            .expect("Sepolia identity");
+        fixture.await.expect("fixture completion");
+    }
+
+    #[tokio::test]
+    async fn rpc_identity_rejects_goerli_for_the_testnet_provider() {
+        let (url, fixture) = chain_id_fixture("0x5").await;
+        let pool = EthProviderPool::for_tests(WalletNetwork::Testnet, &url);
+
+        let error = pool
+            .for_network(WalletNetwork::Testnet)
+            .expect("testnet provider")
+            .validate_rpc_identity()
+            .await
+            .expect_err("Goerli must not masquerade as Sepolia");
+        assert!(matches!(error, WalletError::EthNetworkMismatch));
+        fixture.await.expect("fixture completion");
     }
 
     #[test]

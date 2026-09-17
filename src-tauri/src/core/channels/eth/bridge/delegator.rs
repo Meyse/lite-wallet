@@ -2,15 +2,13 @@
 // Verus bridge delegator contract metadata and helpers.
 
 use ethers::contract::abigen;
+use ethers::providers::Middleware;
 use ethers::types::Address;
 
+use crate::core::channels::eth::config::{metadata_for_chain_id, metadata_for_network};
+use crate::core::channels::eth::provider::EthNetworkProvider;
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
-
-pub const VERUS_BRIDGE_DELEGATOR_MAINNET_CONTRACT: &str =
-    "0x71518580f36FeCEFfE0721F06bA4703218cD7F63";
-pub const VERUS_BRIDGE_DELEGATOR_GOERLI_CONTRACT: &str =
-    "0x85a7de2278e52327471e174aeeb280cdfdc6a68a";
 
 abigen!(
     VerusBridgeDelegatorContract,
@@ -91,22 +89,43 @@ abigen!(
 );
 
 pub fn delegator_contract_for_network(network: WalletNetwork) -> Result<Address, WalletError> {
-    let raw = match network {
-        WalletNetwork::Mainnet => VERUS_BRIDGE_DELEGATOR_MAINNET_CONTRACT,
-        WalletNetwork::Testnet => VERUS_BRIDGE_DELEGATOR_GOERLI_CONTRACT,
-    };
-
-    raw.parse::<Address>()
+    metadata_for_network(network)
+        .bridge_delegator
+        .parse::<Address>()
         .map_err(|_| WalletError::OperationFailed)
 }
 
 pub fn delegator_contract_for_chain_id(chain_id: u64) -> Result<Address, WalletError> {
-    let network = if chain_id == 1 {
-        WalletNetwork::Mainnet
-    } else {
-        WalletNetwork::Testnet
-    };
-    delegator_contract_for_network(network)
+    metadata_for_chain_id(chain_id)?
+        .bridge_delegator
+        .parse::<Address>()
+        .map_err(|_| WalletError::OperationFailed)
+}
+
+pub async fn validate_delegator_contract(
+    provider: &EthNetworkProvider,
+) -> Result<(Address, bool), WalletError> {
+    provider.validate_rpc_identity().await?;
+    let address = delegator_contract_for_chain_id(provider.chain_id)?;
+    let code = provider
+        .rpc_provider
+        .get_code(address, None)
+        .await
+        .map_err(|_| WalletError::NetworkError)?;
+    if code.as_ref().is_empty() {
+        return Err(WalletError::BridgeDeploymentUnavailable);
+    }
+
+    let contract = VerusBridgeDelegatorContract::new(
+        address,
+        std::sync::Arc::new(provider.rpc_provider.clone()),
+    );
+    let converter_active = contract
+        .bridge_converter_active()
+        .call()
+        .await
+        .map_err(|_| WalletError::BridgeDeploymentUnavailable)?;
+    Ok((address, converter_active))
 }
 
 #[cfg(test)]
@@ -132,5 +151,11 @@ mod tests {
         let mainnet = delegator_contract_for_chain_id(1).expect("mainnet");
         let testnet = delegator_contract_for_chain_id(11155111).expect("testnet");
         assert_ne!(mainnet, testnet);
+    }
+
+    #[test]
+    fn goerli_and_unknown_chain_ids_are_rejected() {
+        assert!(delegator_contract_for_chain_id(5).is_err());
+        assert!(delegator_contract_for_chain_id(31337).is_err());
     }
 }

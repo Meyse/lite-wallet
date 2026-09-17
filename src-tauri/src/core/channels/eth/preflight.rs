@@ -123,6 +123,7 @@ pub async fn preflight_eth(
     channel_id: &str,
     provider: &EthNetworkProvider,
 ) -> Result<PreflightResult, WalletError> {
+    provider.validate_rpc_identity().await?;
     let parsed_from = parse_eth_address(from_address)?;
     let parsed_to = parse_eth_address(&params.to_address)?;
 
@@ -205,6 +206,7 @@ pub async fn preflight_erc20(
     coin: &CoinDefinition,
     provider: &EthNetworkProvider,
 ) -> Result<PreflightResult, WalletError> {
+    provider.validate_rpc_identity().await?;
     let parsed_from = parse_eth_address(from_address)?;
     let parsed_to = parse_eth_address(&params.to_address)?;
 
@@ -296,7 +298,7 @@ pub async fn preflight_erc20(
     Ok(PreflightResult {
         preflight_id,
         fee: fee_display,
-        fee_currency: if coin.is_testnet { "GETH" } else { "ETH" }.to_string(),
+        fee_currency: "ETH".to_string(),
         value: value_display,
         amount_submitted: params.amount,
         to_address: format_address(parsed_to),

@@ -8,7 +8,7 @@ use std::time::Duration;
 use ethers::abi::Abi;
 use ethers::contract::Contract;
 use ethers::middleware::SignerMiddleware;
-use ethers::providers::{Http, Middleware, Provider};
+use ethers::providers::Middleware;
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::{Address, Bytes, Eip1559TransactionRequest, H256, U256};
@@ -22,10 +22,11 @@ use crate::core::auth::{
     load_primary_private_scalar_for_context, SessionManager, SessionSubmissionGuard,
 };
 use crate::core::channels::eth::bridge::delegator::{
-    CcurrencyValueMap, CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
+    delegator_contract_for_chain_id, validate_delegator_contract, CcurrencyValueMap,
+    CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
 };
 use crate::core::channels::eth::preflight::EthPreflightPayload;
-use crate::core::channels::eth::provider::{chain_id_for_network, EthProviderPool};
+use crate::core::channels::eth::provider::EthProviderPool;
 use crate::core::channels::store::PreflightStore;
 use crate::types::transaction::SendResult;
 use crate::types::wallet::WalletNetwork;
@@ -296,10 +297,11 @@ pub async fn send(
     // durable operation. Recovery is a separate, explicit command keyed by an
     // opaque recovery id and displays the old operation before any effect.
     if let Some(pending) = load_pending_submission(&context).await? {
-        validate_pending_binding(&pending, &context, network_provider.chain_id)?;
+        validate_pending_integrity(&pending, &context)?;
         return Err(WalletError::EthRecoveryRequired(pending.recovery_id));
     }
 
+    network_provider.validate_rpc_identity().await?;
     let private_key = load_primary_private_scalar_for_context(&context).await?;
     let wallet = LocalWallet::from_bytes(&*private_key)
         .map_err(|_| WalletError::OperationFailed)?
@@ -331,14 +333,13 @@ pub async fn get_pending_submission_review(
     _provider_pool: &EthProviderPool,
 ) -> Result<Option<EthPendingSubmissionReview>, WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
-    let chain_id = chain_id_for_network(context.wallet_network);
     let send_lock = eth_send_lock(&context.account_id, context.wallet_network);
     let _send_guard = send_lock.lock().await;
     ensure_active_wallet_session(session_manager, &context.session_id).await?;
     let Some(pending) = load_pending_submission(&context).await? else {
         return Ok(None);
     };
-    validate_pending_binding(&pending, &context, chain_id)?;
+    validate_pending_integrity(&pending, &context)?;
     Ok(Some(pending.review()?))
 }
 
@@ -358,10 +359,12 @@ pub async fn resume_pending_submission(
     if pending.recovery_id != recovery_id {
         return Err(WalletError::InvalidPreflight);
     }
-    validate_pending_binding(&pending, &context, network_provider.chain_id)?;
+    validate_pending_integrity(&pending, &context)?;
     if pending.stage.is_final() && pending.status == EthSubmissionStatus::BroadcastKnown {
         return Ok(pending.result);
     }
+    validate_pending_binding(&pending, &context, network_provider.chain_id)?;
+    validate_payload_execution_policy(&pending.payload, network_provider).await?;
 
     let private_key = load_primary_private_scalar_for_context(&context).await?;
     let wallet = LocalWallet::from_bytes(&*private_key)
@@ -389,7 +392,6 @@ pub async fn acknowledge_pending_submission(
     _provider_pool: &EthProviderPool,
 ) -> Result<(), WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
-    let chain_id = chain_id_for_network(context.wallet_network);
     let send_lock = eth_send_lock(&context.account_id, context.wallet_network);
     let _send_guard = send_lock.lock().await;
     ensure_active_wallet_session(session_manager, &context.session_id).await?;
@@ -399,7 +401,7 @@ pub async fn acknowledge_pending_submission(
     if pending.recovery_id != recovery_id {
         return Err(WalletError::InvalidPreflight);
     }
-    validate_pending_binding(&pending, &context, chain_id)?;
+    validate_pending_integrity(&pending, &context)?;
     if !pending.stage.is_final() || pending.status != EthSubmissionStatus::BroadcastKnown {
         return Err(WalletError::InvalidPreflight);
     }
@@ -453,6 +455,28 @@ fn validate_payload_binding(
     Ok(())
 }
 
+async fn validate_payload_execution_policy(
+    payload: &EthPreflightPayload,
+    network_provider: &crate::core::channels::eth::provider::EthNetworkProvider,
+) -> Result<(), WalletError> {
+    if let EthPreflightPayload::Bridge {
+        bridge_contract, ..
+    } = payload
+    {
+        let recorded_contract: Address = bridge_contract
+            .parse()
+            .map_err(|_| WalletError::InvalidPreflight)?;
+        let configured_contract = delegator_contract_for_chain_id(network_provider.chain_id)?;
+        if recorded_contract != configured_contract {
+            return Err(WalletError::BridgeDeploymentUnavailable);
+        }
+        validate_delegator_contract(network_provider).await?;
+    } else {
+        network_provider.validate_rpc_identity().await?;
+    }
+    Ok(())
+}
+
 fn payload_result(payload: &EthPreflightPayload) -> SendResult {
     match payload {
         EthPreflightPayload::Eth {
@@ -490,11 +514,7 @@ fn recovery_review_context(
     payload: &EthPreflightPayload,
     wallet_network: WalletNetwork,
 ) -> EthRecoveryReviewContext {
-    let fee_currency = match wallet_network {
-        WalletNetwork::Mainnet => "ETH",
-        WalletNetwork::Testnet => "GETH",
-    }
-    .to_string();
+    let fee_currency = "ETH".to_string();
 
     match payload {
         EthPreflightPayload::Eth {
@@ -919,16 +939,15 @@ async fn load_pending_submission(
     Ok(Some(pending))
 }
 
-fn validate_pending_binding(
+fn validate_pending_integrity(
     pending: &EthPendingSubmission,
     context: &ActiveWalletAccessContext,
-    expected_chain_id: u64,
 ) -> Result<(), WalletError> {
     let expected_from: Address = context
         .eth_address
         .parse()
         .map_err(|_| WalletError::InvalidAddress)?;
-    validate_payload_binding(&pending.payload, expected_chain_id, expected_from)?;
+    validate_payload_binding(&pending.payload, pending.chain_id, expected_from)?;
     let expected_review_context = recovery_review_context(&pending.payload, context.wallet_network);
     if pending.review_context.as_ref() != Some(&expected_review_context)
         || pending.result.fee != expected_review_context.fee
@@ -938,10 +957,9 @@ fn validate_pending_binding(
     {
         return Err(WalletError::SecureStorageUnavailable);
     }
-    if pending.chain_id != expected_chain_id
-        || !pending
-            .from_address
-            .eq_ignore_ascii_case(&context.eth_address)
+    if !pending
+        .from_address
+        .eq_ignore_ascii_case(&context.eth_address)
     {
         return Err(WalletError::SecureStorageUnavailable);
     }
@@ -963,6 +981,18 @@ fn validate_pending_binding(
         || (pending.status == EthSubmissionStatus::Confirmed && !pending.stage.requires_receipt())
     {
         return Err(WalletError::SecureStorageUnavailable);
+    }
+    Ok(())
+}
+
+fn validate_pending_binding(
+    pending: &EthPendingSubmission,
+    context: &ActiveWalletAccessContext,
+    expected_chain_id: u64,
+) -> Result<(), WalletError> {
+    validate_pending_integrity(pending, context)?;
+    if pending.chain_id != expected_chain_id {
+        return Err(WalletError::UnsupportedNetwork);
     }
     Ok(())
 }
@@ -1003,8 +1033,15 @@ async fn prepare_pending_submission(
     preflight_id: &str,
     context: &ActiveWalletAccessContext,
     operation: &SessionBoundEthOperation,
+    network_provider: &crate::core::channels::eth::provider::EthNetworkProvider,
     signer: &SignerMiddleware<ethers::providers::Provider<ethers::providers::Http>, LocalWallet>,
 ) -> Result<EthPendingSubmission, WalletError> {
+    operation
+        .wait(validate_payload_execution_policy(
+            &payload,
+            network_provider,
+        ))
+        .await?;
     operation
         .wait(async {
             signer
@@ -1063,8 +1100,15 @@ async fn prepare_pending_submission(
 async fn broadcast_pending_submission(
     pending: &EthPendingSubmission,
     operation: &SessionBoundEthOperation,
-    rpc_provider: &Provider<Http>,
+    network_provider: &crate::core::channels::eth::provider::EthNetworkProvider,
 ) -> Result<(), WalletError> {
+    operation
+        .wait(validate_payload_execution_policy(
+            &pending.payload,
+            network_provider,
+        ))
+        .await?;
+    let rpc_provider = &network_provider.rpc_provider;
     let tx_hash: H256 = pending
         .tx_hash
         .parse()
@@ -1086,6 +1130,12 @@ async fn broadcast_pending_submission(
     let raw = hex::decode(&pending.raw_signed_transaction)
         .map(Bytes::from)
         .map_err(|_| WalletError::SecureStorageUnavailable)?;
+    operation
+        .wait(validate_payload_execution_policy(
+            &pending.payload,
+            network_provider,
+        ))
+        .await?;
     let submitted = operation
         .submit(async {
             rpc_provider
@@ -1128,13 +1178,20 @@ fn map_eth_uncertain(error: WalletError, tx_hash: &str) -> WalletError {
 async fn wait_for_approval_receipt(
     pending: &EthPendingSubmission,
     operation: &SessionBoundEthOperation,
-    rpc_provider: &Provider<Http>,
+    network_provider: &crate::core::channels::eth::provider::EthNetworkProvider,
 ) -> Result<(), WalletError> {
+    let rpc_provider = &network_provider.rpc_provider;
     let tx_hash: H256 = pending
         .tx_hash
         .parse()
         .map_err(|_| WalletError::SecureStorageUnavailable)?;
     loop {
+        operation
+            .wait(validate_payload_execution_policy(
+                &pending.payload,
+                network_provider,
+            ))
+            .await?;
         let receipt = operation
             .wait(async {
                 rpc_provider
@@ -1178,15 +1235,14 @@ async fn submit_approval_transaction(
         preflight_id,
         context,
         operation,
+        network_provider,
         signer.as_ref(),
     )
     .await?;
-    broadcast_pending_submission(&pending, operation, &network_provider.rpc_provider).await?;
+    broadcast_pending_submission(&pending, operation, network_provider).await?;
     pending.status = EthSubmissionStatus::BroadcastKnown;
     persist_pending_submission(context, operation, &pending).await?;
-    if let Err(error) =
-        wait_for_approval_receipt(&pending, operation, &network_provider.rpc_provider).await
-    {
+    if let Err(error) = wait_for_approval_receipt(&pending, operation, network_provider).await {
         if matches!(error, WalletError::BridgeApprovalFailed) {
             clear_pending_submission(context, operation).await?;
         }
@@ -1215,10 +1271,11 @@ async fn submit_final_transaction(
         preflight_id,
         context,
         operation,
+        network_provider,
         signer.as_ref(),
     )
     .await?;
-    broadcast_pending_submission(&pending, operation, &network_provider.rpc_provider).await?;
+    broadcast_pending_submission(&pending, operation, network_provider).await?;
     pending.status = EthSubmissionStatus::BroadcastKnown;
     persist_pending_submission(context, operation, &pending).await?;
     Ok(pending.result)
@@ -1234,17 +1291,16 @@ async fn resume_pending_submission_explicit(
     >,
 ) -> Result<SendResult, WalletError> {
     validate_pending_binding(&pending, context, network_provider.chain_id)?;
+    validate_payload_execution_policy(&pending.payload, network_provider).await?;
 
     if pending.status == EthSubmissionStatus::Prepared {
-        broadcast_pending_submission(&pending, operation, &network_provider.rpc_provider).await?;
+        broadcast_pending_submission(&pending, operation, network_provider).await?;
         pending.status = EthSubmissionStatus::BroadcastKnown;
         persist_pending_submission(context, operation, &pending).await?;
     }
 
     if pending.stage.requires_receipt() && pending.status == EthSubmissionStatus::BroadcastKnown {
-        if let Err(error) =
-            wait_for_approval_receipt(&pending, operation, &network_provider.rpc_provider).await
-        {
+        if let Err(error) = wait_for_approval_receipt(&pending, operation, network_provider).await {
             if matches!(error, WalletError::BridgeApprovalFailed) {
                 clear_pending_submission(context, operation).await?;
             }
@@ -1323,8 +1379,9 @@ fn fee_drift_exceeds_cap(
 mod tests {
     use super::{
         build_direct_erc20_transaction, fee_drift_exceeds_cap, recovery_review_context,
-        validate_pending_binding, EthPendingSubmission, EthSubmissionStage, EthSubmissionStatus,
-        SessionBoundEthOperation, SessionBoundSubmission, ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
+        validate_pending_binding, validate_pending_integrity, EthPendingSubmission,
+        EthSubmissionStage, EthSubmissionStatus, SessionBoundEthOperation, SessionBoundSubmission,
+        ETH_PENDING_SUBMISSION_SCHEMA_VERSION,
     };
     use crate::core::auth::session::ActiveWalletAccessContext;
     use crate::core::auth::{
@@ -1338,7 +1395,6 @@ mod tests {
     use crate::types::transaction::SendResult;
     use crate::types::wallet::{WalletNetwork, WalletSecretKind};
     use crate::types::WalletError;
-    use ethers::providers::{Http, Provider};
     use ethers::types::{transaction::eip2718::TypedTransaction, Address, Bytes, U256};
     use std::future::Future;
     use std::pin::Pin;
@@ -1369,6 +1425,13 @@ mod tests {
     async fn test_session_with_stored_seed(
         material: &str,
     ) -> (Arc<Mutex<SessionManager>>, ActiveWalletAccessContext) {
+        test_session_with_stored_seed_on_network(material, WalletNetwork::Mainnet).await
+    }
+
+    async fn test_session_with_stored_seed_on_network(
+        material: &str,
+        wallet_network: WalletNetwork,
+    ) -> (Arc<Mutex<SessionManager>>, ActiveWalletAccessContext) {
         let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
         let path = std::env::temp_dir().join(format!(
             "lite_wallet_eth_send_caller_{}",
@@ -1380,7 +1443,7 @@ mod tests {
             .await
             .expect("store test seed");
         let session = Arc::new(Mutex::new(SessionManager::new(store)));
-        unlock(&session, material).await;
+        unlock_on_network(&session, material, wallet_network).await;
         let context = capture_active_wallet_access_context(&session)
             .await
             .expect("active test context");
@@ -1388,15 +1451,26 @@ mod tests {
     }
 
     async fn unlock(session: &Arc<Mutex<SessionManager>>, material: &str) {
+        unlock_on_network(session, material, WalletNetwork::Mainnet).await;
+    }
+
+    async fn unlock_on_network(
+        session: &Arc<Mutex<SessionManager>>,
+        material: &str,
+        wallet_network: WalletNetwork,
+    ) {
         let profile = derive_public_profile_from_material(
             material,
             WalletSecretKind::SeedText,
-            Network::Mainnet,
+            match wallet_network {
+                WalletNetwork::Mainnet => Network::Mainnet,
+                WalletNetwork::Testnet => Network::Testnet,
+            },
         )
         .expect("public profile");
         session.lock().await.unlock_with_profile(
             "account-1".to_string(),
-            WalletNetwork::Mainnet,
+            wallet_network,
             WalletSecretKind::SeedText,
             profile,
             Zeroizing::new(vec![7u8; 32]),
@@ -1510,7 +1584,9 @@ mod tests {
                 .to_string(),
             reserve_transfer_second_reserve_id: "0x0000000000000000000000000000000000000000"
                 .to_string(),
-            bridge_contract: "0x5555555555555555555555555555555555555555".to_string(),
+            bridge_contract:
+                crate::core::channels::eth::config::VERUS_BRIDGE_DELEGATOR_MAINNET_CONTRACT
+                    .to_string(),
             transfer_value_wei: "0".to_string(),
             gas_limit: "500000".to_string(),
             transfer_gas_limit: "300000".to_string(),
@@ -1820,6 +1896,62 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn historical_goerli_record_stays_reviewable_but_cannot_resume() {
+        let (session, context) = test_session_with_stored_seed_on_network(
+            "historical goerli review",
+            WalletNetwork::Testnet,
+        )
+        .await;
+        let mut pending = pending_submission(EthSubmissionStage::BridgeTransfer);
+        let mut payload = bridge_payload(&context.eth_address);
+        let EthPreflightPayload::Bridge {
+            chain_id,
+            bridge_contract,
+            ..
+        } = &mut payload
+        else {
+            panic!("bridge fixture");
+        };
+        *chain_id = 5;
+        *bridge_contract = "0x85a7de2278e52327471e174aeeb280cdfdc6a68a".to_string();
+        pending.chain_id = 5;
+        pending.from_address = context.eth_address.clone();
+        pending.payload = payload;
+        pending.review_context = Some(recovery_review_context(
+            &pending.payload,
+            context.wallet_network,
+        ));
+        pending.result = super::payload_result(&pending.payload);
+        pending.result.txid = pending.tx_hash.clone();
+        pending.result.recovery_id = Some(pending.recovery_id.clone());
+        store_pending(&context, &pending).await;
+
+        validate_pending_integrity(&pending, &context).expect("historical record integrity");
+        let disabled_providers = EthProviderPool::disabled_for_tests();
+        let review = super::get_pending_submission_review(&session, &disabled_providers)
+            .await
+            .expect("historical review remains offline")
+            .expect("historical review exists");
+        assert_eq!(review.context.chain_id, 5);
+        assert_eq!(
+            review.context.bridge_contract_address.as_deref(),
+            Some("0x85a7de2278e52327471e174aeeb280cdfdc6a68a")
+        );
+
+        let providers = EthProviderPool::for_tests(WalletNetwork::Testnet, "http://127.0.0.1:9");
+        let error = super::resume_pending_submission(&pending.recovery_id, &session, &providers)
+            .await
+            .expect_err("unsupported historical chain must not resume");
+        assert!(matches!(error, WalletError::UnsupportedNetwork));
+
+        let retained = super::load_pending_submission(&context)
+            .await
+            .expect("load retained historical record")
+            .expect("historical record remains stored");
+        assert_eq!(retained.chain_id, 5);
+    }
+
     #[test]
     fn recovery_review_context_binds_asset_network_and_bridge_details() {
         let bridge = bridge_payload("0x1111111111111111111111111111111111111111");
@@ -1835,7 +1967,7 @@ mod tests {
         );
         assert_eq!(
             bridge_context.bridge_contract_address.as_deref(),
-            Some("0x5555555555555555555555555555555555555555")
+            Some(crate::core::channels::eth::config::VERUS_BRIDGE_DELEGATOR_MAINNET_CONTRACT)
         );
         assert_eq!(
             bridge_context.mapped_currency_id.as_deref(),
@@ -1869,7 +2001,7 @@ mod tests {
         assert_eq!(erc20_context.asset_kind, "erc20");
         assert_eq!(erc20_context.wallet_network, WalletNetwork::Testnet);
         assert_eq!(erc20_context.chain_id, 11155111);
-        assert_eq!(erc20_context.fee_currency, "GETH");
+        assert_eq!(erc20_context.fee_currency, "ETH");
         assert_eq!(
             erc20_context.contract_address.as_deref(),
             Some("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -1924,6 +2056,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn old_bridge_contract_is_never_retargeted_or_rebroadcast() {
+        let mut payload = bridge_payload("0x1111111111111111111111111111111111111111");
+        let EthPreflightPayload::Bridge {
+            bridge_contract, ..
+        } = &mut payload
+        else {
+            panic!("bridge fixture");
+        };
+        *bridge_contract = "0x85a7de2278e52327471e174aeeb280cdfdc6a68a".to_string();
+        let providers = EthProviderPool::for_tests(WalletNetwork::Mainnet, "http://127.0.0.1:9");
+        let provider = providers
+            .for_network(WalletNetwork::Mainnet)
+            .expect("mainnet provider");
+
+        let error = super::validate_payload_execution_policy(&payload, provider)
+            .await
+            .expect_err("old bridge target must remain blocked");
+        assert!(matches!(error, WalletError::BridgeDeploymentUnavailable));
+    }
+
+    #[tokio::test]
     async fn send_validates_and_consumes_new_request_without_resuming_old_confirmed_approval() {
         let (session, context) = test_session_with_stored_seed("caller boundary seed").await;
         let mut old = pending_submission(EthSubmissionStage::BridgeApproval);
@@ -1968,6 +2121,52 @@ mod tests {
         assert_eq!(persisted.recovery_id, old.recovery_id);
         assert_eq!(persisted.stage, EthSubmissionStage::BridgeApproval);
         assert_eq!(persisted.status, EthSubmissionStatus::Confirmed);
+    }
+
+    #[tokio::test]
+    async fn changed_rpc_chain_blocks_signing_and_broadcast_after_preflight() {
+        let (session, context) = test_session_with_stored_seed("changed chain seed").await;
+        let preflights = PreflightStore::new();
+        put_preflight(
+            &preflights,
+            &context,
+            "chain-change-preflight",
+            eth_payload(
+                &context.eth_address,
+                "0x3333333333333333333333333333333333333333",
+            ),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind changed-chain RPC");
+        let address = listener.local_addr().expect("changed-chain address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept RPC request");
+            let request = read_json_rpc_request(&mut stream).await;
+            let id = request.get("id").cloned().expect("request id");
+            assert_eq!(
+                request.get("method").and_then(serde_json::Value::as_str),
+                Some("eth_chainId")
+            );
+            write_json_rpc_response(
+                &mut stream,
+                serde_json::json!({"jsonrpc":"2.0","id":id,"result":"0x5"}),
+            )
+            .await;
+        });
+        let providers =
+            EthProviderPool::for_tests(WalletNetwork::Mainnet, &format!("http://{address}"));
+
+        let error = super::send("chain-change-preflight", &preflights, &session, &providers)
+            .await
+            .expect_err("wrong-chain endpoint must fail closed");
+        assert!(matches!(error, WalletError::EthNetworkMismatch));
+        assert!(super::load_pending_submission(&context)
+            .await
+            .expect("load pending journal")
+            .is_none());
+        server.await.expect("changed-chain fixture");
     }
 
     #[tokio::test]
@@ -2078,6 +2277,9 @@ mod tests {
                     .to_string();
                 methods.push(method.clone());
                 let result = match method.as_str() {
+                    "eth_chainId" => serde_json::json!("0x1"),
+                    "eth_getCode" => serde_json::json!("0x6001600055"),
+                    "eth_call" => serde_json::json!(format!("0x{:064x}", 1)),
                     "eth_getBlockByNumber" => serde_json::json!({
                         "hash": null,
                         "number": "0x1",
@@ -2179,11 +2381,18 @@ mod tests {
             let expected_hash = expected_hash.clone();
             async move {
                 let mut submitted_raw = Vec::new();
-                for request_index in 0..5 {
+                loop {
                     let (mut stream, _) = listener.accept().await.expect("accept JSON-RPC request");
                     let request = read_json_rpc_request(&mut stream).await;
                     let id = request.get("id").cloned().expect("request id");
                     match request.get("method").and_then(serde_json::Value::as_str) {
+                        Some("eth_chainId") => {
+                            write_json_rpc_response(
+                                &mut stream,
+                                serde_json::json!({"jsonrpc":"2.0","id":id,"result":"0x1"}),
+                            )
+                            .await;
+                        }
                         Some("eth_getTransactionByHash") => {
                             write_json_rpc_response(
                                 &mut stream,
@@ -2200,7 +2409,7 @@ mod tests {
                                 .expect("raw transaction parameter")
                                 .to_string();
                             submitted_raw.push(sent);
-                            if request_index == 1 {
+                            if submitted_raw.len() == 1 {
                                 write_json_rpc_response(
                                     &mut stream,
                                     serde_json::json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":"uncertain transport"}}),
@@ -2213,6 +2422,9 @@ mod tests {
                                 )
                                 .await;
                             }
+                            if submitted_raw.len() == 2 {
+                                break;
+                            }
                         }
                         method => panic!("unexpected JSON-RPC method: {method:?}"),
                     }
@@ -2221,14 +2433,17 @@ mod tests {
             }
         });
 
-        let provider = Provider::<Http>::try_from(format!("http://{address}").as_str())
+        let providers =
+            EthProviderPool::for_tests(WalletNetwork::Mainnet, &format!("http://{address}"));
+        let provider = providers
+            .for_network(WalletNetwork::Mainnet)
             .expect("mocked provider");
         let (_session, operation) = test_operation().await;
         let pending = pending_submission(EthSubmissionStage::Eth);
 
-        let first = super::broadcast_pending_submission(&pending, &operation, &provider).await;
+        let first = super::broadcast_pending_submission(&pending, &operation, provider).await;
         assert!(matches!(first, Err(WalletError::EthBroadcastUncertain(_))));
-        super::broadcast_pending_submission(&pending, &operation, &provider)
+        super::broadcast_pending_submission(&pending, &operation, provider)
             .await
             .expect("exact replay succeeds");
         server.await.expect("mocked JSON-RPC server");

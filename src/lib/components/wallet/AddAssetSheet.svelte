@@ -204,6 +204,8 @@
         return i18n.t('wallet.addAsset.error.unsupportedNetwork');
       case 'EthNotConfigured':
         return i18n.t('wallet.addAsset.error.ethNotConfigured');
+      case 'EthNetworkMismatch':
+        return i18n.t('wallet.addAsset.error.ethNetworkMismatch');
       default:
         break;
     }

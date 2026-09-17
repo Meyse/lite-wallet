@@ -117,6 +117,19 @@ function buildGeneratedIcon(seed: string, logoMapped = false): CoinGeneratedIcon
   };
 }
 
+function applyCompatibilityPresentation(presentation: CoinPresentation): CoinPresentation {
+  if (
+    presentation.id.toUpperCase() === 'GETH' &&
+    presentation.proto === 'eth' &&
+    presentation.isTestnet
+  ) {
+    presentation.displayTicker = 'ETH';
+    presentation.displayName = 'Sepolia ETH';
+  }
+
+  return presentation;
+}
+
 function fallbackIconForProto(coinId: string, proto?: string): CoinIcon {
   if (proto === 'btc') {
     const btc = catalogById.get('BTC');
@@ -158,7 +171,7 @@ function fallbackIconForProto(coinId: string, proto?: string): CoinIcon {
 }
 
 function fromCatalog(coin: CatalogCoin): CoinPresentation {
-  return {
+  return applyCompatibilityPresentation({
     id: coin.id,
     currencyId: coin.currencyId,
     systemId: coin.systemId,
@@ -170,7 +183,7 @@ function fromCatalog(coin: CatalogCoin): CoinPresentation {
     icon: cloneIcon(coin.icon),
     badgeCoinId: resolveBadgeCoinId(coin.displayTicker, coin.displayName),
     source: 'catalog',
-  };
+  });
 }
 
 function buildFallbackPresentation(
@@ -181,7 +194,7 @@ function buildFallbackPresentation(
   mappedTo: string | null,
   isTestnet: boolean
 ): CoinPresentation {
-  return {
+  return applyCompatibilityPresentation({
     id: coinId,
     currencyId: coinId,
     systemId: coinId,
@@ -193,7 +206,7 @@ function buildFallbackPresentation(
     icon: fallbackIconForProto(coinId, proto),
     badgeCoinId: resolveBadgeCoinId(displayTicker, displayName),
     source: 'fallback',
-  };
+  });
 }
 
 export function resolveCoinPresentationById(
@@ -211,7 +224,14 @@ export function resolveCoinPresentationById(
     return null;
   }
 
-  return buildFallbackPresentation(normalizedCoinId, proto, normalizedCoinId, normalizedCoinId, null, false);
+  return buildFallbackPresentation(
+    normalizedCoinId,
+    proto,
+    normalizedCoinId,
+    normalizedCoinId,
+    null,
+    false
+  );
 }
 
 export function resolveCoinPresentation(coin: CoinDefinition): CoinPresentation {

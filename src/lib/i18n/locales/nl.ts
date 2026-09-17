@@ -606,6 +606,8 @@ export const nl: Record<string, string> = {
   'wallet.addAsset.error.unsupportedNetwork': 'Deze actie is alleen beschikbaar op mainnet.',
   'wallet.addAsset.error.ethNotConfigured':
     'Ethereum-providers zijn niet geconfigureerd in deze desktop-app.',
+  'wallet.addAsset.error.ethNetworkMismatch':
+    'Het Ethereum-endpoint is met een ander netwerk verbonden. Controleer je RPC-instellingen en probeer opnieuw.',
   'wallet.addAsset.error.walletLocked': 'Wallet is vergrendeld. Ontgrendel en probeer opnieuw.',
   'wallet.addAsset.error.addFailed': 'Deze asset kon nu niet worden toegevoegd.',
   'wallet.addAsset.error.manualInputRequired':
@@ -849,6 +851,8 @@ export const nl: Record<string, string> = {
     'Deze omwisselroute is nog niet beschikbaar op desktop.',
   'wallet.transfer.error.bridgeRouteInvalid':
     'Deze omwisselroute is ongeldig voor het geselecteerde bedrag of bestemmingsadres.',
+  'wallet.transfer.error.bridgeDeploymentUnavailable':
+    'De bridge is niet beschikbaar op dit netwerk. Controleer het netwerk en probeer het later opnieuw.',
   'wallet.transfer.error.bridgeUnsupportedDestinationCombination':
     'Dit bestemmingsadres wordt niet ondersteund voor de geselecteerde omwisselroute.',
   'wallet.transfer.error.bridgeApprovalFailed':
@@ -869,6 +873,10 @@ export const nl: Record<string, string> = {
   'wallet.transfer.error.bitcoinDustOutput':
     'Dit Bitcoin-bedrag ligt onder het minimum voor dit bestemmingsadres.',
   'wallet.transfer.error.ethNotConfigured': 'Ethereum is niet geconfigureerd in deze desktopapp.',
+  'wallet.transfer.error.ethNetworkMismatch':
+    'Het Ethereum-endpoint is met een ander netwerk verbonden. Controleer je RPC-instellingen en probeer opnieuw.',
+  'wallet.transfer.error.unsupportedNetwork':
+    'Deze opgeslagen transfer hoort bij een niet-ondersteund netwerk en kan hier niet worden voortgezet.',
   'wallet.transfer.error.nativeCommandUnavailable':
     'Deze walletactie is niet beschikbaar in de geïnstalleerde desktopapp. Werk de app bij of herstart hem en probeer opnieuw.',
   'wallet.transfer.error.insufficientEthForGas':
@@ -922,7 +930,7 @@ export const nl: Record<string, string> = {
   'wallet.receive.vrscAddress': 'VRSC-adres',
   'wallet.receive.vrscAddressTestnet': 'VRSCTEST-adres',
   'wallet.receive.ethAddress': 'ETH-adres',
-  'wallet.receive.ethAddressTestnet': 'GETH-adres',
+  'wallet.receive.ethAddressTestnet': 'Sepolia ETH-adres',
   'wallet.receive.btcAddress': 'BTC-adres',
   'wallet.receive.btcAddressTestnet': 'BTCTEST-adres',
   'wallet.receive.errorLoad': 'Adressen konden niet worden geladen',

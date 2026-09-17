@@ -110,6 +110,9 @@ pub async fn get_conversion_paths(
     vrpc_provider: &VrpcProvider,
     eth_provider: Option<&EthNetworkProvider>,
 ) -> Result<BridgeConversionPathsResult, WalletError> {
+    if let Some(provider) = eth_provider {
+        provider.validate_rpc_identity().await?;
+    }
     let source_currency = request.source_currency.trim();
     if source_currency.is_empty() {
         return Err(WalletError::OperationFailed);
@@ -211,6 +214,9 @@ pub async fn estimate_conversion(
     vrpc_provider: &VrpcProvider,
     eth_provider: Option<&EthNetworkProvider>,
 ) -> Result<BridgeConversionEstimateResult, WalletError> {
+    if let Some(provider) = eth_provider {
+        provider.validate_rpc_identity().await?;
+    }
     let source_currency = request.source_currency.trim();
     let convert_to = request.convert_to.trim();
     if source_currency.is_empty() || convert_to.is_empty() {

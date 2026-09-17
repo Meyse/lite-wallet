@@ -1,5 +1,5 @@
 import verusCoinCatalog from '$lib/coins/verusCoinCatalog.generated.json';
-import { resolveCoinPresentation } from '$lib/coins/presentation.js';
+import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
 import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
 import type { CoinDefinition, WalletNetwork } from '$lib/types/wallet.js';
 
@@ -51,7 +51,7 @@ const catalogCoins = verusCoinCatalog as CatalogCoin[];
 
 const STATUS_ORDER: Record<AddAssetStatus, number> = {
   added: 0,
-  available: 1
+  available: 1,
 };
 
 const ETH_ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -85,13 +85,15 @@ function findCatalogCoinForDefinition(definition: CoinDefinition): CatalogCoin |
 export function applyCatalogMetadataToCoinDefinition(definition: CoinDefinition): CoinDefinition {
   const catalogCoin = findCatalogCoinForDefinition(definition);
   if (!catalogCoin) return definition;
+  const presentation = resolveCoinPresentationById(catalogCoin.id, catalogCoin.proto);
 
   return {
     ...definition,
-    displayTicker: catalogCoin.displayTicker || definition.displayTicker,
-    displayName: catalogCoin.displayName || definition.displayName,
+    displayTicker:
+      presentation?.displayTicker || catalogCoin.displayTicker || definition.displayTicker,
+    displayName: presentation?.displayName || catalogCoin.displayName || definition.displayName,
     coinPaprikaId: catalogCoin.coinPaprikaId ?? definition.coinPaprikaId ?? null,
-    mappedTo: catalogCoin.mappedTo ?? definition.mappedTo ?? null
+    mappedTo: catalogCoin.mappedTo ?? definition.mappedTo ?? null,
   };
 }
 
@@ -115,7 +117,7 @@ function availabilityForCatalogCoin(
     return { status: 'available', addStrategy: 'resolve_pbaas' };
   }
 
-  if (coin.proto === 'erc20' && network === 'mainnet' && !coin.isTestnet && coin.currencyId.startsWith('0x')) {
+  if (coin.proto === 'erc20' && coin.currencyId.startsWith('0x')) {
     return { status: 'available', addStrategy: 'resolve_erc20' };
   }
 
@@ -164,7 +166,7 @@ function compareEntries(a: AddAssetEntry, b: AddAssetEntry, query: string): numb
   }
 
   const tickerCompare = a.displayTicker.localeCompare(b.displayTicker, undefined, {
-    sensitivity: 'base'
+    sensitivity: 'base',
   });
   if (tickerCompare !== 0) {
     return tickerCompare;
@@ -177,13 +179,11 @@ export function buildAddAssetCatalogView({
   coins,
   network,
   query,
-  activeCoinIds
+  activeCoinIds,
 }: BuildAddAssetCatalogInput): AddAssetCatalogView {
   const isTestnet = network === 'testnet';
   const activeSet = new Set(
-    activeCoinIds
-      .map((coinId) => coinId.trim().toLowerCase())
-      .filter((coinId) => coinId.length > 0)
+    activeCoinIds.map((coinId) => coinId.trim().toLowerCase()).filter((coinId) => coinId.length > 0)
   );
   const entries = new Map<string, AddAssetEntry>();
 
@@ -206,7 +206,7 @@ export function buildAddAssetCatalogView({
       isTestnet: runtimeCoin.isTestnet,
       source: 'runtime',
       status: activeSet.has(runtimeCoin.id.toLowerCase()) ? 'added' : 'available',
-      addStrategy: 'activate'
+      addStrategy: 'activate',
     });
   }
 
@@ -231,30 +231,33 @@ export function buildAddAssetCatalogView({
 
     const availability = availabilityForCatalogCoin(catalogCoin, network);
     if (!availability) continue;
+    const presentation = resolveCoinPresentationById(catalogCoin.id, catalogCoin.proto);
 
     entries.set(key, {
       key,
       id: catalogCoin.id,
       currencyId: catalogCoin.currencyId,
       systemId: catalogCoin.systemId,
-      displayTicker: catalogCoin.displayTicker,
-      displayName: catalogCoin.displayName,
+      displayTicker: presentation?.displayTicker || catalogCoin.displayTicker,
+      displayName: presentation?.displayName || catalogCoin.displayName,
       coinPaprikaId: catalogCoin.coinPaprikaId ?? null,
       proto: catalogCoin.proto,
       mappedTo: catalogCoin.mappedTo,
       isTestnet: catalogCoin.isTestnet,
       source: 'catalog',
       status: availability.status,
-      addStrategy: availability.addStrategy
+      addStrategy: availability.addStrategy,
     });
   }
 
-  const filtered = Array.from(entries.values()).filter((entry) => searchRank(entry, query) !== null);
+  const filtered = Array.from(entries.values()).filter(
+    (entry) => searchRank(entry, query) !== null
+  );
   const sorted = filtered.sort((a, b) => compareEntries(a, b, query));
 
   return {
     addedEntries: sorted.filter((entry) => entry.status === 'added'),
-    availableEntries: sorted.filter((entry) => entry.status === 'available')
+    availableEntries: sorted.filter((entry) => entry.status === 'available'),
   };
 }
 
@@ -279,7 +282,7 @@ export function catalogEntryToCoinDefinition(
       electrumEndpoints: null,
       secondsPerBlock: 60,
       mappedTo: entry.mappedTo,
-      isTestnet
+      isTestnet,
     };
   }
 
@@ -298,7 +301,7 @@ export function catalogEntryToCoinDefinition(
       electrumEndpoints: null,
       secondsPerBlock: 12,
       mappedTo: entry.mappedTo,
-      isTestnet
+      isTestnet,
     };
   }
 
@@ -321,7 +324,7 @@ export function catalogEntryToCoinDefinition(
       electrumEndpoints: null,
       secondsPerBlock: 600,
       mappedTo: entry.mappedTo,
-      isTestnet
+      isTestnet,
     };
   }
 

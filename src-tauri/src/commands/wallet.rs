@@ -22,6 +22,7 @@ use crate::core::auth::{
 };
 use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
+use crate::core::channels::eth::config::metadata_for_network as eth_metadata_for_network;
 use crate::core::channels::eth::EthProviderPool;
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::coins::Channel;
@@ -558,8 +559,10 @@ fn canonical_non_vrpc_network_metadata(
             }
             WalletNetwork::Testnet => (
                 "GETH".to_string(),
-                "GETH".to_string(),
-                "Sepolia".to_string(),
+                "ETH".to_string(),
+                eth_metadata_for_network(network)
+                    .native_asset_name
+                    .to_string(),
             ),
         };
     }
@@ -1659,8 +1662,8 @@ mod tests {
             canonical_non_vrpc_network_metadata(usdc, WalletNetwork::Testnet),
             (
                 "GETH".to_string(),
-                "GETH".to_string(),
-                "Sepolia".to_string()
+                "ETH".to_string(),
+                "Sepolia ETH".to_string()
             )
         );
         assert_eq!(
@@ -1972,6 +1975,18 @@ mod tests {
             ],
         );
         assert_eq!(sanitized, vec!["VRSC".to_string()]);
+    }
+
+    #[test]
+    fn existing_geth_activation_remains_one_testnet_asset() {
+        let registry = CoinRegistry::new();
+        let sanitized = sanitize_active_coin_ids(
+            &registry,
+            WalletNetwork::Testnet,
+            &["geth".to_string(), "GETH".to_string()],
+        );
+
+        assert_eq!(sanitized, vec!["GETH".to_string()]);
     }
 
     #[test]

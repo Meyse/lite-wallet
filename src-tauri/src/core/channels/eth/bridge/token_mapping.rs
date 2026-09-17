@@ -4,7 +4,9 @@ use std::sync::Arc;
 use ethers::types::{Address, U256};
 use serde_json::Value;
 
-use crate::core::channels::eth::bridge::delegator::VerusBridgeDelegatorContract;
+use crate::core::channels::eth::bridge::delegator::{
+    validate_delegator_contract, VerusBridgeDelegatorContract,
+};
 use crate::core::channels::eth::provider::EthNetworkProvider;
 use crate::core::channels::vrpc::VrpcProvider;
 use crate::types::WalletError;
@@ -139,36 +141,25 @@ pub async fn get_currencies_mapped_to_eth(
 
     // Delegator token list mappings.
     if let Some(provider) = eth_provider {
-        let contract_address =
-            super::delegator::delegator_contract_for_chain_id(provider.chain_id)?;
+        let (contract_address, _) = validate_delegator_contract(provider).await?;
         let delegator = VerusBridgeDelegatorContract::new(
             contract_address,
             Arc::new(provider.rpc_provider.clone()),
         );
 
-        match delegator
+        let tokens = delegator
             .get_token_list(U256::zero(), U256::zero())
             .call()
             .await
-        {
-            Ok(tokens) => {
-                for token in tokens {
-                    let contract = format!("{:#x}", token.erc_20_contract_address);
-                    let i_address = eth_address_to_iaddress(token.iaddress);
-                    let Some(currency) =
-                        all_currencies.get(&i_address.to_ascii_lowercase()).cloned()
-                    else {
-                        continue;
-                    };
-                    mapped.add_mapping(contract, currency);
-                }
-            }
-            Err(err) => {
-                println!(
-                    "[BRIDGE] getTokenList unavailable while building ETH mappings: {:?}",
-                    err
-                );
-            }
+            .map_err(|_| WalletError::BridgeDeploymentUnavailable)?;
+        for token in tokens {
+            let contract = format!("{:#x}", token.erc_20_contract_address);
+            let i_address = eth_address_to_iaddress(token.iaddress);
+            let Some(currency) = all_currencies.get(&i_address.to_ascii_lowercase()).cloned()
+            else {
+                continue;
+            };
+            mapped.add_mapping(contract, currency);
         }
     }
 

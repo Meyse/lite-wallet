@@ -11,9 +11,12 @@ export interface SupportedAssetInput {
 
 /**
  * Central wallet capability gate.
- * v1 support: VRSC/PBaaS, BTC, ETH, and ERC20 (Ethereum mainnet only).
+ * Supported wallet assets stay bound to the active wallet network.
  */
-export function isWalletSupportedAsset(asset: SupportedAssetInput, network: WalletNetwork): boolean {
+export function isWalletSupportedAsset(
+  asset: SupportedAssetInput,
+  network: WalletNetwork
+): boolean {
   const isTestnet = network === 'testnet';
   if (asset.isTestnet !== isTestnet) {
     return false;
@@ -24,7 +27,7 @@ export function isWalletSupportedAsset(asset: SupportedAssetInput, network: Wall
   }
 
   if (asset.proto === 'erc20') {
-    return network === 'mainnet' && asset.currencyId.startsWith('0x');
+    return asset.currencyId.startsWith('0x');
   }
 
   if (asset.proto === 'btc') {

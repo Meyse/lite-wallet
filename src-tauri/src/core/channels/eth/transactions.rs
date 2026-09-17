@@ -19,6 +19,7 @@ pub async fn get_eth_transactions(
     network: WalletNetwork,
     address: &str,
 ) -> Result<Vec<Transaction>, WalletError> {
+    provider.validate_rpc_identity().await?;
     let records = provider
         .history_provider
         .get_eth_history(network, address)
@@ -40,6 +41,7 @@ pub async fn get_eth_transactions_page(
     page: u32,
     limit: usize,
 ) -> Result<EthTransactionsPage, WalletError> {
+    provider.validate_rpc_identity().await?;
     let safe_limit = limit.clamp(1, 100) as u32;
     let safe_page = page.max(1);
     let records = provider
@@ -67,6 +69,7 @@ pub async fn get_erc20_transactions(
     address: &str,
     coin: &CoinDefinition,
 ) -> Result<Vec<Transaction>, WalletError> {
+    provider.validate_rpc_identity().await?;
     let records = provider
         .history_provider
         .get_erc20_history(network, address, &coin.currency_id)
@@ -89,6 +92,7 @@ pub async fn get_erc20_transactions_page(
     page: u32,
     limit: usize,
 ) -> Result<EthTransactionsPage, WalletError> {
+    provider.validate_rpc_identity().await?;
     let safe_limit = limit.clamp(1, 100) as u32;
     let safe_page = page.max(1);
     let records = provider

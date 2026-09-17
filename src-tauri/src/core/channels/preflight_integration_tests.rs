@@ -448,6 +448,7 @@ async fn start_evm_fixture(
                 let (result, error) = {
                     let mut state = state.lock().expect("EVM fixture state");
                     match method {
+                        "eth_chainId" => (Some(json!("0x1")), None),
                         "eth_getBlockByNumber" => {
                             (Some(json!({ "baseFeePerGas": "0x3b9aca00" })), None)
                         }

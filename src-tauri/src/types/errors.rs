@@ -111,6 +111,9 @@ pub enum WalletError {
     #[error("Ethereum channels are not configured")]
     EthNotConfigured,
 
+    #[error("The Ethereum endpoint is connected to a different network")]
+    EthNetworkMismatch,
+
     #[error("Ethereum transaction submission could not be confirmed: {0}")]
     EthBroadcastUncertain(String),
 
@@ -128,6 +131,9 @@ pub enum WalletError {
 
     #[error("Bridge route is invalid for this transfer")]
     BridgeRouteInvalid,
+
+    #[error("The bridge deployment is unavailable on the selected network")]
+    BridgeDeploymentUnavailable,
 
     #[error("Bridge destination and route combination is unsupported")]
     BridgeUnsupportedDestinationCombination,

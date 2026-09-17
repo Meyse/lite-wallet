@@ -30,6 +30,9 @@ Plans are first-class artifacts for multi-step work.
   [`./active/peekaboo-desktop-smoke-tests.md`](./active/peekaboo-desktop-smoke-tests.md)
 - Core and wallet security hardening:
   [`./active/security-hardening-core-wallet.md`](./active/security-hardening-core-wallet.md)
+- Sepolia testnet alignment (local implementation complete; native render and
+  live settlement deferred):
+  [`./active/sepolia-testnet-alignment.md`](./active/sepolia-testnet-alignment.md)
 
 ## Recent completed plans
 

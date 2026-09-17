@@ -425,13 +425,13 @@ impl CoinRegistry {
                 mapped_to: None,
                 is_testnet: false,
             },
-            // GETH testnet
+            // GETH remains the compatibility identifier for Sepolia native ETH.
             CoinDefinition {
                 id: "GETH".to_string(),
                 currency_id: ETH_ZERO_ADDRESS.to_string(),
                 system_id: "GETH".to_string(),
-                display_ticker: "GETH".to_string(),
-                display_name: "Ethereum Testnet".to_string(),
+                display_ticker: "ETH".to_string(),
+                display_name: "Sepolia ETH".to_string(),
                 coin_paprika_id: None,
                 proto: Protocol::Eth,
                 compatible_channels: vec![Channel::Eth],

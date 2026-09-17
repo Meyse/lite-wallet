@@ -24,6 +24,7 @@ pub async fn get_eth_balance(
     provider: &EthNetworkProvider,
     address: &str,
 ) -> Result<BalanceResult, WalletError> {
+    provider.validate_rpc_identity().await?;
     let parsed_address: Address = address.parse().map_err(|_| WalletError::InvalidAddress)?;
 
     let balance_wei = provider
@@ -46,6 +47,7 @@ pub async fn get_erc20_balance(
     from_address: &str,
     coin: &CoinDefinition,
 ) -> Result<BalanceResult, WalletError> {
+    provider.validate_rpc_identity().await?;
     let parsed_from: Address = from_address
         .parse()
         .map_err(|_| WalletError::InvalidAddress)?;

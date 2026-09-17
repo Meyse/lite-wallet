@@ -600,6 +600,8 @@ export const en: Record<string, string> = {
   'wallet.addAsset.error.unsupportedNetwork': 'This action is only available on mainnet.',
   'wallet.addAsset.error.ethNotConfigured':
     'Ethereum providers are not configured on this desktop app.',
+  'wallet.addAsset.error.ethNetworkMismatch':
+    'The Ethereum endpoint is connected to a different network. Check your RPC settings and try again.',
   'wallet.addAsset.error.walletLocked': 'Wallet is locked. Unlock and try again.',
   'wallet.addAsset.error.addFailed': 'Could not add this asset right now.',
   'wallet.addAsset.error.manualInputRequired':
@@ -834,6 +836,8 @@ export const en: Record<string, string> = {
     'This conversion route is not available on desktop yet.',
   'wallet.transfer.error.bridgeRouteInvalid':
     'This conversion route is invalid for the selected amount or destination.',
+  'wallet.transfer.error.bridgeDeploymentUnavailable':
+    'The bridge is unavailable on this network. Check the network and try again later.',
   'wallet.transfer.error.bridgeUnsupportedDestinationCombination':
     'This destination is not supported for the selected conversion route.',
   'wallet.transfer.error.bridgeApprovalFailed':
@@ -854,6 +858,10 @@ export const en: Record<string, string> = {
   'wallet.transfer.error.bitcoinDustOutput':
     'This Bitcoin amount is below the minimum accepted by the destination script.',
   'wallet.transfer.error.ethNotConfigured': 'Ethereum is not configured in this desktop app.',
+  'wallet.transfer.error.ethNetworkMismatch':
+    'The Ethereum endpoint is connected to a different network. Check your RPC settings and try again.',
+  'wallet.transfer.error.unsupportedNetwork':
+    'This saved transfer belongs to an unsupported network and cannot be continued here.',
   'wallet.transfer.error.nativeCommandUnavailable':
     'This wallet action is unavailable in the installed desktop app. Update or restart the app and try again.',
   'wallet.transfer.error.insufficientEthForGas':
@@ -906,7 +914,7 @@ export const en: Record<string, string> = {
   'wallet.receive.vrscAddress': 'VRSC address',
   'wallet.receive.vrscAddressTestnet': 'VRSCTEST address',
   'wallet.receive.ethAddress': 'ETH address',
-  'wallet.receive.ethAddressTestnet': 'GETH address',
+  'wallet.receive.ethAddressTestnet': 'Sepolia ETH address',
   'wallet.receive.btcAddress': 'BTC address',
   'wallet.receive.btcAddressTestnet': 'BTCTEST address',
   'wallet.receive.errorLoad': 'Could not load addresses',
