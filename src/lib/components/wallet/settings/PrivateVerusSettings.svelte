@@ -5,231 +5,467 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import CopyButton from '$lib/components/ui/copy-button/copy-button.svelte';
+  import { Checkbox } from '$lib/components/ui/checkbox';
+  import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Label } from '$lib/components/ui/label';
   import { Textarea } from '$lib/components/ui/textarea';
   import { i18nStore } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService';
   import type { WalletNetwork } from '$lib/types/wallet';
+  import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
+  import { extractWalletErrorType } from '$lib/utils/walletErrors';
 
   type PrivateVerusSettingsProps = {
     walletNetwork: WalletNetwork;
     onBack: () => void;
+    onOpenRecovery: () => void;
   };
 
-  const { walletNetwork, onBack }: PrivateVerusSettingsProps = $props();
+  const { walletNetwork, onBack, onOpenRecovery }: PrivateVerusSettingsProps = $props();
 
   const i18n = $derived($i18nStore);
-  const privateLabel = $derived(
-    walletNetwork === 'testnet'
-      ? i18n.t('wallet.private.label.testnet')
-      : i18n.t('wallet.private.label.mainnet')
+  const networkLabel = $derived(
+    i18n.t(walletNetwork === 'testnet' ? 'common.network.testnet' : 'common.network.mainnet')
   );
+  const addressCopyFeedback = new TimedValueState<'copied' | 'failed'>();
 
-  let loadingStatus = $state(true);
-  let configured = $state(false);
+  let statusState = $state<'loading' | 'configured' | 'unconfigured' | 'error'>('loading');
   let shieldedAddress = $state('');
-  let errorMessage = $state('');
-  let successMessage = $state('');
-  let generatedSeedPhrase = $state('');
+  let setupError = $state('');
+  let activationMessage = $state('');
   let importText = $state('');
+  let showImportSheet = $state(false);
   let showAdvanced = $state(false);
+  let showBackupSheet = $state(false);
+  let generatedSeedPhrase = $state('');
+  let backupAcknowledged = $state(false);
   let submittingMode = $state<'reuse_primary' | 'create_new' | 'import_text' | null>(null);
+  let requestGeneration = 0;
+  let disposed = false;
+
+  function invalidateRequests(): void {
+    requestGeneration += 1;
+  }
+
+  function clearImport(): void {
+    importText = '';
+  }
+
+  function clearBackup(): void {
+    generatedSeedPhrase = '';
+    backupAcknowledged = false;
+  }
 
   async function loadStatus(): Promise<void> {
-    loadingStatus = true;
-    errorMessage = '';
+    const generation = ++requestGeneration;
+    statusState = 'loading';
+    setupError = '';
     try {
       const status = await walletService.getDlightSeedStatus();
-      configured = status.configured;
+      if (disposed || generation !== requestGeneration) return;
+      statusState = status.configured ? 'configured' : 'unconfigured';
       shieldedAddress = status.shieldedAddress ?? '';
     } catch {
-      errorMessage = i18n.t('wallet.settings.privateVerus.statusLoadError');
-      configured = false;
+      if (disposed || generation !== requestGeneration) return;
+      statusState = 'error';
       shieldedAddress = '';
-    } finally {
-      loadingStatus = false;
     }
+  }
+
+  function setupErrorFor(error: unknown): string {
+    const errorType = extractWalletErrorType(error);
+    if (errorType === 'InvalidSeedPhrase') {
+      return i18n.t('wallet.settings.privateVerus.error.invalidPrimary');
+    }
+    if (errorType === 'InvalidImportText') {
+      return i18n.t('wallet.settings.privateVerus.error.invalidImport');
+    }
+    return i18n.t('wallet.settings.privateVerus.error.generic');
   }
 
   async function setup(mode: 'reuse_primary' | 'create_new' | 'import_text'): Promise<void> {
     if (submittingMode) return;
 
-    successMessage = '';
-    errorMessage = '';
-    generatedSeedPhrase = '';
+    const generation = ++requestGeneration;
     submittingMode = mode;
+    setupError = '';
+    activationMessage = '';
 
     try {
       const result = await walletService.setupDlightSeed({
         mode,
-        importText: mode === 'import_text' ? importText : undefined,
+        importText: mode === 'import_text' ? importText.trim() : undefined,
       });
-      configured = result.configured;
-      if (result.generatedSeedPhrase) {
-        generatedSeedPhrase = result.generatedSeedPhrase;
+      if (disposed || generation !== requestGeneration) return;
+
+      statusState = result.configured ? 'configured' : 'unconfigured';
+      showAdvanced = false;
+      activationMessage = i18n.t(
+        result.requiresRelogin
+          ? 'wallet.settings.privateVerus.activationRelogin'
+          : 'wallet.settings.privateVerus.activationReady'
+      );
+
+      if (mode === 'create_new' && result.generatedSeedPhrase?.trim()) {
+        generatedSeedPhrase = result.generatedSeedPhrase.trim();
+        backupAcknowledged = false;
+        showBackupSheet = true;
       }
-      successMessage = result.requiresRelogin
-        ? i18n.t('wallet.settings.privateVerus.setupSuccessRelogin')
-        : i18n.t('wallet.settings.privateVerus.setupSuccess');
-      await loadStatus();
-    } catch {
-      errorMessage = i18n.t('wallet.settings.privateVerus.setupError');
+
+      if (mode === 'import_text') {
+        showImportSheet = false;
+        clearImport();
+      }
+    } catch (error) {
+      if (disposed || generation !== requestGeneration) return;
+      setupError = setupErrorFor(error);
     } finally {
-      submittingMode = null;
+      if (!disposed && generation === requestGeneration) {
+        submittingMode = null;
+      }
     }
   }
 
-  const showSetupActions = $derived(!configured || showAdvanced);
+  async function copyAddress(): Promise<void> {
+    const copied = await writeClipboardText(shieldedAddress);
+    addressCopyFeedback.set(copied ? 'copied' : 'failed');
+  }
+
+  function openImport(): void {
+    setupError = '';
+    clearImport();
+    showImportSheet = true;
+  }
+
+  function handleImportOpenChange(open: boolean): void {
+    showImportSheet = open;
+    if (!open) {
+      invalidateRequests();
+      submittingMode = null;
+      clearImport();
+    }
+  }
+
+  function handleBackupOpenChange(open: boolean): void {
+    showBackupSheet = open;
+    if (!open) clearBackup();
+  }
+
+  function closeBackup(): void {
+    showBackupSheet = false;
+    clearBackup();
+  }
+
+  function preventBackupDismiss(event: Event): void {
+    if (!backupAcknowledged) event.preventDefault();
+  }
 
   onMount(() => {
+    disposed = false;
     void loadStatus();
+    return () => {
+      disposed = true;
+      invalidateRequests();
+      submittingMode = null;
+      clearImport();
+      clearBackup();
+    };
   });
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pt-0 pb-6 sm:px-8">
-  <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-3">
-    <div class="space-y-4">
+<div
+  class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
+>
+  <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-2">
+    <header class="flex h-[60px] shrink-0 flex-col gap-3">
       <button
         type="button"
-        class="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        class="inline-flex h-5 w-fit items-center gap-1 text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
         onclick={onBack}
       >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('common.back')}
+        <ChevronLeftIcon class="size-4" />
+        {i18n.t('wallet.settings.backLabel')}
       </button>
+      <h2 class="text-xl leading-7 font-semibold tracking-[-0.015em]">
+        {i18n.t('wallet.settings.privateVerus.title')}
+      </h2>
+    </header>
 
-      <section class="space-y-4">
-        <div class="space-y-1">
-          <h2 class="text-xl font-semibold">{i18n.t('wallet.settings.privateVerus.title')}</h2>
-          <p class="text-sm text-muted-foreground">
-            {i18n.t('wallet.settings.privateVerus.description', { label: privateLabel })}
-          </p>
+    {#if statusState === 'loading'}
+      <div class="mt-5 rounded-lg bg-settings-surface p-4">
+        <p class="text-[13px] leading-5 text-settings-muted-foreground">
+          {i18n.t('common.loading')}
+        </p>
+      </div>
+    {:else if statusState === 'error'}
+      <div class="mt-5 rounded-lg bg-settings-surface p-4">
+        <p class="text-sm leading-5 font-medium">
+          {i18n.t('wallet.settings.privateVerus.statusUnavailable')}
+        </p>
+        <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
+          {i18n.t('wallet.settings.privateVerus.statusLoadError')}
+        </p>
+        <Button class="mt-4" size="sm" variant="secondary" onclick={() => void loadStatus()}>
+          {i18n.t('common.retry')}
+        </Button>
+      </div>
+    {:else if statusState === 'configured' && !showAdvanced}
+      <div class="mt-5 rounded-lg bg-settings-surface p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-sm leading-5 font-medium">
+              {i18n.t('wallet.settings.privateVerus.statusConfigured')}
+            </p>
+            <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">{networkLabel}</p>
+          </div>
+          <span class="mt-1 size-2 shrink-0 rounded-full bg-emerald-500"></span>
         </div>
 
-        {#if loadingStatus}
-          <p class="text-sm text-muted-foreground">{i18n.t('common.loading')}</p>
-        {:else}
-          <div class="rounded-lg p-4">
-            <p class="text-sm font-medium">
-              {configured
-                ? i18n.t('wallet.settings.privateVerus.statusConfigured')
-                : i18n.t('wallet.settings.privateVerus.statusNotConfigured')}
+        {#if shieldedAddress}
+          <div class="mt-4 border-t border-border/50 pt-3">
+            <p class="text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.statusAddress')}
             </p>
-            {#if configured && shieldedAddress}
-              <p class="mt-2 text-xs text-muted-foreground">
-                {i18n.t('wallet.settings.privateVerus.statusAddress')}
-              </p>
-              <IdentifierText
-                value={shieldedAddress}
-                mode="full"
-                class="mt-1 block text-xs text-foreground"
+            <div class="mt-1 flex items-center gap-2">
+              <p class="min-w-0 flex-1 truncate font-mono text-xs leading-5">{shieldedAddress}</p>
+              <CopyButton
+                size="xs"
+                copied={addressCopyFeedback.current === 'copied'}
+                aria-label={i18n.t(
+                  addressCopyFeedback.current === 'copied' ? 'common.copied' : 'common.copy'
+                )}
+                onclick={() => void copyAddress()}
               />
+            </div>
+            {#if addressCopyFeedback.current === 'failed'}
+              <p class="mt-1 text-xs text-destructive" role="status">
+                {i18n.t('common.copyFailed')}
+              </p>
             {/if}
           </div>
         {/if}
 
-        {#if configured}
-          <div class="space-y-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              class="w-fit"
-              onclick={() => {
-                showAdvanced = !showAdvanced;
-              }}
-            >
-              {showAdvanced
-                ? i18n.t('wallet.settings.privateVerus.advancedToggleHide')
-                : i18n.t('wallet.settings.privateVerus.advancedToggleShow')}
-            </Button>
-            <p class="text-xs text-muted-foreground">
-              {i18n.t('wallet.settings.privateVerus.advancedWarning')}
-            </p>
-          </div>
+        {#if activationMessage}
+          <p class="mt-3 text-[13px] leading-5 text-settings-muted-foreground" role="status">
+            {activationMessage}
+          </p>
         {/if}
+      </div>
 
-        {#if errorMessage}
-          <div class="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {errorMessage}
-          </div>
-        {/if}
+      <div class="mt-3 overflow-hidden rounded-lg bg-settings-surface">
+        <button
+          type="button"
+          class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+          onclick={onOpenRecovery}
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm leading-5 font-medium">
+              {i18n.t('wallet.settings.privateVerus.recoveryTitle')}
+            </span>
+            <span class="mt-0.5 block text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.recoveryDescription')}
+            </span>
+          </span>
+          <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
+        </button>
 
-        {#if successMessage}
-          <div
-            class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/12 dark:text-emerald-200"
-          >
-            {successMessage}
-          </div>
-        {/if}
+        <button
+          type="button"
+          class="flex min-h-16 w-full items-center gap-4 border-t border-border/50 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+          onclick={() => {
+            setupError = '';
+            showAdvanced = true;
+          }}
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm leading-5 font-medium">
+              {i18n.t('wallet.settings.privateVerus.advanced')}
+            </span>
+            <span class="mt-0.5 block text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.advancedDescription')}
+            </span>
+          </span>
+          <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
+        </button>
+      </div>
+    {:else}
+      {#if showAdvanced}
+        <div class="mt-5 rounded-lg bg-amber-50 p-4 dark:bg-amber-500/10">
+          <p class="text-sm leading-5 font-medium">
+            {i18n.t('wallet.settings.privateVerus.replaceTitle')}
+          </p>
+          <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
+            {i18n.t('wallet.settings.privateVerus.advancedWarning')}
+          </p>
+        </div>
+      {:else}
+        <div class="mt-5 rounded-lg bg-settings-surface p-4">
+          <p class="text-sm leading-5 font-medium">
+            {i18n.t('wallet.settings.privateVerus.statusNotConfigured')}
+          </p>
+          <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
+            {i18n.t('wallet.settings.privateVerus.statusHelp')}
+          </p>
+        </div>
+      {/if}
 
-        {#if generatedSeedPhrase}
-          <div class="rounded-lg p-4">
-            <p class="text-sm font-medium">
-              {i18n.t('wallet.settings.privateVerus.generatedSeedTitle')}
-            </p>
-            <p class="mt-2 text-sm leading-relaxed break-all text-muted-foreground">
-              {generatedSeedPhrase}
-            </p>
-          </div>
-        {/if}
-
-        {#if showSetupActions}
-          <div class="space-y-3">
-            <Button
-              variant="secondary"
-              class="justify-start"
-              disabled={loadingStatus || submittingMode !== null}
-              onclick={() => {
-                void setup('reuse_primary');
-              }}
-            >
+      <div class="mt-3 overflow-hidden rounded-lg bg-settings-surface">
+        <button
+          type="button"
+          class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset disabled:opacity-50"
+          disabled={submittingMode !== null}
+          onclick={() => void setup('reuse_primary')}
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm leading-5 font-medium">
               {submittingMode === 'reuse_primary'
                 ? i18n.t('wallet.settings.privateVerus.settingUp')
                 : i18n.t('wallet.settings.privateVerus.reusePrimary')}
-            </Button>
+            </span>
+            <span class="mt-0.5 block text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.reuseDescription')}
+            </span>
+          </span>
+          <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
+        </button>
 
-            <Button
-              variant="secondary"
-              class="justify-start"
-              disabled={loadingStatus || submittingMode !== null}
-              onclick={() => {
-                void setup('create_new');
-              }}
-            >
+        <button
+          type="button"
+          class="flex min-h-16 w-full items-center gap-4 border-t border-border/50 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset disabled:opacity-50"
+          disabled={submittingMode !== null}
+          onclick={() => void setup('create_new')}
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm leading-5 font-medium">
               {submittingMode === 'create_new'
                 ? i18n.t('wallet.settings.privateVerus.settingUp')
                 : i18n.t('wallet.settings.privateVerus.createNew')}
-            </Button>
+            </span>
+            <span class="mt-0.5 block text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.createDescription')}
+            </span>
+          </span>
+          <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
+        </button>
 
-            <div class="space-y-2 rounded-lg p-3">
-              <Label for="private-seed-import">
-                {i18n.t('wallet.settings.privateVerus.importLabel')}
-              </Label>
-              <Textarea
-                id="private-seed-import"
-                variant="surface"
-                placeholder={i18n.t('wallet.settings.privateVerus.importPlaceholder')}
-                bind:value={importText}
-              ></Textarea>
-              <Button
-                variant="secondary"
-                class="justify-start"
-                disabled={loadingStatus || submittingMode !== null || !importText.trim()}
-                onclick={() => {
-                  void setup('import_text');
-                }}
-              >
-                {submittingMode === 'import_text'
-                  ? i18n.t('wallet.settings.privateVerus.settingUp')
-                  : i18n.t('wallet.settings.privateVerus.importAction')}
-              </Button>
-            </div>
-          </div>
-        {/if}
-      </section>
-    </div>
+        <button
+          type="button"
+          class="flex min-h-16 w-full items-center gap-4 border-t border-border/50 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset disabled:opacity-50"
+          disabled={submittingMode !== null}
+          onclick={openImport}
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm leading-5 font-medium">
+              {i18n.t('wallet.settings.privateVerus.importAction')}
+            </span>
+            <span class="mt-0.5 block text-xs leading-5 text-settings-muted-foreground">
+              {i18n.t('wallet.settings.privateVerus.importDescription')}
+            </span>
+          </span>
+          <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
+        </button>
+      </div>
+
+      {#if setupError}
+        <p class="mt-3 text-[13px] leading-5 text-destructive" role="alert">{setupError}</p>
+      {/if}
+
+      {#if showAdvanced}
+        <Button
+          class="mt-4 w-fit"
+          size="sm"
+          variant="secondary"
+          disabled={submittingMode !== null}
+          onclick={() => {
+            showAdvanced = false;
+            setupError = '';
+          }}
+        >
+          {i18n.t('common.cancel')}
+        </Button>
+      {/if}
+    {/if}
   </section>
 </div>
+
+<StandardRightSheet
+  bind:isOpen={showImportSheet}
+  title={i18n.t('wallet.settings.privateVerus.importSheetTitle')}
+  closeLabel={i18n.t('common.close')}
+  onOpenChange={handleImportOpenChange}
+>
+  <div class="flex h-full flex-col">
+    <Label for="private-verus-import" class="text-[13px] leading-5">
+      {i18n.t('wallet.settings.privateVerus.importLabel')}
+    </Label>
+    <Textarea
+      id="private-verus-import"
+      variant="surface"
+      class="mt-2 min-h-32 resize-none text-[13px] leading-5"
+      placeholder={i18n.t('wallet.settings.privateVerus.importPlaceholder')}
+      bind:value={importText}
+    ></Textarea>
+    <p class="mt-2 text-xs leading-5 text-settings-muted-foreground">
+      {i18n.t('wallet.settings.privateVerus.importHelp')}
+    </p>
+    {#if setupError}
+      <p class="mt-3 text-[13px] leading-5 text-destructive" role="alert">{setupError}</p>
+    {/if}
+    <div class="mt-auto flex justify-end gap-2 pt-6">
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={submittingMode !== null}
+        onclick={() => handleImportOpenChange(false)}
+      >
+        {i18n.t('common.cancel')}
+      </Button>
+      <Button
+        size="sm"
+        disabled={submittingMode !== null || !importText.trim()}
+        onclick={() => void setup('import_text')}
+      >
+        {submittingMode === 'import_text'
+          ? i18n.t('wallet.settings.privateVerus.settingUp')
+          : i18n.t('wallet.settings.privateVerus.importAction')}
+      </Button>
+    </div>
+  </div>
+</StandardRightSheet>
+
+<StandardRightSheet
+  bind:isOpen={showBackupSheet}
+  title={i18n.t('wallet.settings.privateVerus.backupTitle')}
+  closeLabel={i18n.t('common.close')}
+  onOpenChange={handleBackupOpenChange}
+  onEscapeKeydown={preventBackupDismiss}
+  onInteractOutside={preventBackupDismiss}
+>
+  <div class="flex h-full flex-col">
+    <p class="text-[13px] leading-5 text-settings-muted-foreground">
+      {i18n.t('wallet.settings.privateVerus.backupDescription')}
+    </p>
+    <div class="mt-4 rounded-lg bg-settings-surface p-4">
+      <p class="font-mono text-[13px] leading-6 break-words">{generatedSeedPhrase}</p>
+      <Button
+        class="mt-3"
+        size="sm"
+        variant="secondary"
+        onclick={() => void writeClipboardText(generatedSeedPhrase)}
+      >
+        {i18n.t('wallet.settings.privateVerus.copyPhrase')}
+      </Button>
+    </div>
+    <Label class="mt-4 flex items-start gap-3 text-[13px] leading-5 font-normal">
+      <Checkbox bind:checked={backupAcknowledged} class="mt-0.5" />
+      <span>{i18n.t('wallet.settings.privateVerus.savedAcknowledgement')}</span>
+    </Label>
+    <Button class="mt-auto" disabled={!backupAcknowledged} onclick={closeBackup}>
+      {i18n.t('common.done')}
+    </Button>
+  </div>
+</StandardRightSheet>

@@ -7,6 +7,9 @@ export const nl: Record<string, string> = {
   'common.clearSearch': 'Zoekopdracht wissen',
   'common.done': 'Klaar',
   'common.retry': 'Opnieuw proberen',
+  'common.copy': 'Kopiëren',
+  'common.copied': 'Gekopieerd',
+  'common.copyFailed': 'Kopiëren mislukt',
   'common.unknownError': 'Onbekende fout',
   'common.error.secureStorageUnavailable':
     'Beveiligde walletopslag is niet beschikbaar op dit apparaat. Herstel vanaf een backup of geheime herstelzin.',
@@ -475,19 +478,30 @@ export const nl: Record<string, string> = {
   'wallet.settings.profile.recovery.title': 'Herstel en sleutels',
   'wallet.settings.profile.recovery.description':
     'Toon herstelgeheimen en afgeleide sleutels na wachtwoordbevestiging.',
-  'wallet.settings.privateVerus.title': 'Privacy',
+  'wallet.settings.privateVerus.title': 'Private Verus',
   'wallet.settings.privateVerus.description':
     'Configureer shielded privacy voor {label}. Je kunt je primaire geheime herstelzin hergebruiken of een apart privacyherstelgeheim instellen.',
-  'wallet.settings.privateVerus.statusConfigured': 'Privacy is geconfigureerd.',
-  'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is nog niet geconfigureerd.',
+  'wallet.settings.privateVerus.statusConfigured': 'Private Verus is ingesteld',
+  'wallet.settings.privateVerus.statusNotConfigured': 'Niet ingesteld',
+  'wallet.settings.privateVerus.statusHelp': 'Kies hoe je je private Verus-funds wilt beveiligen.',
+  'wallet.settings.privateVerus.statusUnavailable': 'Status niet beschikbaar',
   'wallet.settings.privateVerus.statusAddress': 'Shielded adres',
   'wallet.settings.privateVerus.statusLoadError': 'Kon de privacystatus niet laden.',
   'wallet.settings.privateVerus.reusePrimary': 'Primaire geheime herstelzin hergebruiken',
+  'wallet.settings.privateVerus.reuseDescription':
+    'Gebruik de herstelzin waarmee deze wallet al is beveiligd.',
   'wallet.settings.privateVerus.createNew': 'Nieuw privacyherstelgeheim maken',
+  'wallet.settings.privateVerus.createDescription':
+    'Maak een aparte geheime herstelzin voor Private Verus.',
   'wallet.settings.privateVerus.importLabel': 'Privacyherstelgeheim of spending key importeren',
   'wallet.settings.privateVerus.importPlaceholder':
     'Plak een geheime herstelzin of secret-extended-key-main…',
   'wallet.settings.privateVerus.importAction': 'Privacyherstelgeheim importeren',
+  'wallet.settings.privateVerus.importDescription':
+    'Gebruik een bestaande geheime herstelzin of spending key.',
+  'wallet.settings.privateVerus.importSheetTitle': 'Private Verus importeren',
+  'wallet.settings.privateVerus.importHelp':
+    'Voer een geldige geheime herstelzin of Private Verus spending key in.',
   'wallet.settings.privateVerus.settingUp': 'Privacy configureren…',
   'wallet.settings.privateVerus.generatedSeedTitle': 'Nieuwe geheime herstelzin',
   'wallet.settings.privateVerus.setupSuccess': 'Privacy geconfigureerd.',
@@ -497,18 +511,48 @@ export const nl: Record<string, string> = {
   'wallet.settings.privateVerus.advancedToggleShow': 'Geavanceerde privacyacties tonen',
   'wallet.settings.privateVerus.advancedToggleHide': 'Geavanceerde privacyacties verbergen',
   'wallet.settings.privateVerus.advancedWarning':
-    'Privacy opnieuw configureren kan je bestaande privacyherstelgeheim vervangen.',
-  'wallet.settings.about.title': 'Over',
+    'Deze instelling vervangen verandert welk geheim je private funds beheert. Zorg dat het huidige geheim is geback-upt voordat je doorgaat.',
+  'wallet.settings.privateVerus.advanced': 'Geavanceerd',
+  'wallet.settings.privateVerus.advancedDescription':
+    'Vervang je huidige Private Verus-instelling.',
+  'wallet.settings.privateVerus.replaceTitle': 'Private Verus-instelling vervangen?',
+  'wallet.settings.privateVerus.recoveryTitle': 'Herstel en sleutels',
+  'wallet.settings.privateVerus.recoveryDescription':
+    'Bekijk je Private Verus-herstelgeheim en spending key.',
+  'wallet.settings.privateVerus.backupTitle': 'Maak een backup van je geheime herstelzin',
+  'wallet.settings.privateVerus.backupDescription':
+    'Schrijf deze woorden in de juiste volgorde op en bewaar ze veilig en offline.',
+  'wallet.settings.privateVerus.copyPhrase': 'Zin kopiëren',
+  'wallet.settings.privateVerus.savedAcknowledgement':
+    'Ik heb deze geheime herstelzin veilig bewaard.',
+  'wallet.settings.privateVerus.activationRelogin':
+    'Vergrendel en ontgrendel je wallet om Private Verus te activeren.',
+  'wallet.settings.privateVerus.activationReady': 'Private Verus is klaar voor gebruik.',
+  'wallet.settings.privateVerus.error.invalidPrimary':
+    'Het primaire walletgeheim kan niet worden hergebruikt voor Private Verus. Kies een andere methode.',
+  'wallet.settings.privateVerus.error.invalidImport':
+    'Voer een geldige geheime herstelzin of Private Verus spending key in.',
+  'wallet.settings.privateVerus.error.generic':
+    'Private Verus kon niet worden ingesteld. Probeer het opnieuw.',
+  'wallet.settings.about.title': 'Over en ondersteuning',
   'wallet.settings.about.description': 'Versiegegevens en supportlinks.',
   'wallet.settings.about.appName': 'Appnaam',
   'wallet.settings.about.version': 'Versie',
   'wallet.settings.about.community': 'Open communitykanaal',
+  'wallet.settings.about.communityDescription':
+    'Krijg hulp en maak contact met de Verus-community.',
+  'wallet.settings.about.productName': 'Verus Wallet',
+  'wallet.settings.about.versionValue': 'Versie {version}',
+  'wallet.settings.about.versionUnavailable': 'Versie niet beschikbaar',
   'wallet.settings.recovery.title': 'Herstel en sleutels',
   'wallet.settings.recovery.warningInline':
     'Iedereen met deze waarden kan je funds beheren. Bewaar ze offline en privé.',
+  'wallet.settings.recovery.warningTitle': 'Houd deze gegevens privé',
   'wallet.settings.recovery.revealCta': 'Toon herstelsecrets',
   'wallet.settings.recovery.passwordPlaceholder': 'Walletwachtwoord',
   'wallet.settings.recovery.passwordInvalid': 'Wachtwoord is onjuist.',
+  'wallet.settings.recovery.passwordError':
+    'Herstelgegevens konden niet worden geopend. Probeer het opnieuw.',
   'wallet.settings.recovery.revealLoading': 'Tonen…',
   'wallet.settings.recovery.revealConfirm': 'Tonen',
   'wallet.settings.recovery.reveal': 'Tonen',
@@ -521,6 +565,23 @@ export const nl: Record<string, string> = {
   'wallet.settings.recovery.primarySection': 'Primaire secret',
   'wallet.settings.recovery.derivedKeysSection': 'Afgeleide sleutels',
   'wallet.settings.recovery.addressesSection': 'Adressen',
+  'wallet.settings.recovery.keysDescription':
+    'Verus-, Bitcoin-, Ethereum- en private spending keys.',
+  'wallet.settings.recovery.addressesDescription': 'Adressen die bij deze wallet horen.',
+  'wallet.settings.recovery.addressesSheetDescription':
+    'Deze adressen kun je veilig delen om funds te ontvangen.',
+  'wallet.settings.recovery.keepOffline':
+    'Bewaar deze informatie offline. Deel deze nooit met iemand.',
+  'wallet.settings.recovery.closeRecovery': 'Herstel sluiten',
+  'wallet.settings.recovery.revealValue': '{label} tonen',
+  'wallet.settings.recovery.hideValue': '{label} verbergen',
+  'wallet.settings.recovery.copyValue': '{label} kopiëren',
+  'wallet.settings.recovery.qr.show': 'QR-code voor {label} tonen',
+  'wallet.settings.recovery.qr.ariaLabel': 'QR-code voor {label}',
+  'wallet.settings.recovery.qr.back': 'Terug naar sleutels',
+  'wallet.settings.recovery.qr.loading': 'QR-code maken…',
+  'wallet.settings.recovery.qr.error': 'De QR-code kon niet worden gemaakt.',
+  'wallet.settings.recovery.qr.warning': 'Deze QR-code bevat je private key.',
   'wallet.settings.recovery.dlightSection': 'Privacysecret',
   'wallet.settings.recovery.dlightKindLabel': 'Type privacysecret',
   'wallet.settings.recovery.field.primarySecret': 'Primair secretmateriaal',

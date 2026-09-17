@@ -21,7 +21,6 @@
     onCancel?: () => void;
   };
 
-   
   let {
     isOpen = $bindable(false),
     password = $bindable(''),
@@ -32,18 +31,20 @@
     loadingLabel = '',
     cancelLabel = '',
     onConfirm = () => {},
-    onCancel = () => {}
+    onCancel = () => {},
   }: PasswordConfirmOverlayProps = $props();
-   
 
   const i18n = $derived($i18nStore);
-  const resolvedConfirmLabel = $derived(confirmLabel || i18n.t('wallet.settings.recovery.revealConfirm'));
-  const resolvedLoadingLabel = $derived(loadingLabel || i18n.t('wallet.settings.recovery.revealLoading'));
+  const resolvedConfirmLabel = $derived(
+    confirmLabel || i18n.t('wallet.settings.recovery.revealConfirm')
+  );
+  const resolvedLoadingLabel = $derived(
+    loadingLabel || i18n.t('wallet.settings.recovery.revealLoading')
+  );
   const resolvedCancelLabel = $derived(cancelLabel || i18n.t('common.cancel'));
   const canSubmit = $derived(password.trim().length > 0 && !loading);
 
   function closeOverlay(): void {
-    if (loading) return;
     isOpen = false;
     onCancel();
   }
@@ -52,7 +53,6 @@
     if (!canSubmit) return;
     onConfirm();
   }
-
 </script>
 
 {#if isOpen}
@@ -71,15 +71,10 @@
         }
       }}
     >
-      <Input
-        type="password"
-        bind:value={password}
-        {placeholder}
-        autofocus
-      />
+      <Input type="password" bind:value={password} {placeholder} autofocus />
 
       {#if errorMessage}
-        <p class="text-destructive mt-2 text-xs">{errorMessage}</p>
+        <p class="mt-2 text-xs text-destructive">{errorMessage}</p>
       {/if}
 
       <div class="mt-3 flex justify-end gap-2">

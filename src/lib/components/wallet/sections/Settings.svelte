@@ -29,8 +29,11 @@
 
   type SettingsProps = {
     walletNetwork: WalletNetwork;
+    walletName: string;
     resetSignal?: number;
   };
+
+  type RecoveryOrigin = 'profile-security' | 'private-verus';
 
   type SettingsView =
     | 'home'
@@ -40,7 +43,7 @@
     | 'recovery-keys'
     | 'about-support';
 
-  const { walletNetwork, resetSignal = 0 }: SettingsProps = $props();
+  const { walletNetwork, walletName, resetSignal = 0 }: SettingsProps = $props();
 
   const i18n = $derived($i18nStore);
   const settings = $derived($settingsStore);
@@ -55,6 +58,7 @@
   );
 
   let activeView = $state<SettingsView>('home');
+  let recoveryOrigin = $state<RecoveryOrigin>('profile-security');
   let lastResetSignal = $state(0);
   let privateStatusLoading = $state(true);
   let privateConfigured = $state(false);
@@ -119,7 +123,17 @@
     if (resetSignal === lastResetSignal) return;
     lastResetSignal = resetSignal;
     activeView = 'home';
+    recoveryOrigin = 'profile-security';
   });
+
+  function openRecovery(origin: RecoveryOrigin): void {
+    recoveryOrigin = origin;
+    activeView = 'recovery-keys';
+  }
+
+  function returnFromRecovery(): void {
+    activeView = recoveryOrigin;
+  }
 </script>
 
 {#if activeView === 'home'}
@@ -232,7 +246,7 @@
     autoLockOptions={ALLOWED_AUTO_LOCK_MINUTES}
     onSetAutoLockMinutes={handleSetAutoLockMinutes}
     onOpenRecovery={() => {
-      activeView = 'recovery-keys';
+      openRecovery('profile-security');
     }}
     onBack={() => {
       activeView = 'home';
@@ -241,6 +255,9 @@
 {:else if activeView === 'private-verus'}
   <PrivateVerusSettings
     {walletNetwork}
+    onOpenRecovery={() => {
+      openRecovery('private-verus');
+    }}
     onBack={() => {
       activeView = 'home';
       void refreshPrivateStatus();
@@ -248,9 +265,14 @@
   />
 {:else if activeView === 'recovery-keys'}
   <RecoveryKeysSettings
-    onBack={() => {
-      activeView = 'home';
-    }}
+    {walletNetwork}
+    {walletName}
+    backLabel={i18n.t(
+      recoveryOrigin === 'private-verus'
+        ? 'wallet.settings.privateVerus.title'
+        : 'wallet.settings.profile.title'
+    )}
+    onBack={returnFromRecovery}
   />
 {:else if activeView === 'about-support'}
   <AboutSupportSettings

@@ -4,7 +4,7 @@
 -->
 
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { ComponentProps, Snippet } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { cn } from '$lib/utils.js';
 
@@ -14,6 +14,9 @@
     hideTitle?: boolean;
     closeLabel?: string;
     onOpenAutoFocus?: (event: Event) => void;
+    onOpenChange?: ComponentProps<typeof Sheet.Root>['onOpenChange'];
+    onEscapeKeydown?: ComponentProps<typeof Sheet.Content>['onEscapeKeydown'];
+    onInteractOutside?: ComponentProps<typeof Sheet.Content>['onInteractOutside'];
     titleClass?: string;
     bodyClass?: string;
     children?: Snippet;
@@ -25,13 +28,16 @@
     hideTitle = false,
     closeLabel = 'Close',
     onOpenAutoFocus = undefined,
+    onOpenChange = undefined,
+    onEscapeKeydown = undefined,
+    onInteractOutside = undefined,
     titleClass = '',
     bodyClass = '',
     children,
   }: StandardRightSheetProps = $props();
 </script>
 
-<Sheet.Root bind:open={isOpen}>
+<Sheet.Root bind:open={isOpen} {onOpenChange}>
   <Sheet.Content
     side="right"
     class="settings-sheet-panel w-[378px] max-w-[92vw] border-0 bg-settings-sheet-surface p-6 data-[state=closed]:duration-150 data-[state=open]:duration-200"
@@ -39,6 +45,8 @@
     closeClass="end-6 top-9 size-7 rounded-md text-settings-muted-foreground hover:text-foreground focus-visible:ring-settings-focus-ring"
     {closeLabel}
     {onOpenAutoFocus}
+    {onEscapeKeydown}
+    {onInteractOutside}
   >
     {#snippet children()}
       <div class="flex h-full flex-col">

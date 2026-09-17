@@ -1,11 +1,11 @@
 <!--
   Component: AboutSupportSettings
-  Purpose: Focused settings detail page for app metadata and support links.
+  Purpose: Focused settings detail page for app identity and community support.
 -->
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import CommunityHangoutButton from '$lib/components/common/CommunityHangoutButton.svelte';
   import { i18nStore } from '$lib/i18n';
   import { loadRuntimeAppInfo, type RuntimeAppInfo } from '$lib/utils/appInfo.js';
@@ -18,14 +18,16 @@
   const i18n = $derived($i18nStore);
 
   let appInfo = $state<RuntimeAppInfo | null>(null);
-  let loadingAppInfo = $state(true);
+  let appInfoState = $state<'loading' | 'ready' | 'unavailable'>('loading');
 
   async function loadAppInfo(): Promise<void> {
-    loadingAppInfo = true;
+    appInfoState = 'loading';
     try {
       appInfo = await loadRuntimeAppInfo();
-    } finally {
-      loadingAppInfo = false;
+      appInfoState = 'ready';
+    } catch {
+      appInfo = null;
+      appInfoState = 'unavailable';
     }
   }
 
@@ -34,43 +36,51 @@
   });
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 pb-6 pt-0 sm:px-8">
-  <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-3">
-    <div class="space-y-4">
+<div
+  class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
+>
+  <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-2">
+    <header class="flex h-[60px] shrink-0 flex-col gap-3">
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm"
+        class="inline-flex h-5 w-fit items-center gap-1 text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
         onclick={onBack}
       >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('common.back')}
+        <ChevronLeftIcon class="size-4" />
+        {i18n.t('wallet.settings.backLabel')}
       </button>
+      <h2 class="text-xl leading-7 font-semibold tracking-[-0.015em]">
+        {i18n.t('wallet.settings.about.title')}
+      </h2>
+    </header>
 
-      <section class="space-y-4">
-        <div class="space-y-1">
-          <h2 class="text-xl font-semibold">{i18n.t('wallet.settings.about.title')}</h2>
-          <p class="text-muted-foreground text-sm">{i18n.t('wallet.settings.about.description')}</p>
-        </div>
-
-        <div class="space-y-2 p-1">
-          {#if loadingAppInfo || !appInfo}
-            <p class="text-muted-foreground text-sm">{i18n.t('common.loading')}</p>
+    <div class="mt-5 flex h-[82px] shrink-0 items-center gap-4 rounded-lg bg-settings-surface px-4">
+      <div class="flex size-10 shrink-0 items-center justify-center">
+        <img src="/images/verus-logo-blue.svg" alt="" class="size-10" aria-hidden="true" />
+      </div>
+      <div class="min-w-0">
+        <p class="truncate text-base leading-5 font-semibold">
+          {appInfoState === 'ready' && appInfo
+            ? appInfo.name
+            : i18n.t('wallet.settings.about.productName')}
+        </p>
+        <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
+          {#if appInfoState === 'loading'}
+            {i18n.t('common.loading')}
+          {:else if appInfoState === 'ready' && appInfo}
+            {i18n.t('wallet.settings.about.versionValue', { version: appInfo.version })}
           {:else}
-            <dl class="space-y-2 text-sm">
-              <div class="flex items-center justify-between gap-4">
-                <dt class="text-muted-foreground">{i18n.t('wallet.settings.about.appName')}</dt>
-                <dd class="text-right font-medium">{appInfo.name}</dd>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <dt class="text-muted-foreground">{i18n.t('wallet.settings.about.version')}</dt>
-                <dd class="text-right font-medium">{appInfo.version}</dd>
-              </div>
-            </dl>
+            {i18n.t('wallet.settings.about.versionUnavailable')}
           {/if}
-        </div>
-
-        <CommunityHangoutButton label={i18n.t('wallet.settings.about.community')} />
-      </section>
+        </p>
+      </div>
     </div>
+
+    <CommunityHangoutButton
+      class="mt-3"
+      presentation="settings-row"
+      label={i18n.t('wallet.settings.about.community')}
+      description={i18n.t('wallet.settings.about.communityDescription')}
+    />
   </section>
 </div>

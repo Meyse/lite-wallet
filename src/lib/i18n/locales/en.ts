@@ -7,6 +7,9 @@ export const en: Record<string, string> = {
   'common.clearSearch': 'Clear search',
   'common.done': 'Done',
   'common.retry': 'Try again',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied',
+  'common.copyFailed': 'Copy failed',
   'common.unknownError': 'Unknown error',
   'common.error.secureStorageUnavailable':
     'Secure wallet storage is unavailable on this device. Restore from recovery or a device backup.',
@@ -471,19 +474,31 @@ export const en: Record<string, string> = {
   'wallet.settings.profile.recovery.title': 'Recovery and keys',
   'wallet.settings.profile.recovery.description':
     'Reveal recovery secrets and derived keys after password confirmation.',
-  'wallet.settings.privateVerus.title': 'Privacy',
+  'wallet.settings.privateVerus.title': 'Private Verus',
   'wallet.settings.privateVerus.description':
     'Configure shielded privacy for {label}. You can reuse your primary Secret Recovery Phrase or set a separate privacy recovery secret.',
-  'wallet.settings.privateVerus.statusConfigured': 'Privacy is configured.',
-  'wallet.settings.privateVerus.statusNotConfigured': 'Privacy is not configured yet.',
+  'wallet.settings.privateVerus.statusConfigured': 'Private Verus is set up',
+  'wallet.settings.privateVerus.statusNotConfigured': 'Not set up',
+  'wallet.settings.privateVerus.statusHelp':
+    'Choose how you want to protect your private Verus funds.',
+  'wallet.settings.privateVerus.statusUnavailable': 'Status unavailable',
   'wallet.settings.privateVerus.statusAddress': 'Shielded address',
   'wallet.settings.privateVerus.statusLoadError': 'Could not load privacy status.',
   'wallet.settings.privateVerus.reusePrimary': 'Reuse primary Secret Recovery Phrase',
+  'wallet.settings.privateVerus.reuseDescription':
+    'Use the recovery phrase already protecting this wallet.',
   'wallet.settings.privateVerus.createNew': 'Create new privacy recovery secret',
+  'wallet.settings.privateVerus.createDescription':
+    'Create a separate Secret Recovery Phrase for Private Verus.',
   'wallet.settings.privateVerus.importLabel': 'Import privacy recovery secret or spending key',
   'wallet.settings.privateVerus.importPlaceholder':
     'Paste a Secret Recovery Phrase or secret-extended-key-main…',
   'wallet.settings.privateVerus.importAction': 'Import privacy recovery secret',
+  'wallet.settings.privateVerus.importDescription':
+    'Use an existing Secret Recovery Phrase or spending key.',
+  'wallet.settings.privateVerus.importSheetTitle': 'Import Private Verus',
+  'wallet.settings.privateVerus.importHelp':
+    'Enter a valid Secret Recovery Phrase or Private Verus spending key.',
   'wallet.settings.privateVerus.settingUp': 'Configuring privacy…',
   'wallet.settings.privateVerus.generatedSeedTitle': 'New Secret Recovery Phrase',
   'wallet.settings.privateVerus.setupSuccess': 'Privacy configured.',
@@ -493,18 +508,44 @@ export const en: Record<string, string> = {
   'wallet.settings.privateVerus.advancedToggleShow': 'Show advanced privacy actions',
   'wallet.settings.privateVerus.advancedToggleHide': 'Hide advanced privacy actions',
   'wallet.settings.privateVerus.advancedWarning':
-    'Reconfiguring privacy can replace your existing privacy recovery secret.',
-  'wallet.settings.about.title': 'About',
+    'Replacing this setup changes which secret controls your private funds. Make sure the current secret is backed up before continuing.',
+  'wallet.settings.privateVerus.advanced': 'Advanced',
+  'wallet.settings.privateVerus.advancedDescription': 'Replace your current Private Verus setup.',
+  'wallet.settings.privateVerus.replaceTitle': 'Replace Private Verus setup?',
+  'wallet.settings.privateVerus.recoveryTitle': 'Recovery and keys',
+  'wallet.settings.privateVerus.recoveryDescription':
+    'View your Private Verus recovery secret and spending key.',
+  'wallet.settings.privateVerus.backupTitle': 'Back up your Secret Recovery Phrase',
+  'wallet.settings.privateVerus.backupDescription':
+    'Write these words down in order and store them somewhere safe and offline.',
+  'wallet.settings.privateVerus.copyPhrase': 'Copy phrase',
+  'wallet.settings.privateVerus.savedAcknowledgement':
+    'I saved this Secret Recovery Phrase somewhere safe.',
+  'wallet.settings.privateVerus.activationRelogin':
+    'Lock and unlock your wallet to activate Private Verus.',
+  'wallet.settings.privateVerus.activationReady': 'Private Verus is ready to use.',
+  'wallet.settings.privateVerus.error.invalidPrimary':
+    'Your primary wallet secret cannot be reused for Private Verus. Choose another setup method.',
+  'wallet.settings.privateVerus.error.invalidImport':
+    'Enter a valid Secret Recovery Phrase or Private Verus spending key.',
+  'wallet.settings.privateVerus.error.generic': 'Private Verus could not be set up. Try again.',
+  'wallet.settings.about.title': 'About and support',
   'wallet.settings.about.description': 'Version details and support links.',
   'wallet.settings.about.appName': 'App name',
   'wallet.settings.about.version': 'Version',
   'wallet.settings.about.community': 'Open community hangout',
+  'wallet.settings.about.communityDescription': 'Get help and connect with the Verus community.',
+  'wallet.settings.about.productName': 'Verus Wallet',
+  'wallet.settings.about.versionValue': 'Version {version}',
+  'wallet.settings.about.versionUnavailable': 'Version unavailable',
   'wallet.settings.recovery.title': 'Recovery and keys',
   'wallet.settings.recovery.warningInline':
     'Anyone with these values can control your funds. Keep them offline and private.',
+  'wallet.settings.recovery.warningTitle': 'Keep these details private',
   'wallet.settings.recovery.revealCta': 'Reveal recovery secrets',
   'wallet.settings.recovery.passwordPlaceholder': 'Wallet password',
   'wallet.settings.recovery.passwordInvalid': 'Password is incorrect.',
+  'wallet.settings.recovery.passwordError': 'Recovery details could not be opened. Try again.',
   'wallet.settings.recovery.revealLoading': 'Revealing…',
   'wallet.settings.recovery.revealConfirm': 'Reveal',
   'wallet.settings.recovery.reveal': 'Reveal',
@@ -517,6 +558,22 @@ export const en: Record<string, string> = {
   'wallet.settings.recovery.primarySection': 'Primary secret',
   'wallet.settings.recovery.derivedKeysSection': 'Derived keys',
   'wallet.settings.recovery.addressesSection': 'Addresses',
+  'wallet.settings.recovery.keysDescription': 'Verus, Bitcoin, Ethereum and private spending keys.',
+  'wallet.settings.recovery.addressesDescription': 'Addresses associated with this wallet.',
+  'wallet.settings.recovery.addressesSheetDescription':
+    'These addresses are safe to share when receiving funds.',
+  'wallet.settings.recovery.keepOffline':
+    'Keep this information offline. Never share it with anyone.',
+  'wallet.settings.recovery.closeRecovery': 'Close recovery',
+  'wallet.settings.recovery.revealValue': 'Reveal {label}',
+  'wallet.settings.recovery.hideValue': 'Hide {label}',
+  'wallet.settings.recovery.copyValue': 'Copy {label}',
+  'wallet.settings.recovery.qr.show': 'Show QR code for {label}',
+  'wallet.settings.recovery.qr.ariaLabel': 'QR code for {label}',
+  'wallet.settings.recovery.qr.back': 'Back to keys',
+  'wallet.settings.recovery.qr.loading': 'Creating QR code…',
+  'wallet.settings.recovery.qr.error': 'The QR code could not be created.',
+  'wallet.settings.recovery.qr.warning': 'This QR code contains your private key.',
   'wallet.settings.recovery.dlightSection': 'Privacy secret',
   'wallet.settings.recovery.dlightKindLabel': 'Privacy secret type',
   'wallet.settings.recovery.field.primarySecret': 'Primary secret material',

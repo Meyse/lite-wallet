@@ -373,10 +373,13 @@
         {:else if activeSection === 'address-book'}
           <AddressBook />
         {:else if activeSection === 'settings'}
-          <Settings
-            walletNetwork={walletData.network ?? 'mainnet'}
-            resetSignal={settingsResetSignal}
-          />
+          {#key transferWalletKey}
+            <Settings
+              walletNetwork={walletData.network ?? 'mainnet'}
+              walletName={walletData.name}
+              resetSignal={settingsResetSignal}
+            />
+          {/key}
         {/if}
       </main>
     </Sidebar.Inset>
