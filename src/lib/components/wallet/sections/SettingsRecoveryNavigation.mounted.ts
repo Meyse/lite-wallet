@@ -63,6 +63,7 @@ describe('mounted recovery navigation', () => {
       props: {
         walletNetwork: 'testnet',
         walletName: 'Synthetic test wallet',
+        walletSessionKey: 'mounted-settings-session',
       },
     });
     await settle();

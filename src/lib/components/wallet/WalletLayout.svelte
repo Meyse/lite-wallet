@@ -45,6 +45,7 @@
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import type { GenericRequestFlowSession } from '$lib/genericRequest/session';
   import { transferWalletSessionKey } from './sections/transfer-wizard/preflightRequest';
+  import { clearDlightSetupSession } from '$lib/utils/dlightSetupCoordinator';
 
   interface WalletData {
     name: string;
@@ -98,6 +99,11 @@
     transferWalletSessionKey(walletData.name, walletData.network ?? 'mainnet', walletData.sessionId)
   );
   const queuedGenericRequest = $derived($genericRequestQueueStore);
+
+  $effect(() => {
+    const walletSessionKey = transferWalletKey;
+    return () => clearDlightSetupSession(walletSessionKey);
+  });
 
   $effect(() => {
     if (activeSection === 'send' || activeSection === 'conversions') return;
@@ -377,6 +383,7 @@
             <Settings
               walletNetwork={walletData.network ?? 'mainnet'}
               walletName={walletData.name}
+              walletSessionKey={transferWalletKey}
               resetSignal={settingsResetSignal}
             />
           {/key}

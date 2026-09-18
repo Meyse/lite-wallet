@@ -483,7 +483,8 @@ export const de: Record<string, string> = {
   'wallet.settings.recovery.hide': 'Ausblenden',
   'wallet.settings.recovery.copy': 'Kopieren',
   'wallet.settings.recovery.copySuccess': 'Kopiert',
-  'wallet.settings.recovery.copyFailed': 'Kopieren fehlgeschlagen',
+  'wallet.settings.recovery.copyFailed':
+    'Dieser Wert konnte nicht kopiert werden. Versuchen Sie es erneut.',
   'wallet.settings.recovery.valueUnavailable': 'Nicht verfugbar',
   'wallet.settings.recovery.primaryKindLabel': 'Typ des primaren Secrets',
   'wallet.settings.recovery.primarySection': 'Primares Secret',

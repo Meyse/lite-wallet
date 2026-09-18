@@ -3,6 +3,10 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
+import {
+  clearDlightSetupSession,
+  getDlightSetupOperation,
+} from '$lib/utils/dlightSetupCoordinator';
 import PrivateVerusSettings from './PrivateVerusSettings.svelte';
 
 const walletService = vi.hoisted(() => ({
@@ -34,13 +38,17 @@ function findButton(label: string): HTMLButtonElement | undefined {
   );
 }
 
-function mountPrivate(onOpenRecovery = vi.fn()) {
+function mountPrivate(
+  onOpenRecovery = vi.fn(),
+  walletSessionKey = 'mounted-private-verus-session'
+) {
   const target = document.createElement('div');
   document.body.append(target);
   const component = mount(PrivateVerusSettings, {
     target,
     props: {
       walletNetwork: 'testnet',
+      walletSessionKey,
       onBack: vi.fn(),
       onOpenRecovery,
     },
@@ -60,6 +68,11 @@ describe('mounted Private Verus settings', () => {
   });
 
   afterEach(() => {
+    clearDlightSetupSession('mounted-private-verus-session');
+    clearDlightSetupSession('dismissed-private-verus-session');
+    clearDlightSetupSession('escaped-private-verus-session');
+    clearDlightSetupSession('abandoned-create-session');
+    clearDlightSetupSession('pending-create-session');
     document.body.replaceChildren();
   });
 
@@ -85,7 +98,7 @@ describe('mounted Private Verus settings', () => {
 
     expect(document.body.textContent).toContain('Private Verus is set up');
     expect(document.body.textContent).toContain('Testnet');
-    expect(document.body.textContent).toContain('zs1syntheticprivateaddress');
+    expect(document.body.querySelector('[title="zs1syntheticprivateaddress"]')).not.toBeNull();
     findButton('Recovery and keys')?.click();
     expect(onOpenRecovery).toHaveBeenCalledOnce();
 
@@ -152,6 +165,291 @@ describe('mounted Private Verus settings', () => {
 
     await unmount(component);
   });
+
+  it('refreshes the shielded address after initial setup', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({ configured: false })
+      .mockResolvedValueOnce({
+        configured: true,
+        shieldedAddress: 'zs1freshinitialaddress',
+      });
+    walletService.setupDlightSeed.mockResolvedValue({
+      configured: true,
+      requiresRelogin: false,
+    });
+    const { component } = mountPrivate();
+    await settle();
+
+    findButton('Reuse primary Secret Recovery Phrase')?.click();
+    await settle();
+
+    expect(walletService.getDlightSeedStatus).toHaveBeenCalledTimes(2);
+    expect(document.body.querySelector('[title="zs1freshinitialaddress"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Private Verus is ready to use.');
+
+    await unmount(component);
+  });
+
+  it('invalidates the previous shielded address while replacing setup and renders the refreshed one', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({
+        configured: true,
+        shieldedAddress: 'zs1oldreplacementaddress',
+      })
+      .mockResolvedValueOnce({
+        configured: true,
+        shieldedAddress: 'zs1newreplacementaddress',
+      });
+    let resolveSetup:
+      ((value: { configured: boolean; requiresRelogin: boolean }) => void) | undefined;
+    walletService.setupDlightSeed.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSetup = resolve;
+      })
+    );
+    const { component } = mountPrivate();
+    await settle();
+
+    expect(document.body.querySelector('[title="zs1oldreplacementaddress"]')).not.toBeNull();
+    findButton('Advanced')?.click();
+    await settle();
+    findButton('Create new privacy recovery secret')?.click();
+    await settle();
+    resolveSetup?.({ configured: true, requiresRelogin: true });
+    await settle();
+
+    expect(document.body.querySelector('[title="zs1oldreplacementaddress"]')).toBeNull();
+    expect(document.body.querySelector('[title="zs1newreplacementaddress"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Lock and unlock your wallet');
+
+    await unmount(component);
+  });
+
+  it('reports backup copy success and failure truthfully', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({ configured: false })
+      .mockResolvedValueOnce({ configured: true, shieldedAddress: 'zs1copyfeedback' });
+    walletService.setupDlightSeed.mockResolvedValue({
+      configured: true,
+      generatedSeedPhrase: 'alpha beta gamma synthetic backup only',
+      requiresRelogin: false,
+    });
+    const writeText = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('clipboard denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const { component } = mountPrivate();
+    await settle();
+
+    findButton('Create new privacy recovery secret')?.click();
+    await settle();
+    findButton('Copy phrase')?.click();
+    await settle();
+    expect(findButton('Copied')).toBeDefined();
+
+    findButton('Copied')?.click();
+    await settle();
+    expect(document.body.textContent).toContain('Copy failed');
+    expect(findButton('Copy phrase')).toBeDefined();
+
+    await unmount(component);
+  });
+
+  it('ignores a late backup copy result after the backup sheet is dismissed', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({ configured: false })
+      .mockResolvedValueOnce({ configured: true, shieldedAddress: 'zs1latebackupcopy' });
+    walletService.setupDlightSeed.mockResolvedValue({
+      configured: true,
+      generatedSeedPhrase: 'alpha beta gamma synthetic abandoned backup',
+      requiresRelogin: false,
+    });
+    let resolveCopy: (() => void) | undefined;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveCopy = resolve;
+            })
+        ),
+      },
+    });
+    const { component } = mountPrivate();
+    await settle();
+
+    findButton('Create new privacy recovery secret')?.click();
+    await settle();
+    findButton('Copy phrase')?.click();
+    document.body.querySelector<HTMLButtonElement>('button[data-slot="sheet-close"]')?.click();
+    await settle();
+    expect(document.body.textContent).not.toContain('synthetic abandoned backup');
+
+    resolveCopy?.();
+    await settle();
+    expect(findButton('Copied')).toBeUndefined();
+    expect(document.body.textContent).not.toContain('Copy failed');
+
+    await unmount(component);
+  });
+
+  it('does not replay an abandoned generated phrase after setup settles without a mounted view', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({ configured: false })
+      .mockResolvedValueOnce({
+        configured: true,
+        shieldedAddress: 'zs1abandonedcreateaddress',
+      });
+    let resolveSetup:
+      | ((value: {
+          configured: boolean;
+          generatedSeedPhrase: string;
+          requiresRelogin: boolean;
+        }) => void)
+      | undefined;
+    walletService.setupDlightSeed.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSetup = resolve;
+      })
+    );
+    const walletSessionKey = 'abandoned-create-session';
+    const firstMount = mountPrivate(vi.fn(), walletSessionKey);
+    await settle();
+
+    findButton('Create new privacy recovery secret')?.click();
+    await settle();
+    await unmount(firstMount.component);
+    resolveSetup?.({
+      configured: true,
+      generatedSeedPhrase: 'synthetic phrase that must never replay',
+      requiresRelogin: true,
+    });
+    await settle();
+
+    expect(getDlightSetupOperation(walletSessionKey)).toBeNull();
+    const secondMount = mountPrivate(vi.fn(), walletSessionKey);
+    await settle();
+    expect(document.body.textContent).not.toContain('synthetic phrase that must never replay');
+    expect(document.body.textContent).not.toContain('Back up your Secret Recovery Phrase');
+    expect(document.body.querySelector('[title="zs1abandonedcreateaddress"]')).not.toBeNull();
+    expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+    await unmount(secondMount.component);
+  });
+
+  it('keeps create-new locked while pending across remount without redisplaying its phrase', async () => {
+    walletService.getDlightSeedStatus
+      .mockResolvedValueOnce({ configured: false })
+      .mockResolvedValueOnce({
+        configured: true,
+        shieldedAddress: 'zs1pendingcreateaddress',
+      });
+    let resolveSetup:
+      | ((value: {
+          configured: boolean;
+          generatedSeedPhrase: string;
+          requiresRelogin: boolean;
+        }) => void)
+      | undefined;
+    walletService.setupDlightSeed.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSetup = resolve;
+      })
+    );
+    const walletSessionKey = 'pending-create-session';
+    const firstMount = mountPrivate(vi.fn(), walletSessionKey);
+    await settle();
+    findButton('Create new privacy recovery secret')?.click();
+    await settle();
+    await unmount(firstMount.component);
+
+    const secondMount = mountPrivate(vi.fn(), walletSessionKey);
+    await settle();
+    expect(findButton('Create new privacy recovery secret')).toBeUndefined();
+    expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+    resolveSetup?.({
+      configured: true,
+      generatedSeedPhrase: 'synthetic pending phrase that must not replay',
+      requiresRelogin: false,
+    });
+    await settle();
+    expect(document.body.textContent).not.toContain(
+      'synthetic pending phrase that must not replay'
+    );
+    expect(document.body.textContent).not.toContain('Back up your Secret Recovery Phrase');
+    expect(document.body.querySelector('[title="zs1pendingcreateaddress"]')).not.toBeNull();
+    expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+    await unmount(secondMount.component);
+  });
+
+  it.each([
+    ['close button', 'dismissed-private-verus-session'],
+    ['Escape', 'escaped-private-verus-session'],
+  ])(
+    'keeps an import write locked across %s dismissal and a same-session remount',
+    async (dismissMethod, walletSessionKey) => {
+      walletService.getDlightSeedStatus
+        .mockResolvedValueOnce({ configured: false })
+        .mockResolvedValueOnce({
+          configured: true,
+          shieldedAddress: 'zs1settledafterdismissal',
+        });
+      let resolveSetup:
+        ((value: { configured: boolean; requiresRelogin: boolean }) => void) | undefined;
+      walletService.setupDlightSeed.mockReturnValue(
+        new Promise((resolve) => {
+          resolveSetup = resolve;
+        })
+      );
+      const firstMount = mountPrivate(vi.fn(), walletSessionKey);
+      await settle();
+
+      findButton('Import privacy recovery secret')?.click();
+      await settle();
+      const textarea = document.body.querySelector<HTMLTextAreaElement>('textarea');
+      expect(textarea).not.toBeNull();
+      if (textarea) {
+        textarea.value = 'synthetic imported secret';
+        textarea.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }
+      await settle();
+      [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.trim() === 'Import privacy recovery secret')
+        ?.click();
+      await settle();
+      expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+      if (dismissMethod === 'Escape') {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      } else {
+        document.body.querySelector<HTMLButtonElement>('button[data-slot="sheet-close"]')?.click();
+      }
+      await settle();
+      expect(document.body.querySelector('textarea')).toBeNull();
+      findButton('Create new privacy recovery secret')?.click();
+      expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+      await unmount(firstMount.component);
+      const secondMount = mountPrivate(vi.fn(), walletSessionKey);
+      await settle();
+      expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+      expect(findButton('Create new privacy recovery secret')).toBeUndefined();
+
+      resolveSetup?.({ configured: true, requiresRelogin: false });
+      await settle();
+      expect(document.body.querySelector('[title="zs1settledafterdismissal"]')).not.toBeNull();
+      expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
+
+      await unmount(secondMount.component);
+    }
+  );
 
   it('clears imports on dismissal and suppresses duplicate submissions', async () => {
     walletService.getDlightSeedStatus.mockResolvedValue({ configured: false });

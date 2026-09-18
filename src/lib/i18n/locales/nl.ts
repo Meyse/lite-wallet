@@ -559,7 +559,7 @@ export const nl: Record<string, string> = {
   'wallet.settings.recovery.hide': 'Verbergen',
   'wallet.settings.recovery.copy': 'Kopiëren',
   'wallet.settings.recovery.copySuccess': 'Gekopieerd',
-  'wallet.settings.recovery.copyFailed': 'Kopiëren mislukt',
+  'wallet.settings.recovery.copyFailed': 'Kon deze waarde niet kopiëren. Probeer het opnieuw.',
   'wallet.settings.recovery.valueUnavailable': 'Niet beschikbaar',
   'wallet.settings.recovery.primaryKindLabel': 'Type primaire secret',
   'wallet.settings.recovery.primarySection': 'Primaire secret',

@@ -56,7 +56,12 @@
 
     <div class="mt-5 flex h-[82px] shrink-0 items-center gap-4 rounded-lg bg-settings-surface px-4">
       <div class="flex size-10 shrink-0 items-center justify-center">
-        <img src="/images/verus-logo-blue.svg" alt="" class="size-10" aria-hidden="true" />
+        <img
+          src="/images/coin-logos/btc/vrsc_dark.svg"
+          alt=""
+          class="size-10 rounded-full"
+          aria-hidden="true"
+        />
       </div>
       <div class="min-w-0">
         <p class="truncate text-base leading-5 font-semibold">

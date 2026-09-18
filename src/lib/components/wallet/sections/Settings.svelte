@@ -30,6 +30,7 @@
   type SettingsProps = {
     walletNetwork: WalletNetwork;
     walletName: string;
+    walletSessionKey: string;
     resetSignal?: number;
   };
 
@@ -43,7 +44,7 @@
     | 'recovery-keys'
     | 'about-support';
 
-  const { walletNetwork, walletName, resetSignal = 0 }: SettingsProps = $props();
+  const { walletNetwork, walletName, walletSessionKey, resetSignal = 0 }: SettingsProps = $props();
 
   const i18n = $derived($i18nStore);
   const settings = $derived($settingsStore);
@@ -255,6 +256,7 @@
 {:else if activeView === 'private-verus'}
   <PrivateVerusSettings
     {walletNetwork}
+    {walletSessionKey}
     onOpenRecovery={() => {
       openRecovery('private-verus');
     }}

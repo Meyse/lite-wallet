@@ -552,7 +552,7 @@ export const en: Record<string, string> = {
   'wallet.settings.recovery.hide': 'Hide',
   'wallet.settings.recovery.copy': 'Copy',
   'wallet.settings.recovery.copySuccess': 'Copied',
-  'wallet.settings.recovery.copyFailed': 'Copy failed',
+  'wallet.settings.recovery.copyFailed': 'Could not copy this value. Try again.',
   'wallet.settings.recovery.valueUnavailable': 'Not available',
   'wallet.settings.recovery.primaryKindLabel': 'Primary secret type',
   'wallet.settings.recovery.primarySection': 'Primary secret',

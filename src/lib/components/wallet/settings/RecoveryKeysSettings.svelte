@@ -9,11 +9,14 @@
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import QrCodeIcon from '@lucide/svelte/icons/qr-code';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import PasswordConfirmOverlay from '$lib/components/common/PasswordConfirmOverlay.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
+  import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService';
   import type {
@@ -41,6 +44,7 @@
     value: string;
     isSecret: boolean;
     supportsQr?: boolean;
+    formatLabel?: string;
   };
 
   const { walletNetwork, walletName, backLabel, onBack }: RecoveryKeysSettingsProps = $props();
@@ -58,6 +62,7 @@
   let qrState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
   let requestGeneration = 0;
   let qrGeneration = 0;
+  let copyGeneration = 0;
   let disposed = false;
 
   const copyFeedback = new TimedRecordState<'copied' | 'failed'>();
@@ -74,7 +79,8 @@
             label: i18n.t('wallet.settings.recovery.field.primarySecret'),
             value: secrets.primarySecret,
             isSecret: true,
-            supportsQr: true,
+            supportsQr: secrets.primarySecretKind !== 'seed_text',
+            formatLabel: recoverySecretKindLabel(secrets.primarySecretKind),
           },
         ]
       : []
@@ -94,7 +100,8 @@
             label: i18n.t('wallet.settings.recovery.field.dlightSecret'),
             value: secrets.dlightSecret,
             isSecret: true,
-            supportsQr: true,
+            supportsQr: secrets.dlightSecretKind === 'spending_key',
+            formatLabel: dlightSecretKindLabel(secrets.dlightSecretKind),
           },
           ...(secrets.dlightShieldedAddress
             ? [
@@ -119,6 +126,7 @@
             value: secrets.verusWif,
             isSecret: true,
             supportsQr: true,
+            formatLabel: i18n.t('wallet.settings.recovery.kind.wif'),
           },
           {
             id: 'btcWif',
@@ -126,6 +134,7 @@
             value: secrets.btcWif,
             isSecret: true,
             supportsQr: true,
+            formatLabel: i18n.t('wallet.settings.recovery.kind.wif'),
           },
           {
             id: 'ethPrivateKey',
@@ -133,6 +142,7 @@
             value: secrets.ethPrivateKey,
             isSecret: true,
             supportsQr: true,
+            formatLabel: i18n.t('wallet.settings.recovery.kind.privateKeyHex'),
           },
           ...(privateSpendingKey
             ? [
@@ -142,6 +152,7 @@
                   value: privateSpendingKey,
                   isSecret: true,
                   supportsQr: true,
+                  formatLabel: i18n.t('wallet.settings.recovery.kind.dlightSpendingKey'),
                 },
               ]
             : []),
@@ -197,15 +208,16 @@
   );
 
   const detailTitle = $derived(
-    i18n.t(
-      activeDetail === 'primary'
-        ? 'wallet.settings.recovery.primarySection'
-        : activeDetail === 'dlight'
-          ? 'wallet.settings.recovery.dlightSection'
-          : activeDetail === 'keys'
-            ? 'wallet.settings.recovery.derivedKeysSection'
-            : 'wallet.settings.recovery.addressesSection'
-    )
+    qrEntry?.label ??
+      i18n.t(
+        activeDetail === 'primary'
+          ? 'wallet.settings.recovery.primarySection'
+          : activeDetail === 'dlight'
+            ? 'wallet.settings.recovery.dlightSection'
+            : activeDetail === 'keys'
+              ? 'wallet.settings.recovery.derivedKeysSection'
+              : 'wallet.settings.recovery.addressesSection'
+      )
   );
 
   function recoverySecretKindLabel(kind: RecoverySecretKind): string {
@@ -232,6 +244,7 @@
   }
 
   function clearDetailState(): void {
+    copyGeneration += 1;
     visibleSecretById = {};
     copyFeedback.clearAll();
     clearQr();
@@ -276,7 +289,15 @@
   }
 
   async function copyValue(entry: RecoveryEntry): Promise<void> {
+    const generation = copyGeneration;
     const copied = await writeClipboardText(entry.value);
+    if (
+      disposed ||
+      generation !== copyGeneration ||
+      !activeEntries.some((activeEntry) => activeEntry.id === entry.id)
+    ) {
+      return;
+    }
     copyFeedback.set(entry.id, copied ? 'copied' : 'failed');
   }
 
@@ -360,19 +381,17 @@
     </header>
 
     {#if secrets}
-      <div class="mt-5 rounded-lg bg-amber-50 p-4 dark:bg-amber-500/10">
-        <p class="text-sm leading-5 font-medium text-amber-950 dark:text-amber-100">
-          {i18n.t('wallet.settings.recovery.warningTitle')}
-        </p>
-        <p class="mt-1 text-[13px] leading-5 text-amber-900/80 dark:text-amber-100/75">
+      <div class="mt-5 flex items-start gap-2 text-settings-muted-foreground">
+        <InfoIcon class="mt-0.5 size-4 shrink-0" />
+        <p class="text-[13px] leading-5">
           {i18n.t('wallet.settings.recovery.warningInline')}
         </p>
       </div>
 
-      <div class="mt-3 overflow-hidden rounded-lg bg-settings-surface">
+      <div class="mt-3">
         <button
           type="button"
-          class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+          class="flex min-h-16 w-full items-center gap-4 rounded-lg bg-settings-surface px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
           onclick={() => openDetail('primary')}
         >
           <span class="min-w-0 flex-1">
@@ -389,7 +408,7 @@
         {#if secrets.dlightSecret}
           <button
             type="button"
-            class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+            class="mt-2.5 flex min-h-16 w-full items-center gap-4 rounded-lg bg-settings-surface px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
             onclick={() => openDetail('dlight')}
           >
             <span class="min-w-0 flex-1">
@@ -406,7 +425,7 @@
 
         <button
           type="button"
-          class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+          class="mt-5 flex min-h-16 w-full items-center gap-4 rounded-lg bg-settings-surface px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
           onclick={() => openDetail('keys')}
         >
           <span class="min-w-0 flex-1">
@@ -422,7 +441,7 @@
 
         <button
           type="button"
-          class="flex min-h-16 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset"
+          class="mt-2.5 flex min-h-16 w-full items-center gap-4 rounded-lg bg-settings-surface px-4 py-3 text-left outline-none hover:bg-settings-control-surface focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
           onclick={() => openDetail('addresses')}
         >
           <span class="min-w-0 flex-1">
@@ -436,10 +455,6 @@
           <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
         </button>
       </div>
-
-      <Button class="mt-4 w-fit" size="sm" variant="secondary" onclick={leaveRecovery}>
-        {i18n.t('wallet.settings.recovery.closeRecovery')}
-      </Button>
     {/if}
   </section>
 </div>
@@ -472,9 +487,11 @@
         <ChevronLeftIcon class="size-4" />
         {i18n.t('wallet.settings.recovery.qr.back')}
       </button>
-      <p class="mt-4 self-start text-sm leading-5 font-medium">{qrEntry.label}</p>
-      <p class="mt-1 self-start text-xs leading-5 text-settings-muted-foreground">
-        {walletName} · {networkLabel}
+      <p class="mt-4 self-start text-[13px] leading-5 text-settings-muted-foreground">
+        {networkLabel} · {qrEntry.formatLabel}
+      </p>
+      <p class="self-start text-[13px] leading-5 text-settings-muted-foreground">
+        {walletName}
       </p>
 
       <div class="mt-5 flex size-[260px] shrink-0 items-center justify-center bg-white">
@@ -510,8 +527,9 @@
         {/if}
       </div>
 
-      <div class="mt-5 w-full rounded-lg bg-amber-50 p-4 dark:bg-amber-500/10">
-        <p class="text-[13px] leading-5 text-amber-950 dark:text-amber-100">
+      <div class="mt-5 flex w-full items-start gap-2 text-settings-muted-foreground">
+        <InfoIcon class="mt-0.5 size-4 shrink-0" />
+        <p class="text-[13px] leading-5">
           {i18n.t('wallet.settings.recovery.qr.warning')}
         </p>
       </div>
@@ -524,70 +542,119 @@
           : i18n.t('wallet.settings.recovery.keepOffline')}
       </p>
 
-      <div class="mt-4 min-h-0 flex-1 overflow-auto">
-        <div class="space-y-3 pb-1">
-          {#each activeEntries as entry (entry.id)}
-            <div class="rounded-lg bg-settings-surface p-4">
-              <p class="text-[13px] leading-5 font-medium">{entry.label}</p>
-              <p class="mt-2 font-mono text-xs leading-5 break-all text-settings-muted-foreground">
-                {renderedValue(entry)}
-              </p>
-
-              {#if entry.value.trim()}
-                <div class="mt-3 flex items-center gap-1">
-                  {#if entry.isSecret}
-                    <button
-                      type="button"
-                      class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-control-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-                      aria-label={i18n.t(
-                        visibleSecretById[entry.id]
-                          ? 'wallet.settings.recovery.hideValue'
-                          : 'wallet.settings.recovery.revealValue',
-                        { label: entry.label }
-                      )}
-                      onclick={() => toggleSecretVisibility(entry.id)}
-                    >
-                      {#if visibleSecretById[entry.id]}
-                        <EyeOffIcon class="size-4" />
-                      {:else}
-                        <EyeIcon class="size-4" />
-                      {/if}
-                    </button>
-                  {/if}
-
-                  <CopyButton
-                    size="default"
-                    copied={copyStatusById[entry.id] === 'copied'}
-                    aria-label={i18n.t('wallet.settings.recovery.copyValue', {
-                      label: entry.label,
-                    })}
-                    onclick={() => void copyValue(entry)}
+      <ScrollArea.Root class="mt-4 min-h-0 flex-1">
+        <ScrollArea.Viewport class="h-full pr-1">
+          <div class="space-y-2.5 pb-1">
+            {#each activeEntries as entry (entry.id)}
+              {@const revealed = entry.isSecret && Boolean(visibleSecretById[entry.id])}
+              {@const copyFailed = copyStatusById[entry.id] === 'failed'}
+              <div
+                data-recovery-entry={entry.id}
+                data-revealed={revealed}
+                class={`rounded-lg bg-settings-surface p-3 dark:bg-settings-control-surface ${revealed || copyFailed ? 'min-h-[74px]' : 'h-[74px]'}`}
+              >
+                <p class="text-[13px] leading-5 font-medium">{entry.label}</p>
+                <div class={revealed ? 'mt-2 min-w-0' : 'mt-1 flex h-8 min-w-0 items-center gap-1'}>
+                  <IdentifierText
+                    value={renderedValue(entry)}
+                    mode="full"
+                    title={!entry.isSecret ? entry.value : undefined}
+                    class={revealed
+                      ? 'block font-mono text-[13px] leading-5 break-all whitespace-normal text-foreground'
+                      : 'min-w-0 flex-1 truncate font-mono text-[13px] leading-5 whitespace-nowrap text-settings-muted-foreground'}
                   />
 
-                  {#if entry.supportsQr}
-                    <button
-                      type="button"
-                      class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-control-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-                      aria-label={i18n.t('wallet.settings.recovery.qr.show', {
+                  {#if entry.value.trim() && !revealed}
+                    {#if entry.isSecret}
+                      <button
+                        type="button"
+                        class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-control-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+                        aria-label={i18n.t(
+                          visibleSecretById[entry.id]
+                            ? 'wallet.settings.recovery.hideValue'
+                            : 'wallet.settings.recovery.revealValue',
+                          { label: entry.label }
+                        )}
+                        onclick={() => toggleSecretVisibility(entry.id)}
+                      >
+                        {#if visibleSecretById[entry.id]}
+                          <EyeOffIcon class="size-4" />
+                        {:else}
+                          <EyeIcon class="size-4" />
+                        {/if}
+                      </button>
+                    {/if}
+
+                    <CopyButton
+                      size="default"
+                      copied={copyStatusById[entry.id] === 'copied'}
+                      aria-label={i18n.t('wallet.settings.recovery.copyValue', {
                         label: entry.label,
                       })}
-                      onclick={() => void generateQr(entry)}
-                    >
-                      <QrCodeIcon class="size-4" />
-                    </button>
+                      onclick={() => void copyValue(entry)}
+                    />
+
+                    {#if entry.supportsQr}
+                      <button
+                        type="button"
+                        class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-control-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+                        aria-label={i18n.t('wallet.settings.recovery.qr.show', {
+                          label: entry.label,
+                        })}
+                        onclick={() => void generateQr(entry)}
+                      >
+                        <QrCodeIcon class="size-4" />
+                      </button>
+                    {/if}
                   {/if}
                 </div>
 
-                {#if copyStatusById[entry.id] === 'failed'}
-                  <p class="mt-1 text-xs text-destructive" role="status">
+                {#if entry.value.trim() && revealed}
+                  <div class="mt-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+                      aria-label={i18n.t('wallet.settings.recovery.hideValue', {
+                        label: entry.label,
+                      })}
+                      onclick={() => toggleSecretVisibility(entry.id)}
+                    >
+                      <EyeOffIcon class="size-4" />
+                    </button>
+                    <CopyButton
+                      size="default"
+                      copied={copyStatusById[entry.id] === 'copied'}
+                      aria-label={i18n.t('wallet.settings.recovery.copyValue', {
+                        label: entry.label,
+                      })}
+                      onclick={() => void copyValue(entry)}
+                    />
+                    {#if entry.supportsQr}
+                      <button
+                        type="button"
+                        class="flex size-8 items-center justify-center rounded-md text-settings-muted-foreground outline-none hover:bg-settings-surface hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+                        aria-label={i18n.t('wallet.settings.recovery.qr.show', {
+                          label: entry.label,
+                        })}
+                        onclick={() => void generateQr(entry)}
+                      >
+                        <QrCodeIcon class="size-4" />
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#if copyFailed}
+                  <p class="mt-2 text-xs leading-5 text-destructive" role="status">
                     {i18n.t('wallet.settings.recovery.copyFailed')}
                   </p>
                 {/if}
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
+              </div>
+            {/each}
+          </div>
+        </ScrollArea.Viewport>
+        <ScrollArea.Scrollbar orientation="vertical" />
+      </ScrollArea.Root>
     </div>
   {/if}
 </StandardRightSheet>

@@ -482,7 +482,7 @@ export const es: Record<string, string> = {
   'wallet.settings.recovery.hide': 'Ocultar',
   'wallet.settings.recovery.copy': 'Copiar',
   'wallet.settings.recovery.copySuccess': 'Copiado',
-  'wallet.settings.recovery.copyFailed': 'Fallo al copiar',
+  'wallet.settings.recovery.copyFailed': 'No se pudo copiar este valor. Intentalo de nuevo.',
   'wallet.settings.recovery.valueUnavailable': 'No disponible',
   'wallet.settings.recovery.primaryKindLabel': 'Tipo de secreto principal',
   'wallet.settings.recovery.primarySection': 'Secreto principal',
