@@ -244,6 +244,39 @@ describe('mounted Manage assets', () => {
     expect(row('USD Coin')).toBeDefined();
   });
 
+  it('shows a bottom fade only while the asset list can scroll further', async () => {
+    await render();
+    const viewport = requiredElement<HTMLElement>('[data-slot="scroll-area-viewport"]');
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 600 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+
+    viewport.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(document.querySelector('[data-manage-assets-scroll-fade]')).not.toBeNull();
+
+    viewport.scrollTop = 300;
+    viewport.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(document.querySelector('[data-manage-assets-scroll-fade]')).toBeNull();
+  });
+
+  it('uses the standard secondary treatment for both custom-asset actions', async () => {
+    await render();
+    const addCustom = button('Add custom asset');
+    expect(addCustom.className).toContain('bg-secondary');
+    expect(addCustom.className).toContain('text-secondary-foreground');
+
+    addCustom.click();
+    await settle();
+    const findAsset = button('Find asset');
+    expect(findAsset.className).toContain('bg-secondary');
+    expect(findAsset.className).toContain('text-secondary-foreground');
+    expect(findAsset.className).not.toContain('text-primary');
+  });
+
   it('does not invent zero when a relevant VRPC provider failed', async () => {
     service.discoverVrpcAssets.mockResolvedValue({
       network: 'mainnet',

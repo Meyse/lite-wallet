@@ -94,6 +94,8 @@
   const walletChannels = $derived($walletChannelsStore);
 
   let headingElement = $state<HTMLElement | null>(null);
+  let listScrollElement = $state<HTMLElement | null>(null);
+  let canScrollDown = $state(false);
   let registryCoins = $state<CoinDefinition[]>([]);
   let portfolioCoinIds = $state<string[]>([]);
   let hiddenAssetKeys = $state<string[]>([]);
@@ -980,6 +982,52 @@
     };
   }
 
+  function updateScrollAffordance(element = listScrollElement): void {
+    if (!element) {
+      canScrollDown = false;
+      return;
+    }
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    canScrollDown = maxScrollTop > 1 && element.scrollTop < maxScrollTop - 1;
+  }
+
+  function onManageAssetsScroll(event: Event): void {
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) updateScrollAffordance(target);
+  }
+
+  $effect(() => {
+    shownRows.length;
+    foundRows.length;
+    browseRows.length;
+    hiddenRows.length;
+    visibleOtherRows.length;
+    loading;
+    tab;
+    query;
+    networkFilter;
+
+    const element = listScrollElement;
+    if (view !== 'manage' || !element) {
+      canScrollDown = false;
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(() => updateScrollAffordance(element));
+    resizeObserver.observe(element);
+    const viewportContent = element.querySelector('[data-scroll-area-content]');
+    if (viewportContent instanceof HTMLElement) {
+      resizeObserver.observe(viewportContent);
+    } else if (element.lastElementChild instanceof HTMLElement) {
+      resizeObserver.observe(element.lastElementChild);
+    }
+    void tick().then(() => {
+      if (listScrollElement === element && view === 'manage') updateScrollAffordance(element);
+    });
+
+    return () => resizeObserver.disconnect();
+  });
+
   $effect(() => {
     if (!isOpen) {
       lifecycleGeneration += 1;
@@ -1145,7 +1193,11 @@
       aria-labelledby={`manage-assets-tab-${tab}`}
     >
       <ScrollArea.Root class="h-full" type="scroll">
-        <ScrollArea.Viewport class="h-full overscroll-contain pr-1">
+        <ScrollArea.Viewport
+          class="h-full overscroll-contain pr-1"
+          bind:ref={listScrollElement}
+          onscroll={onManageAssetsScroll}
+        >
           {#if loading}
             <div class="flex h-32 items-center justify-center text-sm text-muted-foreground">
               <RefreshCwIcon class="mr-2 h-4 w-4 animate-spin" />
@@ -1318,18 +1370,28 @@
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
+
+      {#if canScrollDown}
+        <div
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
+          data-manage-assets-scroll-fade
+          aria-hidden="true"
+        ></div>
+      {/if}
     </div>
 
     <footer class="flex h-12 shrink-0 items-end">
-      <button
+      <Button
         type="button"
-        class="inline-flex h-8 items-center gap-1.5 text-[13px] font-medium text-primary focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+        variant="secondary"
+        size="sm"
+        class="h-8 gap-1.5 px-3 text-[13px]"
         data-manage-assets-return-focus="add-custom"
         onclick={() => openManual()}
       >
         <PlusIcon class="h-3.5 w-3.5" />
         {i18n.t('wallet.manageAssets.addCustom')}
-      </button>
+      </Button>
     </footer>
   {:else}
     <header class="shrink-0">
@@ -1382,7 +1444,7 @@
           <Button
             type="submit"
             variant="secondary"
-            class="h-10 w-[116px] text-primary"
+            class="h-10 w-[116px]"
             disabled={manualResolving || manualAdding}
           >
             {manualResolving
