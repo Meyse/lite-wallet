@@ -1,19 +1,26 @@
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import { onDestroy, onMount, tick } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import CheckIcon from '@lucide/svelte/icons/check';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import SearchInput from '$lib/components/common/SearchInput.svelte';
-  import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
-  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
-  import AddAssetRow from '$lib/components/wallet/AddAssetRow.svelte';
-  import { Input } from '$lib/components/ui/input';
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import XIcon from '@lucide/svelte/icons/x';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
+  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
-  import { i18nStore } from '$lib/i18n';
   import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
-  import { coinsStore } from '$lib/stores/coins.js';
-  import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
+  import { i18nStore } from '$lib/i18n';
   import * as coinsService from '$lib/services/coinsService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
@@ -25,32 +32,100 @@
     erc20ContractValue,
     pbaasLookupValue,
   } from '$lib/stores/addAssetCatalog.js';
+  import { coinsStore } from '$lib/stores/coins.js';
+  import {
+    type AggregatedDiscoveryHolding,
+    aggregateDiscoveryHoldings,
+    assetKeyForCoin,
+    finiteAssetBalance,
+    formatAssetBalance,
+    type KnownAssetBalance,
+    scanKnownNonVrpcAssets,
+  } from '$lib/stores/manageAssets.js';
+  import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
   import type {
-    ActiveAssetsState,
+    AssetDiscoveryResult,
     CoinDefinition,
     PbaasCandidate,
     WalletNetwork,
   } from '$lib/types/wallet.js';
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
 
-  let { isOpen = $bindable(false), network }: { isOpen?: boolean; network: WalletNetwork } =
-    $props();
+  type ManageTab = 'yours' | 'browse' | 'hidden';
+  type BalanceStatus = 'loading' | 'available' | 'partial' | 'unavailable';
+  type VisitGroup = 'shown' | 'found' | 'browse' | 'hidden' | 'other';
+
+  interface ManagedAssetRow {
+    key: string;
+    coinId: string;
+    currencyId: string;
+    displayTicker: string;
+    displayName: string;
+    proto: CoinDefinition['proto'];
+    coin: CoinDefinition | null;
+    catalogEntry: AddAssetEntry | null;
+    cataloged: boolean;
+    inPortfolio: boolean;
+    hidden: boolean;
+    discovered: boolean;
+    balance: string | null;
+    balanceStatus: BalanceStatus;
+    includesReadOnly: boolean;
+    networks: Array<{
+      systemId: string;
+      systemTicker: string;
+      systemDisplayName: string;
+      balance: string | null;
+      status: BalanceStatus;
+    }>;
+  }
+
+  let {
+    isOpen = $bindable(false),
+    network,
+    onClose = () => {},
+  }: {
+    isOpen?: boolean;
+    network: WalletNetwork;
+    onClose?: () => void;
+  } = $props();
 
   const i18n = $derived($i18nStore);
   const walletChannels = $derived($walletChannelsStore);
+
+  let headingElement = $state<HTMLElement | null>(null);
   let registryCoins = $state<CoinDefinition[]>([]);
-  let activeAssetIds = $state<string[]>([]);
+  let portfolioCoinIds = $state<string[]>([]);
+  let hiddenAssetKeys = $state<string[]>([]);
+  let discovery = $state<AssetDiscoveryResult | null>(null);
+  let knownBalances = $state<KnownAssetBalance[]>([]);
+  let loading = $state(true);
+  let refreshing = $state(false);
+  let discoveryStale = $state(false);
+  let discoveryError = $state('');
+  let refreshError = $state('');
+  let tab = $state<ManageTab>('yours');
+  let query = $state('');
+  let networkFilter = $state('all');
+  let otherAssetsExpanded = $state(false);
+  let expandedAssetKeys = $state<string[]>([]);
+  let pendingCounts = $state<Record<string, number>>({});
+  let rowErrors = $state<Record<string, string>>({});
+  let retryDesired = $state<Record<string, boolean>>({});
+  let rowRevisions = $state<Record<string, number>>({});
+  let visitGroupByKey = $state<Record<string, VisitGroup>>({});
+  let expectedSessionId = $state('');
+  let savingPreference = $state(false);
+  let closing = $state(false);
+  let networkMenuOpen = $state(false);
+  let lifecycleGeneration = 0;
+  let componentMounted = true;
+  let activePreferenceSave: Promise<boolean> | null = null;
 
-  let searchInput = $state('');
-  let debouncedSearch = $state('');
-  let view = $state<'catalog' | 'manual'>('catalog');
-
-  let actionError = $state('');
-  let actionSuccess = $state('');
-  let actionSuccessTone = $state<'success' | 'destructive'>('success');
-  let actionSuccessTimer = $state<ReturnType<typeof setTimeout> | null>(null);
-  let activeRowKey = $state<string | null>(null);
-
+  let view = $state<'manage' | 'manual'>('manage');
+  let manualInputElement = $state<HTMLInputElement | null>(null);
+  let manualReturnFocus: HTMLElement | null = null;
+  let manualReturnFocusKey = '';
   let manualInput = $state('');
   let manualResolving = $state(false);
   let manualAdding = $state(false);
@@ -58,139 +133,293 @@
   let manualError = $state('');
   let manualResolvedCoin = $state<CoinDefinition | null>(null);
   let manualCandidates = $state<PbaasCandidate[]>([]);
+  let identifierCopyState = $state<'idle' | 'copied' | 'failed'>('idle');
+  let manualLookupRevision = 0;
 
+  const activeSet = $derived(
+    new Set(portfolioCoinIds.map((coinId) => coinId.trim().toLowerCase()))
+  );
+  const hiddenSet = $derived(new Set(hiddenAssetKeys.map((key) => key.trim().toLowerCase())));
+  const aggregatedDiscovery = $derived(aggregateDiscoveryHoldings(discovery?.holdings ?? []));
   const catalogView = $derived(
     buildAddAssetCatalogView({
       coins: registryCoins,
       network,
-      query: debouncedSearch,
-      activeCoinIds: activeAssetIds,
+      query: '',
+      activeCoinIds: portfolioCoinIds,
     })
   );
+  const catalogEntries = $derived([...catalogView.addedEntries, ...catalogView.availableEntries]);
 
-  $effect(() => {
-    const query = searchInput;
-    const timer = setTimeout(() => {
-      debouncedSearch = query;
-    }, 150);
-    return () => clearTimeout(timer);
-  });
-
-  $effect(() => {
-    if (isOpen) return;
-    resetSheetState();
-  });
-
-  $effect(() => {
-    return () => {
-      if (actionSuccessTimer) {
-        clearTimeout(actionSuccessTimer);
-      }
-    };
-  });
-
-  $effect(() => {
-    if (!isOpen) return;
-    void (async () => {
-      try {
-        await hydrateCatalogState();
-        actionError = '';
-      } catch (error) {
-        actionError = translateAssetError(error, 'wallet.addAsset.error.addFailed');
-      }
-    })();
-  });
-
-  function normalizeCoinId(value: string): string {
+  function normalize(value: string): string {
     return value.trim().toLowerCase();
   }
 
-  function filterCoinsByActiveIds(coins: CoinDefinition[], coinIds: string[]): CoinDefinition[] {
-    const activeSet = new Set(
-      coinIds.map((coinId) => normalizeCoinId(coinId)).filter((coinId) => coinId.length > 0)
+  function entryAssetKey(entry: AddAssetEntry): string {
+    return `${entry.proto}:${normalize(entry.currencyId || entry.id)}`;
+  }
+
+  function matchingRegistryCoin(entry: AddAssetEntry): CoinDefinition | null {
+    return (
+      registryCoins.find((coin) => normalize(coin.id) === normalize(entry.id)) ??
+      registryCoins.find(
+        (coin) =>
+          coin.proto === entry.proto &&
+          Boolean(entry.currencyId) &&
+          normalize(coin.currencyId) === normalize(entry.currencyId)
+      ) ??
+      null
     );
-    if (activeSet.size === 0) return [];
-
-    return coins.filter((coin) => activeSet.has(normalizeCoinId(coin.id)));
   }
 
-  function applyActiveAssetsState(
-    state: ActiveAssetsState,
-    sourceCoins: CoinDefinition[] = registryCoins
-  ): void {
-    activeAssetIds = state.coinIds;
-    const activeCoins = filterCoinsByActiveIds(sourceCoins, state.coinIds);
-    coinsStore.set(activeCoins);
-    walletChannelsStore.set(buildWalletChannels(activeCoins, walletChannels.vrpcAddress));
+  function discoveryForKey(key: string): AggregatedDiscoveryHolding | null {
+    return aggregatedDiscovery.find((holding) => holding.assetKey === key) ?? null;
   }
 
-  async function hydrateCatalogState(): Promise<void> {
-    const [allCoins, activeAssets] = await Promise.all([
-      coinsService.getCoinRegistry(),
-      walletService.getActiveAssets(),
-    ]);
-    const networkCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
-    registryCoins = networkCoins;
-    applyActiveAssetsState(activeAssets, networkCoins);
+  function knownBalanceForKey(key: string): KnownAssetBalance | null {
+    return knownBalances.find((holding) => holding.assetKey === key) ?? null;
   }
 
-  function handleOpenAutoFocus(event: Event) {
-    event.preventDefault();
+  function vrpcCoverageStatus(): BalanceStatus {
+    if (!discovery) return discoveryError ? 'unavailable' : 'loading';
+    if (discovery.sources.length === 0) return 'unavailable';
+    const statuses = discovery.sources.map((source) => source.status);
+    if (statuses.every((status) => status === 'unavailable')) return 'unavailable';
+    if (statuses.some((status) => status !== 'available') || !discovery.scopeMetadataComplete) {
+      return 'partial';
+    }
+    return 'available';
   }
 
-  function clearActionSuccessTimer() {
-    if (!actionSuccessTimer) return;
-    clearTimeout(actionSuccessTimer);
-    actionSuccessTimer = null;
+  function mergeBalanceStatus(
+    holdingStatus: BalanceStatus,
+    coverageStatus: BalanceStatus
+  ): BalanceStatus {
+    if (coverageStatus === 'unavailable') {
+      return holdingStatus === 'available' || holdingStatus === 'partial'
+        ? 'partial'
+        : 'unavailable';
+    }
+    if (coverageStatus === 'partial' && holdingStatus === 'available') return 'partial';
+    return holdingStatus;
   }
 
-  function clearActionSuccess() {
-    clearActionSuccessTimer();
-    actionSuccess = '';
-    actionSuccessTone = 'success';
+  function fallbackNetwork(entry: AddAssetEntry): {
+    systemId: string;
+    systemTicker: string;
+    systemDisplayName: string;
+  } {
+    if (entry.proto === 'eth' || entry.proto === 'erc20') {
+      return {
+        systemId: network === 'testnet' ? 'GETH' : 'ETH',
+        systemTicker: network === 'testnet' ? 'Sepolia' : 'ETH',
+        systemDisplayName: network === 'testnet' ? 'Sepolia' : 'Ethereum',
+      };
+    }
+    if (entry.proto === 'btc') {
+      return {
+        systemId: network === 'testnet' ? 'BTCTEST' : 'BTC',
+        systemTicker: network === 'testnet' ? 'Bitcoin Testnet' : 'BTC',
+        systemDisplayName: network === 'testnet' ? 'Bitcoin Testnet' : 'Bitcoin',
+      };
+    }
+    return {
+      systemId: entry.systemId,
+      systemTicker: network === 'testnet' ? 'VRSCTEST' : 'VRSC',
+      systemDisplayName: network === 'testnet' ? 'Verus Testnet' : 'Verus',
+    };
   }
 
-  function setActionSuccess(
-    message: string,
-    tone: 'success' | 'destructive' = 'success',
-    autoClearMs?: number
-  ) {
-    clearActionSuccessTimer();
-    actionSuccess = message;
-    actionSuccessTone = tone;
-    if (!autoClearMs || autoClearMs <= 0 || !message) return;
-    actionSuccessTimer = setTimeout(() => {
-      actionSuccess = '';
-      actionSuccessTone = 'success';
-      actionSuccessTimer = null;
-    }, autoClearMs);
+  function rowFromEntry(entry: AddAssetEntry): ManagedAssetRow {
+    const key = entryAssetKey(entry);
+    const runtimeCoin = matchingRegistryCoin(entry);
+    const discovered = discoveryForKey(key);
+    const known = knownBalanceForKey(key);
+    const fallback = fallbackNetwork(entry);
+    const coverageStatus = entry.proto === 'vrsc' ? vrpcCoverageStatus() : null;
+    const balanceStatus: BalanceStatus =
+      refreshing && !discovery && !known
+        ? 'loading'
+        : discovered
+          ? mergeBalanceStatus(discovered.status, coverageStatus ?? 'available')
+          : known
+            ? known.status
+            : coverageStatus
+              ? coverageStatus
+              : 'unavailable';
+    const networks = discovered
+      ? discovered.networks.map((holding) => ({
+          systemId: holding.systemId,
+          systemTicker: holding.systemTicker,
+          systemDisplayName: holding.systemDisplayName,
+          balance: holding.balance,
+          status: holding.balanceStatus as BalanceStatus,
+        }))
+      : known
+        ? [
+            {
+              systemId: known.systemId,
+              systemTicker: known.systemTicker,
+              systemDisplayName: known.systemDisplayName,
+              balance: known.balance,
+              status: known.status as BalanceStatus,
+            },
+          ]
+        : [
+            {
+              ...fallback,
+              balance: balanceStatus === 'available' ? '0' : null,
+              status: balanceStatus,
+            },
+          ];
+
+    return {
+      key,
+      coinId: runtimeCoin?.id ?? entry.id,
+      currencyId: entry.currencyId,
+      displayTicker: runtimeCoin?.displayTicker ?? entry.displayTicker,
+      displayName: runtimeCoin?.displayName ?? entry.displayName,
+      proto: runtimeCoin?.proto ?? (entry.proto as CoinDefinition['proto']),
+      coin: runtimeCoin ?? discovered?.coin ?? null,
+      catalogEntry: entry,
+      cataloged: true,
+      inPortfolio: activeSet.has(normalize(runtimeCoin?.id ?? entry.id)),
+      hidden: hiddenSet.has(key),
+      discovered: Boolean(
+        (discovered && discovered.total > 0) ||
+        (known?.status === 'available' && finiteAssetBalance(known.balance) > 0)
+      ),
+      balance:
+        discovered?.totalDisplay ?? known?.balance ?? (balanceStatus === 'available' ? '0' : null),
+      balanceStatus,
+      includesReadOnly: discovered?.includesReadOnly ?? false,
+      networks,
+    };
   }
 
-  function resetSheetState() {
-    view = 'catalog';
-    searchInput = '';
-    debouncedSearch = '';
-    actionError = '';
-    clearActionSuccess();
-    activeRowKey = null;
+  const catalogRows = $derived(catalogEntries.map(rowFromEntry));
+  const catalogKeys = $derived(new Set(catalogRows.map((row) => row.key)));
+  const otherRows = $derived(
+    aggregatedDiscovery
+      .filter((holding) => !catalogKeys.has(holding.assetKey))
+      .map((holding): ManagedAssetRow => ({
+        key: holding.assetKey,
+        coinId: holding.coin?.id ?? holding.currencyId,
+        currencyId: holding.currencyId,
+        displayTicker: holding.coin?.displayTicker ?? holding.currencyId,
+        displayName: holding.coin?.displayName ?? holding.currencyId,
+        proto: 'vrsc',
+        coin: holding.coin,
+        catalogEntry: null,
+        cataloged: false,
+        inPortfolio: holding.coin ? activeSet.has(normalize(holding.coin.id)) : false,
+        hidden: hiddenSet.has(holding.assetKey),
+        discovered: holding.total > 0,
+        balance: holding.totalDisplay,
+        balanceStatus: mergeBalanceStatus(holding.status, vrpcCoverageStatus()),
+        includesReadOnly: holding.includesReadOnly,
+        networks: holding.networks.map((networkHolding) => ({
+          systemId: networkHolding.systemId,
+          systemTicker: networkHolding.systemTicker,
+          systemDisplayName: networkHolding.systemDisplayName,
+          balance: networkHolding.balance,
+          status: networkHolding.balanceStatus,
+        })),
+      }))
+  );
 
-    manualInput = '';
-    manualResolving = false;
-    manualAdding = false;
-    manualAdded = false;
-    manualError = '';
-    manualResolvedCoin = null;
-    manualCandidates = [];
+  const allRows = $derived([...catalogRows, ...otherRows]);
+  const networkOptions = $derived.by(() => {
+    const options = new Map<string, string>();
+    for (const source of discovery?.sources ?? []) {
+      options.set(source.systemId, source.systemDisplayName || source.systemTicker);
+    }
+    for (const holding of knownBalances) {
+      options.set(holding.systemId, holding.systemDisplayName || holding.systemTicker);
+    }
+    return Array.from(options, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    );
+  });
+
+  function rowMatchesNetwork(row: ManagedAssetRow): boolean {
+    return (
+      networkFilter === 'all' ||
+      row.networks.some(
+        (holdingNetwork) => normalize(holdingNetwork.systemId) === normalize(networkFilter)
+      )
+    );
   }
+
+  function rowMatchesQuery(row: ManagedAssetRow): boolean {
+    const normalized = normalize(query);
+    if (!normalized) return true;
+    return [row.displayName, row.displayTicker, row.coinId, row.currencyId].some((value) =>
+      normalize(value).includes(normalized)
+    );
+  }
+
+  function compactBalanceLabel(row: ManagedAssetRow, balance: string): string {
+    const tickerIsLongFallbackIdentifier =
+      !row.cataloged &&
+      normalize(row.displayTicker) === normalize(row.currencyId) &&
+      row.displayTicker.length > 20;
+    return tickerIsLongFallbackIdentifier ? balance : `${balance} ${row.displayTicker}`;
+  }
+
+  const scopedRows = $derived(
+    allRows.filter((row) => rowMatchesNetwork(row) && rowMatchesQuery(row))
+  );
+  const hasQuery = $derived(normalize(query).length > 0);
+  const searchCatalogRows = $derived(hasQuery ? scopedRows.filter((row) => row.cataloged) : []);
+  const shownRows = $derived(
+    hasQuery ? [] : scopedRows.filter((row) => visitGroup(row) === 'shown')
+  );
+  const foundRows = $derived(
+    hasQuery ? [] : scopedRows.filter((row) => visitGroup(row) === 'found')
+  );
+  const browseRows = $derived(
+    hasQuery ? [] : scopedRows.filter((row) => row.cataloged && visitGroup(row) !== 'hidden')
+  );
+  const hiddenRows = $derived(
+    hasQuery ? [] : scopedRows.filter((row) => row.cataloged && visitGroup(row) === 'hidden')
+  );
+  const visibleOtherRows = $derived(
+    scopedRows.filter(
+      (row) =>
+        !row.cataloged &&
+        (hasQuery ||
+          (tab === 'hidden' ? visitGroup(row) === 'hidden' : visitGroup(row) === 'other'))
+    )
+  );
+  const currentNetworkLabel = $derived(
+    networkFilter === 'all'
+      ? i18n.t('wallet.manageAssets.allNetworks')
+      : (networkOptions.find((option) => option.id === networkFilter)?.label ?? networkFilter)
+  );
+  const failedDiscoverySystemIds = $derived(
+    discovery?.sources
+      .filter((source) => source.status !== 'available')
+      .map((source) => source.systemId) ?? []
+  );
+  const hasPartialDiscoveryCoverage = $derived(
+    failedDiscoverySystemIds.length > 0 || discovery?.scopeMetadataComplete === false
+  );
+  const manualResolvedRow = $derived(
+    manualResolvedCoin
+      ? (allRows.find((row) => row.key === assetKeyForCoin(manualResolvedCoin!)) ?? null)
+      : null
+  );
+  const manualResolvedBalance = $derived(
+    manualResolvedRow ? displayedBalance(manualResolvedRow) : null
+  );
+  const manualAlreadyShown = $derived(
+    manualResolvedCoin ? activeSet.has(normalize(manualResolvedCoin.id)) : false
+  );
 
   function translateAssetError(error: unknown, fallbackKey: string): string {
-    if (isForcedWalletLockError(error)) {
-      return '';
-    }
-
-    const errorType = extractWalletErrorType(error);
-
-    switch (errorType) {
+    if (isForcedWalletLockError(error)) return '';
+    switch (extractWalletErrorType(error)) {
       case 'AssetAlreadyExists':
       case 'DuplicatePbaasCurrency':
         return i18n.t('wallet.addAsset.error.assetExists');
@@ -207,162 +436,322 @@
       case 'EthNetworkMismatch':
         return i18n.t('wallet.addAsset.error.ethNetworkMismatch');
       default:
-        break;
+        return error instanceof Error && error.message.trim() ? error.message : i18n.t(fallbackKey);
     }
-
-    if (error instanceof Error && error.message.trim().length > 0) {
-      return error.message;
-    }
-
-    return i18n.t(fallbackKey);
   }
 
-  async function refreshRegistryState() {
-    const allCoins = await coinsService.getCoinRegistry();
-    const networkCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
-    registryCoins = networkCoins;
-
-    const activeCoins = filterCoinsByActiveIds(networkCoins, activeAssetIds);
+  function applyPortfolioStores(): void {
+    const visible = new Set(portfolioCoinIds.map(normalize));
+    const activeCoins = registryCoins.filter((coin) => visible.has(normalize(coin.id)));
     coinsStore.set(activeCoins);
     walletChannelsStore.set(buildWalletChannels(activeCoins, walletChannels.vrpcAddress));
   }
 
-  async function persistActiveAssets(coinIds: string[]): Promise<void> {
-    const nextState = await walletService.setActiveAssets(coinIds);
-    applyActiveAssetsState(nextState);
-    const activeCoins = filterCoinsByActiveIds(registryCoins, nextState.coinIds);
-    const channels = buildWalletChannels(activeCoins, walletChannels.vrpcAddress);
-    await walletService.startUpdateEngine({
-      includeTransactions: false,
-      priorityCoinIds: activeCoins.map((coin) => coin.id),
-      priorityChannelIds: channels.channels,
-    });
-  }
-
-  async function activateAsset(coinId: string): Promise<void> {
-    await persistActiveAssets([...activeAssetIds, coinId]);
-  }
-
-  async function deactivateAsset(coinId: string): Promise<void> {
-    const nextIds = activeAssetIds.filter(
-      (existingId) => normalizeCoinId(existingId) !== normalizeCoinId(coinId)
-    );
-    await persistActiveAssets(nextIds);
-  }
-
-  function findMatchingRegistryCoin(definition: CoinDefinition): CoinDefinition | null {
-    const normalizedId = normalizeCoinId(definition.id);
-    const normalizedCurrencyId = normalizeCoinId(definition.currencyId ?? '');
-    const byId = registryCoins.find((coin) => normalizeCoinId(coin.id) === normalizedId);
-    if (byId) return byId;
-
-    if (normalizedCurrencyId.length === 0) return null;
+  function isOperationCurrent(generation: number, sessionId = expectedSessionId): boolean {
     return (
-      registryCoins.find(
-        (coin) =>
-          coin.proto === definition.proto &&
-          normalizeCoinId(coin.currencyId ?? '') === normalizedCurrencyId
-      ) ?? null
+      componentMounted &&
+      isOpen &&
+      lifecycleGeneration === generation &&
+      expectedSessionId === sessionId
     );
   }
 
-  async function addCoinToRegistry(
-    definition: CoinDefinition,
-    successMessageKey: string,
-    options?: {
-      showSuccessNotice?: boolean;
-      successTone?: 'success' | 'destructive';
-      autoClearMs?: number;
-    }
-  ) {
-    const showSuccessNotice = options?.showSuccessNotice ?? true;
-    const successTone = options?.successTone ?? 'success';
-    const autoClearMs = options?.autoClearMs;
+  function defaultVisitGroup(row: ManagedAssetRow): VisitGroup {
+    if (row.hidden) return 'hidden';
+    if (!row.cataloged) return 'other';
+    if (row.inPortfolio) return 'shown';
+    if (row.discovered) return 'found';
+    return 'browse';
+  }
+
+  function visitGroup(row: ManagedAssetRow): VisitGroup {
+    return visitGroupByKey[row.key] ?? defaultVisitGroup(row);
+  }
+
+  function freezeVisitGroup(row: ManagedAssetRow): void {
+    if (visitGroupByKey[row.key]) return;
+    visitGroupByKey = { ...visitGroupByKey, [row.key]: defaultVisitGroup(row) };
+  }
+
+  async function refreshRegistry(generation = lifecycleGeneration): Promise<void> {
+    const allCoins = await coinsService.getCoinRegistry();
+    if (!isOperationCurrent(generation)) return;
+    registryCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
+  }
+
+  async function hydrate(generation: number): Promise<void> {
+    loading = true;
+    discoveryError = '';
     try {
-      const addedCoin = await coinsService.addCoinDefinition(definition);
-      await refreshRegistryState();
-      await activateAsset(addedCoin.id);
-      actionError = '';
-      if (showSuccessNotice) {
-        setActionSuccess(
-          i18n.t(successMessageKey, { ticker: definition.displayTicker }),
-          successTone,
-          autoClearMs
-        );
-      } else {
-        clearActionSuccess();
+      const preferences = await walletService.getAssetPreferences();
+      if (!componentMounted || lifecycleGeneration !== generation || !isOpen) return;
+      expectedSessionId = preferences.sessionId;
+      const [allCoins, confirmedPreferences] = await Promise.all([
+        coinsService.getCoinRegistry(),
+        walletService.getAssetPreferences(),
+      ]);
+      if (
+        !isOperationCurrent(generation, preferences.sessionId) ||
+        confirmedPreferences.sessionId !== preferences.sessionId
+      ) {
+        return;
       }
+      registryCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
+      portfolioCoinIds = preferences.portfolioCoinIds;
+      hiddenAssetKeys = preferences.hiddenAssetKeys;
+      applyPortfolioStores();
+      await refreshDiscovery(generation, preferences.sessionId);
+      if (!isOperationCurrent(generation, preferences.sessionId)) return;
+    } catch (error) {
+      if (componentMounted && lifecycleGeneration === generation && isOpen) {
+        discoveryError = translateAssetError(error, 'wallet.manageAssets.loadError');
+      }
+    } finally {
+      if (componentMounted && lifecycleGeneration === generation && isOpen) loading = false;
+    }
+  }
+
+  function mergeDiscoveryUpdate(
+    current: AssetDiscoveryResult | null,
+    update: AssetDiscoveryResult,
+    systemIds: string[]
+  ): AssetDiscoveryResult {
+    if (!current || systemIds.length === 0) return update;
+    const replaced = new Set(systemIds.map(normalize));
+    return {
+      ...update,
+      sources: [
+        ...current.sources.filter((source) => !replaced.has(normalize(source.systemId))),
+        ...update.sources,
+      ],
+      holdings: [
+        ...current.holdings.filter((holding) => !replaced.has(normalize(holding.systemId))),
+        ...update.holdings,
+      ],
+    };
+  }
+
+  async function refreshDiscovery(
+    generation = lifecycleGeneration,
+    sessionId = expectedSessionId,
+    systemIds: string[] = []
+  ): Promise<void> {
+    if (refreshing) return;
+    refreshing = true;
+    discoveryError = '';
+    const previousDiscovery = discovery;
+    const retryingSources = systemIds.length > 0;
+    const [vrpcResult, knownResult] = await Promise.allSettled([
+      walletService.discoverVrpcAssets(retryingSources ? systemIds : undefined),
+      retryingSources
+        ? Promise.resolve(knownBalances)
+        : scanKnownNonVrpcAssets(
+            registryCoins,
+            walletService.getCoinScopes,
+            walletService.getBalances
+          ),
+    ]);
+
+    let confirmedSessionId = '';
+    try {
+      confirmedSessionId = (await walletService.getAssetPreferences()).sessionId;
+    } catch {
+      // A lock or replacement session invalidates this refresh without publishing stale data.
+    }
+    if (!isOperationCurrent(generation, sessionId) || confirmedSessionId !== sessionId) {
+      if (componentMounted && lifecycleGeneration === generation) refreshing = false;
+      return;
+    }
+
+    if (vrpcResult.status === 'fulfilled') {
+      discovery = mergeDiscoveryUpdate(previousDiscovery, vrpcResult.value, systemIds);
+      discoveryStale = false;
+    } else if (previousDiscovery) {
+      discoveryStale = true;
+    }
+    if (knownResult.status === 'fulfilled') knownBalances = knownResult.value;
+    if (vrpcResult.status === 'rejected' && knownResult.status === 'rejected') {
+      discoveryError = i18n.t('wallet.manageAssets.discoveryUnavailable');
+    } else if (vrpcResult.status === 'rejected') {
+      discoveryError = i18n.t('wallet.manageAssets.discoveryPartial');
+    }
+    refreshing = false;
+  }
+
+  function retryIncompleteDiscovery(): void {
+    void refreshDiscovery(lifecycleGeneration, expectedSessionId, failedDiscoverySystemIds);
+  }
+
+  async function ensureRegisteredCoin(
+    coin: CoinDefinition,
+    generation: number,
+    sessionId: string
+  ): Promise<CoinDefinition> {
+    if (!isOperationCurrent(generation, sessionId)) throw new Error('Stale wallet session');
+    const existing = registryCoins.find(
+      (candidate) =>
+        normalize(candidate.id) === normalize(coin.id) ||
+        (candidate.proto === coin.proto &&
+          Boolean(coin.currencyId) &&
+          normalize(candidate.currencyId) === normalize(coin.currencyId))
+    );
+    if (existing) return existing;
+
+    try {
+      const added = await coinsService.addCoinDefinition(coin, sessionId);
+      if (!isOperationCurrent(generation, sessionId)) throw new Error('Stale wallet session');
+      await refreshRegistry(generation);
+      return added;
     } catch (error) {
       const errorType = extractWalletErrorType(error);
-      if (errorType === 'AssetAlreadyExists' || errorType === 'DuplicatePbaasCurrency') {
-        await refreshRegistryState();
-        const existingCoin = findMatchingRegistryCoin(definition);
-        if (!existingCoin) {
-          throw error;
-        }
-        await activateAsset(existingCoin.id);
-        actionError = '';
-        if (showSuccessNotice) {
-          setActionSuccess(
-            i18n.t('wallet.addAsset.toast.enabled', { ticker: definition.displayTicker }),
-            successTone,
-            autoClearMs
-          );
-        } else {
-          clearActionSuccess();
-        }
-        return;
-      }
-
-      throw error;
+      if (errorType !== 'AssetAlreadyExists' && errorType !== 'DuplicatePbaasCurrency') throw error;
+      if (!isOperationCurrent(generation, sessionId)) throw error;
+      await refreshRegistry(generation);
+      const recovered = registryCoins.find(
+        (candidate) =>
+          normalize(candidate.id) === normalize(coin.id) ||
+          (candidate.proto === coin.proto &&
+            Boolean(coin.currencyId) &&
+            normalize(candidate.currencyId) === normalize(coin.currencyId))
+      );
+      if (!recovered) throw error;
+      return recovered;
     }
   }
 
-  async function handleCatalogAction(entry: AddAssetEntry) {
-    clearActionSuccess();
-    actionError = '';
-    activeRowKey = entry.key;
+  async function resolveRowCoin(
+    row: ManagedAssetRow,
+    generation: number,
+    sessionId: string
+  ): Promise<CoinDefinition> {
+    if (row.coin) return ensureRegisteredCoin(row.coin, generation, sessionId);
+    const entry = row.catalogEntry;
+    if (!entry) throw new Error(i18n.t('wallet.manageAssets.reviewRequired'));
+
+    if (entry.addStrategy === 'direct') {
+      const definition = catalogEntryToCoinDefinition(entry, network);
+      if (!definition) throw new Error(i18n.t('wallet.addAsset.error.addFailed'));
+      return ensureRegisteredCoin(definition, generation, sessionId);
+    }
+    if (entry.addStrategy === 'resolve_pbaas') {
+      const result = await coinsService.resolvePbaasCurrency(pbaasLookupValue(entry));
+      if (result.status === 'ambiguous') {
+        throw new Error(i18n.t('wallet.addAsset.error.pbaasAmbiguous'));
+      }
+      if (!isOperationCurrent(generation, sessionId)) throw new Error('Stale wallet session');
+      return ensureRegisteredCoin(
+        applyCatalogMetadataToCoinDefinition(result.coin),
+        generation,
+        sessionId
+      );
+    }
+    if (entry.addStrategy === 'resolve_erc20') {
+      const result = await coinsService.resolveErc20Contract(erc20ContractValue(entry));
+      if (!isOperationCurrent(generation, sessionId)) throw new Error('Stale wallet session');
+      return ensureRegisteredCoin(
+        applyCatalogMetadataToCoinDefinition(result.coin),
+        generation,
+        sessionId
+      );
+    }
+    const runtime = matchingRegistryCoin(entry);
+    if (!runtime) throw new Error(i18n.t('wallet.addAsset.error.addFailed'));
+    return runtime;
+  }
+
+  function setPending(key: string, change: number): void {
+    const next = Math.max(0, (pendingCounts[key] ?? 0) + change);
+    pendingCounts = { ...pendingCounts, [key]: next };
+  }
+
+  async function runPortfolioVisibilityChange(
+    row: ManagedAssetRow,
+    desired: boolean,
+    freezePlacement: boolean
+  ): Promise<boolean> {
+    if (savingPreference || !expectedSessionId) return false;
+    const generation = lifecycleGeneration;
+    const sessionId = expectedSessionId;
+    const revision = (rowRevisions[row.key] ?? 0) + 1;
+    rowRevisions = { ...rowRevisions, [row.key]: revision };
+    rowErrors = { ...rowErrors, [row.key]: '' };
+    retryDesired = { ...retryDesired, [row.key]: desired };
+    if (freezePlacement) freezeVisitGroup(row);
+    savingPreference = true;
+    setPending(row.key, 1);
 
     try {
-      if (entry.status === 'added') {
-        await deactivateAsset(entry.id);
-        setActionSuccess(
-          i18n.t('wallet.addAsset.toast.disabled', { ticker: entry.displayTicker }),
-          'destructive',
-          2000
+      const coin = desired ? await resolveRowCoin(row, generation, sessionId) : row.coin;
+      if (!isOperationCurrent(generation, sessionId)) return false;
+      const coinId = coin?.id ?? row.coinId;
+      const nextPortfolioCoinIds = desired
+        ? Array.from(new Set([...portfolioCoinIds, coinId]))
+        : portfolioCoinIds.filter((id) => normalize(id) !== normalize(coinId));
+      const nextHiddenAssetKeys = desired
+        ? hiddenAssetKeys.filter((key) => key !== row.key)
+        : Array.from(new Set([...hiddenAssetKeys, row.key]));
+
+      const saved = await walletService.setAssetPreferences(
+        sessionId,
+        nextPortfolioCoinIds,
+        nextHiddenAssetKeys
+      );
+      if (!isOperationCurrent(generation, sessionId)) return false;
+      portfolioCoinIds = saved.portfolioCoinIds;
+      hiddenAssetKeys = saved.hiddenAssetKeys;
+      applyPortfolioStores();
+
+      try {
+        const activeCoins = registryCoins.filter((candidate) =>
+          portfolioCoinIds.some((id) => normalize(id) === normalize(candidate.id))
         );
-        return;
-      }
-
-      if (entry.addStrategy === 'activate') {
-        await activateAsset(entry.id);
-        setActionSuccess(i18n.t('wallet.addAsset.toast.enabled', { ticker: entry.displayTicker }));
-        return;
-      }
-
-      if (entry.addStrategy === 'direct') {
-        const definition = catalogEntryToCoinDefinition(entry, network);
-        if (!definition) {
-          throw new Error(i18n.t('wallet.addAsset.error.addFailed'));
+        const channels = buildWalletChannels(activeCoins, walletChannels.vrpcAddress);
+        await walletService.startUpdateEngine({
+          includeTransactions: false,
+          priorityCoinIds: activeCoins.map((candidate) => candidate.id),
+          priorityChannelIds: channels.channels,
+        });
+        if (!isOperationCurrent(generation, sessionId)) return true;
+        refreshError = '';
+      } catch {
+        if (isOperationCurrent(generation, sessionId)) {
+          refreshError = i18n.t('wallet.manageAssets.refreshAfterSaveFailed');
         }
-        await addCoinToRegistry(definition, 'wallet.addAsset.toast.added');
-      } else if (entry.addStrategy === 'resolve_pbaas') {
-        const result = await coinsService.resolvePbaasCurrency(pbaasLookupValue(entry));
-        if (result.status === 'ambiguous') {
-          throw new Error(i18n.t('wallet.addAsset.error.pbaasAmbiguous'));
-        }
-        const hydratedCoin = applyCatalogMetadataToCoinDefinition(result.coin);
-        await addCoinToRegistry(hydratedCoin, 'wallet.addAsset.toast.added');
-      } else if (entry.addStrategy === 'resolve_erc20') {
-        const result = await coinsService.resolveErc20Contract(erc20ContractValue(entry));
-        const hydratedCoin = applyCatalogMetadataToCoinDefinition(result.coin);
-        await addCoinToRegistry(hydratedCoin, 'wallet.addAsset.toast.added');
       }
+      return true;
     } catch (error) {
-      actionError = translateAssetError(error, 'wallet.addAsset.error.addFailed');
+      if (isOperationCurrent(generation, sessionId) && rowRevisions[row.key] === revision) {
+        rowErrors = {
+          ...rowErrors,
+          [row.key]: translateAssetError(error, 'wallet.manageAssets.saveFailed'),
+        };
+      }
+      return false;
     } finally {
-      activeRowKey = null;
+      if (componentMounted) {
+        savingPreference = false;
+        setPending(row.key, -1);
+      }
     }
+  }
+
+  function setPortfolioVisibility(
+    row: ManagedAssetRow,
+    desired: boolean,
+    freezePlacement = true
+  ): Promise<boolean> {
+    if (savingPreference) return Promise.resolve(false);
+    const operation = runPortfolioVisibilityChange(row, desired, freezePlacement);
+    activePreferenceSave = operation;
+    void operation.finally(() => {
+      if (activePreferenceSave === operation) activePreferenceSave = null;
+    });
+    return operation;
+  }
+
+  async function dismissDiscovery(row: ManagedAssetRow): Promise<void> {
+    if (row.inPortfolio) return;
+    await setPortfolioVisibility(row, false);
   }
 
   function normalizedErc20ContractCandidate(value: string): string | null {
@@ -372,13 +761,15 @@
     return null;
   }
 
-  async function resolveManualAsset() {
+  async function resolveManualAsset(inputOverride?: string): Promise<void> {
+    const generation = lifecycleGeneration;
+    const sessionId = expectedSessionId;
+    const lookupRevision = ++manualLookupRevision;
     manualError = '';
     manualAdded = false;
     manualCandidates = [];
     manualResolvedCoin = null;
-    clearActionSuccess();
-
+    if (inputOverride) manualInput = inputOverride;
     const input = manualInput.trim();
     if (!input) {
       manualError = i18n.t('wallet.addAsset.error.manualInputRequired');
@@ -390,304 +781,887 @@
     try {
       if (contractCandidate) {
         const result = await coinsService.resolveErc20Contract(contractCandidate);
+        if (
+          !isOperationCurrent(generation, sessionId) ||
+          view !== 'manual' ||
+          manualLookupRevision !== lookupRevision
+        ) {
+          return;
+        }
         manualResolvedCoin = result.coin;
-        return;
+      } else {
+        const result = await coinsService.resolvePbaasCurrency(input);
+        if (
+          !isOperationCurrent(generation, sessionId) ||
+          view !== 'manual' ||
+          manualLookupRevision !== lookupRevision
+        ) {
+          return;
+        }
+        if (result.status === 'ambiguous') {
+          manualCandidates = result.candidates;
+          manualError = i18n.t('wallet.addAsset.error.pbaasAmbiguous');
+        } else {
+          manualResolvedCoin = result.coin;
+        }
       }
-
-      const result = await coinsService.resolvePbaasCurrency(input);
-      if (result.status === 'ambiguous') {
-        manualCandidates = result.candidates;
-        manualError = i18n.t('wallet.addAsset.error.pbaasAmbiguous');
-        return;
-      }
-
-      manualResolvedCoin = result.coin;
     } catch (error) {
-      manualError = translateAssetError(
-        error,
-        contractCandidate
-          ? 'wallet.addAsset.error.erc20ResolveFailed'
-          : 'wallet.addAsset.error.pbaasResolveFailed'
-      );
+      if (
+        isOperationCurrent(generation, sessionId) &&
+        view === 'manual' &&
+        manualLookupRevision === lookupRevision
+      ) {
+        manualError = translateAssetError(
+          error,
+          contractCandidate
+            ? 'wallet.addAsset.error.erc20ResolveFailed'
+            : 'wallet.addAsset.error.pbaasResolveFailed'
+        );
+      }
     } finally {
-      manualResolving = false;
+      if (componentMounted && manualLookupRevision === lookupRevision) manualResolving = false;
     }
   }
 
-  async function addResolvedManualAsset() {
+  async function addResolvedManualAsset(): Promise<void> {
     if (!manualResolvedCoin || manualAdded) return;
+    const generation = lifecycleGeneration;
+    const sessionId = expectedSessionId;
     manualAdding = true;
     manualError = '';
-
     try {
-      const hydratedCoin = applyCatalogMetadataToCoinDefinition(manualResolvedCoin);
-      await addCoinToRegistry(hydratedCoin, 'wallet.addAsset.toast.added', {
-        showSuccessNotice: false,
-      });
-      manualAdded = true;
+      const registered = await ensureRegisteredCoin(
+        applyCatalogMetadataToCoinDefinition(manualResolvedCoin),
+        generation,
+        sessionId
+      );
+      if (!isOperationCurrent(generation, sessionId) || view !== 'manual') return;
+      const row = allRows.find((candidate) => candidate.key === assetKeyForCoin(registered)) ?? {
+        key: assetKeyForCoin(registered),
+        coinId: registered.id,
+        currencyId: registered.currencyId,
+        displayTicker: registered.displayTicker,
+        displayName: registered.displayName,
+        proto: registered.proto,
+        coin: registered,
+        catalogEntry: null,
+        cataloged: false,
+        inPortfolio: false,
+        hidden: false,
+        discovered: false,
+        balance: null,
+        balanceStatus: 'unavailable' as const,
+        includesReadOnly: false,
+        networks: [],
+      };
+      const saved = await setPortfolioVisibility(row, true, false);
+      if (!isOperationCurrent(generation, sessionId) || view !== 'manual') return;
+      if (saved) {
+        manualAdded = true;
+      } else {
+        manualError = rowErrors[row.key] || i18n.t('wallet.manageAssets.saveFailed');
+      }
     } catch (error) {
       manualError = translateAssetError(error, 'wallet.addAsset.error.addFailed');
     } finally {
-      manualAdding = false;
+      if (componentMounted) manualAdding = false;
     }
   }
 
-  function shouldShowResolvedTicker(coin: CoinDefinition): boolean {
-    const ticker = coin.displayTicker.trim();
-    const name = coin.displayName.trim();
-    if (!ticker || !name) return Boolean(ticker);
-    return ticker.toLowerCase() !== name.toLowerCase();
+  async function openManual(row?: ManagedAssetRow): Promise<void> {
+    manualReturnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    manualReturnFocusKey = row?.key ?? 'add-custom';
+    manualLookupRevision += 1;
+    view = 'manual';
+    manualError = '';
+    manualAdded = false;
+    manualCandidates = [];
+    manualInput = row?.currencyId ?? '';
+    manualResolvedCoin = row?.coin ?? null;
+    identifierCopyState = 'idle';
+    await tick();
+    manualInputElement?.focus();
   }
+
+  async function closeManual(): Promise<void> {
+    manualLookupRevision += 1;
+    manualResolving = false;
+    view = 'manage';
+    await tick();
+    const replacementFocus = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-manage-assets-return-focus]')
+    ).find(
+      (element) => element.getAttribute('data-manage-assets-return-focus') === manualReturnFocusKey
+    );
+    if (manualReturnFocus?.isConnected) manualReturnFocus.focus();
+    else if (replacementFocus) replacementFocus.focus();
+    else headingElement?.focus();
+  }
+
+  async function closeManageAssets(): Promise<void> {
+    if (closing) return;
+    closing = true;
+    const saveSucceeded = activePreferenceSave ? await activePreferenceSave : true;
+    if (!componentMounted) return;
+    if (!saveSucceeded) {
+      closing = false;
+      return;
+    }
+    isOpen = false;
+    onClose();
+    closing = false;
+  }
+
+  function handleKeydown(event: KeyboardEvent): void {
+    if (!isOpen || event.key !== 'Escape') return;
+    if (networkMenuOpen) return;
+    event.preventDefault();
+    if (view === 'manual') {
+      void closeManual();
+      return;
+    }
+    void closeManageAssets();
+  }
+
+  function handleTabKeydown(event: KeyboardEvent, current: ManageTab): void {
+    const tabs: ManageTab[] = ['yours', 'browse', 'hidden'];
+    const currentIndex = tabs.indexOf(current);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+    if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = tabs.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    tab = tabs[nextIndex];
+    void tick().then(() =>
+      document.querySelector<HTMLButtonElement>(`[data-manage-assets-tab="${tab}"]`)?.focus()
+    );
+  }
+
+  async function copyResolvedIdentifier(): Promise<void> {
+    if (!manualResolvedCoin) return;
+    try {
+      await navigator.clipboard.writeText(manualResolvedCoin.currencyId);
+      identifierCopyState = 'copied';
+    } catch {
+      identifierCopyState = 'failed';
+    }
+  }
+
+  function toggleExpanded(key: string): void {
+    expandedAssetKeys = expandedAssetKeys.includes(key)
+      ? expandedAssetKeys.filter((candidate) => candidate !== key)
+      : [...expandedAssetKeys, key];
+  }
+
+  function displayedNetworks(row: ManagedAssetRow): ManagedAssetRow['networks'] {
+    if (networkFilter === 'all') return row.networks;
+    return row.networks.filter(
+      (holdingNetwork) => normalize(holdingNetwork.systemId) === normalize(networkFilter)
+    );
+  }
+
+  function displayedBalance(row: ManagedAssetRow): {
+    balance: string | null;
+    status: BalanceStatus;
+  } {
+    if (networkFilter === 'all') return { balance: row.balance, status: row.balanceStatus };
+    const networks = displayedNetworks(row);
+    if (networks.length === 0 || networks.every((holding) => holding.status === 'unavailable')) {
+      return { balance: null, status: 'unavailable' };
+    }
+    const checked = networks.filter((holding) => holding.status !== 'unavailable');
+    const total = checked.reduce((sum, holding) => sum + finiteAssetBalance(holding.balance), 0);
+    return {
+      balance: formatAssetBalance(total),
+      status: networks.some((holding) => holding.status !== 'available') ? 'partial' : 'available',
+    };
+  }
+
+  $effect(() => {
+    if (!isOpen) {
+      lifecycleGeneration += 1;
+      return undefined;
+    }
+    const generation = ++lifecycleGeneration;
+    expectedSessionId = '';
+    visitGroupByKey = {};
+    discovery = null;
+    knownBalances = [];
+    refreshing = false;
+    void hydrate(generation);
+    return () => {
+      lifecycleGeneration += 1;
+    };
+  });
+
+  onMount(async () => {
+    await tick();
+    headingElement?.focus();
+  });
+
+  onDestroy(() => {
+    componentMounted = false;
+    lifecycleGeneration += 1;
+    manualLookupRevision += 1;
+  });
 </script>
 
-<StandardRightSheet
-  bind:isOpen
-  title={i18n.t('wallet.addAsset.title')}
-  hideTitle
-  bodyClass="mt-0"
-  onOpenAutoFocus={handleOpenAutoFocus}
->
-  <div class="flex h-full min-h-0 flex-col">
-    {#if view === 'catalog'}
-      <div class="pt-4 pr-8">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-base font-semibold text-foreground">{i18n.t('wallet.addAsset.title')}</h2>
-          <InlineTextActionButton
-            onclick={() => {
-              view = 'manual';
-            }}
+<svelte:window onkeydown={handleKeydown} />
+
+<section class="flex h-full min-h-0 flex-col pt-4" aria-labelledby="manage-assets-title">
+  {#if view === 'manage'}
+    <header class="flex h-8 shrink-0 items-center justify-between">
+      <h1
+        id="manage-assets-title"
+        class="text-xl leading-7 font-semibold text-foreground outline-none"
+        tabindex="-1"
+        bind:this={headingElement}
+      >
+        {i18n.t('wallet.manageAssets.title')}
+      </h1>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="h-7 w-7 rounded-md text-muted-foreground"
+        aria-label={i18n.t('wallet.manageAssets.close')}
+        disabled={closing}
+        onclick={closeManageAssets}
+      >
+        <XIcon class="h-[18px] w-[18px]" />
+      </Button>
+    </header>
+
+    <div class="mt-5 flex h-10 shrink-0 gap-3">
+      <Label class="relative min-w-0 flex-1">
+        <span class="sr-only">{i18n.t('wallet.manageAssets.search')}</span>
+        <SearchIcon
+          class="pointer-events-none absolute top-3 left-3 h-4 w-4 text-muted-foreground"
+        />
+        <Input
+          type="search"
+          bind:value={query}
+          placeholder={i18n.t('wallet.manageAssets.search')}
+          autocomplete="off"
+          spellcheck="false"
+          class="h-10 w-full rounded-[7px] border-0 bg-muted/75 pr-3 pl-9 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 dark:bg-muted/55"
+        />
+      </Label>
+
+      <DropdownMenu.Root bind:open={networkMenuOpen}>
+        <DropdownMenu.Trigger
+          class="flex h-10 w-[180px] shrink-0 items-center justify-between rounded-[7px] bg-muted/75 px-3 text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/55 dark:bg-muted/55"
+          aria-label={i18n.t('wallet.manageAssets.filterNetwork')}
+        >
+          <span class="truncate">{currentNetworkLabel}</span>
+          <ChevronDownIcon class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end" class="w-[244px]">
+          <DropdownMenu.Label class="flex justify-between font-normal text-muted-foreground">
+            <span>{i18n.t('wallet.manageAssets.showAssetsOn')}</span>
+            <span>{i18n.t(`wallet.manageAssets.environment.${network}`)}</span>
+          </DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={networkFilter}>
+            <DropdownMenu.RadioItem value="all" onclick={() => (networkFilter = 'all')}>
+              {i18n.t('wallet.manageAssets.allNetworks')}
+            </DropdownMenu.RadioItem>
+            {#each networkOptions as option (option.id)}
+              <DropdownMenu.RadioItem value={option.id} onclick={() => (networkFilter = option.id)}>
+                {option.label}
+              </DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    </div>
+
+    <div class="mt-4 flex h-8 shrink-0 items-center justify-between">
+      <div class="flex gap-1" role="tablist" aria-label={i18n.t('wallet.manageAssets.title')}>
+        {#each ['yours', 'browse', 'hidden'] as item (item)}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === item}
+            aria-controls="manage-assets-panel"
+            id={`manage-assets-tab-${item}`}
+            data-manage-assets-tab={item}
+            tabindex={tab === item ? 0 : -1}
+            class={`h-8 rounded-md px-[13px] text-[13px] transition-colors focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none ${
+              tab === item
+                ? 'bg-muted font-medium text-foreground dark:bg-muted/75'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onclick={() => (tab = item as ManageTab)}
+            onkeydown={(event) => handleTabKeydown(event, item as ManageTab)}
           >
-            {i18n.t('wallet.addAsset.cantFindTitle')}
-          </InlineTextActionButton>
+            {i18n.t(`wallet.manageAssets.tab.${item}`)}
+          </button>
+        {/each}
+      </div>
+      <button
+        type="button"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none disabled:opacity-50"
+        aria-label={i18n.t('wallet.manageAssets.refresh')}
+        title={i18n.t('wallet.manageAssets.refresh')}
+        disabled={refreshing || loading}
+        onclick={() => refreshDiscovery()}
+      >
+        <RefreshCwIcon class={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+      </button>
+    </div>
+
+    {#if discoveryError || discoveryStale || refreshError || hasPartialDiscoveryCoverage}
+      <div class="mt-3 flex min-h-6 shrink-0 items-center justify-between gap-3 text-xs">
+        <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+          <InfoIcon class="h-3.5 w-3.5 shrink-0" />
+          <span class="truncate">
+            {discoveryStale
+              ? i18n.t('wallet.manageAssets.stale')
+              : discoveryError ||
+                refreshError ||
+                (discovery?.scopeMetadataComplete === false
+                  ? i18n.t('wallet.manageAssets.scopeMetadataPartial')
+                  : i18n.t('wallet.manageAssets.discoveryPartial'))}
+          </span>
         </div>
+        {#if discoveryError || discoveryStale || hasPartialDiscoveryCoverage}
+          <button
+            type="button"
+            class="shrink-0 font-medium text-primary"
+            onclick={retryIncompleteDiscovery}
+          >
+            {i18n.t('common.retry')}
+          </button>
+        {/if}
       </div>
     {/if}
 
-    {#if view === 'catalog'}
-      <div class="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
-        <div class="sticky top-0 z-10 bg-background pb-3">
-          <SearchInput
-            bind:value={searchInput}
-            placeholder={i18n.t('wallet.addAsset.searchPlaceholder')}
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck={false}
-            inputClass="focus-visible:ring-0 focus-visible:ring-transparent"
-          />
-
-          {#if actionError}
-            <div
-              class="mt-2 flex items-start gap-2 rounded-md bg-destructive/12 px-2.5 py-2 text-xs text-destructive"
-            >
-              <AlertCircleIcon class="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{actionError}</p>
+    <div
+      id="manage-assets-panel"
+      class="relative mt-3 min-h-0 flex-1"
+      role="tabpanel"
+      aria-labelledby={`manage-assets-tab-${tab}`}
+    >
+      <ScrollArea.Root class="h-full" type="scroll">
+        <ScrollArea.Viewport class="h-full overscroll-contain pr-1">
+          {#if loading}
+            <div class="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              <RefreshCwIcon class="mr-2 h-4 w-4 animate-spin" />
+              {i18n.t('wallet.manageAssets.checking')}
             </div>
-          {/if}
-
-          {#if actionSuccess}
-            <div
-              class={`mt-2 rounded-md px-2.5 py-2 text-xs ${
-                actionSuccessTone === 'destructive'
-                  ? 'bg-destructive/12 text-destructive'
-                  : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-              }`}
-            >
-              {actionSuccess}
-            </div>
-          {/if}
-        </div>
-
-        <section class="mt-1 space-y-2">
-          <h3 class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            {i18n.t('wallet.addAsset.sectionAdded')}
-          </h3>
-          {#if catalogView.addedEntries.length === 0}
-            <p
-              class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
-            >
-              {i18n.t('wallet.addAsset.emptySearch')}
-            </p>
           {:else}
-            <ul class="space-y-2">
-              {#each catalogView.addedEntries as entry (entry.key)}
-                <AddAssetRow
-                  {entry}
-                  busy={activeRowKey === entry.key}
-                  onAction={handleCatalogAction}
-                />
-              {/each}
-            </ul>
-          {/if}
-        </section>
-
-        <section class="mt-4 space-y-2 pb-1">
-          <h3 class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            {i18n.t('wallet.addAsset.sectionAvailable')}
-          </h3>
-          {#if catalogView.availableEntries.length === 0}
-            <p
-              class="rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
-            >
-              {i18n.t('wallet.addAsset.emptySearch')}
-            </p>
-          {:else}
-            <ul class="space-y-2">
-              {#each catalogView.availableEntries as entry (entry.key)}
-                <AddAssetRow
-                  {entry}
-                  busy={activeRowKey === entry.key}
-                  onAction={handleCatalogAction}
-                />
-              {/each}
-            </ul>
-          {/if}
-        </section>
-      </div>
-    {:else}
-      <div class="mt-2 flex min-h-0 flex-1 flex-col">
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          onclick={() => {
-            view = 'catalog';
-          }}
-        >
-          <ArrowLeftIcon class="size-4" />
-          {i18n.t('common.back')}
-        </button>
-
-        <div class="min-h-0 flex-1 overflow-y-auto pr-1">
-          <section class="mt-3 space-y-4 pb-1">
-            {#if actionSuccess}
-              <div
-                class={`rounded-md px-2.5 py-2 text-xs ${
-                  actionSuccessTone === 'destructive'
-                    ? 'bg-destructive/12 text-destructive'
-                    : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-                }`}
-              >
-                {actionSuccess}
-              </div>
+            {#if tab === 'hidden' && !hasQuery}
+              <p class="mb-3 text-xs text-muted-foreground">
+                {i18n.t('wallet.manageAssets.hiddenHelp')}
+              </p>
             {/if}
 
-            <form
-              class="space-y-4"
-              onsubmit={(event) => {
-                event.preventDefault();
-                if (manualResolving || manualAdding) return;
-                resolveManualAsset();
-              }}
-            >
-              <Input
-                type="text"
-                bind:value={manualInput}
-                placeholder={i18n.t('wallet.addAsset.manualPlaceholder')}
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-                spellcheck={false}
-                class="h-10 focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-transparent"
-              />
+            {#if hasQuery}
+              {@render AssetSection({ rows: searchCatalogRows })}
+            {:else if tab === 'yours'}
+              {#if foundRows.length > 0}
+                {@render AssetSection({
+                  title: i18n.t('wallet.manageAssets.found'),
+                  rows: foundRows,
+                })}
+              {/if}
+              {#if shownRows.length > 0}
+                {@render AssetSection({
+                  title: i18n.t('wallet.manageAssets.shown'),
+                  rows: shownRows,
+                })}
+              {/if}
+            {:else if tab === 'browse'}
+              {@render AssetSection({ rows: browseRows })}
+            {:else}
+              {@render AssetSection({ rows: hiddenRows })}
+            {/if}
 
-              <div class="flex gap-2">
-                <Button
-                  variant="secondary"
-                  type="submit"
-                  class="h-8"
-                  disabled={manualResolving || manualAdding}
+            {#if visibleOtherRows.length > 0 && (tab !== 'browse' || hasQuery)}
+              <section class="mt-4">
+                <button
+                  type="button"
+                  class="flex h-8 w-full items-center justify-between text-left text-[13px] font-semibold text-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                  aria-expanded={otherAssetsExpanded}
+                  onclick={() => (otherAssetsExpanded = !otherAssetsExpanded)}
                 >
-                  {manualResolving
-                    ? i18n.t('wallet.addAsset.resolving')
-                    : i18n.t('wallet.addAsset.resolve')}
-                </Button>
-              </div>
-            </form>
-
-            {#if manualResolvedCoin}
-              <div
-                class="flex items-center gap-3 rounded-lg bg-muted/65 px-3.5 py-3 dark:bg-muted/55"
-              >
-                <CoinIcon
-                  coinId={manualResolvedCoin.id}
-                  coinName={manualResolvedCoin.displayName}
-                  size={20}
-                  decorative
-                />
-
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold text-foreground">
-                    {manualResolvedCoin.displayName}
-                  </p>
-                  {#if shouldShowResolvedTicker(manualResolvedCoin)}
-                    <p class="truncate text-xs text-muted-foreground">
-                      {manualResolvedCoin.displayTicker}
-                    </p>
+                  <span>{i18n.t('wallet.manageAssets.otherFound')}</span>
+                  {#if otherAssetsExpanded}
+                    <ChevronDownIcon class="h-4 w-4 text-muted-foreground" />
+                  {:else}
+                    <ChevronRightIcon class="h-4 w-4 text-muted-foreground" />
                   {/if}
-                </div>
+                </button>
+                {#if otherAssetsExpanded || hasQuery}
+                  <p class="mb-1 text-xs text-muted-foreground">
+                    {i18n.t('wallet.manageAssets.notCataloged')}
+                  </p>
+                  {#each visibleOtherRows as row (row.key)}
+                    {@const balance = displayedBalance(row)}
+                    <div class="asset-row">
+                      <div class="flex min-h-[60px] items-center gap-3 py-2">
+                        <div class="flex w-9 shrink-0 justify-center">
+                          <CoinIcon
+                            coinId={row.coinId}
+                            coinName={row.displayName}
+                            proto={row.proto}
+                            size={32}
+                            showBadge
+                            decorative
+                          />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-sm font-medium text-foreground">
+                            {row.displayName}
+                          </p>
+                          <p class="truncate text-xs text-muted-foreground">
+                            {row.displayTicker} · {displayedNetworks(row)[0]?.systemDisplayName}
+                            {row.hidden ? ` · ${i18n.t('wallet.manageAssets.hiddenStatus')}` : ''}
+                          </p>
+                        </div>
+                        <div
+                          class="w-[150px] shrink-0 text-right text-sm font-medium tabular-nums"
+                          data-manage-assets-balance={row.key}
+                        >
+                          {#if balance.status === 'loading'}
+                            <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+                          {:else if balance.status === 'unavailable'}
+                            <span>{i18n.t('wallet.manageAssets.unavailable')}</span>
+                          {:else if balance.status === 'partial' && balance.balance === null}
+                            <span>{i18n.t('wallet.manageAssets.partial')}</span>
+                          {:else}
+                            <span title={`${balance.balance} ${row.displayTicker}`}>
+                              {compactBalanceLabel(row, balance.balance ?? '')}
+                            </span>
+                            {#if balance.status === 'partial'}
+                              <span class="block text-[11px] font-normal text-muted-foreground">
+                                {i18n.t('wallet.manageAssets.partial')}
+                              </span>
+                            {/if}
+                          {/if}
+                        </div>
+                        <div class="flex w-[82px] shrink-0 justify-end gap-2">
+                          <button
+                            type="button"
+                            class="text-xs font-medium text-primary disabled:opacity-50"
+                            data-manage-assets-return-focus={row.key}
+                            disabled={savingPreference}
+                            onclick={() => openManual(row)}
+                          >
+                            {i18n.t('wallet.manageAssets.review')}
+                          </button>
+                          {#if !row.hidden}
+                            <button
+                              type="button"
+                              class="text-muted-foreground disabled:opacity-50"
+                              aria-label={i18n.t('wallet.manageAssets.dismissAsset', {
+                                asset: row.displayName,
+                              })}
+                              title={i18n.t('wallet.manageAssets.dismiss')}
+                              disabled={savingPreference}
+                              onclick={() => dismissDiscovery(row)}
+                            >
+                              <EyeOffIcon class="h-4 w-4" />
+                            </button>
+                          {/if}
+                        </div>
+                      </div>
+                      {#if rowErrors[row.key]}
+                        <div
+                          class="flex min-h-7 items-start justify-end gap-2 pb-1 text-xs"
+                          role="alert"
+                        >
+                          <span class="text-destructive">{rowErrors[row.key]}</span>
+                          <button
+                            type="button"
+                            class="font-medium text-primary"
+                            disabled={savingPreference}
+                            onclick={() =>
+                              setPortfolioVisibility(
+                                row,
+                                retryDesired[row.key] ?? !row.inPortfolio
+                              )}
+                          >
+                            {i18n.t('common.retry')}
+                          </button>
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                {/if}
+              </section>
+            {/if}
 
-                <div class="flex shrink-0 items-center gap-2">
-                  <span
-                    class="inline-flex rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
-                  >
-                    {manualResolvedCoin.proto.toUpperCase()}
-                  </span>
+            {#if (hasQuery && searchCatalogRows.length === 0 && visibleOtherRows.length === 0) || (!hasQuery && tab === 'yours' && foundRows.length === 0 && shownRows.length === 0 && visibleOtherRows.length === 0) || (!hasQuery && tab === 'browse' && browseRows.length === 0) || (!hasQuery && tab === 'hidden' && hiddenRows.length === 0 && visibleOtherRows.length === 0)}
+              <div class="flex h-40 flex-col items-center justify-center px-6 text-center">
+                <p class="text-sm font-medium text-foreground">
+                  {query
+                    ? i18n.t('wallet.manageAssets.noTabMatches', {
+                        tab: i18n.t(`wallet.manageAssets.tab.${tab}`),
+                      })
+                    : i18n.t(`wallet.manageAssets.empty.${tab}`)}
+                </p>
+                {#if !hasQuery && tab !== 'browse'}
                   <button
                     type="button"
-                    class={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:ring-[2px] focus-visible:ring-ring focus-visible:outline-none disabled:opacity-45 ${
-                      manualAdded
-                        ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                        : 'bg-primary/12 text-primary hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30'
-                    }`}
-                    onclick={addResolvedManualAsset}
-                    disabled={manualAdding || manualResolving || manualAdded}
-                    aria-label={manualAdded
-                      ? i18n.t('wallet.addAsset.stateAdded')
-                      : manualAdding
-                        ? i18n.t('wallet.addAsset.adding')
-                        : i18n.t('wallet.addAsset.add')}
-                    title={manualAdded
-                      ? i18n.t('wallet.addAsset.stateAdded')
-                      : manualAdding
-                        ? i18n.t('wallet.addAsset.adding')
-                        : i18n.t('wallet.addAsset.add')}
+                    class="mt-2 text-xs font-medium text-primary"
+                    onclick={() => (tab = 'browse')}
                   >
-                    {#if manualAdded}
-                      <CheckIcon class="h-4 w-4" absoluteStrokeWidth />
+                    {i18n.t('wallet.manageAssets.searchAll')}
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          {/if}
+        </ScrollArea.Viewport>
+        <ScrollArea.Scrollbar orientation="vertical" />
+      </ScrollArea.Root>
+    </div>
+
+    <footer class="flex h-12 shrink-0 items-end">
+      <button
+        type="button"
+        class="inline-flex h-8 items-center gap-1.5 text-[13px] font-medium text-primary focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+        data-manage-assets-return-focus="add-custom"
+        onclick={() => openManual()}
+      >
+        <PlusIcon class="h-3.5 w-3.5" />
+        {i18n.t('wallet.manageAssets.addCustom')}
+      </button>
+    </footer>
+  {:else}
+    <header class="shrink-0">
+      <div class="flex h-8 items-center justify-between">
+        <h1 class="text-xl leading-7 font-semibold text-foreground">
+          {i18n.t('wallet.manageAssets.addCustom')}
+        </h1>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="h-7 w-7 rounded-md text-muted-foreground"
+          aria-label={i18n.t('wallet.manageAssets.close')}
+          disabled={closing}
+          onclick={closeManageAssets}
+        >
+          <XIcon class="h-[18px] w-[18px]" />
+        </Button>
+      </div>
+      <button
+        type="button"
+        class="mt-3 inline-flex h-7 items-center gap-1.5 text-[13px] text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+        onclick={closeManual}
+      >
+        <ArrowLeftIcon class="h-3.5 w-3.5" />
+        {i18n.t('wallet.manageAssets.title')}
+      </button>
+    </header>
+
+    <div class="mt-11 min-h-0 flex-1">
+      <form
+        onsubmit={(event) => {
+          event.preventDefault();
+          if (!manualResolving && !manualAdding) resolveManualAsset();
+        }}
+      >
+        <Label class="text-[13px] text-foreground" for="custom-asset-input">
+          {i18n.t('wallet.manageAssets.lookupLabel')}
+        </Label>
+        <div class="mt-2 flex gap-3">
+          <div class="min-w-0 flex-1">
+            <Input
+              id="custom-asset-input"
+              bind:ref={manualInputElement}
+              bind:value={manualInput}
+              autocomplete="off"
+              spellcheck={false}
+              class="h-10 border-0 bg-muted/75 focus-visible:ring-2 dark:bg-muted/55"
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="secondary"
+            class="h-10 w-[116px] text-primary"
+            disabled={manualResolving || manualAdding}
+          >
+            {manualResolving
+              ? i18n.t('wallet.addAsset.resolving')
+              : i18n.t('wallet.manageAssets.findAsset')}
+          </Button>
+        </div>
+      </form>
+
+      {#if manualCandidates.length > 1}
+        <div class="mt-6 space-y-1">
+          <p class="text-xs text-muted-foreground">{i18n.t('wallet.addAsset.pbaasMatches')}</p>
+          {#each manualCandidates as candidate (candidate.currencyId)}
+            <button
+              type="button"
+              class="block max-w-full truncate text-left text-sm text-primary"
+              onclick={() => resolveManualAsset(candidate.currencyId)}
+            >
+              {candidate.displayName} · {candidate.currencyId}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if manualResolvedCoin}
+        <section class="mt-9">
+          <div class="flex items-center gap-3">
+            <div class="flex w-9 shrink-0 justify-center">
+              <CoinIcon
+                coinId={manualResolvedCoin.id}
+                coinName={manualResolvedCoin.displayName}
+                proto={manualResolvedCoin.proto}
+                size={32}
+                showBadge
+                decorative
+              />
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-foreground">
+                {manualResolvedCoin.displayName}
+              </p>
+              <p class="truncate text-xs text-muted-foreground">
+                {manualResolvedCoin.displayTicker} ·
+                {manualResolvedCoin.proto === 'erc20'
+                  ? i18n.t('wallet.manageAssets.ethereum')
+                  : i18n.t('wallet.manageAssets.verus')}
+              </p>
+            </div>
+          </div>
+
+          <dl class="mt-6 space-y-2 text-[13px]">
+            <div class="flex gap-6">
+              <dt class="w-32 shrink-0 text-muted-foreground">
+                {manualResolvedCoin.proto === 'erc20'
+                  ? i18n.t('wallet.manageAssets.contractAddress')
+                  : i18n.t('wallet.manageAssets.currencyId')}
+              </dt>
+              <dd class="flex min-w-0 flex-1 items-start gap-1.5 text-foreground">
+                <IdentifierText
+                  value={manualResolvedCoin.currencyId}
+                  mode="full"
+                  class="min-w-0 flex-1 font-mono text-xs leading-5"
+                />
+                <CopyButton
+                  size="xs"
+                  copied={identifierCopyState === 'copied'}
+                  aria-label={i18n.t(
+                    identifierCopyState === 'copied' ? 'common.copied' : 'common.copy'
+                  )}
+                  onclick={copyResolvedIdentifier}
+                />
+              </dd>
+            </div>
+            <div class="flex gap-6">
+              <dt class="w-32 shrink-0 text-muted-foreground">
+                {i18n.t('wallet.manageAssets.balance')}
+              </dt>
+              <dd class="min-w-0 flex-1 text-right font-medium text-foreground tabular-nums">
+                {#if !manualResolvedBalance || manualResolvedBalance.status === 'unavailable'}
+                  {i18n.t('wallet.manageAssets.unavailable')}
+                {:else if manualResolvedBalance.status === 'loading'}
+                  {i18n.t('common.loading')}
+                {:else}
+                  <span>{manualResolvedBalance.balance} {manualResolvedCoin.displayTicker}</span>
+                  {#if manualResolvedBalance.status === 'partial'}
+                    <span class="block text-[11px] font-normal text-muted-foreground">
+                      {i18n.t('wallet.manageAssets.partial')}
+                    </span>
+                  {/if}
+                {/if}
+              </dd>
+            </div>
+          </dl>
+
+          {#if identifierCopyState === 'failed'}
+            <p class="mt-2 text-xs text-destructive" role="status">
+              {i18n.t('common.copyFailed')}
+            </p>
+          {/if}
+
+          {#if manualAlreadyShown}
+            <p class="mt-5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckIcon class="h-3.5 w-3.5 text-primary" />
+              {i18n.t('wallet.manageAssets.alreadyShown')}
+            </p>
+          {:else}
+            <p class="mt-5 text-xs text-muted-foreground">
+              {i18n.t('wallet.manageAssets.notCataloged')}
+            </p>
+          {/if}
+        </section>
+      {/if}
+
+      {#if manualError}
+        <p class="mt-5 flex items-start gap-1.5 text-xs text-destructive" role="alert">
+          <AlertCircleIcon class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {manualError}
+        </p>
+      {/if}
+    </div>
+
+    {#if manualResolvedCoin && !manualAlreadyShown}
+      <footer class="flex h-14 shrink-0 items-start justify-end">
+        <Button
+          type="button"
+          class="h-10 min-w-42"
+          disabled={manualAdding || manualAdded}
+          onclick={addResolvedManualAsset}
+        >
+          {manualAdded
+            ? i18n.t('wallet.manageAssets.shownSuccess')
+            : manualAdding
+              ? i18n.t('wallet.manageAssets.saving')
+              : i18n.t('wallet.manageAssets.showInPortfolio')}
+        </Button>
+      </footer>
+    {/if}
+  {/if}
+</section>
+
+{#snippet AssetSection({ title = '', rows }: { title?: string; rows: ManagedAssetRow[] })}
+  <section class={title ? 'mb-4' : ''}>
+    {#if title}
+      <h2 class="h-7 text-[13px] leading-7 font-semibold text-foreground">{title}</h2>
+    {/if}
+    <div class="grid h-5 grid-cols-[minmax(0,1fr)_174px_94px] text-xs text-muted-foreground">
+      <span>{i18n.t('wallet.manageAssets.asset')}</span>
+      <span class="text-right">{i18n.t('wallet.manageAssets.balance')}</span>
+      <span class="text-right">{i18n.t('wallet.manageAssets.inPortfolio')}</span>
+    </div>
+    {#each rows as row (row.key)}
+      {@const rowBalance = displayedBalance(row)}
+      {@const networks = displayedNetworks(row)}
+      <div class="asset-row">
+        <div class="grid min-h-[60px] grid-cols-[minmax(0,1fr)_174px_94px] items-center">
+          <div class="flex min-w-0 items-center gap-3 pr-3">
+            <div class="flex w-9 shrink-0 justify-center">
+              <CoinIcon
+                coinId={row.coinId}
+                coinName={row.displayName}
+                proto={row.proto}
+                size={32}
+                showBadge
+                decorative
+              />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex min-w-0 items-center gap-1.5">
+                <p class="truncate text-sm font-medium text-foreground">{row.displayName}</p>
+                {#if networks.length > 1}
+                  <button
+                    type="button"
+                    class="shrink-0 text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                    aria-label={i18n.t('wallet.manageAssets.showNetworkBreakdown', {
+                      asset: row.displayName,
+                    })}
+                    aria-expanded={expandedAssetKeys.includes(row.key)}
+                    onclick={() => toggleExpanded(row.key)}
+                  >
+                    {#if expandedAssetKeys.includes(row.key)}
+                      <ChevronDownIcon class="h-3.5 w-3.5" />
                     {:else}
-                      <PlusIcon class="h-4 w-4" absoluteStrokeWidth />
+                      <ChevronRightIcon class="h-3.5 w-3.5" />
                     {/if}
                   </button>
-                </div>
+                {/if}
               </div>
-            {/if}
+              <p class="truncate text-xs text-muted-foreground">
+                {row.displayTicker} ·
+                {networks.length > 1
+                  ? i18n.t('wallet.manageAssets.networkCount', { count: networks.length })
+                  : networks[0]?.systemDisplayName}
+                {row.includesReadOnly ? ` · ${i18n.t('wallet.manageAssets.readOnly')}` : ''}
+                {row.hidden ? ` · ${i18n.t('wallet.manageAssets.hiddenStatus')}` : ''}
+              </p>
+            </div>
+          </div>
 
-            {#if manualCandidates.length > 1}
-              <div class="space-y-1">
-                <p class="text-[11px] text-muted-foreground">
-                  {i18n.t('wallet.addAsset.pbaasMatches')}
-                </p>
-                {#each manualCandidates as candidate}
-                  <button
-                    type="button"
-                    class="text-left text-xs text-foreground underline-offset-2 hover:underline"
-                    onclick={() => {
-                      manualInput = candidate.currencyId;
-                      resolveManualAsset();
-                    }}
-                  >
-                    {candidate.displayTicker} ({candidate.currencyId})
-                  </button>
-                {/each}
-              </div>
+          <div class="text-right text-sm font-medium text-foreground tabular-nums">
+            {#if rowBalance.status === 'loading'}
+              <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+            {:else if rowBalance.status === 'unavailable'}
+              <span>{i18n.t('wallet.manageAssets.unavailable')}</span>
+            {:else if rowBalance.status === 'partial' && rowBalance.balance === null}
+              <span>{i18n.t('wallet.manageAssets.partial')}</span>
+            {:else}
+              <span>{rowBalance.balance} {row.displayTicker}</span>
+              {#if rowBalance.status === 'partial'}
+                <span class="block text-[11px] font-normal text-muted-foreground">
+                  {i18n.t('wallet.manageAssets.partial')}
+                </span>
+              {/if}
             {/if}
+          </div>
 
-            {#if manualError}
-              <p class="text-xs text-destructive">{manualError}</p>
+          <div class="flex items-center justify-end gap-2">
+            {#if row.discovered && !row.inPortfolio && !row.hidden}
+              <button
+                type="button"
+                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                aria-label={i18n.t('wallet.manageAssets.dismissAsset', { asset: row.displayName })}
+                title={i18n.t('wallet.manageAssets.dismiss')}
+                disabled={savingPreference}
+                onclick={() => dismissDiscovery(row)}
+              >
+                <EyeOffIcon class="h-3.5 w-3.5" />
+              </button>
             {/if}
-          </section>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={row.inPortfolio}
+              aria-label={i18n.t('wallet.manageAssets.toggleAsset', { asset: row.displayName })}
+              class={`relative h-5 w-[34px] shrink-0 rounded-full p-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:ring-offset-2 focus-visible:outline-none ${
+                row.inPortfolio ? 'bg-primary' : 'bg-zinc-300 dark:bg-zinc-600'
+              }`}
+              disabled={savingPreference}
+              onclick={() => setPortfolioVisibility(row, !row.inPortfolio)}
+            >
+              <span
+                class={`block h-4 w-4 rounded-full bg-white transition-transform ${
+                  row.inPortfolio ? 'translate-x-3.5' : 'translate-x-0'
+                }`}
+              ></span>
+            </button>
+          </div>
         </div>
+
+        {#if expandedAssetKeys.includes(row.key) && networks.length > 1}
+          <div class="pb-2 pl-12">
+            {#each networks as holdingNetwork (holdingNetwork.systemId)}
+              <div class="grid h-8 grid-cols-[minmax(0,1fr)_174px_94px] items-center text-xs">
+                <span class="truncate text-muted-foreground">
+                  {holdingNetwork.systemDisplayName}
+                </span>
+                <span class="text-right text-foreground tabular-nums">
+                  {holdingNetwork.status === 'unavailable'
+                    ? i18n.t('wallet.manageAssets.unavailable')
+                    : `${holdingNetwork.balance} ${row.displayTicker}`}
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        {#if rowErrors[row.key]}
+          <div class="flex min-h-7 items-start justify-end gap-2 pb-1 text-xs" role="alert">
+            <span class="text-destructive">{rowErrors[row.key]}</span>
+            <button
+              type="button"
+              class="font-medium text-primary"
+              disabled={savingPreference}
+              onclick={() => setPortfolioVisibility(row, retryDesired[row.key] ?? !row.inPortfolio)}
+            >
+              {i18n.t('common.retry')}
+            </button>
+          </div>
+        {/if}
       </div>
-    {/if}
-  </div>
-</StandardRightSheet>
+    {/each}
+  </section>
+{/snippet}

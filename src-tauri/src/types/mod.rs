@@ -56,10 +56,11 @@ pub use transaction::{
 };
 pub use vrpc_transfer::{VrpcTransferPreflightParams, VrpcTransferPreflightResult};
 pub use wallet::{
-    AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressResponse, CoinScope,
-    CoinScopesResult, CreateWalletRequest, CreateWalletResult, DlightProverFileStatusResult,
-    DlightProverStatusResult, DlightRecoverySecretKind, DlightRuntimeStatusResult,
-    DlightSeedStatusResult, GenerateMnemonicRequest, ImportWalletTextRequest, MnemonicResult,
-    RecoverySecretKind, ScopeKind, SetupDlightSeedRequest, SetupDlightSeedResult, WalletListItem,
-    WalletMetadata, WalletRecoverySecretsResult, WalletSecretKind,
+    AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressResponse, AssetPreferencesState,
+    CoinScope, CoinScopesResult, CreateWalletRequest, CreateWalletResult,
+    DlightProverFileStatusResult, DlightProverStatusResult, DlightRecoverySecretKind,
+    DlightRuntimeStatusResult, DlightSeedStatusResult, GenerateMnemonicRequest,
+    ImportWalletTextRequest, MnemonicResult, RecoverySecretKind, ScopeKind, SetupDlightSeedRequest,
+    SetupDlightSeedResult, WalletListItem, WalletMetadata, WalletRecoverySecretsResult,
+    WalletSecretKind,
 };

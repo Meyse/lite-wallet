@@ -20,6 +20,13 @@ const VARRR_SYSTEM_ID: &str = "iExBJfZYK7KREDpuhj6PzZBzqMAKaFg7d2";
 const VDEX_SYSTEM_ID: &str = "iHog9UCTrn95qpUBFCZ7kKz7qWdMA8MQ6N";
 const CHIPS_SYSTEM_ID: &str = "iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfiguredVrpcSystem {
+    pub system_id: String,
+    pub system_ticker: String,
+    pub system_display_name: String,
+}
+
 /// TTL for cached responses (seconds).
 const TTL_BALANCE: u64 = 5;
 const TTL_DELTAS: u64 = 10;
@@ -1170,6 +1177,35 @@ impl VrpcProviderPool {
         }
     }
 
+    pub fn configured_systems(&self, network: WalletNetwork) -> Vec<ConfiguredVrpcSystem> {
+        let configured = match network {
+            WalletNetwork::Mainnet => vec![
+                (VRSC_MAINNET_SYSTEM_ID, "VRSC", "Verus"),
+                (VARRR_SYSTEM_ID, "vARRR", "vARRR"),
+                (VDEX_SYSTEM_ID, "vDEX", "vDEX"),
+                (CHIPS_SYSTEM_ID, "CHIPS", "CHIPS"),
+            ],
+            WalletNetwork::Testnet => {
+                vec![(VRSCTEST_SYSTEM_ID, "VRSCTEST", "Verus Testnet")]
+            }
+        };
+        let providers = self.providers_by_system(network);
+
+        configured
+            .into_iter()
+            .filter(|(system_id, _, _)| {
+                providers.contains_key(&Self::normalize_system_id(system_id))
+            })
+            .map(
+                |(system_id, system_ticker, system_display_name)| ConfiguredVrpcSystem {
+                    system_id: system_id.to_string(),
+                    system_ticker: system_ticker.to_string(),
+                    system_display_name: system_display_name.to_string(),
+                },
+            )
+            .collect()
+    }
+
     /// Returns provider candidates for reads that may target a specific system.
     /// Order: preferred hint (if any), network default, then remaining system providers.
     pub fn provider_candidates(
@@ -1412,6 +1448,20 @@ mod tests {
         let fallback = pool.for_system(WalletNetwork::Mainnet, "iUnknownSystemAddress1234567890");
         let default = pool.for_network(WalletNetwork::Mainnet);
         assert_eq!(fallback.base_url, default.base_url);
+    }
+
+    #[test]
+    fn configured_systems_preserve_canonical_ids_outside_lookup_keys() {
+        let pool = VrpcProviderPool::new();
+        let systems = pool.configured_systems(WalletNetwork::Mainnet);
+        let vdex = systems
+            .iter()
+            .find(|system| system.system_id == VDEX_SYSTEM_ID)
+            .expect("configured vDEX system");
+
+        assert_ne!(vdex.system_id, VDEX_SYSTEM_ID.to_ascii_lowercase());
+        assert_eq!(vdex.system_ticker, "vDEX");
+        assert_eq!(vdex.system_display_name, "vDEX");
     }
 
     #[test]

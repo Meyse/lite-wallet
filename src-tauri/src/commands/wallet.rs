@@ -4,7 +4,8 @@
 // Last Updated: Module 10 — unlock/session and update-engine start are decoupled
 
 use secp256k1::SecretKey;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use crate::core::channels::btc::BtcProviderPool;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::config::metadata_for_network as eth_metadata_for_network;
 use crate::core::channels::eth::EthProviderPool;
-use crate::core::channels::vrpc::VrpcProviderPool;
+use crate::core::channels::vrpc::{ConfiguredVrpcSystem, VrpcProviderPool};
 use crate::core::coins::Channel;
 use crate::core::coins::{CoinDefinition, CoinRegistry};
 use crate::core::crypto::wif_encoding::{decode_wif_unchecked_network, encode_btc_wif};
@@ -40,7 +41,7 @@ use crate::core::{
 use crate::types::wallet::{DlightSeedSetupMode, ScopeKind, WalletNetwork};
 use crate::types::{
     AccountRecord, ActiveAssetsState, ActiveWalletResponse, AddressEndpointKind, AddressResponse,
-    CoinScope, CoinScopesResult, CreateWalletRequest, CreateWalletResult,
+    AssetPreferencesState, CoinScope, CoinScopesResult, CreateWalletRequest, CreateWalletResult,
     DlightProverFileStatusResult, DlightProverStatusResult, DlightRecoverySecretKind,
     DlightRuntimeStatusResult, DlightSeedStatusResult, GenerateMnemonicRequest,
     ImportWalletTextRequest, LinkedIdentity, MnemonicResult, RecoverySecretKind,
@@ -77,6 +78,42 @@ struct ActiveWalletState {
     account_id: String,
     network: WalletNetwork,
     addresses: (String, String, String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDiscoveryHolding {
+    asset_key: String,
+    currency_id: String,
+    system_id: String,
+    system_ticker: String,
+    system_display_name: String,
+    balance: String,
+    includes_read_only: bool,
+    balance_status: String,
+    coin: Option<CoinDefinition>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDiscoverySource {
+    system_id: String,
+    system_ticker: String,
+    system_display_name: String,
+    status: String,
+    checked_scope_count: usize,
+    unchecked_scope_count: usize,
+    includes_read_only: bool,
+    private_scope_checked: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDiscoveryResult {
+    network: WalletNetwork,
+    holdings: Vec<AssetDiscoveryHolding>,
+    sources: Vec<AssetDiscoverySource>,
+    scope_metadata_complete: bool,
 }
 
 struct NewAccountPersistenceRequest<'a> {
@@ -135,6 +172,17 @@ async fn capture_active_wallet_state(
         network,
         addresses,
     })
+}
+
+fn ensure_expected_session_id(
+    active_session_id: &str,
+    expected_session_id: &str,
+) -> Result<(), WalletError> {
+    if active_session_id == expected_session_id {
+        Ok(())
+    } else {
+        Err(WalletError::WalletSessionChanged)
+    }
 }
 
 fn validate_new_wallet_password(password: &str) -> Result<(), WalletError> {
@@ -397,6 +445,25 @@ fn sanitize_active_coin_ids(
     sanitized
 }
 
+fn sanitize_hidden_asset_keys(asset_keys: &[String]) -> Vec<String> {
+    let mut seen = HashSet::<String>::new();
+    asset_keys
+        .iter()
+        .filter_map(|asset_key| {
+            let normalized = asset_key.trim().to_ascii_lowercase();
+            if normalized.is_empty()
+                || normalized.len() > 256
+                || !normalized.contains(':')
+                || !seen.insert(normalized.clone())
+            {
+                return None;
+            }
+            Some(normalized)
+        })
+        .take(512)
+        .collect()
+}
+
 fn default_active_coin_ids(network: WalletNetwork) -> Vec<String> {
     match network {
         WalletNetwork::Mainnet => MAINNET_DEFAULT_ACTIVE_COIN_IDS
@@ -428,32 +495,37 @@ fn collect_vrpc_system_descriptors(
     coin_registry: &CoinRegistry,
     network: WalletNetwork,
     root_coin: &CoinDefinition,
-    active_coin_ids: &[String],
+    configured_systems: &[ConfiguredVrpcSystem],
 ) -> Vec<VrpcSystemDescriptor> {
     let root_system_id = network_root_system_id(network);
     let is_testnet = matches!(network, WalletNetwork::Testnet);
-    let mut allowed_systems = HashMap::<String, String>::new();
-    let mut insert_system_id = |system_id: &str| {
+    let mut allowed_systems = HashMap::<String, VrpcSystemDescriptor>::new();
+    let mut insert_system = |system_id: &str, ticker: &str, display_name: &str| {
         let trimmed = system_id.trim();
         if trimmed.is_empty() {
             return;
         }
         allowed_systems
             .entry(trimmed.to_ascii_lowercase())
-            .or_insert_with(|| trimmed.to_string());
+            .or_insert_with(|| VrpcSystemDescriptor {
+                system_id: trimmed.to_string(),
+                system_ticker: ticker.trim().to_string(),
+                system_display_name: display_name.trim().to_string(),
+                is_root: trimmed.eq_ignore_ascii_case(root_system_id),
+            });
     };
 
-    for coin_id in sanitize_active_coin_ids(coin_registry, network, active_coin_ids) {
-        if let Some(coin) = coin_registry.find_by_id(&coin_id, is_testnet) {
-            if coin_expands_vrpc_system_scope(&coin) {
-                insert_system_id(&coin.system_id);
-            }
-        }
+    for system in configured_systems {
+        insert_system(
+            &system.system_id,
+            &system.system_ticker,
+            &system.system_display_name,
+        );
     }
     if coin_expands_vrpc_system_scope(root_coin) {
-        insert_system_id(&root_coin.system_id);
+        insert_system(&root_coin.system_id, "", "");
     }
-    insert_system_id(root_system_id);
+    insert_system(root_system_id, "", "");
 
     let vrpc_network_coins = coin_registry
         .get_all()
@@ -463,20 +535,27 @@ fn collect_vrpc_system_descriptors(
 
     let mut systems = allowed_systems
         .into_values()
-        .map(|requested_system_id| {
+        .map(|mut descriptor| {
             let native_system_definition = vrpc_network_coins.iter().find(|coin| {
-                coin.system_id.eq_ignore_ascii_case(&requested_system_id)
-                    && coin.currency_id.eq_ignore_ascii_case(&requested_system_id)
+                coin.system_id.eq_ignore_ascii_case(&descriptor.system_id)
+                    && coin.currency_id.eq_ignore_ascii_case(&descriptor.system_id)
             });
 
             let system_id = native_system_definition
                 .map(|coin| coin.system_id.clone())
-                .unwrap_or_else(|| requested_system_id.clone());
+                .unwrap_or_else(|| descriptor.system_id.clone());
 
             let (system_ticker, system_display_name) = if let Some((ticker, display_name)) =
                 canonical_network_label_for_system(&system_id)
             {
                 (ticker, display_name)
+            } else if !descriptor.system_ticker.is_empty()
+                && !descriptor.system_display_name.is_empty()
+            {
+                (
+                    descriptor.system_ticker.clone(),
+                    descriptor.system_display_name.clone(),
+                )
             } else if let Some(system_coin) = native_system_definition {
                 let ticker = system_coin.display_ticker.trim();
                 let display_name = system_coin.display_name.trim();
@@ -498,12 +577,11 @@ fn collect_vrpc_system_descriptors(
                 (system_id.clone(), system_id.clone())
             };
 
-            VrpcSystemDescriptor {
-                system_id: system_id.clone(),
-                system_ticker,
-                system_display_name,
-                is_root: system_id.eq_ignore_ascii_case(root_system_id),
-            }
+            descriptor.system_id = system_id.clone();
+            descriptor.system_ticker = system_ticker;
+            descriptor.system_display_name = system_display_name;
+            descriptor.is_root = system_id.eq_ignore_ascii_case(root_system_id);
+            descriptor
         })
         .collect::<Vec<_>>();
 
@@ -523,6 +601,98 @@ fn collect_vrpc_system_descriptors(
             )
     });
     systems
+}
+
+#[derive(Debug, Clone)]
+struct DiscoveredVrpcAmount {
+    currency_id: String,
+    amount: f64,
+    includes_read_only: bool,
+    partial: bool,
+}
+
+fn numeric_value(value: &Value) -> Option<f64> {
+    let parsed = value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|number| number as f64))
+        .or_else(|| value.as_u64().map(|number| number as f64))
+        .or_else(|| value.as_str().and_then(|number| number.trim().parse().ok()))?;
+    parsed.is_finite().then_some(parsed)
+}
+
+fn vrpc_balance_entries(raw: &Value, system_id: &str) -> HashMap<String, (String, f64)> {
+    let mut entries = HashMap::<String, (String, f64)>::new();
+    if let Some(native_satoshis) = raw.get("balance").and_then(numeric_value) {
+        let amount = native_satoshis / 100_000_000.0;
+        if amount > 0.0 {
+            entries.insert(
+                system_id.to_ascii_lowercase(),
+                (system_id.to_string(), amount),
+            );
+        }
+    }
+
+    if let Some(currency_balances) = raw.get("currencybalance").and_then(Value::as_object) {
+        for (currency_id, value) in currency_balances {
+            let Some(amount) = numeric_value(value) else {
+                continue;
+            };
+            if amount <= 0.0 {
+                continue;
+            }
+            let key = currency_id.to_ascii_lowercase();
+            entries
+                .entry(key)
+                .and_modify(|entry| entry.1 += amount)
+                .or_insert_with(|| (currency_id.clone(), amount));
+        }
+    }
+
+    entries
+}
+
+fn format_discovered_amount(amount: f64) -> String {
+    let formatted = format!("{amount:.8}");
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn merge_discovered_vrpc_amounts(
+    target: &mut HashMap<String, DiscoveredVrpcAmount>,
+    entries: HashMap<String, (String, f64)>,
+    includes_read_only: bool,
+    partial: bool,
+) {
+    for (key, (currency_id, amount)) in entries {
+        target
+            .entry(key)
+            .and_modify(|entry| {
+                entry.amount += amount;
+                entry.includes_read_only |= includes_read_only;
+                entry.partial |= partial;
+            })
+            .or_insert(DiscoveredVrpcAmount {
+                currency_id,
+                amount,
+                includes_read_only,
+                partial,
+            });
+    }
+}
+
+fn registry_coin_for_currency(
+    coin_registry: &CoinRegistry,
+    network: WalletNetwork,
+    currency_id: &str,
+) -> Option<CoinDefinition> {
+    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    coin_registry.get_all().into_iter().find(|coin| {
+        coin.is_testnet == is_testnet
+            && coin_supports_channel(coin, Channel::Vrpc)
+            && coin.currency_id.eq_ignore_ascii_case(currency_id)
+    })
 }
 
 fn channel_id_for_non_vrpc_coin(coin: &CoinDefinition) -> Option<String> {
@@ -1205,6 +1375,282 @@ pub async fn set_active_assets(
     })
 }
 
+/// Return portfolio visibility and explicitly hidden assets for the active wallet/network.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_asset_preferences(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
+) -> Result<AssetPreferencesState, WalletError> {
+    let session = session_manager.lock().await;
+    if !session.is_unlocked() {
+        return Err(WalletError::WalletLocked);
+    }
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
+    let account_id = session
+        .active_account_id()
+        .cloned()
+        .ok_or(WalletError::WalletLocked)?;
+    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
+    let (_initialized, coin_ids, profile_version, hidden_asset_keys) =
+        account_state_store.load_asset_preferences(&account_id, network)?;
+    let portfolio_coin_ids = if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
+        sanitize_active_coin_ids(
+            coin_registry.as_ref(),
+            network,
+            &default_active_coin_ids(network),
+        )
+    } else {
+        sanitize_active_coin_ids(coin_registry.as_ref(), network, &coin_ids)
+    };
+    let hidden_asset_keys = sanitize_hidden_asset_keys(&hidden_asset_keys);
+
+    if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
+        account_state_store.store_asset_preferences(
+            &account_id,
+            network,
+            ACTIVE_ASSETS_PROFILE_VERSION,
+            &portfolio_coin_ids,
+            &hidden_asset_keys,
+        )?;
+    }
+
+    Ok(AssetPreferencesState {
+        network,
+        session_id,
+        portfolio_coin_ids,
+        hidden_asset_keys,
+    })
+}
+
+/// Atomically persist portfolio visibility and explicit hiding for the active wallet/network.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_asset_preferences(
+    expected_session_id: String,
+    portfolio_coin_ids: Vec<String>,
+    hidden_asset_keys: Vec<String>,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
+) -> Result<AssetPreferencesState, WalletError> {
+    // Keep the session guard through the synchronous preference write so a
+    // replacement unlock cannot cross the validation/mutation boundary.
+    let session = session_manager.lock().await;
+    if !session.is_unlocked() {
+        return Err(WalletError::WalletLocked);
+    }
+    let session_id = session
+        .active_session_id()
+        .ok_or(WalletError::WalletLocked)?
+        .to_string();
+    ensure_expected_session_id(&session_id, &expected_session_id)?;
+    let account_id = session
+        .active_account_id()
+        .cloned()
+        .ok_or(WalletError::WalletLocked)?;
+    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
+    let portfolio_coin_ids =
+        sanitize_active_coin_ids(coin_registry.as_ref(), network, &portfolio_coin_ids);
+    let hidden_asset_keys = sanitize_hidden_asset_keys(&hidden_asset_keys);
+
+    account_state_store.store_asset_preferences(
+        &account_id,
+        network,
+        ACTIVE_ASSETS_PROFILE_VERSION,
+        &portfolio_coin_ids,
+        &hidden_asset_keys,
+    )?;
+
+    Ok(AssetPreferencesState {
+        network,
+        session_id,
+        portfolio_coin_ids,
+        hidden_asset_keys,
+    })
+}
+
+/// Discover positive PBaaS holdings through the wallet's configured VRPC providers.
+/// This is an on-demand read. It checks transparent wallet, linked identity, and watched
+/// address scopes without enabling background polling or returning any addresses.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn discover_vrpc_assets(
+    system_ids: Option<Vec<String>>,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    account_state_store: State<'_, AccountStateStore>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<AssetDiscoveryResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let account_id = context.account_id.clone();
+    let network = context.wallet_network;
+    coin_registry.set_active_account(Some(account_id.clone()));
+
+    let watched = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
+    let linked_identities_result = context.load_linked_identities_cached().await;
+    let scope_metadata_complete = linked_identities_result.is_ok();
+    let linked_identities = linked_identities_result.unwrap_or_default();
+    let scope_addresses =
+        collect_vrpc_scope_addresses(&context.vrsc_address, &linked_identities, &watched, network);
+    let owned_addresses = scope_addresses
+        .iter()
+        .filter(|scope| !scope.is_read_only)
+        .map(|scope| scope.address.clone())
+        .collect::<Vec<_>>();
+    let read_only_addresses = scope_addresses
+        .iter()
+        .filter(|scope| scope.is_read_only)
+        .map(|scope| scope.address.clone())
+        .collect::<Vec<_>>();
+
+    let root_coin_id = if matches!(network, WalletNetwork::Testnet) {
+        "VRSCTEST"
+    } else {
+        "VRSC"
+    };
+    let root_coin = coin_registry
+        .find_by_id(root_coin_id, matches!(network, WalletNetwork::Testnet))
+        .ok_or(WalletError::UnsupportedChannel)?;
+    let configured_systems = vrpc_provider_pool.configured_systems(network);
+    let mut systems = collect_vrpc_system_descriptors(
+        coin_registry.as_ref(),
+        network,
+        &root_coin,
+        &configured_systems,
+    );
+    if let Some(system_ids) = system_ids.filter(|system_ids| !system_ids.is_empty()) {
+        let requested = system_ids
+            .into_iter()
+            .map(|system_id| system_id.trim().to_ascii_lowercase())
+            .filter(|system_id| !system_id.is_empty())
+            .collect::<HashSet<_>>();
+        systems.retain(|system| requested.contains(&system.system_id.to_ascii_lowercase()));
+    }
+
+    let mut holdings = Vec::<AssetDiscoveryHolding>::new();
+    let mut sources = Vec::<AssetDiscoverySource>::new();
+
+    for system in systems {
+        let provider = vrpc_provider_pool.for_system(network, &system.system_id);
+        let owned_result = provider.getaddressbalance(&owned_addresses).await;
+        let read_only_result = if read_only_addresses.is_empty() {
+            None
+        } else {
+            Some(provider.getaddressbalance(&read_only_addresses).await)
+        };
+        let owned_ok = owned_result.is_ok();
+        let read_only_ok = read_only_result.as_ref().map(Result::is_ok).unwrap_or(true);
+        let any_ok = owned_ok
+            || read_only_result
+                .as_ref()
+                .map(Result::is_ok)
+                .unwrap_or(false);
+        let all_ok = owned_ok && read_only_ok && scope_metadata_complete;
+        let source_status = if all_ok {
+            "available"
+        } else if any_ok {
+            "partial"
+        } else {
+            "unavailable"
+        };
+        let checked_scope_count = if owned_ok { owned_addresses.len() } else { 0 }
+            + if read_only_result
+                .as_ref()
+                .map(Result::is_ok)
+                .unwrap_or(false)
+            {
+                read_only_addresses.len()
+            } else {
+                0
+            };
+        let unchecked_scope_count = scope_addresses.len().saturating_sub(checked_scope_count);
+
+        sources.push(AssetDiscoverySource {
+            system_id: system.system_id.clone(),
+            system_ticker: system.system_ticker.clone(),
+            system_display_name: system.system_display_name.clone(),
+            status: source_status.to_string(),
+            checked_scope_count,
+            unchecked_scope_count,
+            includes_read_only: !read_only_addresses.is_empty(),
+            private_scope_checked: false,
+        });
+
+        let partial = !all_ok;
+        let mut discovered = HashMap::<String, DiscoveredVrpcAmount>::new();
+        if let Ok(raw) = owned_result {
+            merge_discovered_vrpc_amounts(
+                &mut discovered,
+                vrpc_balance_entries(&raw, &system.system_id),
+                false,
+                partial,
+            );
+        }
+        if let Some(Ok(raw)) = read_only_result {
+            merge_discovered_vrpc_amounts(
+                &mut discovered,
+                vrpc_balance_entries(&raw, &system.system_id),
+                true,
+                partial,
+            );
+        }
+
+        for discovered_amount in discovered.into_values() {
+            let coin = if let Some(known) = registry_coin_for_currency(
+                coin_registry.as_ref(),
+                network,
+                &discovered_amount.currency_id,
+            ) {
+                Some(known)
+            } else {
+                match provider.getcurrency(&discovered_amount.currency_id).await {
+                    Ok(payload) => crate::commands::coins::pbaas_coin_definition_from_payload(
+                        &payload,
+                        network,
+                        vrpc_provider_pool.endpoint_url_for_system(network, &system.system_id),
+                    ),
+                    Err(_) => None,
+                }
+            };
+            holdings.push(AssetDiscoveryHolding {
+                asset_key: format!(
+                    "vrsc:{}",
+                    discovered_amount.currency_id.to_ascii_lowercase()
+                ),
+                currency_id: discovered_amount.currency_id,
+                system_id: system.system_id.clone(),
+                system_ticker: system.system_ticker.clone(),
+                system_display_name: system.system_display_name.clone(),
+                balance: format_discovered_amount(discovered_amount.amount),
+                includes_read_only: discovered_amount.includes_read_only,
+                balance_status: if discovered_amount.partial {
+                    "partial".to_string()
+                } else {
+                    "available".to_string()
+                },
+                coin,
+            });
+        }
+    }
+
+    holdings.sort_by(|left, right| {
+        left.asset_key
+            .cmp(&right.asset_key)
+            .then(left.system_ticker.cmp(&right.system_ticker))
+    });
+
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+
+    Ok(AssetDiscoveryResult {
+        network,
+        holdings,
+        sources,
+        scope_metadata_complete,
+    })
+}
+
 /// Returns whether a dlight seed is configured for the active account/network.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_dlight_seed_status(
@@ -1477,6 +1923,7 @@ pub async fn get_coin_scopes(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<CoinScopesResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let account_id = context.account_id.clone();
@@ -1512,21 +1959,13 @@ pub async fn get_coin_scopes(
             network,
         );
 
-        let active_coin_ids = account_state_store
-            .load_active_assets(&account_id, network)
-            .map(|(_initialized, coin_ids, _profile_version)| coin_ids);
-        let systems = match active_coin_ids {
-            Ok(active_ids) => {
-                collect_vrpc_system_descriptors(coin_registry.as_ref(), network, &coin, &active_ids)
-            }
-            Err(error) => {
-                println!(
-                    "[WALLET] Failed to load active assets for coin scopes; using root-only fallback: {:?}",
-                    error
-                );
-                collect_vrpc_system_descriptors(coin_registry.as_ref(), network, &coin, &[])
-            }
-        };
+        let configured_systems = vrpc_provider_pool.configured_systems(network);
+        let systems = collect_vrpc_system_descriptors(
+            coin_registry.as_ref(),
+            network,
+            &coin,
+            &configured_systems,
+        );
 
         let mut scopes = Vec::<CoinScope>::new();
         for address_scope in scope_addresses {
@@ -1625,12 +2064,14 @@ mod tests {
     use super::{
         canonical_non_vrpc_network_metadata, channel_id_for_non_vrpc_coin,
         collect_vrpc_scope_addresses, collect_vrpc_system_descriptors, dedupe_preserve_order,
-        dlight_recovery_secret_kind_from_seed, persist_new_account,
+        dlight_recovery_secret_kind_from_seed, ensure_expected_session_id,
+        format_discovered_amount, merge_discovered_vrpc_amounts, persist_new_account,
         recovery_secret_kind_from_wallet_secret_kind, sanitize_active_coin_ids,
-        NewAccountPersistenceRequest,
+        vrpc_balance_entries, DiscoveredVrpcAmount, NewAccountPersistenceRequest,
     };
     use crate::core::auth::kdf::CURRENT_KEY_DERIVATION_VERSION;
     use crate::core::auth::{stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager};
+    use crate::core::channels::vrpc::ConfiguredVrpcSystem;
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
     use crate::core::crypto::{derive_keys_v1, Network};
     use crate::core::runtime_config;
@@ -1645,7 +2086,79 @@ mod tests {
 
     const VRSC_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
     const VETH_SYSTEM_ID: &str = "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X";
+    const VDEX_SYSTEM_ID: &str = "iHog9UCTrn95qpUBFCZ7kKz7qWdMA8MQ6N";
     const CHIPS_SYSTEM_ID: &str = "iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP";
+
+    fn configured_system(
+        system_id: &str,
+        ticker: &str,
+        display_name: &str,
+    ) -> ConfiguredVrpcSystem {
+        ConfiguredVrpcSystem {
+            system_id: system_id.to_string(),
+            system_ticker: ticker.to_string(),
+            system_display_name: display_name.to_string(),
+        }
+    }
+
+    #[test]
+    fn discovery_balance_parser_preserves_tiny_native_and_pbaas_amounts() {
+        let entries = vrpc_balance_entries(
+            &serde_json::json!({
+                "balance": 1,
+                "currencybalance": {
+                    "iCurrency": "0.00000001"
+                }
+            }),
+            VRSC_SYSTEM_ID,
+        );
+
+        assert_eq!(
+            format_discovered_amount(entries[&VRSC_SYSTEM_ID.to_ascii_lowercase()].1),
+            "0.00000001"
+        );
+        assert_eq!(
+            format_discovered_amount(entries["icurrency"].1),
+            "0.00000001"
+        );
+    }
+
+    #[test]
+    fn discovery_merge_keeps_scope_and_partial_provenance() {
+        let mut discovered = std::collections::HashMap::<String, DiscoveredVrpcAmount>::new();
+        merge_discovered_vrpc_amounts(
+            &mut discovered,
+            std::collections::HashMap::from([(
+                "icurrency".to_string(),
+                ("iCurrency".to_string(), 1.25),
+            )]),
+            false,
+            false,
+        );
+        merge_discovered_vrpc_amounts(
+            &mut discovered,
+            std::collections::HashMap::from([(
+                "icurrency".to_string(),
+                ("iCurrency".to_string(), 0.75),
+            )]),
+            true,
+            true,
+        );
+
+        let amount = &discovered["icurrency"];
+        assert_eq!(format_discovered_amount(amount.amount), "2");
+        assert!(amount.includes_read_only);
+        assert!(amount.partial);
+    }
+
+    #[test]
+    fn asset_preferences_reject_a_replacement_unlock_session() {
+        assert!(ensure_expected_session_id("session-a", "session-a").is_ok());
+        assert!(matches!(
+            ensure_expected_session_id("session-b", "session-a"),
+            Err(crate::types::WalletError::WalletSessionChanged)
+        ));
+    }
 
     #[test]
     fn non_vrpc_scope_labels_name_execution_networks_not_tokens() {
@@ -1825,7 +2338,7 @@ mod tests {
     }
 
     #[test]
-    fn vrpc_system_descriptors_include_only_activated_systems() {
+    fn vrpc_system_descriptors_follow_configured_providers_not_visibility() {
         let registry = CoinRegistry::new();
         set_active_account(&registry);
         registry
@@ -1853,20 +2366,20 @@ mod tests {
         assert_eq!(root_only.len(), 1);
         assert_eq!(root_only[0].system_id, VRSC_SYSTEM_ID);
 
-        let with_token_only = collect_vrpc_system_descriptors(
+        let with_configured_veth = collect_vrpc_system_descriptors(
             &registry,
             WalletNetwork::Mainnet,
             &root_coin,
-            &["vUSDC".to_string()],
+            &[configured_system(VETH_SYSTEM_ID, "ETH", "Ethereum")],
         );
-        assert_eq!(with_token_only.len(), 1);
-        assert_eq!(with_token_only[0].system_id, VRSC_SYSTEM_ID);
+        assert_eq!(with_configured_veth.len(), 2);
+        assert_eq!(with_configured_veth[0].system_id, VRSC_SYSTEM_ID);
 
         let with_chips = collect_vrpc_system_descriptors(
             &registry,
             WalletNetwork::Mainnet,
             &root_coin,
-            &["vUSDC".to_string(), "CHIPS".to_string()],
+            &[configured_system(CHIPS_SYSTEM_ID, "CHIPS", "CHIPS")],
         );
         assert_eq!(with_chips.len(), 2);
         assert_eq!(with_chips[0].system_id, VRSC_SYSTEM_ID);
@@ -1894,7 +2407,7 @@ mod tests {
             &registry,
             WalletNetwork::Mainnet,
             &root_coin,
-            &["VETHCHAIN".to_string()],
+            &[configured_system(VETH_SYSTEM_ID, "ETH", "Ethereum")],
         );
 
         let veth = descriptors
@@ -1903,6 +2416,25 @@ mod tests {
             .expect("vETH descriptor");
         assert_eq!(veth.system_ticker, "ETH");
         assert_eq!(veth.system_display_name, "Ethereum");
+    }
+
+    #[test]
+    fn fresh_registry_keeps_configured_system_identity_and_name() {
+        let registry = CoinRegistry::new();
+        let root_coin = registry.find_by_id("VRSC", false).expect("VRSC root coin");
+        let descriptors = collect_vrpc_system_descriptors(
+            &registry,
+            WalletNetwork::Mainnet,
+            &root_coin,
+            &[configured_system(VDEX_SYSTEM_ID, "vDEX", "vDEX")],
+        );
+
+        let vdex = descriptors
+            .iter()
+            .find(|descriptor| descriptor.system_id == VDEX_SYSTEM_ID)
+            .expect("configured vDEX descriptor");
+        assert_eq!(vdex.system_ticker, "vDEX");
+        assert_eq!(vdex.system_display_name, "vDEX");
     }
 
     #[test]
@@ -1920,18 +2452,11 @@ mod tests {
             .expect("add vDAI");
 
         let root_coin = registry.find_by_id("VRSC", false).expect("VRSC root coin");
-        let descriptors = collect_vrpc_system_descriptors(
-            &registry,
-            WalletNetwork::Mainnet,
-            &root_coin,
-            &["vDAI".to_string()],
-        );
+        let descriptors =
+            collect_vrpc_system_descriptors(&registry, WalletNetwork::Mainnet, &root_coin, &[]);
 
         assert_eq!(descriptors.len(), 1);
         assert_eq!(descriptors[0].system_id, VRSC_SYSTEM_ID);
-        assert!(!descriptors
-            .iter()
-            .any(|descriptor| descriptor.system_id == VETH_SYSTEM_ID));
     }
 
     #[test]
@@ -1953,7 +2478,7 @@ mod tests {
             &registry,
             WalletNetwork::Mainnet,
             &root_coin,
-            &["CHIPS".to_string()],
+            &[configured_system(CHIPS_SYSTEM_ID, "CHIPS", "CHIPS")],
         );
         assert!(descriptors
             .iter()

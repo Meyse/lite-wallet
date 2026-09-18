@@ -188,6 +188,19 @@ fn build_pbaas_coin_definition(
     }
 }
 
+pub(crate) fn pbaas_coin_definition_from_payload(
+    payload: &Value,
+    network: WalletNetwork,
+    vrpc_endpoint: String,
+) -> Option<CoinDefinition> {
+    let candidate = pbaas_candidate_from_value(as_result_payload(payload))?;
+    Some(build_pbaas_coin_definition(
+        &candidate,
+        network,
+        vrpc_endpoint,
+    ))
+}
+
 fn parse_contract_address(contract: &str) -> Result<Address, WalletError> {
     contract
         .trim()
@@ -290,7 +303,9 @@ pub async fn add_coin_definition(
     registry: State<'_, Arc<CoinRegistry>>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     definition: CoinDefinition,
+    expected_session_id: String,
 ) -> Result<CoinDefinition, WalletError> {
+    // Keep the wallet session stable through the synchronous registry write.
     let session = session_manager.lock().await;
     if !session.is_unlocked() {
         return Err(WalletError::WalletLocked);
@@ -299,11 +314,12 @@ pub async fn add_coin_definition(
         .active_account_id()
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
-    drop(session);
-    registry.set_active_account(Some(account_id));
+    if session.active_session_id() != Some(expected_session_id.as_str()) {
+        return Err(WalletError::WalletSessionChanged);
+    }
 
     println!("[COINS] Add coin requested: {}", definition.id);
-    let added = registry.add_coin_for_active_account(definition)?;
+    let added = registry.add_coin_for_account(&account_id, definition)?;
     println!("[COINS] Coin added: {}", added.id);
     Ok(added)
 }

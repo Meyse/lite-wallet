@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-discover-vrpc-assets"
+description = "Enables the discover_vrpc_assets command without any pre-configured scope."
+commands.allow = ["discover_vrpc_assets"]
+
+[[permission]]
+identifier = "deny-discover-vrpc-assets"
+description = "Denies the discover_vrpc_assets command without any pre-configured scope."
+commands.deny = ["discover_vrpc_assets"]

@@ -210,6 +210,15 @@ pub struct ActiveAssetsState {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct AssetPreferencesState {
+    pub network: WalletNetwork,
+    pub session_id: String,
+    pub portfolio_coin_ids: Vec<String>,
+    pub hidden_asset_keys: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DlightSeedStatusResult {
     pub configured: bool,
     pub shielded_address: Option<String>,

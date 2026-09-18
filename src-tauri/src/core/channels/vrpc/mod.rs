@@ -15,7 +15,7 @@ use crate::types::WalletError;
 
 pub use balance::get_balances;
 pub use preflight::preflight;
-pub use provider::{VrpcProvider, VrpcProviderPool};
+pub use provider::{ConfiguredVrpcSystem, VrpcProvider, VrpcProviderPool};
 pub use send::send;
 pub use transactions::{get_transactions, get_transactions_page, VrpcHistoryCursor};
 pub use transfer::preflight_transfer;

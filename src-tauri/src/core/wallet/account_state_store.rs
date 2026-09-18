@@ -31,6 +31,8 @@ struct AccountStateNetwork {
     #[serde(default)]
     active_assets: AccountStateActiveAssets,
     #[serde(default)]
+    hidden_asset_keys: Vec<String>,
+    #[serde(default)]
     provisioning_jobs: Vec<ProvisioningJobRecord>,
     #[serde(default)]
     pending_identity_profiles: Vec<PendingIdentityProfileUpdate>,
@@ -132,6 +134,41 @@ impl AccountStateStore {
             profile_version,
             coin_ids: coin_ids.to_vec(),
         };
+        self.save_snapshot(account_id, &state)
+    }
+
+    pub fn load_asset_preferences(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+    ) -> Result<(bool, Vec<String>, u8, Vec<String>), WalletError> {
+        let state = self.load_snapshot(account_id)?;
+        let network_state = self.network_ref(&state, network);
+        Ok((
+            network_state.active_assets.initialized,
+            network_state.active_assets.coin_ids.clone(),
+            network_state.active_assets.profile_version,
+            network_state.hidden_asset_keys.clone(),
+        ))
+    }
+
+    pub fn store_asset_preferences(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+        profile_version: u8,
+        portfolio_coin_ids: &[String],
+        hidden_asset_keys: &[String],
+    ) -> Result<(), WalletError> {
+        let mut state = self.load_snapshot(account_id)?;
+        let network_state = self.network_mut(&mut state, network);
+        network_state.active_assets_schema_version = ACTIVE_ASSETS_SCHEMA_VERSION;
+        network_state.active_assets = AccountStateActiveAssets {
+            initialized: true,
+            profile_version,
+            coin_ids: portfolio_coin_ids.to_vec(),
+        };
+        network_state.hidden_asset_keys = hidden_asset_keys.to_vec();
         self.save_snapshot(account_id, &state)
     }
 
@@ -315,6 +352,47 @@ mod tests {
         assert_eq!(loaded.0, true);
         assert_eq!(loaded.1, vec!["VRSC".to_string(), "BTC".to_string()]);
         assert_eq!(loaded.2, ACTIVE_ASSETS_PROFILE_VERSION);
+    }
+
+    #[test]
+    fn asset_preferences_are_wallet_and_network_scoped() {
+        let store = temp_store();
+        store
+            .store_asset_preferences(
+                "account-a",
+                WalletNetwork::Mainnet,
+                ACTIVE_ASSETS_PROFILE_VERSION,
+                &["VRSC".to_string()],
+                &["vrsc:ihidden".to_string()],
+            )
+            .expect("store mainnet preferences");
+        store
+            .store_asset_preferences(
+                "account-a",
+                WalletNetwork::Testnet,
+                ACTIVE_ASSETS_PROFILE_VERSION,
+                &["VRSCTEST".to_string()],
+                &["erc20:0xtest".to_string()],
+            )
+            .expect("store testnet preferences");
+
+        let mainnet = store
+            .load_asset_preferences("account-a", WalletNetwork::Mainnet)
+            .expect("load mainnet preferences");
+        assert_eq!(mainnet.1, vec!["VRSC".to_string()]);
+        assert_eq!(mainnet.3, vec!["vrsc:ihidden".to_string()]);
+
+        let testnet = store
+            .load_asset_preferences("account-a", WalletNetwork::Testnet)
+            .expect("load testnet preferences");
+        assert_eq!(testnet.1, vec!["VRSCTEST".to_string()]);
+        assert_eq!(testnet.3, vec!["erc20:0xtest".to_string()]);
+
+        let other_wallet = store
+            .load_asset_preferences("account-b", WalletNetwork::Mainnet)
+            .expect("load other wallet preferences");
+        assert!(other_wallet.1.is_empty());
+        assert!(other_wallet.3.is_empty());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-09
+last_reviewed: 2026-09-18
 ---
 
 # Wallet loading lifecycle
@@ -12,6 +12,27 @@ ready. Address-book contacts continue in the background. The route still waits
 for listener setup before it starts the update engine, so an early balance or
 rate event cannot be missed. Adding or removing an asset restarts the engine
 with the updated active set.
+
+## Asset visibility and discovery
+
+Manage assets stores portfolio coin IDs and explicitly hidden asset keys as one
+wallet- and network-scoped preference update. Portfolio visibility controls the
+overview, its fiat total, and background update-engine work. It does not control
+which configured holding networks can be checked by an explicit discovery.
+Preference reads include the current unlock-session ID, and writes must present
+that same ID so a result from a replaced wallet session cannot mutate the new
+session.
+
+On demand, discovery checks the primary transparent address, linked identity
+addresses, and watched read-only addresses against the configured VRPC holding
+networks. A PBaaS currency keeps one portfolio identity across networks while
+retaining per-network balance provenance. Registered BTC, ETH, and ERC20 assets
+use their existing balance providers; discovery does not enumerate arbitrary
+ERC20 contracts. Provider and scope failures remain partial or unavailable
+instead of becoming zero, and retries can target only the incomplete VRPC
+systems. Shielded/private balances are not part of this discovery path, so an
+absent transparent holding must not be interpreted as proof of a zero private
+balance.
 
 ## Readiness and background updates
 

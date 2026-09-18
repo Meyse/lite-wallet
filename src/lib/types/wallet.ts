@@ -42,6 +42,45 @@ export interface ActiveAssetsState {
   coinIds: string[];
 }
 
+export interface AssetPreferencesState {
+  network: WalletNetwork;
+  sessionId: string;
+  portfolioCoinIds: string[];
+  hiddenAssetKeys: string[];
+}
+
+export type AssetDiscoveryAvailability = 'available' | 'partial' | 'unavailable';
+
+export interface AssetDiscoveryHolding {
+  assetKey: string;
+  currencyId: string;
+  systemId: string;
+  systemTicker: string;
+  systemDisplayName: string;
+  balance: string;
+  includesReadOnly: boolean;
+  balanceStatus: Exclude<AssetDiscoveryAvailability, 'unavailable'>;
+  coin?: CoinDefinition | null;
+}
+
+export interface AssetDiscoverySource {
+  systemId: string;
+  systemTicker: string;
+  systemDisplayName: string;
+  status: AssetDiscoveryAvailability;
+  checkedScopeCount: number;
+  uncheckedScopeCount: number;
+  includesReadOnly: boolean;
+  privateScopeChecked: boolean;
+}
+
+export interface AssetDiscoveryResult {
+  network: WalletNetwork;
+  holdings: AssetDiscoveryHolding[];
+  sources: AssetDiscoverySource[];
+  scopeMetadataComplete: boolean;
+}
+
 export type Protocol = 'vrsc' | 'btc' | 'eth' | 'erc20';
 export type Channel = 'vrpc' | 'btc' | 'eth' | 'erc20' | 'dlight_private';
 

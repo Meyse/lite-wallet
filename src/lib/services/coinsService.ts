@@ -14,8 +14,14 @@ export async function addPbaasCurrency(definition: CoinDefinition): Promise<void
   await invokeWalletCommand('add_pbaas_currency', { definition });
 }
 
-export async function addCoinDefinition(definition: CoinDefinition): Promise<CoinDefinition> {
-  return invokeWalletCommand<CoinDefinition>('add_coin_definition', { definition });
+export async function addCoinDefinition(
+  definition: CoinDefinition,
+  expectedSessionId: string
+): Promise<CoinDefinition> {
+  return invokeWalletCommand<CoinDefinition>('add_coin_definition', {
+    definition,
+    expected_session_id: expectedSessionId,
+  });
 }
 
 export async function resolvePbaasCurrency(query: string): Promise<PbaasResolveResult> {

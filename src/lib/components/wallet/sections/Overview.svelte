@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import { tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Skeleton } from '$lib/components/ui/skeleton/index.js';
@@ -13,7 +14,7 @@
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
-  import PlusIcon from '@lucide/svelte/icons/plus';
+  import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EyeIcon from '@lucide/svelte/icons/eye';
@@ -83,6 +84,7 @@
   const displayCurrency = $derived(settings.displayCurrency);
   const isBootstrapping = $derived($walletBootstrapStore);
   let showAddAssetSheet = $state(false);
+  let assetsButtonElement = $state<HTMLButtonElement | null>(null);
   let listScrollElement = $state<HTMLElement | null>(null);
   let hasOverviewScroll = $state(false);
   let canScrollDown = $state(false);
@@ -527,10 +529,20 @@
       inFlightTransparentScopeCoins.delete(coin.id);
     }
   }
+
+  async function closeManageAssets(): Promise<void> {
+    showAddAssetSheet = false;
+    await tick();
+    assetsButtonElement?.focus();
+  }
 </script>
 
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-3 pb-6 sm:px-8">
-  <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
+  <section
+    class="min-h-0 flex-1 flex-col overflow-hidden"
+    class:flex={!showAddAssetSheet}
+    class:hidden={showAddAssetSheet}
+  >
     <div
       class={`z-10 shrink-0 bg-background pb-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
@@ -606,46 +618,45 @@
         </Button>
       </div>
       <div class="mt-2 w-full">
-        <div class="flex w-full gap-2">
-          <div class="grid w-full flex-1 grid-cols-3 gap-2">
-            <Button
-              variant="secondary"
-              size="lg"
-              class="h-10 w-full gap-1.5 rounded-md px-3"
-              onclick={onNavigateToReceive}
-            >
-              <ArrowDownIcon class="h-4 w-4" />
-              <span>{i18n.t('wallet.overview.receive')}</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="lg"
-              class="h-10 w-full gap-1.5 rounded-md px-3"
-              onclick={onNavigateToSend}
-            >
-              <ArrowUpIcon class="h-4 w-4" />
-              <span>{i18n.t('wallet.overview.send')}</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="lg"
-              class="h-10 w-full gap-1.5 rounded-md px-3"
-              onclick={onNavigateToConvert}
-            >
-              <ArrowLeftRightIcon class="h-4 w-4" />
-              <span>{i18n.t('wallet.overview.convert')}</span>
-            </Button>
-          </div>
+        <div class="grid w-full grid-cols-4 gap-2">
           <Button
-            variant="default"
-            size="icon"
-            class="h-10 w-10 shrink-0 rounded-md"
-            aria-label={i18n.t('wallet.addAsset.open')}
+            variant="secondary"
+            size="lg"
+            class="h-10 w-full gap-1.5 rounded-md px-3"
+            onclick={onNavigateToReceive}
+          >
+            <ArrowDownIcon class="h-4 w-4" />
+            <span>{i18n.t('wallet.overview.receive')}</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            class="h-10 w-full gap-1.5 rounded-md px-3"
+            onclick={onNavigateToSend}
+          >
+            <ArrowUpIcon class="h-4 w-4" />
+            <span>{i18n.t('wallet.overview.send')}</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            class="h-10 w-full gap-1.5 rounded-md px-3"
+            onclick={onNavigateToConvert}
+          >
+            <ArrowLeftRightIcon class="h-4 w-4" />
+            <span>{i18n.t('wallet.overview.convert')}</span>
+          </Button>
+          <Button
+            bind:ref={assetsButtonElement}
+            variant="secondary"
+            size="lg"
+            class="h-10 w-full gap-1.5 rounded-md px-3"
             onclick={() => {
               showAddAssetSheet = true;
             }}
           >
-            <PlusIcon class="h-4 w-4" />
+            <SlidersHorizontalIcon class="h-4 w-4" />
+            <span>{i18n.t('wallet.manageAssets.action')}</span>
           </Button>
         </div>
       </div>
@@ -794,9 +805,14 @@
       {/if}
     </div>
   </section>
+  {#if showAddAssetSheet}
+    <AddAssetSheet
+      bind:isOpen={showAddAssetSheet}
+      network={walletNetwork}
+      onClose={closeManageAssets}
+    />
+  {/if}
 </div>
-
-<AddAssetSheet bind:isOpen={showAddAssetSheet} network={walletNetwork} />
 
 <style>
   .balance-banner {

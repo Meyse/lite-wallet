@@ -31,9 +31,9 @@ This directory is the repository knowledge system of record.
   [`./product-specs/identity-guard-signed-out-flow.md`](./product-specs/identity-guard-signed-out-flow.md)
 - UI component matrix: [`./ui-component-matrix.md`](./ui-component-matrix.md)
 - UI style governance: [`./ui-style-governance.md`](./ui-style-governance.md)
-- Wallet activation source-of-truth: wallet-scoped active assets are persisted
-  per account + network and drive both Add Asset state and chain scope
-  availability.
+- Wallet asset source-of-truth: portfolio visibility and hidden discoveries are
+  persisted per account + network. Visibility drives overview/background work;
+  explicit holdings discovery remains independent across configured networks.
 - Wallet storage policy:
   [`./references/storage-policy.md`](./references/storage-policy.md)
 

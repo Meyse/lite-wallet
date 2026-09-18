@@ -6,6 +6,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   ActiveAssetsState,
+  AssetDiscoveryResult,
+  AssetPreferencesState,
   BalanceResult,
   CoinScopesResult,
   DlightProverStatusResult,
@@ -119,6 +121,30 @@ export async function setActiveAssets(coinIds: string[]): Promise<ActiveAssetsSt
   });
   invalidateWalletDisplayScopes();
   return updated;
+}
+
+export async function getAssetPreferences(): Promise<AssetPreferencesState> {
+  return invokeWalletCommand<AssetPreferencesState>('get_asset_preferences');
+}
+
+export async function setAssetPreferences(
+  expectedSessionId: string,
+  portfolioCoinIds: string[],
+  hiddenAssetKeys: string[]
+): Promise<AssetPreferencesState> {
+  const updated = await invokeWalletCommand<AssetPreferencesState>('set_asset_preferences', {
+    expected_session_id: expectedSessionId,
+    portfolio_coin_ids: portfolioCoinIds,
+    hidden_asset_keys: hiddenAssetKeys,
+  });
+  invalidateWalletDisplayScopes();
+  return updated;
+}
+
+export async function discoverVrpcAssets(systemIds?: string[]): Promise<AssetDiscoveryResult> {
+  return invokeWalletCommand<AssetDiscoveryResult>('discover_vrpc_assets', {
+    system_ids: systemIds ?? null,
+  });
 }
 
 export async function getDlightSeedStatus(): Promise<DlightSeedStatusResult> {
