@@ -9,7 +9,7 @@ mod types;
 
 use commands::{
     address_book, bridge_transfer, clipboard, coins, generic_request, guard, identity, transaction,
-    vrpc_transfer, wallet,
+    vrpc_transfer, wallet, watchlist,
 };
 use core::auth::kdf::derive_current_argon2id;
 use core::channels::btc::BtcProviderPool;
@@ -248,6 +248,11 @@ pub fn run() {
             wallet::touch_session_activity,
             wallet::get_watched_vrpc_addresses,
             wallet::set_watched_vrpc_addresses,
+            watchlist::get_watchlist_entries,
+            watchlist::resolve_watchlist_target,
+            watchlist::add_watchlist_entry,
+            watchlist::remove_watchlist_entry,
+            watchlist::refresh_watchlist,
             wallet::is_unlocked,
             clipboard::read_clipboard_text,
             // Coin registry commands (Module 3)

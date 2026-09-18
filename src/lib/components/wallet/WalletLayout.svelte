@@ -22,6 +22,7 @@
   import Apps from './sections/Apps.svelte';
   import Activity from './sections/Activity.svelte';
   import AddressBook from './sections/AddressBook.svelte';
+  import Watchlist from './sections/Watchlist.svelte';
   import Settings from './sections/Settings.svelte';
   import {
     createIdentitySectionSessionState,
@@ -63,6 +64,7 @@
     | 'identity'
     | 'apps'
     | 'activity'
+    | 'watchlist'
     | 'address-book'
     | 'settings';
 
@@ -293,6 +295,7 @@
       <main
         class={isTransferFocusMode ||
         activeSection === 'overview' ||
+        activeSection === 'watchlist' ||
         activeSection === 'address-book'
           ? 'flex min-h-0 flex-1 overflow-hidden'
           : 'min-h-0 flex-1 overflow-auto'}
@@ -378,6 +381,8 @@
           <Apps />
         {:else if activeSection === 'activity'}
           <Activity />
+        {:else if activeSection === 'watchlist'}
+          <Watchlist walletNetwork={walletData.network ?? 'mainnet'} />
         {:else if activeSection === 'address-book'}
           <AddressBook />
         {:else if activeSection === 'settings'}

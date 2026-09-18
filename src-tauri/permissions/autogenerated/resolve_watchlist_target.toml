@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-watchlist-target"
+description = "Enables the resolve_watchlist_target command without any pre-configured scope."
+commands.allow = ["resolve_watchlist_target"]
+
+[[permission]]
+identifier = "deny-resolve-watchlist-target"
+description = "Denies the resolve_watchlist_target command without any pre-configured scope."
+commands.deny = ["resolve_watchlist_target"]
