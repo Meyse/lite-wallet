@@ -216,6 +216,15 @@ pub enum WalletError {
     #[error("Address book input is invalid")]
     AddressBookInvalidInput,
 
+    #[error("Watchlist entry already exists")]
+    WatchlistDuplicate,
+
+    #[error("Watchlist entry was not found")]
+    WatchlistEntryNotFound,
+
+    #[error("Watchlist input is invalid")]
+    WatchlistInvalidInput,
+
     // Internal errors are mapped to generic ones above
     #[serde(skip)]
     #[error("Internal error: {0}")]

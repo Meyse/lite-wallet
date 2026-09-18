@@ -11,6 +11,7 @@
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import ActivityIcon from '@lucide/svelte/icons/activity';
   import BookUserIcon from '@lucide/svelte/icons/book-user';
+  import EyeIcon from '@lucide/svelte/icons/eye';
   import Link2Icon from '@lucide/svelte/icons/link-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import LockIcon from '@lucide/svelte/icons/lock';
@@ -25,6 +26,7 @@
     | 'receive'
     | 'conversions'
     | 'identity'
+    | 'watchlist'
     | 'address-book'
     | 'apps'
     | 'activity'
@@ -49,7 +51,7 @@
     walletData,
     onSelectOverview = () => {},
     onSelectSettings = () => {},
-    onOpenRequest = () => {}
+    onOpenRequest = () => {},
   }: {
     activeSection?: SectionId;
     walletData: WalletData;
@@ -66,7 +68,8 @@
     { id: 'identity', title: i18n.t('wallet.sidebar.identities'), icon: VerusIdAtIcon },
     { id: 'apps', title: i18n.t('wallet.sidebar.apps'), icon: AppWindowIcon },
     { id: 'activity', title: i18n.t('wallet.sidebar.activity'), icon: ActivityIcon },
-    { id: 'address-book', title: i18n.t('wallet.sidebar.addressBook'), icon: BookUserIcon }
+    { id: 'watchlist', title: i18n.t('wallet.sidebar.watchlist'), icon: EyeIcon },
+    { id: 'address-book', title: i18n.t('wallet.sidebar.addressBook'), icon: BookUserIcon },
   ]);
   const menuButtonClass =
     'h-8 rounded-md px-2 text-[13px] dark:text-[14px] hover:bg-sidebar-item-hover hover:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-item-hover active:bg-sidebar-item-pressed active:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active data-[active=true]:text-sidebar-accent-foreground data-[active=true]:hover:bg-sidebar-item-active data-[state=open]:hover:text-sidebar-accent-foreground';

@@ -12,3 +12,4 @@ pub mod identity;
 pub mod transaction;
 pub mod vrpc_transfer;
 pub mod wallet;
+pub mod watchlist;

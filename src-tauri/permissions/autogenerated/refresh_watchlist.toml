@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-watchlist"
+description = "Enables the refresh_watchlist command without any pre-configured scope."
+commands.allow = ["refresh_watchlist"]
+
+[[permission]]
+identifier = "deny-refresh-watchlist"
+description = "Denies the refresh_watchlist command without any pre-configured scope."
+commands.deny = ["refresh_watchlist"]

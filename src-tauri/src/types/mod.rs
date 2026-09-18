@@ -11,6 +11,7 @@ pub mod identity;
 pub mod transaction;
 pub mod vrpc_transfer;
 pub mod wallet;
+pub mod watchlist;
 
 pub use address_book::{
     AddressBookContact, AddressBookEndpoint, AddressBookSnapshot, AddressEndpointKind,
@@ -63,4 +64,8 @@ pub use wallet::{
     ImportWalletTextRequest, MnemonicResult, RecoverySecretKind, ScopeKind, SetupDlightSeedRequest,
     SetupDlightSeedResult, WalletListItem, WalletMetadata, WalletRecoverySecretsResult,
     WalletSecretKind,
+};
+pub use watchlist::{
+    ResolveWatchlistTargetRequest, WatchlistEntry, WatchlistEntrySnapshot, WatchlistHolding,
+    WatchlistRefreshResult, WatchlistResolvedTarget, WatchlistSource, WatchlistTargetKind,
 };

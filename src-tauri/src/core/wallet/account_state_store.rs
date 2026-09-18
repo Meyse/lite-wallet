@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::generic_request::ProvisioningJobRecord;
 use crate::types::wallet::WalletNetwork;
-use crate::types::{PendingIdentityProfileUpdate, WalletError};
+use crate::types::{PendingIdentityProfileUpdate, WalletError, WatchlistEntry};
 
 const ACCOUNT_STATE_SCHEMA_VERSION: u8 = 1;
 const ACTIVE_ASSETS_SCHEMA_VERSION: u8 = 1;
@@ -26,6 +26,8 @@ struct AccountStateActiveAssets {
 struct AccountStateNetwork {
     #[serde(default)]
     watched_vrpc_addresses: Vec<String>,
+    #[serde(default)]
+    watchlist_entries: Vec<WatchlistEntry>,
     #[serde(default)]
     active_assets_schema_version: u8,
     #[serde(default)]
@@ -101,6 +103,29 @@ impl AccountStateStore {
     ) -> Result<(), WalletError> {
         let mut state = self.load_snapshot(account_id)?;
         self.network_mut(&mut state, network).watched_vrpc_addresses = addresses.to_vec();
+        self.save_snapshot(account_id, &state)
+    }
+
+    pub fn load_watchlist_entries(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+    ) -> Result<Vec<WatchlistEntry>, WalletError> {
+        let state = self.load_snapshot(account_id)?;
+        Ok(self.network_ref(&state, network).watchlist_entries.clone())
+    }
+
+    pub fn store_watchlist_entries(
+        &self,
+        account_id: &str,
+        network: WalletNetwork,
+        entries: &[WatchlistEntry],
+    ) -> Result<(), WalletError> {
+        let mut state = self.load_snapshot(account_id)?;
+        let network_state = self.network_mut(&mut state, network);
+        network_state.watchlist_entries = entries.to_vec();
+        network_state.watched_vrpc_addresses =
+            entries.iter().map(|entry| entry.address.clone()).collect();
         self.save_snapshot(account_id, &state)
     }
 
@@ -296,7 +321,9 @@ mod tests {
     use super::AccountStateStore;
     use crate::core::auth::stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION;
     use crate::types::wallet::WalletNetwork;
-    use crate::types::{IdentityProfileSnapshot, PendingIdentityProfileUpdate};
+    use crate::types::{
+        IdentityProfileSnapshot, PendingIdentityProfileUpdate, WatchlistEntry, WatchlistTargetKind,
+    };
 
     fn temp_store() -> AccountStateStore {
         let unique = SystemTime::now()
@@ -330,6 +357,45 @@ mod tests {
                 .expect("load testnet"),
             vec!["RTest".to_string()]
         );
+    }
+
+    #[test]
+    fn watchlist_entries_round_trip_and_keep_discovery_addresses_in_sync() {
+        let store = temp_store();
+        let entry = WatchlistEntry {
+            id: "entry".to_string(),
+            target_kind: WatchlistTargetKind::Identity,
+            display_name: "Alice@".to_string(),
+            address: "iAlice1111111111111111111111111111".to_string(),
+            system_id: Some("iSystem11111111111111111111111111".to_string()),
+            created_at: 10,
+            updated_at: 11,
+        };
+
+        store
+            .store_watchlist_entries(
+                "account",
+                WalletNetwork::Mainnet,
+                std::slice::from_ref(&entry),
+            )
+            .expect("store watchlist");
+
+        assert_eq!(
+            store
+                .load_watchlist_entries("account", WalletNetwork::Mainnet)
+                .expect("load watchlist"),
+            vec![entry.clone()]
+        );
+        assert_eq!(
+            store
+                .load_watched_vrpc_addresses("account", WalletNetwork::Mainnet)
+                .expect("load discovery addresses"),
+            vec![entry.address]
+        );
+        assert!(store
+            .load_watchlist_entries("account", WalletNetwork::Testnet)
+            .expect("load testnet")
+            .is_empty());
     }
 
     #[test]
