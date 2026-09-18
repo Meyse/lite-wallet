@@ -167,7 +167,6 @@ fn balance_entries(raw: &Value, system_id: &str) -> HashMap<String, (String, f64
             };
             entries
                 .entry(currency_id.to_ascii_lowercase())
-                .and_modify(|entry| entry.1 += amount)
                 .or_insert_with(|| (currency_id.clone(), amount));
         }
     }
@@ -666,7 +665,11 @@ mod tests {
         let entries = balance_entries(
             &serde_json::json!({
                 "balance": 125_000_000,
-                "currencybalance": { "iCurrency": "2.5", "ignored": 0 }
+                "currencybalance": {
+                    "iSystem": "1.25",
+                    "iCurrency": "2.5",
+                    "ignored": 0
+                }
             }),
             "iSystem",
         );
