@@ -291,7 +291,9 @@
         </div>
       {/if}
       <main
-        class={isTransferFocusMode || activeSection === 'overview'
+        class={isTransferFocusMode ||
+        activeSection === 'overview' ||
+        activeSection === 'address-book'
           ? 'flex min-h-0 flex-1 overflow-hidden'
           : 'min-h-0 flex-1 overflow-auto'}
       >

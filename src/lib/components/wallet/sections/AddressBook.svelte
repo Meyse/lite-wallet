@@ -1,8 +1,9 @@
 <script lang="ts">
   import BookUserIcon from '@lucide/svelte/icons/book-user';
-  import CirclePlusIcon from '@lucide/svelte/icons/circle-plus';
-  import PencilIcon from '@lucide/svelte/icons/pencil';
-  import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import MinusIcon from '@lucide/svelte/icons/minus';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { tick } from 'svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
@@ -42,6 +43,8 @@
   let formContactId = $state<string | null>(null);
   let formDisplayName = $state('');
   let formNote = $state('');
+  let showNote = $state(false);
+  let noteInputEl = $state<HTMLInputElement | null>(null);
   let formEndpoints = $state<EndpointDraft[]>([]);
   let nameError = $state('');
   let endpointsError = $state('');
@@ -51,6 +54,7 @@
 
   let showDeleteDialog = $state(false);
   let deleting = $state(false);
+  let deleteError = $state('');
   const copiedEndpointState = new TimedValueState<string>();
   const copiedEndpointId = $derived(copiedEndpointState.current);
 
@@ -119,10 +123,20 @@
     return index === 0 ? baseLabel : `${baseLabel} ${index + 1}`;
   }
 
-  function endpointBadgeLabel(kind: AddressEndpointKind): string {
-    if (kind === 'vrpc') return 'VERUS';
-    if (kind === 'zs') return 'ZS';
-    return kind.toUpperCase();
+  function endpointNetworkLabel(kind: AddressEndpointKind): string {
+    return i18n.t(`wallet.addressBook.network.${kind}`);
+  }
+
+  function contactNetworks(contact: AddressBookContact): string {
+    return [
+      ...new Set(contact.endpoints.map((endpoint) => endpointNetworkLabel(endpoint.kind))),
+    ].join(', ');
+  }
+
+  async function revealNote() {
+    showNote = true;
+    await tick();
+    noteInputEl?.focus();
   }
 
   async function resolveEndpointKind(
@@ -153,6 +167,7 @@
     formContactId = null;
     formDisplayName = '';
     formNote = '';
+    showNote = false;
     formEndpoints = [newEndpointDraft()];
     nameError = '';
     endpointsError = '';
@@ -164,6 +179,7 @@
     formContactId = contact.id;
     formDisplayName = contact.displayName;
     formNote = contact.note ?? '';
+    showNote = Boolean(contact.note);
     formEndpoints = contact.endpoints.map((endpoint) => ({
       id: endpoint.id,
       address: endpoint.address,
@@ -179,6 +195,7 @@
     formContactId = null;
     formDisplayName = '';
     formNote = '';
+    showNote = false;
     formEndpoints = [];
     nameError = '';
     endpointsError = '';
@@ -239,7 +256,7 @@
   }
 
   async function submitContactForm() {
-    if (saving) return;
+    if (saving || deleting || !formMode) return;
     nameError = '';
     endpointsError = '';
     formError = '';
@@ -306,17 +323,25 @@
   }
 
   async function confirmDeleteSelected() {
-    if (!selectedContact || deleting) return;
+    // Deletion belongs to the contact being edited, never a changing list selection.
+    const contactId = formContactId;
+    if (!contactId || deleting || saving) return;
     deleting = true;
+    deleteError = '';
 
     try {
-      const deleted = await addressBookService.deleteAddressBookContact(selectedContact.id);
-      if (deleted) {
-        removeAddressBookContact(selectedContact.id);
+      const deleted = await addressBookService.deleteAddressBookContact(contactId);
+      if (!deleted) {
+        deleteError = i18n.t('wallet.addressBook.error.deleteFailed');
+        return;
       }
+      removeAddressBookContact(contactId);
       showDeleteDialog = false;
+      cancelForm();
     } catch (error) {
-      formError = mapSaveError(error);
+      deleteError = isForcedWalletLockError(error)
+        ? ''
+        : i18n.t('wallet.addressBook.error.deleteFailed');
     } finally {
       deleting = false;
     }
@@ -331,55 +356,67 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
-  <header class="flex items-center justify-between border-b border-border/70 px-6 py-5">
-    <div>
-      <h2 class="text-2xl font-semibold">{i18n.t('wallet.addressBook.title')}</h2>
-      <p class="mt-1 text-sm text-muted-foreground">{i18n.t('wallet.addressBook.description')}</p>
-    </div>
+<div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+  <!-- The wallet shell supplies the 24px titlebar above this 58px toolbar. -->
+  <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-7 pb-6">
+    <h2 class="text-xl leading-7 font-semibold tracking-tight">
+      {i18n.t('wallet.addressBook.title')}
+    </h2>
     {#if !formMode}
-      <Button
-        variant="secondary"
-        size="lg"
-        class="h-10 gap-1.5 rounded-md px-3"
-        onclick={startCreateContact}
-      >
-        <CirclePlusIcon class="size-4" />
+      <Button variant="secondary" size="sm" onclick={startCreateContact}>
+        <PlusIcon class="size-4" />
         {i18n.t('wallet.addressBook.addContact')}
       </Button>
     {/if}
   </header>
 
   <div class="flex min-h-0 flex-1">
-    <aside class="w-[256px] shrink-0 border-r border-border/70">
-      <div class="p-4">
-        <SearchInput
-          bind:value={searchTerm}
-          placeholder={i18n.t('wallet.addressBook.searchPlaceholder')}
-        />
-      </div>
-
-      <ScrollArea.Root class="min-h-0 flex-1">
-        <ScrollArea.Viewport class="h-full px-3 pb-3">
+    <aside
+      class="flex min-h-0 w-[216px] shrink-0 flex-col border-r border-border/50 pr-3 pb-5 pl-4"
+      aria-label={i18n.t('wallet.addressBook.title')}
+    >
+      <SearchInput
+        bind:value={searchTerm}
+        placeholder={i18n.t('wallet.addressBook.searchPlaceholder')}
+        aria-label={i18n.t('wallet.addressBook.searchPlaceholder')}
+        clearLabel={i18n.t('common.clearSearch')}
+        showFocusRing
+        class="shrink-0"
+        inputClass="h-8 rounded-md pr-2 pl-8 text-[13px] md:text-[13px]"
+        iconClass="left-2.5 size-3.5"
+      />
+      <ScrollArea.Root class="mt-3 min-h-0 flex-1">
+        <ScrollArea.Viewport>
           {#if filteredContacts.length === 0}
-            <div class="rounded-md px-3 py-5 text-sm text-muted-foreground">
-              {i18n.t('wallet.addressBook.empty')}
-            </div>
+            {#if contacts.length > 0}
+              <p class="px-3 py-4 text-[13px] text-settings-muted-foreground" role="status">
+                {i18n.t('wallet.addressBook.noResults')}
+              </p>
+            {/if}
           {:else}
-            <ul class="space-y-2">
-              {#each filteredContacts as contact}
+            <ul class="space-y-1">
+              {#each filteredContacts as contact (contact.id)}
                 <li>
                   <button
                     type="button"
-                    class="w-full rounded-md px-3 py-2 text-left transition-colors
-                      {selectedContactId === contact.id ? 'bg-primary/10' : 'hover:bg-muted/45'}"
+                    class="flex min-h-[58px] w-full flex-col justify-center gap-0.5 rounded-lg px-3 py-2 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset disabled:cursor-default
+                      {selectedContactId === contact.id
+                      ? 'bg-settings-selection-surface'
+                      : 'hover:bg-muted/60'}"
+                    aria-current={selectedContactId === contact.id ? 'true' : undefined}
+                    disabled={formMode !== null}
                     onclick={() => (selectedContactId = contact.id)}
                   >
-                    <p class="truncate text-sm font-medium">{contact.displayName}</p>
-                    <p class="mt-1 truncate text-xs text-muted-foreground">
-                      {contact.endpoints.length}
-                      {i18n.t('wallet.addressBook.endpointsCount')}
-                    </p>
+                    <span
+                      class="w-full truncate text-sm leading-5 {selectedContactId === contact.id
+                        ? 'font-semibold text-primary dark:text-settings-focus-ring'
+                        : 'font-medium'}">{contact.displayName}</span
+                    >
+                    <span
+                      class="w-full truncate text-xs leading-[17px] text-settings-muted-foreground"
+                    >
+                      {contactNetworks(contact)}
+                    </span>
                   </button>
                 </li>
               {/each}
@@ -390,156 +427,284 @@
       </ScrollArea.Root>
     </aside>
 
-    <section class="min-h-0 flex-1 overflow-y-auto p-6">
+    <section class="flex min-h-0 min-w-0 flex-1 flex-col">
       {#if formMode}
-        <div class="mx-auto max-w-xl space-y-4">
-          <div class="space-y-2">
-            <Label for="address-book-name">{i18n.t('wallet.addressBook.form.nameLabel')}</Label>
-            <Input
-              bind:ref={nameInputEl}
-              id="address-book-name"
-              value={formDisplayName}
-              oninput={(event) =>
-                updateDisplayName((event.currentTarget as HTMLInputElement).value)}
-              class={nameError ? 'border-destructive focus-visible:ring-destructive/40' : ''}
-              aria-invalid={nameError ? 'true' : 'false'}
-              aria-describedby="address-book-name-error"
-              placeholder={i18n.t('wallet.addressBook.form.namePlaceholder')}
-            />
-            <p id="address-book-name-error" class="min-h-5 text-sm text-destructive">{nameError}</p>
-          </div>
-
-          <div class="space-y-2">
-            <Label for="address-book-note">{i18n.t('wallet.addressBook.form.noteLabel')}</Label>
-            <Input
-              id="address-book-note"
-              bind:value={formNote}
-              placeholder={i18n.t('wallet.addressBook.form.notePlaceholder')}
-            />
-          </div>
-
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-medium">{i18n.t('wallet.addressBook.form.endpointsTitle')}</p>
-              <InlineTextActionButton onclick={addEndpointDraft}>
-                <CirclePlusIcon class="size-3.5" />
-                {i18n.t('wallet.addressBook.form.addEndpoint')}
-              </InlineTextActionButton>
-            </div>
-
-            {#each formEndpoints as endpoint, index}
-              <div class="rounded-md p-3">
-                <div class="flex items-start gap-2">
-                  <div class="min-w-0 flex-1 space-y-1">
-                    <Label for={`endpoint-address-${index}`}
-                      >{i18n.t('wallet.addressBook.form.addressLabel')}</Label
+        <form
+          class="flex min-h-0 flex-1 flex-col"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void submitContactForm();
+          }}
+        >
+          <ScrollArea.Root class="min-h-0 flex-1">
+            <ScrollArea.Viewport>
+              <div class="mx-auto w-full max-w-2xl px-7 pt-[18px] pb-5">
+                <h3 class="text-xl leading-7 font-semibold tracking-tight">
+                  {i18n.t(
+                    formMode === 'edit'
+                      ? 'wallet.addressBook.editContact'
+                      : 'wallet.addressBook.addContact'
+                  )}
+                </h3>
+                <fieldset disabled={saving || deleting} class="mt-6 min-w-0 space-y-6">
+                  <div class="space-y-2">
+                    <Label
+                      for="address-book-name"
+                      class="block text-[13px] leading-[18px] font-normal text-settings-muted-foreground"
                     >
+                      {i18n.t('wallet.addressBook.form.nameLabel')}
+                    </Label>
                     <Input
-                      id={`endpoint-address-${index}`}
-                      value={endpoint.address}
-                      oninput={(event) =>
-                        updateEndpointAddress(
-                          index,
-                          (event.currentTarget as HTMLInputElement).value
-                        )}
-                      placeholder={i18n.t('wallet.addressBook.form.addressPlaceholder')}
-                      class="identifier-text"
+                      bind:ref={nameInputEl}
+                      id="address-book-name"
+                      value={formDisplayName}
+                      oninput={(event) => updateDisplayName(event.currentTarget.value)}
+                      class="h-[38px] px-3"
+                      aria-invalid={Boolean(nameError)}
+                      aria-describedby={nameError ? 'address-book-name-error' : undefined}
+                      placeholder={i18n.t('wallet.addressBook.form.namePlaceholder')}
+                    />
+                    {#if nameError}
+                      <p id="address-book-name-error" class="text-xs text-destructive" role="alert">
+                        {nameError}
+                      </p>
+                    {/if}
+                  </div>
+
+                  <div class="space-y-[18px]">
+                    {#each formEndpoints as endpoint, index}
+                      <div class="space-y-2">
+                        <Label
+                          for={`endpoint-address-${index}`}
+                          class="block text-[13px] leading-[18px] font-normal text-settings-muted-foreground"
+                        >
+                          {endpoint.kind
+                            ? endpointNetworkLabel(endpoint.kind)
+                            : i18n.t('wallet.addressBook.form.addressLabel')}
+                        </Label>
+                        <div class="flex min-w-0 items-center gap-2">
+                          <div class="min-w-0 flex-1">
+                            <Input
+                              id={`endpoint-address-${index}`}
+                              value={endpoint.address}
+                              oninput={(event) =>
+                                updateEndpointAddress(index, event.currentTarget.value)}
+                              placeholder={i18n.t('wallet.addressBook.form.addressPlaceholder')}
+                              class="identifier-text h-[38px] px-3 text-xs md:text-xs"
+                              aria-invalid={Boolean(endpointsError)}
+                              aria-describedby={endpointsError
+                                ? 'address-book-endpoints-error'
+                                : undefined}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            class="text-settings-muted-foreground"
+                            disabled={formEndpoints.length <= 1 || saving || deleting}
+                            onclick={() => removeEndpointDraft(index)}
+                            title={i18n.t('wallet.addressBook.form.removeEndpoint')}
+                            aria-label={i18n.t('wallet.addressBook.form.removeEndpoint')}
+                          >
+                            <MinusIcon class="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    {/each}
+                    {#if endpointsError}
+                      <p
+                        id="address-book-endpoints-error"
+                        class="text-xs text-destructive"
+                        role="alert"
+                      >
+                        {endpointsError}
+                      </p>
+                    {/if}
+                  </div>
+                </fieldset>
+
+                <div class="mt-3 flex flex-col items-start">
+                  <InlineTextActionButton
+                    class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 dark:text-settings-focus-ring"
+                    onclick={addEndpointDraft}
+                    disabled={saving || deleting}
+                  >
+                    <PlusIcon class="size-3.5" />
+                    {i18n.t('wallet.addressBook.form.addEndpoint')}
+                  </InlineTextActionButton>
+                  {#if !showNote}
+                    <InlineTextActionButton
+                      class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 dark:text-settings-focus-ring"
+                      onclick={revealNote}
+                      disabled={saving || deleting}
+                    >
+                      <PlusIcon class="size-3.5" />
+                      {i18n.t('wallet.addressBook.form.addNote')}
+                    </InlineTextActionButton>
+                  {/if}
+                </div>
+                {#if showNote}
+                  <div class="mt-4 space-y-2">
+                    <Label
+                      for="address-book-note"
+                      class="block text-[13px] leading-[18px] font-normal text-settings-muted-foreground"
+                    >
+                      {i18n.t('wallet.addressBook.form.noteLabel')}
+                    </Label>
+                    <Input
+                      bind:ref={noteInputEl}
+                      id="address-book-note"
+                      bind:value={formNote}
+                      disabled={saving || deleting}
+                      placeholder={i18n.t('wallet.addressBook.form.notePlaceholder')}
+                      class="h-[38px] px-3"
                     />
                   </div>
-
-                  <div class="pt-6">
-                    <button
-                      type="button"
-                      class="h-8 w-8 rounded-sm p-0 text-destructive transition-colors hover:text-destructive/90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-40"
-                      disabled={formEndpoints.length <= 1}
-                      onclick={() => removeEndpointDraft(index)}
-                      title={i18n.t('wallet.addressBook.deleteContact')}
-                      aria-label={i18n.t('wallet.addressBook.deleteContact')}
-                    >
-                      <Trash2Icon class="size-4" />
-                    </button>
-                  </div>
-                </div>
+                {/if}
+                {#if formError}
+                  <p class="mt-4 text-xs text-destructive" role="alert">{formError}</p>
+                {/if}
               </div>
-            {/each}
-          </div>
+            </ScrollArea.Viewport>
+            <ScrollArea.Scrollbar orientation="vertical" />
+          </ScrollArea.Root>
 
-          <p class="min-h-5 text-sm text-destructive">{endpointsError || formError}</p>
-
-          <div class="flex justify-end gap-2">
-            <Button variant="secondary" onclick={cancelForm} disabled={saving}>
-              {i18n.t('common.cancel')}
-            </Button>
-            <Button onclick={submitContactForm} disabled={saving}>
-              {saving ? i18n.t('common.loading') : i18n.t('wallet.addressBook.form.save')}
-            </Button>
-          </div>
-        </div>
-      {:else if selectedContact}
-        <div class="mx-auto max-w-xl space-y-4">
-          <div class="flex items-start justify-between gap-3">
+          <footer
+            class="mx-auto flex w-full max-w-2xl shrink-0 flex-wrap items-center justify-between gap-3 px-7 pt-3 pb-6"
+          >
             <div>
-              <h3 class="text-lg font-semibold">{selectedContact.displayName}</h3>
-              {#if selectedContact.note}
-                <p class="mt-1 text-sm text-muted-foreground">{selectedContact.note}</p>
+              {#if formMode === 'edit'}
+                <InlineTextActionButton
+                  class="min-h-8 text-[13px] text-destructive hover:text-destructive/80"
+                  disabled={saving || deleting}
+                  onclick={() => {
+                    deleteError = '';
+                    showDeleteDialog = true;
+                  }}>{i18n.t('wallet.addressBook.deleteContact')}</InlineTextActionButton
+                >
               {/if}
             </div>
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                class="h-8 w-8 rounded-sm p-0 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-                onclick={() => startEditContact(selectedContact)}
-                title={i18n.t('wallet.addressBook.editContact')}
-                aria-label={i18n.t('wallet.addressBook.editContact')}
+            <div class="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onclick={cancelForm}
+                disabled={saving || deleting}
               >
-                <PencilIcon class="size-4" />
-              </button>
-              <button
-                type="button"
-                class="h-8 w-8 rounded-sm p-0 text-destructive transition-colors hover:text-destructive/90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-                onclick={() => (showDeleteDialog = true)}
-                title={i18n.t('wallet.addressBook.deleteContact')}
-                aria-label={i18n.t('wallet.addressBook.deleteContact')}
+                {i18n.t('common.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                class="relative"
+                disabled={saving || deleting}
+                aria-busy={saving}
+                aria-label={i18n.t(
+                  saving ? 'wallet.addressBook.form.saving' : 'wallet.addressBook.form.save'
+                )}
               >
-                <Trash2Icon class="size-4" />
-              </button>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            {#each selectedContact.endpoints as endpoint}
-              <div class="rounded-md bg-muted/35 p-3">
-                <div class="flex min-h-8 items-center gap-2">
-                  <span
-                    class="inline-flex shrink-0 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
+                <!-- Reserve both translated labels and balanced space for the spinner. -->
+                <span class="invisible inline-grid px-4" aria-hidden="true">
+                  <span class="col-start-1 row-start-1"
+                    >{i18n.t('wallet.addressBook.form.save')}</span
                   >
-                    {endpointBadgeLabel(endpoint.kind)}
-                  </span>
-                  <IdentifierText
-                    value={endpoint.address}
-                    mode="full"
-                    class="block min-w-0 flex-1 text-sm leading-6"
-                  />
-                  <CopyButton
-                    copied={copiedEndpointId === endpoint.id}
-                    size="sm"
-                    class="-mr-3 pl-1"
-                    onclick={() => copyAddress(endpoint.address, endpoint.id)}
-                    title={i18n.t('wallet.receive.copy')}
-                    aria-label={i18n.t('wallet.receive.copy')}
-                  />
+                  <span class="col-start-1 row-start-1"
+                    >{i18n.t('wallet.addressBook.form.saving')}</span
+                  >
+                </span>
+                <span class="absolute inset-0 flex items-center justify-center" aria-live="polite">
+                  {#if saving}
+                    <LoaderCircleIcon
+                      class="absolute left-2.5 size-3.5 animate-spin motion-reduce:animate-none"
+                      aria-hidden="true"
+                    />
+                  {/if}
+                  <span
+                    >{i18n.t(
+                      saving ? 'wallet.addressBook.form.saving' : 'wallet.addressBook.form.save'
+                    )}</span
+                  >
+                </span>
+              </Button>
+            </div>
+          </footer>
+        </form>
+      {:else if selectedContact}
+        <ScrollArea.Root class="min-h-0 flex-1">
+          <ScrollArea.Viewport>
+            <div class="mx-auto w-full max-w-2xl px-7 py-5">
+              <div class="flex min-h-[52px] items-center gap-3">
+                <div
+                  class="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted text-[22px] font-medium text-settings-muted-foreground"
+                  aria-hidden="true"
+                >
+                  {Array.from(selectedContact.displayName.trim())[0]?.toLocaleUpperCase()}
                 </div>
+                <h3
+                  class="min-w-0 flex-1 text-2xl leading-[30px] font-semibold tracking-tight break-words"
+                >
+                  {selectedContact.displayName}
+                </h3>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onclick={() => startEditContact(selectedContact)}
+                >
+                  {i18n.t('wallet.addressBook.edit')}
+                </Button>
               </div>
-            {/each}
-          </div>
-        </div>
+              {#if selectedContact.note}
+                <p
+                  class="mt-4 text-[13px] leading-5 break-words whitespace-pre-wrap text-settings-muted-foreground"
+                >
+                  {selectedContact.note}
+                </p>
+              {/if}
+              <div class="mt-9 space-y-7">
+                {#each selectedContact.endpoints as endpoint (endpoint.id)}
+                  <div class="flex min-w-0 items-center gap-3">
+                    <div class="min-w-0 flex-1 space-y-[7px]">
+                      <p
+                        class="text-[13px] leading-[18px] font-medium text-settings-muted-foreground"
+                      >
+                        {endpointNetworkLabel(endpoint.kind)}
+                      </p>
+                      <IdentifierText
+                        value={endpoint.address}
+                        mode="full"
+                        class="block text-[13px] leading-5"
+                      />
+                    </div>
+                    <CopyButton
+                      copied={copiedEndpointId === endpoint.id}
+                      onclick={() => copyAddress(endpoint.address, endpoint.id)}
+                      title={i18n.t('wallet.receive.copy')}
+                      aria-label={i18n.t('wallet.receive.copy')}
+                    />
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar orientation="vertical" />
+        </ScrollArea.Root>
       {:else}
         <div
-          class="flex h-full flex-col items-center justify-center text-center text-muted-foreground"
+          class="flex flex-1 flex-col items-center justify-center px-7 text-center text-settings-muted-foreground"
         >
-          <BookUserIcon class="mb-3 h-10 w-10" />
-          <p class="text-base font-medium">{i18n.t('wallet.addressBook.noSelectionTitle')}</p>
-          <p class="mt-1 text-sm">{i18n.t('wallet.addressBook.noSelectionDescription')}</p>
+          <BookUserIcon class="mb-3 size-8" aria-hidden="true" />
+          <p class="text-sm font-medium">
+            {i18n.t(
+              contacts.length ? 'wallet.addressBook.noSelectionTitle' : 'wallet.addressBook.empty'
+            )}
+          </p>
+          <p class="mt-1 max-w-64 text-[13px] leading-5">
+            {i18n.t(
+              contacts.length
+                ? 'wallet.addressBook.noSelectionDescription'
+                : 'wallet.addressBook.emptyDescription'
+            )}
+          </p>
         </div>
       {/if}
     </section>
@@ -549,24 +714,31 @@
 <Dialog.Root
   open={showDeleteDialog}
   onOpenChange={(open) => {
-    if (!open) showDeleteDialog = false;
+    if (!open && !deleting) showDeleteDialog = false;
   }}
 >
-  <Dialog.Content class="max-w-md">
+  <Dialog.Content class="max-w-md" showCloseButton={!deleting}>
     <Dialog.Header>
       <Dialog.Title>{i18n.t('wallet.addressBook.deleteConfirmTitle')}</Dialog.Title>
       <Dialog.Description
         >{i18n.t('wallet.addressBook.deleteConfirmDescription')}</Dialog.Description
       >
     </Dialog.Header>
+    {#if deleteError}
+      <p class="text-sm text-destructive" role="alert">{deleteError}</p>
+    {/if}
     <Dialog.Footer class="flex justify-end gap-3">
-      <Button variant="secondary" onclick={() => (showDeleteDialog = false)} disabled={deleting}>
+      <Button
+        variant="secondary"
+        size="sm"
+        onclick={() => (showDeleteDialog = false)}
+        disabled={deleting}
+      >
         {i18n.t('common.cancel')}
       </Button>
-      <Button variant="destructive" onclick={confirmDeleteSelected} disabled={deleting}>
+      <Button variant="destructive" size="sm" onclick={confirmDeleteSelected} disabled={deleting}>
         {deleting ? i18n.t('common.loading') : i18n.t('wallet.addressBook.deleteContact')}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
-import IdentifierText from '$lib/components/common/IdentifierText.svelte';
