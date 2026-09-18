@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use tauri::State;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -27,8 +29,10 @@ use crate::types::{
 };
 
 const MAX_WATCHLIST_ENTRIES: usize = 100;
+const WATCHLIST_LOOKUP_CONCURRENCY: usize = 8;
 const VRSC_MAINNET_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
 const VRSCTEST_SYSTEM_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
+static WATCHLIST_LOOKUP_LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -205,11 +209,97 @@ fn availability_for_sources(sources: &[WatchlistSource]) -> String {
     }
 }
 
+fn shared_watchlist_lookup_limit() -> Arc<Semaphore> {
+    WATCHLIST_LOOKUP_LIMIT
+        .get_or_init(|| Arc::new(Semaphore::new(WATCHLIST_LOOKUP_CONCURRENCY)))
+        .clone()
+}
+
+async fn with_watchlist_lookup_permit<T>(
+    limit: Arc<Semaphore>,
+    operation: impl Future<Output = T>,
+) -> Option<T> {
+    let _permit = limit.acquire_owned().await.ok()?;
+    Some(operation.await)
+}
+
+fn unavailable_system_snapshot(
+    system: ConfiguredVrpcSystem,
+) -> (WatchlistSource, Vec<WatchlistHolding>) {
+    (
+        WatchlistSource {
+            system_id: system.system_id,
+            system_ticker: system.system_ticker,
+            system_display_name: system.system_display_name,
+            status: "unavailable".to_string(),
+        },
+        Vec::new(),
+    )
+}
+
+async fn load_system_snapshot(
+    address: String,
+    system: ConfiguredVrpcSystem,
+    network: WalletNetwork,
+    provider_pool: Arc<VrpcProviderPool>,
+    coin_registry: Arc<CoinRegistry>,
+) -> (WatchlistSource, Vec<WatchlistHolding>) {
+    let provider = provider_pool.for_system(network, &system.system_id);
+    let raw = match provider.getaddressbalance(&[address]).await {
+        Ok(raw) => raw,
+        Err(_) => return unavailable_system_snapshot(system),
+    };
+
+    let mut holdings = Vec::<WatchlistHolding>::new();
+    for (_, (currency_id, amount)) in balance_entries(&raw, &system.system_id) {
+        let coin =
+            if let Some(known) = registered_coin(coin_registry.as_ref(), network, &currency_id) {
+                Some(known)
+            } else {
+                provider
+                    .getcurrency(&currency_id)
+                    .await
+                    .ok()
+                    .and_then(|payload| {
+                        pbaas_coin_definition_from_payload(
+                            &payload,
+                            network,
+                            provider_pool.endpoint_url_for_system(network, &system.system_id),
+                        )
+                    })
+            };
+        holdings.push(WatchlistHolding {
+            asset_key: format!(
+                "vrsc:{}:{}",
+                system.system_id.to_ascii_lowercase(),
+                currency_id.to_ascii_lowercase()
+            ),
+            currency_id,
+            system_id: system.system_id.clone(),
+            system_ticker: system.system_ticker.clone(),
+            system_display_name: system.system_display_name.clone(),
+            balance: format_amount(amount),
+            coin,
+        });
+    }
+
+    (
+        WatchlistSource {
+            system_id: system.system_id,
+            system_ticker: system.system_ticker,
+            system_display_name: system.system_display_name,
+            status: "available".to_string(),
+        },
+        holdings,
+    )
+}
+
 async fn load_address_snapshot(
     entry: WatchlistEntry,
     network: WalletNetwork,
     provider_pool: Arc<VrpcProviderPool>,
     coin_registry: Arc<CoinRegistry>,
+    lookup_limit: Arc<Semaphore>,
 ) -> WatchlistEntrySnapshot {
     let systems = watchlist_systems(provider_pool.as_ref(), network);
     let mut tasks = JoinSet::new();
@@ -218,66 +308,17 @@ async fn load_address_snapshot(
         let address = entry.address.clone();
         let provider_pool = provider_pool.clone();
         let coin_registry = coin_registry.clone();
+        let lookup_limit = lookup_limit.clone();
         tasks.spawn(async move {
-            let provider = provider_pool.for_system(network, &system.system_id);
-            let raw = match provider.getaddressbalance(&[address]).await {
-                Ok(raw) => raw,
-                Err(_) => {
-                    return (
-                        WatchlistSource {
-                            system_id: system.system_id,
-                            system_ticker: system.system_ticker,
-                            system_display_name: system.system_display_name,
-                            status: "unavailable".to_string(),
-                        },
-                        Vec::new(),
-                    );
-                }
-            };
-
-            let mut holdings = Vec::<WatchlistHolding>::new();
-            for (_, (currency_id, amount)) in balance_entries(&raw, &system.system_id) {
-                let coin = if let Some(known) =
-                    registered_coin(coin_registry.as_ref(), network, &currency_id)
-                {
-                    Some(known)
-                } else {
-                    provider
-                        .getcurrency(&currency_id)
-                        .await
-                        .ok()
-                        .and_then(|payload| {
-                            pbaas_coin_definition_from_payload(
-                                &payload,
-                                network,
-                                provider_pool.endpoint_url_for_system(network, &system.system_id),
-                            )
-                        })
-                };
-                holdings.push(WatchlistHolding {
-                    asset_key: format!(
-                        "vrsc:{}:{}",
-                        system.system_id.to_ascii_lowercase(),
-                        currency_id.to_ascii_lowercase()
-                    ),
-                    currency_id,
-                    system_id: system.system_id.clone(),
-                    system_ticker: system.system_ticker.clone(),
-                    system_display_name: system.system_display_name.clone(),
-                    balance: format_amount(amount),
-                    coin,
-                });
-            }
-
-            (
-                WatchlistSource {
-                    system_id: system.system_id,
-                    system_ticker: system.system_ticker,
-                    system_display_name: system.system_display_name,
-                    status: "available".to_string(),
-                },
-                holdings,
+            let fallback_system = system.clone();
+            // The shared permit covers balance and metadata calls for this
+            // entry/system pair, bounding all concurrent watchlist commands.
+            with_watchlist_lookup_permit(
+                lookup_limit,
+                load_system_snapshot(address, system, network, provider_pool, coin_registry),
             )
+            .await
+            .unwrap_or_else(|| unavailable_system_snapshot(fallback_system))
         });
     }
 
@@ -436,6 +477,7 @@ pub async fn resolve_watchlist_target(
         context.wallet_network,
         vrpc_provider_pool.inner().clone(),
         coin_registry.inner().clone(),
+        shared_watchlist_lookup_limit(),
     )
     .await;
     ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
@@ -496,6 +538,7 @@ pub async fn add_watchlist_entry(
         context.wallet_network,
         vrpc_provider_pool.inner().clone(),
         coin_registry.inner().clone(),
+        shared_watchlist_lookup_limit(),
     )
     .await;
 
@@ -557,15 +600,18 @@ pub async fn refresh_watchlist(
         &context.account_id,
         context.wallet_network,
     )?;
+    let lookup_limit = shared_watchlist_lookup_limit();
     let mut tasks = JoinSet::new();
     for (index, entry) in entries.iter().cloned().enumerate() {
         let provider_pool = vrpc_provider_pool.inner().clone();
         let coin_registry = coin_registry.inner().clone();
+        let lookup_limit = lookup_limit.clone();
         let network = context.wallet_network;
         tasks.spawn(async move {
             (
                 index,
-                load_address_snapshot(entry, network, provider_pool, coin_registry).await,
+                load_address_snapshot(entry, network, provider_pool, coin_registry, lookup_limit)
+                    .await,
             )
         });
     }
@@ -605,9 +651,15 @@ pub async fn refresh_watchlist(
 mod tests {
     use super::{
         availability_for_sources, balance_entries, format_amount, normalize_watchlist_entries,
+        with_watchlist_lookup_permit, WATCHLIST_LOOKUP_CONCURRENCY,
     };
     use crate::types::wallet::WalletNetwork;
     use crate::types::{WatchlistEntry, WatchlistSource, WatchlistTargetKind};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Semaphore;
+    use tokio::task::JoinSet;
 
     #[test]
     fn balance_parser_keeps_native_and_pbaas_values() {
@@ -665,5 +717,35 @@ mod tests {
             availability_for_sources(&[source("available")]),
             "available"
         );
+    }
+
+    #[tokio::test]
+    async fn lookup_helper_bounds_concurrent_system_work() {
+        let limit = Arc::new(Semaphore::new(WATCHLIST_LOOKUP_CONCURRENCY));
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let mut tasks = JoinSet::new();
+
+        for _ in 0..(WATCHLIST_LOOKUP_CONCURRENCY * 3) {
+            let limit = limit.clone();
+            let active = active.clone();
+            let maximum = maximum.clone();
+            tasks.spawn(async move {
+                with_watchlist_lookup_permit(limit, async move {
+                    let concurrent = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum.fetch_max(concurrent, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                })
+                .await
+                .expect("semaphore remains open");
+            });
+        }
+
+        while let Some(result) = tasks.join_next().await {
+            result.expect("bounded lookup task");
+        }
+
+        assert_eq!(maximum.load(Ordering::SeqCst), WATCHLIST_LOOKUP_CONCURRENCY);
     }
 }

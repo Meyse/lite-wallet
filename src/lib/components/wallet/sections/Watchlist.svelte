@@ -99,7 +99,7 @@
     switch (extractWalletErrorType(error)) {
       case 'WatchlistInvalidInput':
         return i18n.t('wallet.watchlist.error.invalidInput');
-      case 'WatchlistEntryNotFound':
+      case 'IdentityNotFound':
         return i18n.t('wallet.watchlist.error.notFound');
       case 'WatchlistDuplicate':
         return i18n.t('wallet.watchlist.error.duplicate');
@@ -182,8 +182,8 @@
     try {
       const snapshot = await watchlistService.addWatchlistEntry(addQuery.trim());
       records = mergeWatchlistSnapshots(records, [
-        ...records.map((record) => record.snapshot),
         snapshot,
+        ...records.map((record) => record.snapshot),
       ]);
       addSheetOpen = false;
       addQuery = '';

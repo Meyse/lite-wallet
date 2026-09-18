@@ -1312,7 +1312,7 @@ export const en: Record<string, string> = {
   'wallet.watchlist.addSheet.inputLabel': 'VerusID or R-address',
   'wallet.watchlist.addSheet.inputPlaceholder': 'name@ or R-address',
   'wallet.watchlist.addSheet.network': 'Verus and PBaaS',
-  'wallet.watchlist.addSheet.info': 'Only public balances and activity are shown.',
+  'wallet.watchlist.addSheet.info': 'Only public balances and currencies are shown.',
   'wallet.watchlist.addSheet.resolving': 'Looking up…',
   'wallet.watchlist.addSheet.found': 'Found',
   'wallet.watchlist.addSheet.networkLabel': 'Network',

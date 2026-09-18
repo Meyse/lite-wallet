@@ -382,7 +382,9 @@
         {:else if activeSection === 'activity'}
           <Activity />
         {:else if activeSection === 'watchlist'}
-          <Watchlist walletNetwork={walletData.network ?? 'mainnet'} />
+          {#key transferWalletKey}
+            <Watchlist walletNetwork={walletData.network ?? 'mainnet'} />
+          {/key}
         {:else if activeSection === 'address-book'}
           <AddressBook />
         {:else if activeSection === 'settings'}

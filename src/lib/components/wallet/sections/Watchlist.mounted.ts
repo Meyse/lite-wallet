@@ -8,6 +8,7 @@ import type {
   WatchlistRefreshResult,
 } from '$lib/types/watchlist.js';
 import Watchlist from './Watchlist.svelte';
+import WatchlistLifecycleHarness from './test-fixtures/WatchlistLifecycleHarness.svelte';
 
 const service = vi.hoisted(() => ({
   getWatchlistEntries: vi.fn(),
@@ -68,6 +69,25 @@ const snapshot: WatchlistEntrySnapshot = {
   refreshedAt: 2,
 };
 
+const otherEntry: WatchlistEntry = {
+  ...entry,
+  id: 'bob',
+  displayName: 'Bob@',
+  address: `R${'b'.repeat(33)}`,
+  createdAt: 2,
+  updatedAt: 2,
+};
+
+const otherSnapshot: WatchlistEntrySnapshot = {
+  ...snapshot,
+  entry: otherEntry,
+  holdings: snapshot.holdings.map((holding) => ({
+    ...holding,
+    assetKey: `bob-${holding.assetKey}`,
+    balance: '2',
+  })),
+};
+
 function refreshResult(entries = [snapshot]): WatchlistRefreshResult {
   return { network: 'mainnet', entries, refreshedAt: 2 };
 }
@@ -121,6 +141,8 @@ afterEach(async () => {
 
 describe('watchlist workflows', () => {
   it('shows the resolved preview and only adds the entry after persistence succeeds', async () => {
+    service.getWatchlistEntries.mockResolvedValue([otherEntry]);
+    service.refreshWatchlist.mockResolvedValue(refreshResult([otherSnapshot]));
     service.resolveWatchlistTarget.mockResolvedValue({
       targetKind: 'identity',
       displayName: entry.displayName,
@@ -138,8 +160,8 @@ describe('watchlist workflows', () => {
     );
 
     await render();
-    expect(document.querySelector('[data-testid="watchlist-empty"]')).not.toBeNull();
-    button('Add address').click();
+    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
+    button('Add').click();
     await settle();
     await setInput('#watchlist-target', 'Alice@');
     button('Continue').click();
@@ -149,13 +171,30 @@ describe('watchlist workflows', () => {
     button('Add to watchlist').click();
     await settle();
     expect(service.addWatchlistEntry).toHaveBeenCalledWith('Alice@');
-    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
     expect(button('Adding…').disabled).toBe(true);
 
     finishAdd(snapshot);
     await settle();
-    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
-    expect(document.body.textContent).toContain('Alice@');
+    const entries = document.querySelectorAll('[data-testid="watchlist-entry"]');
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.textContent).toContain('Alice@');
+    expect(entries[1]?.textContent).toContain('Bob@');
+  });
+
+  it('maps identity lookup failures to the VerusID not-found message', async () => {
+    service.resolveWatchlistTarget.mockRejectedValue({ type: 'IdentityNotFound' });
+
+    await render();
+    button('Add address').click();
+    await settle();
+    await setInput('#watchlist-target', 'Missing@');
+    button('Continue').click();
+    await settle();
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'That VerusID could not be found.'
+    );
   });
 
   it('keeps the last successful balances visible when a later refresh fails', async () => {
@@ -214,5 +253,62 @@ describe('watchlist workflows', () => {
     await settle();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.querySelector('[data-testid="watchlist-empty"]')).not.toBeNull();
+  });
+
+  it('uses removal copy when the persisted entry is no longer found', async () => {
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(refreshResult());
+    service.removeWatchlistEntry.mockRejectedValue({ type: 'WatchlistEntryNotFound' });
+
+    await render();
+    document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]')?.click();
+    await settle();
+    button('More actions').click();
+    await settle();
+    document.querySelector<HTMLElement>('[role="menuitem"]')?.click();
+    await settle();
+    button('Remove from watchlist', document.querySelector('[role="dialog"]')).click();
+    await settle();
+
+    const dialogText = document.querySelector('[role="dialog"]')?.textContent ?? '';
+    expect(dialogText).toContain('Could not remove this address right now.');
+    expect(dialogText).not.toContain('That VerusID could not be found.');
+    expect(document.body.textContent).toContain('Alice@');
+  });
+
+  it('remounts for a new wallet session and ignores the old hydration result', async () => {
+    let finishOldHydration!: (value: WatchlistEntry[]) => void;
+    service.getWatchlistEntries
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldHydration = resolve;
+          })
+      )
+      .mockResolvedValueOnce([otherEntry]);
+    service.refreshWatchlist.mockResolvedValue({
+      network: 'testnet',
+      entries: [otherSnapshot],
+      refreshedAt: 3,
+    });
+
+    const target = document.createElement('div');
+    document.body.append(target);
+    component = mount(WatchlistLifecycleHarness, { target });
+    await settle();
+    expect(service.getWatchlistEntries).toHaveBeenCalledTimes(1);
+
+    document.querySelector<HTMLButtonElement>('[data-testid="switch-wallet"]')?.click();
+    await settle();
+    expect(service.getWatchlistEntries).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain('Bob@');
+    expect(document.querySelector('[data-testid="wallet-key"]')?.textContent).toBe(
+      'wallet b::testnet::session-b'
+    );
+
+    finishOldHydration([entry]);
+    await settle();
+    expect(document.body.textContent).toContain('Bob@');
+    expect(document.body.textContent).not.toContain('Alice@');
   });
 });

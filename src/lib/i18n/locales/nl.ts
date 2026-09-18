@@ -1339,7 +1339,7 @@ export const nl: Record<string, string> = {
   'wallet.watchlist.addSheet.inputLabel': 'VerusID of R-adres',
   'wallet.watchlist.addSheet.inputPlaceholder': 'naam@ of R-adres',
   'wallet.watchlist.addSheet.network': 'Verus en PBaaS',
-  'wallet.watchlist.addSheet.info': 'Alleen openbare saldi en activiteit worden getoond.',
+  'wallet.watchlist.addSheet.info': 'Alleen openbare saldi en valuta worden getoond.',
   'wallet.watchlist.addSheet.resolving': 'Opzoeken…',
   'wallet.watchlist.addSheet.found': 'Gevonden',
   'wallet.watchlist.addSheet.networkLabel': 'Netwerk',
