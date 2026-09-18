@@ -38,9 +38,16 @@ function findButton(label: string): HTMLButtonElement | undefined {
   );
 }
 
+function findIdentifier(value: string): HTMLElement | undefined {
+  return [...document.body.querySelectorAll<HTMLElement>('.identifier-text')].find(
+    (identifier) => identifier.getAttribute('title') === value || identifier.textContent === value
+  );
+}
+
 function mountPrivate(
   onOpenRecovery = vi.fn(),
-  walletSessionKey = 'mounted-private-verus-session'
+  walletSessionKey = 'mounted-private-verus-session',
+  onBack = vi.fn()
 ) {
   const target = document.createElement('div');
   document.body.append(target);
@@ -49,11 +56,11 @@ function mountPrivate(
     props: {
       walletNetwork: 'testnet',
       walletSessionKey,
-      onBack: vi.fn(),
+      onBack,
       onOpenRecovery,
     },
   });
-  return { component, onOpenRecovery };
+  return { component, onBack, onOpenRecovery };
 }
 
 describe('mounted Private Verus settings', () => {
@@ -98,7 +105,8 @@ describe('mounted Private Verus settings', () => {
 
     expect(document.body.textContent).toContain('Private Verus is set up');
     expect(document.body.textContent).toContain('Testnet');
-    expect(document.body.querySelector('[title="zs1syntheticprivateaddress"]')).not.toBeNull();
+    const shieldedAddress = document.body.querySelector('[title="zs1syntheticprivateaddress"]');
+    expect(shieldedAddress?.textContent).toBe('zs1synthetic…ivateaddress');
     findButton('Recovery and keys')?.click();
     expect(onOpenRecovery).toHaveBeenCalledOnce();
 
@@ -184,7 +192,7 @@ describe('mounted Private Verus settings', () => {
     await settle();
 
     expect(walletService.getDlightSeedStatus).toHaveBeenCalledTimes(2);
-    expect(document.body.querySelector('[title="zs1freshinitialaddress"]')).not.toBeNull();
+    expect(findIdentifier('zs1freshinitialaddress')).toBeDefined();
     expect(document.body.textContent).toContain('Private Verus is ready to use.');
 
     await unmount(component);
@@ -210,7 +218,7 @@ describe('mounted Private Verus settings', () => {
     const { component } = mountPrivate();
     await settle();
 
-    expect(document.body.querySelector('[title="zs1oldreplacementaddress"]')).not.toBeNull();
+    expect(findIdentifier('zs1oldreplacementaddress')).toBeDefined();
     findButton('Advanced')?.click();
     await settle();
     findButton('Create new privacy recovery secret')?.click();
@@ -218,9 +226,34 @@ describe('mounted Private Verus settings', () => {
     resolveSetup?.({ configured: true, requiresRelogin: true });
     await settle();
 
-    expect(document.body.querySelector('[title="zs1oldreplacementaddress"]')).toBeNull();
-    expect(document.body.querySelector('[title="zs1newreplacementaddress"]')).not.toBeNull();
+    expect(findIdentifier('zs1oldreplacementaddress')).toBeUndefined();
+    expect(findIdentifier('zs1newreplacementaddress')).toBeDefined();
     expect(document.body.textContent).toContain('Lock and unlock your wallet');
+
+    await unmount(component);
+  });
+
+  it('returns from Advanced with the header back action without leaving Private Verus', async () => {
+    walletService.getDlightSeedStatus.mockResolvedValue({
+      configured: true,
+      shieldedAddress: 'zs1advancednavigationaddress',
+    });
+    const { component, onBack } = mountPrivate();
+    await settle();
+
+    findButton('Advanced')?.click();
+    await settle();
+    expect(document.body.textContent).toContain('Replace Private Verus setup?');
+    expect(findButton('Cancel')).toBeUndefined();
+
+    findButton('Settings')?.click();
+    await settle();
+    expect(document.body.textContent).toContain('Private Verus is set up');
+    expect(document.body.textContent).not.toContain('Replace Private Verus setup?');
+    expect(onBack).not.toHaveBeenCalled();
+
+    findButton('Settings')?.click();
+    expect(onBack).toHaveBeenCalledOnce();
 
     await unmount(component);
   });
@@ -336,7 +369,7 @@ describe('mounted Private Verus settings', () => {
     await settle();
     expect(document.body.textContent).not.toContain('synthetic phrase that must never replay');
     expect(document.body.textContent).not.toContain('Back up your Secret Recovery Phrase');
-    expect(document.body.querySelector('[title="zs1abandonedcreateaddress"]')).not.toBeNull();
+    expect(findIdentifier('zs1abandonedcreateaddress')).toBeDefined();
     expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
 
     await unmount(secondMount.component);
@@ -383,7 +416,7 @@ describe('mounted Private Verus settings', () => {
       'synthetic pending phrase that must not replay'
     );
     expect(document.body.textContent).not.toContain('Back up your Secret Recovery Phrase');
-    expect(document.body.querySelector('[title="zs1pendingcreateaddress"]')).not.toBeNull();
+    expect(findIdentifier('zs1pendingcreateaddress')).toBeDefined();
     expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
 
     await unmount(secondMount.component);
@@ -444,7 +477,7 @@ describe('mounted Private Verus settings', () => {
 
       resolveSetup?.({ configured: true, requiresRelogin: false });
       await settle();
-      expect(document.body.querySelector('[title="zs1settledafterdismissal"]')).not.toBeNull();
+      expect(findIdentifier('zs1settledafterdismissal')).toBeDefined();
       expect(walletService.setupDlightSeed).toHaveBeenCalledOnce();
 
       await unmount(secondMount.component);

@@ -533,7 +533,7 @@ export const en: Record<string, string> = {
   'wallet.settings.about.description': 'Version details and support links.',
   'wallet.settings.about.appName': 'App name',
   'wallet.settings.about.version': 'Version',
-  'wallet.settings.about.community': 'Open community hangout',
+  'wallet.settings.about.community': 'Join the community on Discord',
   'wallet.settings.about.communityDescription': 'Get help and connect with the Verus community.',
   'wallet.settings.about.productName': 'Verus Wallet',
   'wallet.settings.about.versionValue': 'Version {version}',

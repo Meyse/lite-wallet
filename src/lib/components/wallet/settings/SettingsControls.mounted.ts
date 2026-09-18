@@ -36,6 +36,11 @@ describe('mounted settings controls', () => {
     });
 
     const controls = target.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    expect(
+      [...controls].every((control) =>
+        control.querySelector('span[aria-hidden="true"]')?.classList.contains('size-[13px]')
+      )
+    ).toBe(true);
     controls[1]?.click();
     expect(onChange).toHaveBeenCalledWith('dark');
 

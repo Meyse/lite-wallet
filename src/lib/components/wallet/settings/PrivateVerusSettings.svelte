@@ -258,6 +258,15 @@
     clearBackup();
   }
 
+  function handleBack(): void {
+    if (showAdvanced) {
+      showAdvanced = false;
+      setupError = '';
+      return;
+    }
+    onBack();
+  }
+
   function preventBackupDismiss(event: Event): void {
     if (!backupAcknowledged) event.preventDefault();
   }
@@ -290,7 +299,7 @@
       <button
         type="button"
         class="inline-flex h-5 w-fit items-center gap-1 text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-        onclick={onBack}
+        onclick={handleBack}
       >
         <ChevronLeftIcon class="size-4" />
         {i18n.t('wallet.settings.backLabel')}
@@ -343,7 +352,7 @@
           <div class="mt-1 flex items-center gap-2">
             <IdentifierText
               value={shieldedAddress}
-              mode="compact"
+              mode="review"
               class="min-w-0 flex-1 font-mono text-xs leading-5"
             />
             <CopyButton
@@ -481,21 +490,6 @@
 
       {#if setupError}
         <p class="mt-3 text-[13px] leading-5 text-destructive" role="alert">{setupError}</p>
-      {/if}
-
-      {#if showAdvanced}
-        <Button
-          class="mt-4 w-fit"
-          size="sm"
-          variant="secondary"
-          disabled={submittingMode !== null}
-          onclick={() => {
-            showAdvanced = false;
-            setupError = '';
-          }}
-        >
-          {i18n.t('common.cancel')}
-        </Button>
       {/if}
     {/if}
   </section>

@@ -40,8 +40,9 @@ describe('mounted about and support settings', () => {
 
     expect(document.body.textContent).toContain('Verus Wallet');
     expect(document.body.textContent).toContain('Version 9.8.7');
+    expect(target.querySelector('img')?.getAttribute('src')).toBe('/images/verus-express-icon.png');
     const communityButton = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent?.includes('Open community hangout')
+      (button) => button.textContent?.includes('Join the community on Discord')
     );
     communityButton?.click();
     expect(externalLinks.openCommunityHangout).toHaveBeenCalledOnce();
@@ -83,7 +84,7 @@ describe('mounted about and support settings', () => {
     await settle();
 
     expect(document.body.textContent).toContain('Version unavailable');
-    expect(document.body.textContent).toContain('Open community hangout');
+    expect(document.body.textContent).toContain('Join the community on Discord');
 
     await unmount(component);
   });

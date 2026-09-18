@@ -68,6 +68,11 @@ describe('mounted recovery navigation', () => {
     });
     await settle();
 
+    const displayLanguage = findButton('Display and language');
+    expect(
+      displayLanguage?.querySelector('svg')?.classList.contains('text-settings-muted-foreground')
+    ).toBe(true);
+
     findButton('Profile and security')?.click();
     await settle();
     findButton('Recovery and keys')?.click();

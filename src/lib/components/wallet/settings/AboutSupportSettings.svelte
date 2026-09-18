@@ -57,9 +57,9 @@
     <div class="mt-5 flex h-[82px] shrink-0 items-center gap-4 rounded-lg bg-settings-surface px-4">
       <div class="flex size-10 shrink-0 items-center justify-center">
         <img
-          src="/images/coin-logos/btc/vrsc_dark.svg"
+          src="/images/verus-express-icon.png"
           alt=""
-          class="size-10 rounded-full"
+          class="size-10 rounded-[10px]"
           aria-hidden="true"
         />
       </div>

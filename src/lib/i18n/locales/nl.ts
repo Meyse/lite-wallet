@@ -538,7 +538,7 @@ export const nl: Record<string, string> = {
   'wallet.settings.about.description': 'Versiegegevens en supportlinks.',
   'wallet.settings.about.appName': 'Appnaam',
   'wallet.settings.about.version': 'Versie',
-  'wallet.settings.about.community': 'Open communitykanaal',
+  'wallet.settings.about.community': 'Word lid van de community op Discord',
   'wallet.settings.about.communityDescription':
     'Krijg hulp en maak contact met de Verus-community.',
   'wallet.settings.about.productName': 'Verus Wallet',

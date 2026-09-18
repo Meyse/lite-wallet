@@ -156,7 +156,7 @@
             }}
           >
             <span class="flex size-6 shrink-0 items-center justify-center">
-              <GlobeIcon class="size-[18px] text-primary" />
+              <GlobeIcon class="size-[18px] text-settings-muted-foreground" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm leading-5 font-medium">

@@ -81,7 +81,12 @@
                 onkeydown={(event) => handleKeydown(event, index)}
               >
                 {option.label}
-                {#if selected}<CheckIcon class="size-[13px] shrink-0" />{/if}
+                <span
+                  class="flex size-[13px] shrink-0 items-center justify-center"
+                  aria-hidden="true"
+                >
+                  {#if selected}<CheckIcon class="size-[13px]" />{/if}
+                </span>
               </button>
             {/snippet}
           </Tooltip.Trigger>
@@ -107,7 +112,9 @@
           onkeydown={(event) => handleKeydown(event, index)}
         >
           {option.label}
-          {#if selected}<CheckIcon class="size-[13px] shrink-0" />{/if}
+          <span class="flex size-[13px] shrink-0 items-center justify-center" aria-hidden="true">
+            {#if selected}<CheckIcon class="size-[13px]" />{/if}
+          </span>
         </button>
       {/if}
     {/each}
