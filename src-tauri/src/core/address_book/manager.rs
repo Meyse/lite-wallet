@@ -9,12 +9,12 @@ use zcash_protocol::constants::{mainnet, testnet};
 
 use crate::types::address_book::{
     AddressBookContact, AddressBookEndpoint, AddressBookSnapshot, AddressEndpointKind,
-    SaveAddressBookContactRequest,
+    ContactIdentity, SaveAddressBookContactRequest,
 };
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
 
-const ADDRESS_BOOK_SCHEMA_VERSION: u8 = 1;
+const ADDRESS_BOOK_SCHEMA_VERSION: u8 = 2;
 const MAX_CONTACTS: usize = 500;
 const MAX_ENDPOINTS_PER_CONTACT: usize = 20;
 const MAX_DISPLAY_NAME_LEN: usize = 64;
@@ -59,12 +59,21 @@ pub fn upsert_contact(
     request: SaveAddressBookContactRequest,
     network: WalletNetwork,
 ) -> Result<AddressBookContact, WalletError> {
-    if snapshot.contacts.len() >= MAX_CONTACTS && request.id.is_none() {
-        return Err(WalletError::AddressBookInvalidInput);
+    if request.add_identity_if_missing {
+        if request.id.is_some() || request.identities.as_ref().map(Vec::len) != Some(1) {
+            return Err(WalletError::AddressBookInvalidInput);
+        }
+        let identity = &request.identities.as_ref().unwrap()[0];
+        if let Some(existing) = snapshot.contacts.iter().find(|contact| {
+            contact
+                .identities
+                .iter()
+                .any(|saved| same_identity(saved, identity))
+        }) {
+            return Ok(existing.clone());
+        }
     }
-
-    let display_name = request.display_name.trim();
-    if display_name.is_empty() || display_name.len() > MAX_DISPLAY_NAME_LEN {
+    if snapshot.contacts.len() >= MAX_CONTACTS && request.id.is_none() {
         return Err(WalletError::AddressBookInvalidInput);
     }
 
@@ -94,6 +103,75 @@ pub fn upsert_contact(
     }
 
     let existing_contact = existing_index.map(|index| snapshot.contacts[index].clone());
+    let identities = request.identities.clone().unwrap_or_else(|| {
+        existing_contact
+            .as_ref()
+            .map(|contact| contact.identities.clone())
+            .unwrap_or_default()
+    });
+    if identities.len() > MAX_ENDPOINTS_PER_CONTACT {
+        return Err(WalletError::AddressBookInvalidInput);
+    }
+    let mut identity_keys = HashSet::new();
+    for identity in &identities {
+        crate::core::crypto::verus_id_signature::encode_compact_i_address(
+            &identity.identity_address,
+        )?;
+        crate::core::crypto::verus_id_signature::encode_compact_i_address(&identity.chain_id)?;
+        if identity.fully_qualified_name.trim().is_empty()
+            || identity.fully_qualified_name.len() > 256
+            || !identity.fully_qualified_name.ends_with('@')
+            || !identity_keys.insert(identity_key(identity))
+        {
+            return Err(WalletError::AddressBookInvalidInput);
+        }
+    }
+    let requested_profile = request.profile_identity.as_ref().or_else(|| {
+        existing_contact
+            .as_ref()
+            .and_then(|contact| contact.profile_identity.as_ref())
+    });
+    let profile_identity = if identities.len() == 1 {
+        Some(identities[0].clone())
+    } else if identities.is_empty() {
+        None
+    } else {
+        let selected = requested_profile.and_then(|selected| {
+            identities
+                .iter()
+                .find(|identity| same_identity(identity, selected))
+                .cloned()
+        });
+        // An ambiguous legacy record may remain unselected. Never pick by endpoint order.
+        if selected.is_none()
+            && existing_contact
+                .as_ref()
+                .is_some_and(|c| c.profile_identity.is_some())
+        {
+            return Err(WalletError::AddressBookInvalidInput);
+        }
+        selected
+    };
+    let display_name = profile_identity
+        .as_ref()
+        .map(|identity| identity.fully_qualified_name.as_str())
+        .unwrap_or(request.display_name.trim());
+    if display_name.is_empty()
+        || display_name.len()
+            > if profile_identity.is_some() {
+                256
+            } else {
+                MAX_DISPLAY_NAME_LEN
+            }
+    {
+        return Err(WalletError::AddressBookInvalidInput);
+    }
+    let legacy_display_name = existing_contact.as_ref().and_then(|contact| {
+        contact.legacy_display_name.clone().or_else(|| {
+            (!identities.is_empty() && contact.identities.is_empty())
+                .then(|| contact.display_name.clone())
+        })
+    });
     let existing_endpoint_map: HashMap<String, AddressBookEndpoint> = existing_contact
         .as_ref()
         .map(|contact| {
@@ -119,6 +197,8 @@ pub fn upsert_contact(
         }
     }
 
+    let mut contact_endpoint_keys = HashSet::new();
+    let mut contact_endpoint_ids = HashSet::new();
     let timestamp = now_unix();
     let mut endpoints = Vec::<AddressBookEndpoint>::with_capacity(request.endpoints.len());
     for input in request.endpoints {
@@ -127,14 +207,37 @@ pub fn upsert_contact(
             return Err(WalletError::AddressBookInvalidInput);
         }
 
-        let normalized_address =
-            normalize_destination_address(input.kind.clone(), &input.address, network)?;
+        let previous = input
+            .id
+            .as_ref()
+            .and_then(|id| existing_endpoint_map.get(id));
+        let unchanged = previous.filter(|endpoint| {
+            endpoint.kind == input.kind && endpoint.address == input.address.trim()
+        });
+        // Keep manually saved endpoints on other networks intact when editing a profile.
+        let normalized_address = match unchanged {
+            Some(endpoint) => endpoint.normalized_address.clone(),
+            None => normalize_destination_address(input.kind.clone(), &input.address, network)?,
+        };
         let unique_key = endpoint_unique_key(input.kind.clone(), &normalized_address);
-        if !unique_keys.insert(unique_key) {
+        if !contact_endpoint_keys.insert(unique_key.clone()) {
+            return Err(WalletError::AddressBookDuplicate);
+        }
+        if unique_keys.contains(&unique_key)
+            && unchanged.is_none()
+            && !identities.iter().any(|identity| {
+                identity.network == network
+                    && identity.identity_address == normalized_address
+                    && input.kind == AddressEndpointKind::Vrpc
+            })
+        {
             return Err(WalletError::AddressBookDuplicate);
         }
 
         let endpoint_id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        if !contact_endpoint_ids.insert(endpoint_id.clone()) {
+            return Err(WalletError::AddressBookDuplicate);
+        }
         let existing_endpoint = existing_endpoint_map.get(&endpoint_id);
         let created_at = existing_endpoint
             .map(|endpoint| endpoint.created_at)
@@ -169,6 +272,9 @@ pub fn upsert_contact(
         created_at,
         updated_at: timestamp,
         endpoints,
+        identities,
+        profile_identity,
+        legacy_display_name,
     };
 
     if let Some(index) = existing_index {
@@ -177,7 +283,19 @@ pub fn upsert_contact(
         snapshot.contacts.push(contact.clone());
     }
 
+    snapshot.schema_version = ADDRESS_BOOK_SCHEMA_VERSION;
     Ok(contact)
+}
+
+pub fn identity_key(identity: &ContactIdentity) -> String {
+    format!(
+        "{:?}:{}:{}",
+        identity.network, identity.chain_id, identity.identity_address
+    )
+}
+
+pub fn same_identity(a: &ContactIdentity, b: &ContactIdentity) -> bool {
+    a.network == b.network && a.chain_id == b.chain_id && a.identity_address == b.identity_address
 }
 
 pub fn delete_contact(snapshot: &mut AddressBookSnapshot, contact_id: &str) -> bool {
@@ -412,6 +530,135 @@ fn is_base58_char(ch: char) -> bool {
 mod tests {
     use super::*;
 
+    fn contact_identity(byte: u8) -> ContactIdentity {
+        let mut payload = vec![102];
+        payload.extend([byte; 20]);
+        ContactIdentity {
+            identity_address: bs58::encode(payload).with_check().into_string(),
+            fully_qualified_name: format!("person{}@", byte),
+            network: WalletNetwork::Mainnet,
+            chain_id: "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV".into(),
+        }
+    }
+    fn contact_request(identity: &ContactIdentity) -> SaveAddressBookContactRequest {
+        serde_json::from_value(serde_json::json!({ "displayName": "ignored alias", "identities": [identity], "profileIdentity": identity, "addIdentityIfMissing": true, "endpoints": [{ "kind": "vrpc", "address": identity.identity_address, "label": "VerusID" }] })).unwrap()
+    }
+
+    #[test]
+    fn legacy_contacts_keep_all_data_without_inferred_associations() {
+        let raw = serde_json::json!({ "schemaVersion": 1, "contacts": [{ "id": "legacy", "displayName": "Mom", "note": "Private note", "createdAt": 3, "updatedAt": 4, "endpoints": [{"id": "btc", "kind": "btc", "address": "bc1qggqzj0uzun238nhzzs5wdz2en05s0d9ncwhxcf", "normalizedAddress": "bc1qggqzj0uzun238nhzzs5wdz2en05s0d9ncwhxcf", "label": "Bitcoin", "lastUsedAt": 2, "createdAt": 1, "updatedAt": 2 }] }] });
+        let mut snapshot: AddressBookSnapshot = serde_json::from_value(raw).unwrap();
+        assert!(snapshot.contacts[0].identities.is_empty());
+        let identity = contact_identity(1);
+        let mut request = contact_request(&identity);
+        request.id = Some("legacy".into());
+        request.add_identity_if_missing = false;
+        request.note = snapshot.contacts[0].note.clone();
+        let endpoint = &snapshot.contacts[0].endpoints[0];
+        request
+            .endpoints
+            .push(crate::types::address_book::SaveAddressBookEndpointInput {
+                id: Some(endpoint.id.clone()),
+                kind: endpoint.kind.clone(),
+                address: endpoint.address.clone(),
+                label: endpoint.label.clone(),
+            });
+        let saved = upsert_contact(&mut snapshot, request, WalletNetwork::Mainnet).unwrap();
+        assert_eq!(saved.display_name, identity.fully_qualified_name);
+        assert_eq!(saved.legacy_display_name.as_deref(), Some("Mom"));
+        assert_eq!(saved.note.as_deref(), Some("Private note"));
+        assert_eq!(saved.created_at, 3);
+        assert_eq!(saved.endpoints[1].last_used_at, Some(2));
+        assert_eq!(saved.endpoints[1].created_at, 1);
+        assert_eq!(snapshot.schema_version, 2);
+    }
+
+    #[test]
+    fn canonical_add_is_idempotent_and_preserves_existing_duplicates() {
+        let identity = contact_identity(1);
+        let mut snapshot = empty_snapshot();
+        let saved = upsert_contact(
+            &mut snapshot,
+            contact_request(&identity),
+            WalletNetwork::Mainnet,
+        )
+        .unwrap();
+        snapshot.contacts[0].note = Some("Do not overwrite".into());
+        let mut duplicate = snapshot.contacts[0].clone();
+        duplicate.id = "duplicate".into();
+        snapshot.contacts.push(duplicate);
+        let again = upsert_contact(
+            &mut snapshot,
+            contact_request(&identity),
+            WalletNetwork::Mainnet,
+        )
+        .unwrap();
+        assert_eq!(again.id, saved.id);
+        assert_eq!(again.note.as_deref(), Some("Do not overwrite"));
+        assert_eq!(snapshot.contacts.len(), 2);
+        assert!(!same_identity(
+            &identity,
+            &ContactIdentity {
+                network: WalletNetwork::Testnet,
+                ..identity.clone()
+            }
+        ));
+    }
+
+    #[test]
+    fn multiple_identities_keep_selection_and_require_selection_after_removal() {
+        let a = contact_identity(1);
+        let b = contact_identity(2);
+        let c = contact_identity(3);
+        let mut snapshot = empty_snapshot();
+        let saved =
+            upsert_contact(&mut snapshot, contact_request(&a), WalletNetwork::Mainnet).unwrap();
+        let mut request = contact_request(&a);
+        request.id = Some(saved.id);
+        request.add_identity_if_missing = false;
+        request.identities = Some(vec![a.clone(), b.clone(), c.clone()]);
+        request.profile_identity = None;
+        let updated =
+            upsert_contact(&mut snapshot, request.clone(), WalletNetwork::Mainnet).unwrap();
+        assert_eq!(updated.profile_identity, Some(a));
+        request.identities = Some(vec![b.clone(), c]);
+        assert!(upsert_contact(&mut snapshot, request.clone(), WalletNetwork::Mainnet).is_err());
+        request.profile_identity = Some(b.clone());
+        assert_eq!(
+            upsert_contact(&mut snapshot, request, WalletNetwork::Mainnet)
+                .unwrap()
+                .display_name,
+            b.fully_qualified_name
+        );
+    }
+
+    #[test]
+    fn contact_edits_preserve_other_network_addresses_and_reject_duplicate_rows() {
+        let raw = serde_json::json!({ "schemaVersion": 1, "contacts": [{ "id": "mixed", "displayName": "Family", "note": "Keep this", "createdAt": 3, "updatedAt": 4, "endpoints": [{"id": "test-btc", "kind": "btc", "address": "tb1qoldstoredaddress", "normalizedAddress": "tb1qoldstoredaddress", "label": "Bitcoin testnet", "lastUsedAt": 2, "createdAt": 1, "updatedAt": 2 }] }] });
+        let mut snapshot: AddressBookSnapshot = serde_json::from_value(raw).unwrap();
+        let identity = contact_identity(1);
+        let mut request = contact_request(&identity);
+        request.id = Some("mixed".into());
+        request.add_identity_if_missing = false;
+        request.note = Some("Keep this".into());
+        request.endpoints = vec![crate::types::address_book::SaveAddressBookEndpointInput {
+            id: Some("test-btc".into()),
+            kind: AddressEndpointKind::Btc,
+            address: "tb1qoldstoredaddress".into(),
+            label: "Bitcoin testnet".into(),
+        }];
+        let saved = upsert_contact(&mut snapshot, request.clone(), WalletNetwork::Mainnet).unwrap();
+        assert_eq!(saved.endpoints[0].address, "tb1qoldstoredaddress");
+        assert_eq!(saved.endpoints[0].label, "Bitcoin testnet");
+        assert_eq!(saved.endpoints[0].last_used_at, Some(2));
+        assert_eq!(saved.endpoints[0].created_at, 1);
+        request.endpoints.push(request.endpoints[0].clone());
+        assert!(matches!(
+            upsert_contact(&mut snapshot, request, WalletNetwork::Mainnet),
+            Err(WalletError::AddressBookDuplicate)
+        ));
+    }
+
     #[test]
     fn normalize_eth_address_to_lowercase() {
         let normalized = normalize_destination_address(
@@ -427,6 +674,10 @@ mod tests {
     fn rejects_duplicate_endpoints_across_contacts() {
         let mut snapshot = empty_snapshot();
         let first = SaveAddressBookContactRequest {
+            identities: None,
+            profile_identity: None,
+            expected_session_id: None,
+            add_identity_if_missing: false,
             id: None,
             display_name: "Alice".to_string(),
             note: None,
@@ -440,6 +691,10 @@ mod tests {
         let _ = upsert_contact(&mut snapshot, first, WalletNetwork::Mainnet).expect("saved");
 
         let second = SaveAddressBookContactRequest {
+            identities: None,
+            profile_identity: None,
+            expected_session_id: None,
+            add_identity_if_missing: false,
             id: None,
             display_name: "Bob".to_string(),
             note: None,
@@ -535,6 +790,9 @@ mod tests {
             schema_version: 1,
             contacts: vec![
                 AddressBookContact {
+                    identities: vec![],
+                    profile_identity: None,
+                    legacy_display_name: None,
                     id: "legacy-contact".to_string(),
                     display_name: "Legacy".to_string(),
                     note: None,
@@ -552,6 +810,9 @@ mod tests {
                     }],
                 },
                 AddressBookContact {
+                    identities: vec![],
+                    profile_identity: None,
+                    legacy_display_name: None,
                     id: "current-contact".to_string(),
                     display_name: "Current".to_string(),
                     note: None,
@@ -588,6 +849,9 @@ mod tests {
         let mut snapshot = AddressBookSnapshot {
             schema_version: 1,
             contacts: vec![AddressBookContact {
+                identities: vec![],
+                profile_identity: None,
+                legacy_display_name: None,
                 id: "legacy-contact".to_string(),
                 display_name: "Legacy".to_string(),
                 note: None,

@@ -22,13 +22,16 @@
 
   let { seed, label, imageUrl = null, class: className = '' }: IdentityAvatarProps = $props();
 
+  let failedUrl = $state<string | null>(null);
+
   const gradient = $derived(pickIdentityAvatarGradient(seed));
   const initials = $derived(deriveInitials(label));
 </script>
 
-{#if imageUrl}
+{#if imageUrl && imageUrl !== failedUrl}
   <img
     src={imageUrl}
+    onerror={() => (failedUrl = imageUrl)}
     alt=""
     class={`size-9 shrink-0 rounded-full object-cover ${className}`}
     aria-hidden="true"

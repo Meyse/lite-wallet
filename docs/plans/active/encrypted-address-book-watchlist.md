@@ -12,6 +12,16 @@ last_reviewed: 2026-09-19
 - Authorization for this task: create the plan only; do not migrate wallet data
   or change runtime behavior yet
 
+## Contacts implementation overlap (2026-09-19)
+
+The Contacts/profile task implemented serialized, session-bound Contacts
+read/change/commit operations and immediate preview save feedback using the
+existing Stronghold snapshot. See
+[its evidence record](../../references/contacts-implementation.md). This does
+not complete the Watchlist migration, shared record-family abstraction,
+production benchmarks, or native validation proposed below. The research
+baseline in the following sections describes the earlier source.
+
 ## Goal
 
 Keep Address Book and Watchlist metadata encrypted behind wallet unlock, make

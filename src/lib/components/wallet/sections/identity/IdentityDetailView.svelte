@@ -1,4 +1,7 @@
 <script lang="ts">
+  import IdentityMention from '../../contacts/IdentityMention.svelte';
+  import { contactSession } from '$lib/contacts/session';
+  import { contactChainId } from '$lib/contacts/identity';
   import AlertTriangleIcon from '@lucide/svelte/icons/alert-triangle';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -436,17 +439,35 @@
                   <p class="text-xs text-muted-foreground">
                     {i18n.t('wallet.identity.detail.fields.revocationAuthority')}
                   </p>
-                  <p class="mt-1 break-words text-foreground">
-                    {showValue(revocationAuthorityName)}
-                  </p>
+                  <div class="mt-1 break-words text-foreground">
+                    {#if $contactSession && details.revocationAuthority && revocationAuthorityName}
+                      <IdentityMention
+                        identity={{
+                          identityAddress: details.revocationAuthority,
+                          fullyQualifiedName: revocationAuthorityName,
+                          network: $contactSession.network,
+                          chainId: contactChainId($contactSession.network),
+                        }}
+                      />
+                    {:else}{showValue(revocationAuthorityName)}{/if}
+                  </div>
                 </div>
                 <div class="rounded-lg bg-background/75 px-3 py-2.5 dark:bg-background/35">
                   <p class="text-xs text-muted-foreground">
                     {i18n.t('wallet.identity.detail.fields.recoveryAuthority')}
                   </p>
-                  <p class="mt-1 break-words text-foreground">
-                    {showValue(recoveryAuthorityName)}
-                  </p>
+                  <div class="mt-1 break-words text-foreground">
+                    {#if $contactSession && details.recoveryAuthority && recoveryAuthorityName}
+                      <IdentityMention
+                        identity={{
+                          identityAddress: details.recoveryAuthority,
+                          fullyQualifiedName: recoveryAuthorityName,
+                          network: $contactSession.network,
+                          chainId: contactChainId($contactSession.network),
+                        }}
+                      />
+                    {:else}{showValue(recoveryAuthorityName)}{/if}
+                  </div>
                 </div>
               </div>
 

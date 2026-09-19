@@ -5,9 +5,11 @@ last_reviewed: 2026-09-19
 
 # Contacts and VerusID profiles
 
-Status: product spec draft. Core scope and preview actions were selected with
-the user on 2026-09-19; detailed interaction defaults below are proposals for
-implementation. This document does not indicate implemented or tested behavior.
+Status: first local implementation complete on 2026-09-19. Core scope and
+preview actions were selected with the user. See the
+[implementation evidence and call-site inventory](../references/contacts-implementation.md)
+for delivered behavior, checks and native verification limits. Acceptance items
+below remain a release checklist; they do not imply live-wallet certification.
 
 ## Outcome
 
@@ -442,11 +444,12 @@ saved destinations. No compatibility claim for that format is made here.
       browser proof from native-wallet evidence; live signing/broadcast is not
       needed to prove a profile preview.
 
-## Evidence and remaining design validation
+## Design authority and implementation evidence
 
-This draft uses the current source and the user's selected scope. The approved
-desktop light/dark visual references were inspected for hierarchy and restraint;
-their colors, typography, and page layout are not imported into the wallet.
+This specification uses the current source and the user's selected scope. The
+approved desktop light/dark visual references were inspected for hierarchy and
+restraint; their colors, typography, and page layout are not imported into the
+wallet.
 
 The
 [Paper exploration](https://app.paper.design/file/01M2VS4T2ES6S4293RWAMZ76Q9/p-1-0)
@@ -459,7 +462,8 @@ addresses in the full contact profile; showing them in the hover remains an open
 optional decision. These are static design frames, not evidence of working
 hover, animation, persistence, or focus behavior.
 
-No wallet UI, migration, profile request, or transaction was executed for this
-spec. The proposed preview geometry, delays, and dialog/focus transitions
-require rendered validation during implementation. Public receiving-address
-schema research remains explicitly deferred.
+The initial specification was read-only. The later implementation uses the
+selected Paper geometry and shared wallet tokens; its
+[verification record](../references/contacts-implementation.md) distinguishes
+synthetic rendering, automated persistence checks and unverified native
+behavior. Public receiving-address schema research remains explicitly deferred.

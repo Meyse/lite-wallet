@@ -1,6 +1,7 @@
 import { goto } from '$app/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { writable } from 'svelte/store';
+import { setContactSession } from '$lib/contacts/session';
 
 export class ForcedWalletLockError extends Error {
   constructor() {
@@ -22,6 +23,7 @@ export async function forceWalletToUnlock(): Promise<void> {
     return forcedWalletUnlockPromise;
   }
 
+  setContactSession(null);
   walletUnlockRedirectingStore.set(true);
 
   forcedWalletUnlockPromise = (async () => {

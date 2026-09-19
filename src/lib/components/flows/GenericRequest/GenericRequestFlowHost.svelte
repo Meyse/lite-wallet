@@ -1,4 +1,8 @@
 <script lang="ts">
+  import IdentityMention from '$lib/components/wallet/contacts/IdentityMention.svelte';
+  import { contactSession } from '$lib/contacts/session';
+  import { contactChainId } from '$lib/contacts/identity';
+
   import { onDestroy } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
@@ -1182,6 +1186,20 @@
                     </h1>
                     {#if requesterIdentityLoading}
                       <Skeleton class="h-6 w-52 rounded-sm" />
+                    {:else if requesterIdentityDetails && $contactSession && session.signer.systemId === contactChainId($contactSession.network)}
+                      <div class="space-y-1">
+                        <p class="text-sm text-foreground/70">
+                          {i18n.t('genericRequest.auth.requestedByLabel')}
+                        </p>
+                        <IdentityMention
+                          identity={{
+                            identityAddress: requesterIdentityDetails.identityAddress,
+                            fullyQualifiedName: formatIdentityDisplayName(requesterIdentityDetails),
+                            network: $contactSession.network,
+                            chainId: contactChainId($contactSession.network),
+                          }}
+                        />
+                      </div>
                     {:else if session.signer.identityId && authRequesterLabel() === session.signer.identityId}
                       <div>
                         <p class="text-sm text-foreground/70">
@@ -1533,9 +1551,16 @@
                     {i18n.t('genericRequest.update.targetIdentity')}
                   </p>
                   {#if updateReviewSource.fullyQualifiedName}
-                    <p class="mt-2 text-sm font-semibold text-foreground">
-                      {updateReviewSource.fullyQualifiedName}
-                    </p>
+                        <div class="mt-2 text-sm font-semibold text-foreground">
+                          {#if $contactSession && reviewSystemId() === contactChainId($contactSession.network)}<IdentityMention
+                              identity={{
+                                identityAddress: updateReviewSource.targetIdentity,
+                                fullyQualifiedName: updateReviewSource.fullyQualifiedName,
+                                network: $contactSession.network,
+                                chainId: contactChainId($contactSession.network),
+                              }}
+                            />{:else}{updateReviewSource.fullyQualifiedName}{/if}
+                        </div>
                     <IdentifierText
                       value={updateReviewSource.targetIdentity}
                       mode="compact"

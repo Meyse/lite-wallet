@@ -18,7 +18,8 @@
   } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import * as coinsService from '$lib/services/coinsService.js';
-  import * as addressBookService from '$lib/services/addressBookService.js';
+  import { loadContacts } from '$lib/contacts/service';
+  import { setContactSession } from '$lib/contacts/session';
   import { setupWalletEventBridge } from '$lib/services/eventBridge.js';
   import { resetWalletDisplaySession } from '$lib/services/walletDisplayService.js';
   import { balanceStore } from '$lib/stores/balances.js';
@@ -38,7 +39,6 @@
     pushWalletBackgroundError,
     pushWalletError,
   } from '$lib/stores/walletErrors.js';
-  import { setAddressBookContacts } from '$lib/stores/addressBook.js';
   import { settingsStore } from '$lib/stores/settings.js';
   import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
   import { normalizeAutoLockMinutes } from '$lib/security/sessionTimeout.js';
@@ -187,6 +187,7 @@
             network: walletNetwork,
             sessionId: 'unavailable',
           };
+      setContactSession(active ? { sessionId: active.session_id, network: walletNetwork } : null);
       const cacheKey = activeAssetsCacheKey(walletData.name, walletNetwork);
 
       if (!addresses) {
@@ -216,19 +217,14 @@
         `[WALLET_PERF] dashboard phase=essential_metadata elapsed_ms=${Math.round(performance.now() - dashboardStartedAt)}`
       );
 
-      void addressBookService
-        .listAddressBookContacts()
-        .then((contacts) => {
-          if (scope.active) setAddressBookContacts(contacts);
-        })
-        .catch(async (error) => {
-          if (!scope.active) return;
-          if (isForcedWalletLockError(error)) {
-            await handleSessionExpired();
-            return;
-          }
-          console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
-        });
+      void loadContacts().catch(async (error) => {
+        if (!scope.active) return;
+        if (isForcedWalletLockError(error)) {
+          await handleSessionExpired();
+          return;
+        }
+        console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
+      });
 
       const teardownEventBridge = await eventBridgePromise;
       if (!scope.active || !teardownEventBridge) return;
@@ -285,7 +281,7 @@
     transactionStore.set({});
     clearCoinScopes();
     resetWalletChannels();
-    setAddressBookContacts([]);
+    setContactSession(null);
   });
 </script>
 

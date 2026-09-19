@@ -955,6 +955,8 @@ pub async fn get_identity_details(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_identity_profile(
     identity_address: String,
+    expected_session_id: Option<String>,
+    chain_id: Option<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
@@ -963,16 +965,36 @@ pub async fn get_identity_profile(
         normalize_non_empty(&identity_address).ok_or(WalletError::InvalidAddress)?;
     let context =
         identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    if expected_session_id
+        .as_deref()
+        .is_some_and(|id| id != context.session_id)
+    {
+        return Err(WalletError::WalletLocked);
+    }
+    if chain_id
+        .as_deref()
+        .is_some_and(|id| id != super::address_book::contact_chain_id(context.network))
+    {
+        return Err(WalletError::InvalidAddress);
+    }
     let signature_network = match context.network {
         WalletNetwork::Mainnet => Network::Mainnet,
         WalletNetwork::Testnet => Network::Testnet,
     };
-    vrpc_identity::profile::load(
+    let profile = vrpc_identity::profile::load(
         vrpc_provider_pool.for_network(context.network),
         &requested_identity_address,
         signature_network,
     )
-    .await
+    .await?;
+    if !session_manager
+        .lock()
+        .await
+        .is_current_session(&context.session_id)
+    {
+        return Err(WalletError::WalletLocked);
+    }
+    Ok(profile)
 }
 
 /// Return account- and network-scoped public pending profile records.

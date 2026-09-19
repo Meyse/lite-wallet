@@ -123,6 +123,8 @@
   --settings-scrollbar-thumb: #c4c4ca;
   --settings-menu-shadow: rgba(0, 0, 0, 0.125);
   --settings-sheet-shadow: rgba(0, 0, 0, 0.07);
+  --contact-saved: #e5f5ec;
+  --contact-saved-foreground: #167347;
   --guard-revoke: #d4313e;
   --guard-recover: #4aa658;
   --brand-discord: #5865f2;
@@ -131,6 +133,8 @@
 }
 
 .dark {
+  --contact-saved: #173a2a;
+  --contact-saved-foreground: #78dda9;
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.006 285.885);
@@ -234,6 +238,8 @@
   --color-sidebar-item-hover: var(--sidebar-item-hover);
   --color-sidebar-item-pressed: var(--sidebar-item-pressed);
   --color-sidebar-item-active: var(--sidebar-item-active);
+  --color-contact-saved: var(--contact-saved);
+  --color-contact-saved-foreground: var(--contact-saved-foreground);
   --color-settings-surface: var(--settings-surface);
   --color-settings-control-surface: var(--settings-control-surface);
   --color-settings-segment-surface: var(--settings-segment-surface);

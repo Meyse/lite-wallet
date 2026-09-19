@@ -90,9 +90,9 @@ const pendingRemoval: PendingIdentityProfileUpdate = {
 function pendingSessionState(profile: IdentityProfileLoadResult) {
   return {
     ...initialSessionState(),
-    profilesByAddress: { [favoriteIdentity.identityAddress.toLowerCase()]: profile },
+    profilesByAddress: { [favoriteIdentity.identityAddress]: profile },
     pendingProfilesByAddress: {
-      [favoriteIdentity.identityAddress.toLowerCase()]: pendingRemoval,
+      [favoriteIdentity.identityAddress]: pendingRemoval,
     },
   };
 }
@@ -431,12 +431,9 @@ describe('mounted profile confirmation reconciliation', () => {
     });
     try {
       await settle();
-      const retained =
-        latestState.profilesByAddress[favoriteIdentity.identityAddress.toLowerCase()];
+      const retained = latestState.profilesByAddress[favoriteIdentity.identityAddress];
       expect(retained.description?.value).toBe('Previous');
-      expect(latestState.pendingProfilesByAddress).toHaveProperty(
-        favoriteIdentity.identityAddress.toLowerCase()
-      );
+      expect(latestState.pendingProfilesByAddress).toHaveProperty(favoriteIdentity.identityAddress);
       expect(mocks.toastSuccess).not.toHaveBeenCalled();
     } finally {
       await unmount(component);

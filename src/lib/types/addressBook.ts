@@ -1,3 +1,13 @@
+import type { WalletNetwork } from './wallet';
+
+export type ContactIdentity = {
+  identityAddress: string;
+  fullyQualifiedName: string;
+  network: WalletNetwork;
+  chainId: string;
+};
+export type ResolvedContactIdentity = ContactIdentity & { status?: string | null };
+
 export type AddressEndpointKind = 'vrpc' | 'btc' | 'eth' | 'zs';
 
 export type AddressBookEndpoint = {
@@ -18,6 +28,9 @@ export type AddressBookContact = {
   createdAt: number;
   updatedAt: number;
   endpoints: AddressBookEndpoint[];
+  identities?: ContactIdentity[];
+  profileIdentity?: ContactIdentity | null;
+  legacyDisplayName?: string | null;
 };
 
 export type SaveAddressBookEndpointInput = {
@@ -32,6 +45,10 @@ export type SaveAddressBookContactRequest = {
   displayName: string;
   note?: string | null;
   endpoints: SaveAddressBookEndpointInput[];
+  identities?: ContactIdentity[];
+  profileIdentity?: ContactIdentity | null;
+  expectedSessionId?: string;
+  addIdentityIfMissing?: boolean;
 };
 
 export type ValidateDestinationAddressRequest = {

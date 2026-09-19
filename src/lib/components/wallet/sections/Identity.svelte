@@ -4,7 +4,7 @@
 -->
 
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import StarIcon from '@lucide/svelte/icons/star';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -61,6 +61,14 @@
   } = $props();
 
   const i18n = $derived($i18nStore);
+  import { identityProfiles } from '$lib/contacts/profiles';
+  import { contactSession, isContactSessionCurrent } from '$lib/contacts/session';
+  import { contactChainId, identityKey } from '$lib/contacts/identity';
+
+  let alive = true;
+  onDestroy(() => {
+    alive = false;
+  });
   const initialSessionState = untrack(() => sessionState);
   const announcedProfileConfirmations = new Set<string>();
 
@@ -83,7 +91,7 @@
   let details = $state<IdentityDetails | null>(null);
   let unlinking = $state(false);
   let favoriteBusyIdentityAddress = $state<string | null>(null);
-  let profilesByAddress = $state<Record<string, IdentityProfileLoadResult>>({
+  let profilesByAddress = $state.raw<Record<string, IdentityProfileLoadResult>>({
     ...initialSessionState.profilesByAddress,
   });
   let profileLoadingByAddress = $state<Record<string, boolean>>({});
@@ -100,25 +108,18 @@
   const selectedLinkedIdentity = $derived(
     selectedIdentityAddress
       ? (linkedIdentities.find(
-          (identity) =>
-            identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
+          (identity) => identity.identityAddress === selectedIdentityAddress
         ) ?? null)
       : null
   );
   const selectedProfile = $derived(
-    selectedIdentityAddress
-      ? (profilesByAddress[selectedIdentityAddress.toLowerCase()] ?? null)
-      : null
+    selectedIdentityAddress ? (profilesByAddress[selectedIdentityAddress] ?? null) : null
   );
   const selectedProfileLoading = $derived(
-    selectedIdentityAddress
-      ? Boolean(profileLoadingByAddress[selectedIdentityAddress.toLowerCase()])
-      : false
+    selectedIdentityAddress ? Boolean(profileLoadingByAddress[selectedIdentityAddress]) : false
   );
   const selectedPendingProfile = $derived(
-    selectedIdentityAddress
-      ? (pendingProfilesByAddress[selectedIdentityAddress.toLowerCase()] ?? null)
-      : null
+    selectedIdentityAddress ? (pendingProfilesByAddress[selectedIdentityAddress] ?? null) : null
   );
 
   function normalizeLinkedIdentities(records: LinkedIdentity[]): LinkedIdentity[] {
@@ -249,7 +250,7 @@
       const activeRecords: Array<[string, PendingIdentityProfileUpdate]> = [];
       const confirmedRecords: PendingIdentityProfileUpdate[] = [];
       for (const record of records) {
-        const key = record.identityAddress.toLowerCase();
+        const key = record.identityAddress;
         const profile = profilesByAddress[key];
         if (profile && pendingProfileMatches(record, profile)) {
           showProfileConfirmation(record);
@@ -322,7 +323,7 @@
   }
 
   function profileConfirmationKey(pending: PendingIdentityProfileUpdate): string {
-    return `${pending.identityAddress.toLowerCase()}:${pending.txid.toLowerCase()}`;
+    return `${pending.identityAddress}:${pending.txid.toLowerCase()}`;
   }
 
   function showProfileConfirmation(pending: PendingIdentityProfileUpdate): void {
@@ -338,15 +339,50 @@
     );
   }
 
+  $effect(() => {
+    const session = $contactSession;
+    if (!session) return;
+    const shared = $identityProfiles;
+    for (const identity of linkedIdentities) {
+      const entry =
+        shared[
+          identityKey({
+            identityAddress: identity.identityAddress,
+            fullyQualifiedName: '',
+            network: session.network,
+            chainId: contactChainId(session.network),
+          })
+        ];
+      const pending = pendingProfilesByAddress[identity.identityAddress];
+      if (
+        entry?.profile &&
+        !entry.loading &&
+        (!pending ||
+          pendingProfileMatches(pending, entry.profile) ||
+          profileMatchesSnapshot(pending.previousProfile, entry.profile)) &&
+        profilesByAddress[identity.identityAddress] !== entry.profile
+      ) {
+        profilesByAddress = { ...profilesByAddress, [identity.identityAddress]: entry.profile };
+      }
+    }
+  });
+
   async function loadIdentityProfile(
     identityAddress: string,
     preserveOnFailure = false
   ): Promise<void> {
-    const key = identityAddress.toLowerCase();
+    const key = identityAddress;
+    const session = $contactSession;
+    const current = () => alive && (!session || isContactSessionCurrent(session));
     if (profileLoadingByAddress[key]) return;
     profileLoadingByAddress = { ...profileLoadingByAddress, [key]: true };
     try {
-      const profile = await identityLinkService.getIdentityProfile(identityAddress);
+      const profile = await identityLinkService.getIdentityProfile(
+        identityAddress,
+        preserveOnFailure,
+        identityAddress === selectedIdentityAddress
+      );
+      if (!current()) return;
       const pending = pendingProfilesByAddress[key];
       if (pending && pendingProfileMatches(pending, profile)) {
         profilesByAddress = { ...profilesByAddress, [key]: profile };
@@ -367,6 +403,7 @@
         profilesByAddress = { ...profilesByAddress, [key]: profile };
       }
     } catch {
+      if (!current()) return;
       if ((preserveOnFailure || pendingProfilesByAddress[key]) && profilesByAddress[key]) return;
       profilesByAddress = {
         ...profilesByAddress,
@@ -380,8 +417,10 @@
         },
       };
     } finally {
-      const { [key]: _finished, ...remaining } = profileLoadingByAddress;
-      profileLoadingByAddress = remaining;
+      if (current()) {
+        const { [key]: _finished, ...remaining } = profileLoadingByAddress;
+        profileLoadingByAddress = remaining;
+      }
     }
   }
 
@@ -389,9 +428,11 @@
     identities: LinkedIdentity[],
     refreshExisting = false
   ): Promise<void> {
-    const candidates = refreshExisting
-      ? identities
-      : identities.filter((identity) => !profilesByAddress[identity.identityAddress.toLowerCase()]);
+    const candidates = identities.filter(
+      (identity) =>
+        identity.identityAddress === selectedIdentityAddress ||
+        (refreshExisting && profilesByAddress[identity.identityAddress])
+    );
     for (let index = 0; index < candidates.length; index += 4) {
       await Promise.all(
         candidates
@@ -408,8 +449,7 @@
     if (!selectedIdentityAddress) return;
 
     const stillExists = linkedIdentities.some(
-      (identity) =>
-        identity.identityAddress.toLowerCase() === selectedIdentityAddress?.toLowerCase()
+      (identity) => identity.identityAddress === selectedIdentityAddress
     );
 
     if (!stillExists) {
@@ -420,7 +460,7 @@
   }
 
   function isFavoriteToggleBusy(identity: LinkedIdentity): boolean {
-    return favoriteBusyIdentityAddress?.toLowerCase() === identity.identityAddress.toLowerCase();
+    return favoriteBusyIdentityAddress === identity.identityAddress;
   }
 
   async function toggleFavorite(identity: LinkedIdentity) {
@@ -462,7 +502,7 @@
 
   function handleProfileSubmitted(update: PendingIdentityProfileUpdate): void {
     if (!selectedIdentityAddress) return;
-    const key = selectedIdentityAddress.toLowerCase();
+    const key = selectedIdentityAddress;
     pendingProfilesByAddress = {
       ...pendingProfilesByAddress,
       [key]: update,
@@ -861,11 +901,11 @@
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
-                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                            onProfileVisible={() =>
+                              void loadIdentityProfile(identity.identityAddress)}
+                            profile={profilesByAddress[identity.identityAddress] ?? null}
+                            pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                               null}
-                            pendingProfile={pendingProfilesByAddress[
-                              identity.identityAddress.toLowerCase()
-                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -874,11 +914,11 @@
                         {:else}
                           <LinkedIdentityCard
                             {identity}
-                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                            onProfileVisible={() =>
+                              void loadIdentityProfile(identity.identityAddress)}
+                            profile={profilesByAddress[identity.identityAddress] ?? null}
+                            pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                               null}
-                            pendingProfile={pendingProfilesByAddress[
-                              identity.identityAddress.toLowerCase()
-                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -909,11 +949,11 @@
                         {#if compactMode}
                           <LinkedIdentityRow
                             {identity}
-                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                            onProfileVisible={() =>
+                              void loadIdentityProfile(identity.identityAddress)}
+                            profile={profilesByAddress[identity.identityAddress] ?? null}
+                            pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                               null}
-                            pendingProfile={pendingProfilesByAddress[
-                              identity.identityAddress.toLowerCase()
-                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}
@@ -922,11 +962,11 @@
                         {:else}
                           <LinkedIdentityCard
                             {identity}
-                            profile={profilesByAddress[identity.identityAddress.toLowerCase()] ??
+                            onProfileVisible={() =>
+                              void loadIdentityProfile(identity.identityAddress)}
+                            profile={profilesByAddress[identity.identityAddress] ?? null}
+                            pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                               null}
-                            pendingProfile={pendingProfilesByAddress[
-                              identity.identityAddress.toLowerCase()
-                            ] ?? null}
                             favoriteBusy={isFavoriteToggleBusy(identity)}
                             favoriteDisabled={favoriteToggleDisabled}
                             onSelect={(selected) => openIdentityDetails(selected.identityAddress)}

@@ -98,6 +98,7 @@ const APP_COMMANDS: &[&str] = &[
     "lookup_guard_target_identity",
     "preflight_guard_identity_update",
     "send_guard_identity_update",
+    "resolve_contact_identity",
     "list_address_book_contacts",
     "save_address_book_contact",
     "delete_address_book_contact",

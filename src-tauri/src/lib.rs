@@ -309,6 +309,7 @@ pub fn run() {
             guard::preflight_guard_identity_update,
             guard::send_guard_identity_update,
             // Address book commands
+            address_book::resolve_contact_identity,
             address_book::list_address_book_contacts,
             address_book::save_address_book_contact,
             address_book::delete_address_book_contact,

@@ -19,8 +19,11 @@ External references and source repos used for parity or implementation checks.
   [`./eth-erc20-runtime-config.md`](./eth-erc20-runtime-config.md)
 - GitHub Actions CI/release runbook:
   [`./release-pipeline.md`](./release-pipeline.md)
+- Contacts implementation and verification:
+  [Contacts](./contacts-implementation.md)
 - Wallet storage policy: [`./storage-policy.md`](./storage-policy.md)
-- Disposable testnet wallet automation: [`./test-wallet-keychain.md`](./test-wallet-keychain.md)
+- Disposable testnet wallet automation:
+  [`./test-wallet-keychain.md`](./test-wallet-keychain.md)
 
 ## Notes
 

@@ -146,11 +146,18 @@
     transferAmountExceedsBalance,
   } from './transfer-wizard/transferDisplay';
 
+  import IdentityMention from '../contacts/IdentityMention.svelte';
+  import ResolvedIdentityMention from '../contacts/ResolvedIdentityMention.svelte';
+  import ContactAvatar from '../contacts/ContactAvatar.svelte';
+  import { contactName, contactProfile } from '$lib/contacts/identity';
+  import type { ContactIdentity } from '$lib/types/addressBook';
+
   type EntryIntent = 'send' | 'convert';
 
   type AddressBookEndpointOption = {
     contactId: string;
     contactName: string;
+    contactIdentity: ContactIdentity | null;
     endpointId: string;
     endpointKind: AddressEndpointKind;
     endpointLabel: string;
@@ -856,7 +863,8 @@
           )
           .map((endpoint) => ({
             contactId: contact.id,
-            contactName: contact.displayName,
+            contactName: contactName(contact),
+            contactIdentity: contactProfile(contact),
             endpointId: endpoint.id,
             endpointKind: endpoint.kind,
             endpointLabel: endpoint.label,
@@ -908,6 +916,17 @@
       sharesSuspiciousPrefixSuffix(addressBookContacts, destinationAddressKind, destinationAddress)
   );
   const activePreflight = $derived(simplePreflightResult ?? bridgePreflightResult);
+  // Presentation only: a handle can resolve to an already saved canonical endpoint.
+  // Keep the existing recipient acknowledgment and preflight rules unchanged.
+  const reviewedSavedEndpoint = $derived(
+    activePreflight
+      ? findMatchingSavedEndpoint(
+          addressBookContacts,
+          destinationAddressKind,
+          activePreflight.toAddress
+        )
+      : null
+  );
   const submittedTransferRoute = $derived(
     submittedTransferSnapshot ? classifySubmittedTransferRoute(submittedTransferSnapshot) : null
   );
@@ -1216,7 +1235,9 @@
       hasDistinctBridgeFee: reviewHasDistinctBridgeFee,
     })
   );
-  const reviewRecipientName = $derived(matchedSavedRecipient?.contact.displayName?.trim() ?? '');
+  const reviewRecipientName = $derived(
+    matchedSavedRecipient ? contactName(matchedSavedRecipient.contact) : ''
+  );
   const stepNumber = $derived(
     currentStep === 'success'
       ? OPERATIONAL_STEPS.length
@@ -1445,7 +1466,9 @@
 
       const recipientAddress = destinationAddress.trim();
       if (recipientAddress) {
-        const recipientName = matchedSavedRecipient?.contact.displayName?.trim() ?? '';
+        const recipientName = matchedSavedRecipient
+          ? contactName(matchedSavedRecipient.contact)
+          : '';
         const recipientPrimary = recipientName || recipientAddress;
         const recipientSecondary = normalizeSummarySecondary(recipientPrimary, recipientAddress);
         rows.push({
@@ -1517,6 +1540,11 @@
         ),
       };
     })()
+  );
+  const recipientProfileChain = $derived(
+    destinationAddressKind === 'vrpc' || destinationAddressKind === 'dlight'
+      ? activeExportSystemId || selectedSourceSystemId
+      : ''
   );
   const preflightWalletContext = $derived({ walletKey, walletNetwork });
   const preflightInputSignature = $derived(
@@ -3261,7 +3289,9 @@
       sendResult = result;
       submittedTransferSnapshot = finalizeSubmittedTransferSnapshot(receiptSnapshot, result);
       if (matchedSavedRecipient) {
-        void addressBookService.markAddressBookEndpointUsed(matchedSavedRecipient.endpoint.id);
+        void addressBookService
+          .markAddressBookEndpointUsed(matchedSavedRecipient.endpoint.id)
+          .catch(() => {});
       }
       await refreshTxHistory();
       currentStep = 'success';
@@ -3327,7 +3357,9 @@
           reviewedSubmission.context.toAddress
         );
         if (savedRecipient) {
-          void addressBookService.markAddressBookEndpointUsed(savedRecipient.endpoint.id);
+          void addressBookService
+            .markAddressBookEndpointUsed(savedRecipient.endpoint.id)
+            .catch(() => {});
         }
         void refreshTxHistory(
           reviewedSubmission.context.channelId,
@@ -4009,6 +4041,14 @@
                       {i18n.t('wallet.transfer.recipient.paste')}
                     </button>
                   </div>
+                  {#if recipientValid && destinationAddress.trim()}
+                    <div class="empty:hidden" data-recipient-identity>
+                      <ResolvedIdentityMention
+                        value={destinationAddress}
+                        chainId={recipientProfileChain}
+                      />
+                    </div>
+                  {/if}
                   {#if destinationAddress.trim() && !recipientValid}
                     <p class="text-xs text-destructive">
                       {i18n.t('wallet.transfer.recipientInvalid')}
@@ -4163,7 +4203,16 @@
                       {i18n.t('wallet.transfer.summary.to')} · {reviewDestinationNetworkValue ||
                         sourceNetworkDisplayName}
                     </p>
-                    {#if reviewRecipientName}
+                    {#if activePreflight}
+                      <div data-review-recipient-identity>
+                        {#key activePreflight.preflightId}<ResolvedIdentityMention
+                            value={activePreflight.toAddress}
+                            chainId={recipientProfileChain}
+                            delay={0}
+                          />{/key}
+                      </div>
+                    {/if}
+                    {#if reviewRecipientName && !activePreflight?.toAddress.startsWith('i')}
                       <p class="truncate text-sm font-semibold">{reviewRecipientName}</p>
                     {/if}
                     {#if destinationAddress.trim()}
@@ -4186,7 +4235,7 @@
                         {i18n.t('wallet.transfer.summary.notSet')}
                       </p>
                     {/if}
-                    {#if !matchedSavedRecipient && !isSelfRecipient}
+                    {#if !matchedSavedRecipient && !reviewedSavedEndpoint && !isSelfRecipient}
                       <p class="text-xs text-amber-700 dark:text-amber-300">
                         {i18n.t('wallet.transfer.review.unsavedRecipient')}
                       </p>
@@ -4496,6 +4545,14 @@
                     <p class="text-sm text-muted-foreground">
                       {i18n.t('wallet.transfer.receipt.to')} · {submittedTransferSnapshot.destinationNetworkLabel}
                     </p>
+                    <div data-receipt-recipient-identity>
+                      <ResolvedIdentityMention
+                        value={submittedTransferSnapshot.destinationAddress}
+                        chainId={submittedTransferSnapshot.exportSystemId ||
+                          submittedTransferSnapshot.sourceSystemId}
+                        delay={0}
+                      />
+                    </div>
                     <IdentifierText
                       value={submittedTransferSnapshot.destinationAddress}
                       mode="review"
@@ -4703,36 +4760,53 @@
         <ScrollArea.Viewport class="h-full pr-1">
           <div class="space-y-2 pb-1">
             {#each addressBookEndpointOptions as option}
-              <button
-                type="button"
-                class="flex w-full items-start justify-between rounded-lg bg-muted/65 px-3.5 py-3 text-left transition-colors
+              <div class="flex items-center rounded-lg bg-muted/65 pr-2 dark:bg-muted/55">
+                <button
+                  type="button"
+                  class="flex min-w-0 flex-1 items-start justify-between rounded-lg px-3.5 py-3 text-left transition-colors
                   hover:bg-muted/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60
                   dark:bg-muted/55 dark:hover:bg-muted/65"
-                onclick={() => selectAddressBookRecipient(option)}
-              >
-                <div class="min-w-0">
-                  <p class="truncate text-[15px] leading-tight font-medium">{option.contactName}</p>
-                  <p
-                    class="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground"
-                  >
-                    <span
-                      class="inline-flex shrink-0 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
+                  onclick={() => selectAddressBookRecipient(option)}
+                >
+                  <ContactAvatar
+                    identity={option.contactIdentity}
+                    name={option.contactName}
+                    class="mr-3 size-8 text-xs"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p
+                      class="truncate text-[15px] leading-tight font-medium {option.contactIdentity
+                        ? 'text-primary dark:text-settings-focus-ring'
+                        : ''}"
                     >
-                      {endpointBadgeLabel(option.endpointKind)}
-                    </span>
-                    <IdentifierText
-                      value={option.endpointAddress}
-                      mode="compact"
-                      class="min-w-0 truncate"
-                    />
-                  </p>
-                </div>
-                {#if option.lastUsedAt}
-                  <p class="mt-0.5 ml-3 text-xs text-muted-foreground">
-                    {i18n.t('wallet.transfer.addressBook.recent')}
-                  </p>
-                {/if}
-              </button>
+                      {option.contactName}
+                    </p>
+                    <p
+                      class="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground"
+                    >
+                      <span
+                        class="inline-flex shrink-0 rounded-full bg-background/60 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase dark:bg-background/45"
+                      >
+                        {endpointBadgeLabel(option.endpointKind)}
+                      </span>
+                      <IdentifierText
+                        value={option.endpointAddress}
+                        mode="compact"
+                        class="min-w-0 truncate"
+                      />
+                    </p>
+                  </div>
+                  {#if option.lastUsedAt}
+                    <p class="mt-0.5 ml-3 text-xs text-muted-foreground">
+                      {i18n.t('wallet.transfer.addressBook.recent')}
+                    </p>
+                  {/if}
+                </button>
+                {#if option.contactIdentity}<IdentityMention
+                    identity={option.contactIdentity}
+                    iconOnly
+                  />{/if}
+              </div>
             {/each}
           </div>
         </ScrollArea.Viewport>

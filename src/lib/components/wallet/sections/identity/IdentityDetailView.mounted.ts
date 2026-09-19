@@ -6,6 +6,8 @@ import type {
   PendingIdentityProfileUpdate,
 } from '$lib/types/wallet';
 
+vi.mock('$lib/services/invokeWalletCommand', () => ({ invokeSessionBoundWalletCommand: vi.fn() }));
+
 vi.mock('$lib/services/identityLinkService.js', () => ({
   preflightIdentityProfileUpdate: vi.fn(),
 }));

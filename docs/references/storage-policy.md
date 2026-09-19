@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-09
+last_reviewed: 2026-09-19
 ---
 
 # Wallet storage policy
@@ -37,13 +37,18 @@ Policy:
 
 Metadata that is not spend-authorizing but should stay hidden behind unlock.
 
-- Address book.
+- Contacts, including private notes, manual addresses and optional VerusID
+  associations.
 - Linked identities.
 
 Policy:
 
 - Keep in Stronghold snapshots.
 - Keep data volume small and low-churn.
+- Contacts retains its existing snapshot path and encrypted record, with
+  serialized, session-bound mutations. See
+  [Contacts implementation](./contacts-implementation.md) for schema
+  compatibility and verification limits.
 
 Private Sapling notes, recipients, nullifiers, witnesses, transaction history,
 and pending sends also belong to this class. Their frequent writes use an

@@ -158,6 +158,7 @@ describe('address book contact workflows', () => {
         ]),
       })
     );
+    expect(service.validateDestinationAddress).not.toHaveBeenCalled();
     expect(button('Cancel').disabled).toBe(true);
     expect(button('Saving').disabled).toBe(true);
     expect(button('Saving').getAttribute('aria-busy')).toBe('true');
@@ -179,6 +180,7 @@ describe('address book contact workflows', () => {
     button('Remove address').click();
     await settle();
     expect(button('Remove address').disabled).toBe(true);
+    await input('#endpoint-address-0', contact.endpoints[1].address + 'q');
     service.validateDestinationAddress.mockResolvedValue({ valid: false });
     button('Save').click();
     await settle();
@@ -190,7 +192,7 @@ describe('address book contact workflows', () => {
     await settle();
     expect(document.body.textContent).toContain('Synthetic save failure');
     expect(document.querySelector<HTMLInputElement>('#endpoint-address-0')?.value).toBe(
-      contact.endpoints[1].address
+      contact.endpoints[1].address + 'q'
     );
     expect(get(addressBookStore)[0].endpoints).toHaveLength(2);
   });
@@ -236,6 +238,8 @@ describe('address book contact workflows', () => {
     button('Add contact').click();
     await settle();
     expect(document.querySelector('header h2')).toBeNull();
+    button('Receiving address').click();
+    await settle();
     button('Save').click();
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');
@@ -256,4 +260,34 @@ describe('address book contact workflows', () => {
     );
     expect(document.body.textContent).toContain('A note');
   });
+});
+
+it('requires an explicit remaining profile, hides aliases, and requests a local name after removing all IDs', async () => {
+  const identity = {
+    identityAddress: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV',
+    chainId: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV',
+    network: 'mainnet' as const,
+    fullyQualifiedName: 'alex@',
+  };
+  const second = { ...identity, identityAddress: 'iSecondIdentity', fullyQualifiedName: 'bob@' };
+  const third = { ...identity, identityAddress: 'iThirdIdentity', fullyQualifiedName: 'carol@' };
+  await render([{ ...contact, identities: [identity, second, third], profileIdentity: identity }]);
+  button('Edit').click();
+  await settle();
+  expect(document.querySelector('#address-book-name')).toBeNull();
+  button('Remove alex@ from contact').click();
+  await settle();
+  button('Save').click();
+  await settle();
+  expect(service.saveAddressBookContact).not.toHaveBeenCalled();
+  expect(document.querySelector('#address-book-name')).toBeNull();
+  button('Remove bob@ from contact').click();
+  await settle();
+  button('Remove carol@ from contact').click();
+  await settle();
+  expect(document.querySelector<HTMLInputElement>('#address-book-name')?.value).toBe('');
+  button('Save').click();
+  await settle();
+  expect(service.saveAddressBookContact).not.toHaveBeenCalled();
+  expect(document.activeElement?.id).toBe('address-book-name');
 });

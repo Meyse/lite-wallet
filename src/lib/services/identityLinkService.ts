@@ -1,3 +1,7 @@
+import { get } from 'svelte/store';
+import { contactSession } from '$lib/contacts/session';
+import { contactChainId } from '$lib/contacts/identity';
+import { loadIdentityProfile } from '$lib/contacts/profiles';
 /**
  * Thin invoke wrappers for identity discovery/link/detail commands.
  */
@@ -57,8 +61,22 @@ export async function getIdentityDetails(identityAddress: string): Promise<Ident
 }
 
 export async function getIdentityProfile(
-  identityAddress: string
+  identityAddress: string,
+  refresh = false,
+  priority = false
 ): Promise<IdentityProfileLoadResult> {
+  const session = get(contactSession);
+  if (session)
+    return loadIdentityProfile(
+      {
+        identityAddress,
+        fullyQualifiedName: identityAddress,
+        network: session.network,
+        chainId: contactChainId(session.network),
+      },
+      refresh,
+      priority
+    );
   return invokeWalletCommand<IdentityProfileLoadResult>('get_identity_profile', {
     identity_address: identityAddress,
   });

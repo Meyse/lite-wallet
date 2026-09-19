@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import StarIcon from '@lucide/svelte/icons/star';
@@ -22,6 +23,7 @@
     pendingProfile?: PendingIdentityProfileUpdate | null;
     favoriteBusy?: boolean;
     favoriteDisabled?: boolean;
+    onProfileVisible?: () => void;
     onSelect?: typeof noop;
     onToggleFavorite?: typeof noop;
   };
@@ -32,6 +34,7 @@
     pendingProfile = null,
     favoriteBusy = false,
     favoriteDisabled = false,
+    onProfileVisible = () => {},
     onSelect = noop,
     onToggleFavorite = noop,
   }: LinkedIdentityRowProps = $props();
@@ -62,9 +65,25 @@
         ? i18n.t('wallet.identity.favorite.remove')
         : i18n.t('wallet.identity.favorite.add')
   );
+  let rowElement: HTMLDivElement;
+  onMount(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      onProfileVisible();
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        onProfileVisible();
+        observer.disconnect();
+      }
+    });
+    observer.observe(rowElement);
+    return () => observer.disconnect();
+  });
 </script>
 
 <div
+  bind:this={rowElement}
   class="flex w-full items-center gap-2 rounded-lg bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/45 dark:hover:bg-muted/35"
 >
   <button
