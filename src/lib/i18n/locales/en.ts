@@ -1255,7 +1255,7 @@ export const en: Record<string, string> = {
   'wallet.addressBook.description': 'Save trusted recipients in encrypted storage.',
   'wallet.addressBook.addContact': 'Add contact',
   'wallet.addressBook.searchPlaceholder': 'Search contacts',
-  'wallet.addressBook.empty': 'No contacts yet.',
+  'wallet.addressBook.empty': 'No contacts yet',
   'wallet.addressBook.endpointsCount': 'endpoints',
   'wallet.addressBook.editContact': 'Edit contact',
   'wallet.addressBook.deleteContact': 'Delete contact',

@@ -12,7 +12,6 @@
   import Link2Icon from '@lucide/svelte/icons/link-2';
   import { toast } from 'svelte-sonner';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -649,7 +648,13 @@
     />
   {/if}
 {:else}
-  <div class="mx-auto flex h-full w-full max-w-5xl flex-col p-6" aria-busy={loading}>
+  <div class="mx-auto flex h-full w-full max-w-5xl flex-col px-8 pb-8" aria-busy={loading}>
+    <header class="flex h-[58px] shrink-0 items-center">
+      <h2 class="text-2xl leading-8 font-semibold tracking-tight">
+        {i18n.t('wallet.sidebar.identities')}
+      </h2>
+    </header>
+
     {#if loading}
       <p class="sr-only" role="status">{i18n.t('wallet.identity.loading')}</p>
     {/if}
@@ -814,19 +819,18 @@
       {/if}
 
       {#if linkedIdentities.length === 0}
-        <div class="-mt-6 flex h-full flex-col items-center justify-center px-6 py-12 text-center">
-          <div
-            class="inline-flex size-14 items-center justify-center rounded-full bg-background/70 text-primary dark:bg-background/40"
-          >
-            <VerusIdAtIcon class="size-6" inverted />
-          </div>
-          <h2 class="mt-4 text-xl font-semibold text-foreground">
+        <div
+          class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
+          data-testid="identity-empty"
+        >
+          <h3 class="text-lg font-semibold tracking-tight">
             {i18n.t('wallet.identity.empty.title')}
-          </h2>
-          <p class="mt-2 max-w-lg text-sm text-muted-foreground">
+          </h3>
+          <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
             {i18n.t('wallet.identity.empty.description')}
           </p>
-          <Button class="mt-5" onclick={() => (linkSheetOpen = true)}>
+          <Button size="sm" class="mt-5" onclick={() => (linkSheetOpen = true)}>
+            <PlusIcon class="size-3.5" aria-hidden="true" />
             {i18n.t('wallet.identity.empty.cta')}
           </Button>
         </div>

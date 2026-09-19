@@ -1283,7 +1283,7 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.description': 'Sla vertrouwde ontvangers versleuteld op.',
   'wallet.addressBook.addContact': 'Contact toevoegen',
   'wallet.addressBook.searchPlaceholder': 'Zoek contacten',
-  'wallet.addressBook.empty': 'Nog geen contacten.',
+  'wallet.addressBook.empty': 'Nog geen contacten',
   'wallet.addressBook.endpointsCount': 'adressen',
   'wallet.addressBook.editContact': 'Contact bewerken',
   'wallet.addressBook.deleteContact': 'Contact verwijderen',

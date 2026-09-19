@@ -146,6 +146,43 @@ beforeEach(() => {
   mocks.toastSuccess.mockReset();
 });
 
+describe('mounted identity empty state', () => {
+  it.each(['light', 'dark'] as const)(
+    'matches the shared empty-state hierarchy in %s mode',
+    async (theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      mocks.getLinkedIdentities.mockResolvedValue([]);
+      const target = document.createElement('div');
+      document.body.append(target);
+      const component = mount(Identity, {
+        target,
+        props: {
+          sessionState: {
+            ...createIdentitySectionSessionState(),
+            hasLoadedLinkedIdentitiesOnce: true,
+            hasLoadedProvisioningOnce: true,
+          },
+        },
+      });
+
+      try {
+        await settle();
+        const emptyState = target.querySelector('[data-testid="identity-empty"]');
+        expect(emptyState).not.toBeNull();
+        if (!emptyState) throw new Error('Missing identity empty state');
+        expect(target.querySelector('header h2')?.textContent?.trim()).toBe('VerusID');
+        expect(target.querySelectorAll('header button')).toHaveLength(0);
+        expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('No linked VerusIDs yet');
+        expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
+        expect(emptyState.querySelector('button svg')).not.toBeNull();
+      } finally {
+        await unmount(component);
+        target.remove();
+      }
+    }
+  );
+});
+
 describe('mounted identity favorite toggle', () => {
   it.each(['light', 'dark'] as const)(
     'shows a single-flight saving state and applies persisted success in %s mode',

@@ -223,7 +223,7 @@ describe('address book contact workflows', () => {
     const emptyState = document.querySelector('[data-testid="address-book-empty"]');
     expect(emptyState).not.toBeNull();
     if (!emptyState) throw new Error('Missing address book empty state');
-    expect(emptyState.querySelector('h3')?.textContent).toContain('No contacts yet.');
+    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('No contacts yet');
     expect(emptyState.textContent).toContain('Save trusted recipients in encrypted storage.');
     expect(document.querySelectorAll('header button')).toHaveLength(0);
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
