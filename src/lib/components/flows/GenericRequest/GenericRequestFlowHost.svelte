@@ -1644,7 +1644,7 @@
                     </div>
                     <button
                       type="button"
-                      class="inline-flex items-center gap-1 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      class="inline-flex items-center gap-1 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-text-action transition-colors hover:text-text-action hover:underline"
                       onclick={() => (authorityInfoExpanded = !authorityInfoExpanded)}
                     >
                       <CircleHelpIcon class="size-3.5" />
