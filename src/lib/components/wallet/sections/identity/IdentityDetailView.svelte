@@ -219,7 +219,7 @@
                 </p>
                 <button
                   type="button"
-                  class="mt-2 text-xs font-semibold underline-offset-4 hover:underline"
+                  class="mt-2 rounded-sm text-xs font-semibold text-text-action underline-offset-4 hover:text-text-action hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
                   onclick={() => (showSubmittedChanges = !showSubmittedChanges)}
                 >
                   {showSubmittedChanges

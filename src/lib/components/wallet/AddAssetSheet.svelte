@@ -1177,7 +1177,7 @@
         {#if discoveryError || discoveryStale || hasPartialDiscoveryCoverage}
           <button
             type="button"
-            class="shrink-0 font-medium text-primary"
+            class="shrink-0 font-medium text-text-action hover:text-text-action hover:underline"
             onclick={retryIncompleteDiscovery}
           >
             {i18n.t('common.retry')}
@@ -1297,7 +1297,7 @@
                         <div class="flex w-[82px] shrink-0 justify-end gap-2">
                           <button
                             type="button"
-                            class="text-xs font-medium text-primary disabled:opacity-50"
+                            class="text-xs font-medium text-text-action hover:text-text-action hover:underline disabled:opacity-50"
                             data-manage-assets-return-focus={row.key}
                             disabled={savingPreference}
                             onclick={() => openManual(row)}
@@ -1328,7 +1328,7 @@
                           <span class="text-destructive">{rowErrors[row.key]}</span>
                           <button
                             type="button"
-                            class="font-medium text-primary"
+                            class="font-medium text-text-action hover:text-text-action hover:underline"
                             disabled={savingPreference}
                             onclick={() =>
                               setPortfolioVisibility(
@@ -1358,7 +1358,7 @@
                 {#if !hasQuery && tab !== 'browse'}
                   <button
                     type="button"
-                    class="mt-2 text-xs font-medium text-primary"
+                    class="mt-2 text-xs font-medium text-text-action hover:text-text-action hover:underline"
                     onclick={() => (tab = 'browse')}
                   >
                     {i18n.t('wallet.manageAssets.searchAll')}
@@ -1460,7 +1460,7 @@
           {#each manualCandidates as candidate (candidate.currencyId)}
             <button
               type="button"
-              class="block max-w-full truncate text-left text-sm text-primary"
+              class="block max-w-full truncate text-left text-sm text-text-action hover:text-text-action hover:underline"
               onclick={() => resolveManualAsset(candidate.currencyId)}
             >
               {candidate.displayName} · {candidate.currencyId}
@@ -1715,7 +1715,7 @@
             <span class="text-destructive">{rowErrors[row.key]}</span>
             <button
               type="button"
-              class="font-medium text-primary"
+              class="font-medium text-text-action hover:text-text-action hover:underline"
               disabled={savingPreference}
               onclick={() => setPortfolioVisibility(row, retryDesired[row.key] ?? !row.inPortfolio)}
             >

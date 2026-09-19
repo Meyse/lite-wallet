@@ -642,7 +642,7 @@
                               >{identity.fullyQualifiedName}</span
                             >
                             {#if formIdentities.length > 1}<Button
-                                variant="ghost"
+                                variant="link"
                                 size="sm"
                                 aria-pressed={selectedProfileKey === identityKey(identity)}
                                 onclick={() => (selectedProfileKey = identityKey(identity))}
@@ -741,7 +741,7 @@
 
                   <div class="mt-3 flex flex-col items-start">
                     <InlineTextActionButton
-                      class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 disabled:text-settings-muted-foreground disabled:opacity-35 dark:text-settings-focus-ring dark:disabled:text-settings-muted-foreground"
+                      class="min-h-9 gap-1.5 text-[13px] disabled:text-settings-muted-foreground disabled:opacity-35 dark:disabled:text-settings-muted-foreground"
                       onclick={addEndpointDraft}
                       disabled={hasEmptyEndpoint || saving || deleting}
                     >
@@ -750,7 +750,7 @@
                     </InlineTextActionButton>
                     {#if !showNote}
                       <InlineTextActionButton
-                        class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 dark:text-settings-focus-ring"
+                        class="min-h-9 gap-1.5 text-[13px]"
                         onclick={revealNote}
                         disabled={saving || deleting}
                       >
@@ -792,7 +792,8 @@
             <div>
               {#if formMode === 'edit'}
                 <InlineTextActionButton
-                  class="min-h-8 text-[13px] text-destructive hover:text-destructive/80"
+                  tone="destructive"
+                  class="min-h-8 text-[13px]"
                   disabled={saving || deleting}
                   onclick={() => {
                     deleteError = '';
