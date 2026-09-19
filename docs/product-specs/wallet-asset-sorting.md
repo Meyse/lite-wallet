@@ -29,6 +29,12 @@ overflow threshold. Use **Currency amount**, never “Token amount”.
   | Name: A–Z                    | Localized display name, ascending                                |
   | Currency amount: high to low | Numeric currency units held, descending; not monetary worth      |
 
+- Name, value, and currency amount sorts have a reverse-order button beside the
+  current-sort menu. Name toggles A–Z / Z–A; value and amount toggle high-to-low
+  / low-to-high. Labels reflect the current direction. A newly selected sort
+  starts in its default direction. Verus first remains the fixed network order.
+  This subsequent user decision extends the Paper toolbar without changing its
+  other controls or geometry.
 - Explicit value, name, or amount sorting applies to the entire list, without
   pinning Verus above the selected order. Break ties by name, then a stable row
   identifier. Compare numeric data, never formatted strings; put unavailable
@@ -44,10 +50,11 @@ overflow threshold. Use **Currency amount**, never “Token amount”.
 - The balance banner and its loading/partial state always use the full enabled
   wallet, before filtering. Search and filtering never change the wallet total,
   currency enablement, row destinations, or the existing hide-holdings behavior.
-- Persist sort and balance-filter preferences per wallet and network using the
-  existing preference infrastructure. Keep search transient and clear it when
-  leaving the overview or switching wallets. Validate stored sort values and
-  fall back to Verus first. Do not store holdings or queries with preferences.
+- Persist sort, direction, and balance-filter preferences per wallet and network
+  using the existing preference infrastructure. Keep search transient and clear
+  it when leaving the overview or switching wallets. Validate stored sort values
+  and fall back to Verus first. Do not store holdings or queries with
+  preferences.
 
 ## Paper fidelity
 
@@ -86,10 +93,10 @@ metadata; do not introduce extra balance requests or change transaction logic.
 Keep the change scoped to the overview controls, ordering/filtering helpers,
 preferences, translations, and meaningful regression coverage.
 
-Verify default and explicit sorts, stable ties, missing rates/balances, filter
-composition, unchanged totals, and preference isolation. Exercise menu, search,
-clear actions, and keyboard use. Compare all six states with Paper in light and
-dark at 920 × 620, plus a larger window and Dutch copy. Run focused tests,
-Svelte check, UI lint, formatting, and the relevant build checks. Report actual
-rendered evidence separately from tests; browser fixtures are not native wallet
-proof.
+Verify default and explicit sorts in both directions, stable ties, missing
+rates/balances, filter composition, unchanged totals, and preference isolation.
+Exercise menu, search, clear actions, and keyboard use. Compare all six states
+with Paper in light and dark at 920 × 620, plus a larger window and Dutch copy.
+Run focused tests, Svelte check, UI lint, formatting, and the relevant build
+checks. Report actual rendered evidence separately from tests; browser fixtures
+are not native wallet proof.

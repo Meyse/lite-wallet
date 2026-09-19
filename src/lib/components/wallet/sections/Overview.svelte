@@ -28,9 +28,12 @@
   import { settingsStore } from '$lib/stores/settings.js';
   import { i18nStore } from '$lib/i18n';
   import {
+    aggregateOverviewBalances,
     buildWalletOverviewViewModel,
+    filterWalletOverviewRows,
     formatCryptoAmount,
     OVERVIEW_UNAVAILABLE_DISPLAY,
+    overviewNetworkMetadata,
     sortWalletOverviewRows,
     type WalletOverviewRowViewModel,
   } from '$lib/utils/walletOverview.js';
@@ -39,6 +42,12 @@
     formatFiatAmountParts,
     getRateForCurrency,
   } from '$lib/utils/fiatDisplay.js';
+  import OverviewAssetTools from './OverviewAssetTools.svelte';
+  import {
+    readWalletOverviewPreferences,
+    type WalletOverviewPreferences,
+    writeWalletOverviewPreferences,
+  } from '$lib/stores/walletOverviewPreferences.js';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import PrivateVerusWordmark from '$lib/components/wallet/PrivateVerusWordmark.svelte';
   import AddAssetSheet from '$lib/components/wallet/AddAssetSheet.svelte';
@@ -90,6 +99,20 @@
   let canScrollDown = $state(false);
   let hasSeenScrollHint = $state(false);
   let hideHoldings = $state(false);
+  let searchQuery = $state('');
+  let assetTools = $state<OverviewAssetTools | null>(null);
+  let preferences = $derived(readWalletOverviewPreferences(walletData.name, walletNetwork));
+
+  function updatePreferences(value: WalletOverviewPreferences): void {
+    writeWalletOverviewPreferences(walletData.name, walletNetwork, value);
+    preferences = value;
+  }
+
+  $effect(() => {
+    walletData.name;
+    walletNetwork;
+    searchQuery = '';
+  });
   let privateConfigured = $state(false);
   let privateScopes = $state<CoinScope[]>([]);
   let dlightStatusRequestSequence = 0;
@@ -210,6 +233,15 @@
       ...row,
       walletEntryKind: 'coin',
       scopeFilterMode: 'transparent',
+      isConfirmedZero:
+        row.isConfirmedZero &&
+        !isBootstrapping &&
+        !isChannelSyncing(row.coinId) &&
+        // VRPC scope discovery must finish before a primary-address zero can be hidden.
+        (row.proto !== 'vrsc' || row.coinId in transparentScopeChannelIdsByCoinId) &&
+        !(
+          transparentScopeChannelIdsByCoinId[row.coinId] ?? [walletChannels.byCoinId[row.coinId]]
+        ).some((channelId) => isChannelSyncing(channelId)),
     }))
   );
   const privateRow = $derived<WalletEntryRow | null>(
@@ -217,16 +249,13 @@
       const baseCoin = privateBaseCoin;
       if (!privateConfigured || !baseCoin) return null;
 
-      let totalAmount = 0;
-      let hasSnapshot = false;
-      for (const scope of privateScopes) {
-        const snapshot = balances[scope.channelId]?.[baseCoin.id];
-        if (!snapshot) continue;
-        const amount = toFiniteNumber(snapshot.total);
-        if (amount === null) continue;
-        totalAmount += amount;
-        hasSnapshot = true;
-      }
+      const {
+        amountValue: totalAmount,
+        hasSnapshot,
+        isConfirmedZero,
+      } = aggregateOverviewBalances(
+        privateScopes.map((scope) => balances[scope.channelId]?.[baseCoin.id])
+      );
 
       const hasBalance = hasSnapshot && totalAmount > 0;
       const rateMetrics = resolveRateMetrics(baseCoin, rates);
@@ -273,7 +302,15 @@
         change24hDirection: getChangeDirection(change24hPct),
         unitRateDisplay:
           fiatRate === null ? null : formatFiatAmount(fiatRate, i18n.intlLocale, displayCurrency),
-        fiatSortValue: hasBalance && fiatValue !== null ? fiatValue : Number.NEGATIVE_INFINITY,
+        fiatSortValue: fiatValue ?? Number.NEGATIVE_INFINITY,
+        amountSortValue: hasSnapshot ? totalAmount : null,
+        isConfirmedZero:
+          isConfirmedZero &&
+          !isBootstrapping &&
+          !syncLabel &&
+          !privateScopes.some((scope) => isChannelSyncing(scope.channelId)),
+        ...overviewNetworkMetadata(baseCoin),
+        defaultSortGroup: 1,
         walletEntryKind: 'private_verus',
         baseCoinId: baseCoin.id,
         scopeFilterMode: 'shielded',
@@ -281,17 +318,19 @@
       };
     })()
   );
-  const rankedRows = $derived<WalletEntryRow[]>(
-    (() => {
-      const rows = [...baseRows];
-      if (privateRow) rows.push(privateRow);
-      return sortWalletOverviewRows(rows);
-    })()
+  // The full enabled wallet is the balance authority. View controls only transform visibleRows.
+  const allRows = $derived<WalletEntryRow[]>(privateRow ? [...baseRows, privateRow] : baseRows);
+  const visibleRows = $derived(
+    sortWalletOverviewRows(
+      filterWalletOverviewRows(allRows, searchQuery, preferences.withBalance),
+      preferences.sort,
+      i18n.intlLocale,
+      preferences.reversed
+    )
   );
-  const visibleRows = $derived(rankedRows);
   const heroSummary = $derived(
     (() => {
-      const rows = visibleRows;
+      const rows = allRows;
       const hasHoldings = rows.some((row) => row.hasBalance);
       const hasAnyFiatForHoldings = rows.some(
         (row) => row.hasBalance && row.fiatSortValue !== Number.NEGATIVE_INFINITY
@@ -330,15 +369,21 @@
       };
     })()
   );
-  const heroValueIsLoading = $derived(
-    isBootstrapping && visibleRows.some((row) => !row.hasSnapshot)
-  );
+  const heroValueIsLoading = $derived(isBootstrapping && allRows.some((row) => !row.hasSnapshot));
   const heroTotalIsPartial = $derived(
     heroSummary.value !== OVERVIEW_UNAVAILABLE_DISPLAY &&
       (heroSummary.hasPartialRates || heroSummary.hasPartialBalances)
   );
   const rowIconSize = 34;
   const partialTotalTooltipId = 'wallet-overview-partial-total-description';
+
+  function isChannelSyncing(channelId: string): boolean {
+    const info = chainInfo[channelId];
+    return (
+      info?.syncing === true ||
+      (info?.percent !== undefined && info.percent >= 0 && info.percent < 100)
+    );
+  }
 
   function isBalanceValueLoading(row: WalletEntryRow): boolean {
     return isBootstrapping && !row.hasSnapshot;
@@ -537,14 +582,14 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-3 pb-6 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pb-6 sm:px-8">
   <section
     class="min-h-0 flex-1 flex-col overflow-hidden"
     class:flex={!showAddAssetSheet}
     class:hidden={showAddAssetSheet}
   >
     <div
-      class={`z-10 shrink-0 bg-background pb-4 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
+      class={`z-10 shrink-0 bg-background pb-3 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
       <div
         class="balance-banner flex min-h-[92px] items-center justify-between gap-4 rounded-md py-4 pr-3.5 pl-[22px]"
@@ -652,6 +697,7 @@
             size="lg"
             class="h-10 w-full gap-1.5 rounded-md px-3"
             onclick={() => {
+              searchQuery = '';
               showAddAssetSheet = true;
             }}
           >
@@ -660,6 +706,12 @@
           </Button>
         </div>
       </div>
+      <OverviewAssetTools
+        bind:this={assetTools}
+        bind:query={searchQuery}
+        {preferences}
+        onPreferencesChange={updatePreferences}
+      />
     </div>
 
     <div class="relative min-h-0 flex-1">
@@ -670,11 +722,34 @@
           onscroll={onOverviewScroll}
         >
           {#if visibleRows.length === 0}
-            <p class="px-1 py-8 text-sm text-muted-foreground">
-              {i18n.t('wallet.overview.noChannel')}
-            </p>
+            {#if searchQuery.trim() || preferences.withBalance}
+              <div class="flex h-60 flex-col items-center justify-center gap-3">
+                <p class="text-base leading-6 font-medium" role="status">
+                  {i18n.t('wallet.overview.noAssetsFound')}
+                </p>
+                <Button
+                  variant="secondary"
+                  class="h-8 rounded-md px-3 text-[13px] font-normal"
+                  onclick={() => {
+                    if (searchQuery.trim()) assetTools?.clearSearch();
+                    else {
+                      updatePreferences({ ...preferences, withBalance: false });
+                      assetTools?.focusSearch();
+                    }
+                  }}
+                >
+                  {searchQuery.trim()
+                    ? i18n.t('wallet.overview.clearSearch')
+                    : i18n.t('wallet.overview.clearBalanceFilter')}
+                </Button>
+              </div>
+            {:else}
+              <p class="px-1 py-8 text-sm text-muted-foreground">
+                {i18n.t('wallet.overview.noChannel')}
+              </p>
+            {/if}
           {:else}
-            <ul class="space-y-1 pb-3">
+            <ul class="space-y-1">
               {#each visibleRows as row (row.key)}
                 <li>
                   <button

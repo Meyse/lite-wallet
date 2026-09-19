@@ -1,9 +1,14 @@
 import type { WalletChannelsState } from '$lib/stores/walletChannels.js';
 import type { CoinRatesSnapshot } from '$lib/stores/rates.js';
 import type { BalanceResult, CoinDefinition, WalletNetwork } from '$lib/types/wallet.js';
-import { resolveCoinPresentation } from '$lib/coins/presentation.js';
+import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
 import { parseVrpcChannelId } from '$lib/utils/channelId.js';
-import { formatFiatAmount, formatFiatAmountParts, getRateForCurrency, normalizeDisplayCurrency } from '$lib/utils/fiatDisplay.js';
+import {
+  formatFiatAmount,
+  formatFiatAmountParts,
+  getRateForCurrency,
+  normalizeDisplayCurrency,
+} from '$lib/utils/fiatDisplay.js';
 
 export const OVERVIEW_UNAVAILABLE_DISPLAY = '—';
 
@@ -22,6 +27,20 @@ export interface WalletOverviewRowViewModel {
   change24hDirection: 'up' | 'down' | 'flat' | 'none';
   unitRateDisplay: string | null;
   fiatSortValue: number;
+  amountSortValue: number | null;
+  isConfirmedZero: boolean;
+  networkName: string;
+  networkKey: string;
+  defaultSortGroup: number;
+}
+
+export const WALLET_OVERVIEW_SORTS = ['verus-first', 'value', 'name', 'amount'] as const;
+export type WalletOverviewSort = (typeof WALLET_OVERVIEW_SORTS)[number];
+
+export function normalizeWalletOverviewSort(value: unknown): WalletOverviewSort {
+  return WALLET_OVERVIEW_SORTS.includes(value as WalletOverviewSort)
+    ? (value as WalletOverviewSort)
+    : 'verus-first';
 }
 
 export interface WalletOverviewViewModel {
@@ -57,7 +76,7 @@ export function formatCryptoAmount(
 ): string {
   return `${new Intl.NumberFormat(intlLocale, {
     minimumFractionDigits,
-    maximumFractionDigits
+    maximumFractionDigits,
   }).format(value)} ${ticker}`;
 }
 
@@ -76,7 +95,9 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-function getChangeDirection(changePct: number | null): WalletOverviewRowViewModel['change24hDirection'] {
+function getChangeDirection(
+  changePct: number | null
+): WalletOverviewRowViewModel['change24hDirection'] {
   if (changePct === null) return 'none';
   if (Math.abs(changePct) < 0.01) return 'flat';
   if (changePct > 0) return 'up';
@@ -87,69 +108,91 @@ function equalsIgnoreCase(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
+/** A zero is filterable only when every expected scope has settled at zero. */
+export function aggregateOverviewBalances(snapshots: (BalanceResult | undefined)[]): {
+  hasSnapshot: boolean;
+  amountValue: number;
+  isConfirmedZero: boolean;
+} {
+  let hasSnapshot = false;
+  let amountValue = 0;
+  let isConfirmedZero = snapshots.length > 0;
+  for (const snapshot of snapshots) {
+    const amount = toFiniteNumber(snapshot?.total);
+    if (amount !== null) {
+      hasSnapshot = true;
+      amountValue += amount;
+    }
+    isConfirmedZero &&=
+      amount === 0 &&
+      toFiniteNumber(snapshot?.confirmed) === 0 &&
+      toFiniteNumber(snapshot?.pending) === 0;
+  }
+  return { hasSnapshot, amountValue, isConfirmedZero };
+}
+
 function resolveCoinBalanceSnapshot(
   coin: CoinDefinition,
   walletChannels: WalletChannelsState,
   balances: Record<string, Record<string, BalanceResult>>,
   scopeChannelIdsByCoinId?: Record<string, string[]>
-): { hasSnapshot: boolean; amountValue: number } {
+): ReturnType<typeof aggregateOverviewBalances> {
   if (coin.compatibleChannels.includes('vrpc')) {
     const scopedChannelIds = scopeChannelIdsByCoinId?.[coin.id] ?? [];
     if (scopedChannelIds.length > 0) {
-      let hasSnapshot = false;
-      let amountValue = 0;
-
-      for (const channelId of scopedChannelIds) {
-        const snapshot = balances[channelId]?.[coin.id];
-        if (snapshot === undefined) continue;
-
-        hasSnapshot = true;
-        const amount = toFiniteNumber(snapshot.total);
-        if (amount !== null) amountValue += amount;
-      }
-
-      if (hasSnapshot) {
-        return { hasSnapshot, amountValue };
-      }
+      return aggregateOverviewBalances(scopedChannelIds.map((id) => balances[id]?.[coin.id]));
     }
-
-    let hasSnapshot = false;
-    let amountValue = 0;
-
-    for (const [channelId, channelBalances] of Object.entries(balances)) {
-      if (!channelId.startsWith('vrpc.')) continue;
-      const parsed = parseVrpcChannelId(channelId);
-      if (!parsed || !equalsIgnoreCase(parsed.systemId, coin.systemId)) continue;
-
-      const snapshot = channelBalances?.[coin.id];
-      if (snapshot === undefined) continue;
-
-      hasSnapshot = true;
-      const amount = toFiniteNumber(snapshot.total);
-      if (amount !== null) amountValue += amount;
-    }
-
-    if (hasSnapshot) {
-      return { hasSnapshot, amountValue };
-    }
+    const snapshots = Object.entries(balances)
+      .filter(([id]) => {
+        const channel = parseVrpcChannelId(id);
+        return channel && equalsIgnoreCase(channel.systemId, coin.systemId);
+      })
+      .map(([, channelBalances]) => channelBalances[coin.id]);
+    if (snapshots.length > 0) return aggregateOverviewBalances(snapshots);
   }
-
   const channelId = walletChannels.byCoinId[coin.id];
-  const snapshot = channelId ? balances[channelId]?.[coin.id] : undefined;
-  if (snapshot === undefined) {
-    return { hasSnapshot: false, amountValue: 0 };
-  }
+  return aggregateOverviewBalances([channelId ? balances[channelId]?.[coin.id] : undefined]);
+}
 
+/** Network families come from protocol/system metadata, never a display-name heuristic. */
+export function overviewNetworkMetadata(
+  coin: CoinDefinition
+): Pick<WalletOverviewRowViewModel, 'defaultSortGroup' | 'networkName' | 'networkKey'> {
+  const system = resolveCoinPresentationById(coin.systemId);
+  const rootId = coin.isTestnet ? 'VRSCTEST' : 'VRSC';
+  const root = resolveCoinPresentationById(rootId);
+  if (coin.proto === 'vrsc') {
+    const native =
+      coin.id === rootId ||
+      (!!root &&
+        equalsIgnoreCase(coin.currencyId, root.currencyId) &&
+        equalsIgnoreCase(coin.systemId, root.systemId));
+    return {
+      defaultSortGroup: native ? 0 : 2,
+      networkName: [root?.displayName ?? rootId, system?.displayName, system?.displayTicker]
+        .filter(Boolean)
+        .join(' '),
+      networkKey: 'verus',
+    };
+  }
+  if (coin.proto === 'eth' || coin.proto === 'erc20') {
+    return {
+      defaultSortGroup: coin.proto === 'eth' ? 3 : 4,
+      networkName: coin.isTestnet ? 'Ethereum Sepolia ETH' : 'Ethereum ETH',
+      networkKey: 'ethereum',
+    };
+  }
   return {
-    hasSnapshot: true,
-    amountValue: toFiniteNumber(snapshot.total) ?? 0
+    defaultSortGroup: coin.id === 'BTC' ? 5 : 6,
+    networkName: system?.displayName ?? coin.displayName,
+    networkKey: coin.systemId,
   };
 }
 
 function formatPercentChange(changePct: number, intlLocale: string): string {
   const formatter = new Intl.NumberFormat(intlLocale, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
   });
   const absDisplay = formatter.format(Math.abs(changePct));
 
@@ -175,7 +218,9 @@ function resolvePrimaryCoin(
   const defaultPrimaryId = network === 'testnet' ? 'VRSCTEST' : 'VRSC';
 
   return (
-    (primaryCoinIdFromChannel ? coins.find((coin) => coin.id === primaryCoinIdFromChannel) : null) ??
+    (primaryCoinIdFromChannel
+      ? coins.find((coin) => coin.id === primaryCoinIdFromChannel)
+      : null) ??
     coins.find((coin) => coin.id === defaultPrimaryId) ??
     coins.find((coin) => coin.compatibleChannels.includes('vrpc')) ??
     coins[0] ??
@@ -183,20 +228,47 @@ function resolvePrimaryCoin(
   );
 }
 
-export function sortWalletOverviewRows<Row extends WalletOverviewRowViewModel>(rows: Row[]): Row[] {
-  return rows.sort((a, b) => {
-    if (a.hasBalance !== b.hasBalance) {
-      return a.hasBalance ? -1 : 1;
+export function sortWalletOverviewRows<Row extends WalletOverviewRowViewModel>(
+  rows: readonly Row[],
+  sort: WalletOverviewSort = 'verus-first',
+  intlLocale?: string,
+  reversed = false
+): Row[] {
+  const collator = new Intl.Collator(intlLocale, { sensitivity: 'base' });
+  return [...rows].sort((a, b) => {
+    if (sort === 'verus-first') {
+      const group = a.defaultSortGroup - b.defaultSortGroup;
+      if (group) return group;
+      const network = collator.compare(a.networkKey, b.networkKey);
+      if (network) return network;
+    } else if (sort === 'value' || sort === 'amount') {
+      const left = sort === 'value' ? a.fiatSortValue : a.amountSortValue;
+      const right = sort === 'value' ? b.fiatSortValue : b.amountSortValue;
+      const leftKnown = left !== null && Number.isFinite(left);
+      const rightKnown = right !== null && Number.isFinite(right);
+      if (leftKnown !== rightKnown) return leftKnown ? -1 : 1;
+      if (leftKnown && rightKnown && left !== null && right !== null && left !== right)
+        return reversed ? left - right : right - left;
     }
-
-    if (a.hasBalance && b.hasBalance && a.fiatSortValue !== b.fiatSortValue) {
-      return b.fiatSortValue - a.fiatSortValue;
-    }
-
-    const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-    if (nameCompare !== 0) return nameCompare;
-    return a.ticker.localeCompare(b.ticker, undefined, { sensitivity: 'base' });
+    const nameOrder = collator.compare(a.name, b.name) * (sort === 'name' && reversed ? -1 : 1);
+    return nameOrder || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
   });
+}
+
+export function filterWalletOverviewRows<Row extends WalletOverviewRowViewModel>(
+  rows: readonly Row[],
+  query: string,
+  withBalance: boolean
+): Row[] {
+  const search = query.trim().toLowerCase();
+  return rows.filter(
+    (row) =>
+      (!withBalance || !row.isConfirmedZero) &&
+      (!search ||
+        [row.name, row.ticker, row.networkName].some((value) =>
+          value.toLowerCase().includes(search)
+        ))
+  );
 }
 
 export function buildWalletOverviewViewModel({
@@ -207,7 +279,7 @@ export function buildWalletOverviewViewModel({
   rates,
   intlLocale,
   displayCurrency,
-  network
+  network,
 }: BuildWalletOverviewParams): WalletOverviewViewModel {
   const activeDisplayCurrency = normalizeDisplayCurrency(displayCurrency);
   const primaryCoin = resolvePrimaryCoin(coins, walletChannels, network);
@@ -224,7 +296,7 @@ export function buildWalletOverviewViewModel({
     const coinPresentation = resolveCoinPresentation(coin);
     const displayTicker = coinPresentation.displayTicker;
     const displayName = coinPresentation.displayName;
-    const { hasSnapshot, amountValue } = resolveCoinBalanceSnapshot(
+    const { hasSnapshot, amountValue, isConfirmedZero } = resolveCoinBalanceSnapshot(
       coin,
       walletChannels,
       balances,
@@ -257,7 +329,13 @@ export function buildWalletOverviewViewModel({
       hasBalance,
       hasSnapshot,
       cryptoAmountDisplay: hasSnapshot
-        ? formatCryptoAmount(amountValue, displayTicker, intlLocale, rowFractionDigits, rowFractionDigits)
+        ? formatCryptoAmount(
+            amountValue,
+            displayTicker,
+            intlLocale,
+            rowFractionDigits,
+            rowFractionDigits
+          )
         : `${OVERVIEW_UNAVAILABLE_DISPLAY} ${displayTicker}`,
       fiatValueDisplay:
         fiatValue === null
@@ -268,11 +346,12 @@ export function buildWalletOverviewViewModel({
       change24hDirection,
       unitRateDisplay:
         fiatRate === null ? null : formatFiatAmount(fiatRate, intlLocale, activeDisplayCurrency),
-      fiatSortValue: hasBalance && fiatValue !== null ? fiatValue : Number.NEGATIVE_INFINITY
+      fiatSortValue: fiatValue ?? Number.NEGATIVE_INFINITY,
+      amountSortValue: hasSnapshot ? amountValue : null,
+      isConfirmedZero,
+      ...overviewNetworkMetadata(coin),
     };
   });
-
-  sortWalletOverviewRows(rows);
 
   const hasNonZeroRows = rows.some((row) => row.hasBalance);
   const hasHoldings = rows.some((row) => row.hasBalance);
@@ -306,8 +385,8 @@ export function buildWalletOverviewViewModel({
         : formatCryptoAmount(primaryTotal, primaryTicker, intlLocale, 0, 4),
     assetCount: rows.length,
     identityCount: 0,
-    rows,
+    rows: sortWalletOverviewRows(rows, 'verus-first', intlLocale),
     hasUsableLiveData: hasNonZeroRows || hasPrimarySnapshot,
-    primaryTicker
+    primaryTicker,
   };
 }
