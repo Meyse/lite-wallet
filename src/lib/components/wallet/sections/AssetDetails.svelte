@@ -989,7 +989,7 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pt-3 pb-6 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pb-6">
   <button
     type="button"
     class="mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -1121,13 +1121,15 @@
               </div>
             {:else}
               <div
-                class="flex h-[52px] min-w-0 flex-1 items-center gap-1 rounded-md bg-primary pr-1 pl-1.5"
+                class="flex h-[52px] min-w-0 flex-1 items-center gap-1 rounded-md bg-primary pr-2 pl-1.5 shadow-sm transition-colors focus-within:bg-primary/90 hover:bg-primary/90"
               >
                 <button
                   type="button"
-                  class="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary-foreground/60 focus-visible:outline-none"
+                  class="flex h-full min-w-0 flex-1 items-center justify-between gap-2 rounded-[5px] px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-primary-foreground/60 focus-visible:outline-none"
                   aria-label={i18n.t('wallet.assetDetails.scopePicker')}
                   title={i18n.t('wallet.assetDetails.scopePicker')}
+                  aria-haspopup="dialog"
+                  aria-expanded={showScopeSheet}
                   onclick={() => (showScopeSheet = true)}
                 >
                   <div class="min-w-0 flex-1 text-left">
@@ -1153,13 +1155,13 @@
                       {selectedFiatDisplay}
                     </p>
                   </div>
-                  <ChevronDownIcon class="h-4 w-4 shrink-0 text-primary-foreground/80" />
+                  <ChevronDownIcon class="mr-1 h-4 w-4 shrink-0 text-primary-foreground/85" />
                 </button>
                 <CopyButton
                   copied={copiedAddressKey === 'selected-interactive'}
                   variant="inverse"
                   size="sm"
-                  class="-mr-0.5"
+                  class="mr-0.5 ml-1"
                   onclick={() => copyAddress(selectedScopeDisplayAddress, 'selected-interactive')}
                   title={i18n.t('wallet.receive.copy')}
                   aria-label={i18n.t('wallet.receive.copy')}

@@ -372,7 +372,7 @@
       <div
         class={activeSection === 'address-book'
           ? 'absolute inset-x-0 top-0 z-40 h-6'
-          : `${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
+          : `${activeSection === 'overview' ? 'h-5' : 'h-6'} shrink-0`}
         data-tauri-drag-region
         aria-hidden="true"
       ></div>
