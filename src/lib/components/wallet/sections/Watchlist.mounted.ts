@@ -140,6 +140,15 @@ afterEach(async () => {
 });
 
 describe('watchlist workflows', () => {
+  it('keeps the empty state neutral without a decorative icon', async () => {
+    await render();
+
+    const emptyState = document.querySelector('[data-testid="watchlist-empty"]');
+    expect(emptyState).not.toBeNull();
+    expect([...emptyState!.children].some((child) => child.tagName === 'svg')).toBe(false);
+    expect(emptyState!.querySelector('button svg')).not.toBeNull();
+  });
+
   it('shows the resolved preview and only adds the entry after persistence succeeds', async () => {
     service.getWatchlistEntries.mockResolvedValue([otherEntry]);
     service.refreshWatchlist.mockResolvedValue(refreshResult([otherSnapshot]));

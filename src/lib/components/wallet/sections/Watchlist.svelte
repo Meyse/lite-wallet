@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
-  import EyeIcon from '@lucide/svelte/icons/eye';
   import InfoIcon from '@lucide/svelte/icons/info';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import MoreHorizontalIcon from '@lucide/svelte/icons/ellipsis';
@@ -391,8 +390,7 @@
         class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
         data-testid="watchlist-empty"
       >
-        <EyeIcon class="size-8 text-settings-muted-foreground" aria-hidden="true" />
-        <h3 class="mt-4 text-lg font-semibold tracking-tight">
+        <h3 class="text-lg font-semibold tracking-tight">
           {i18n.t('wallet.watchlist.emptyTitle')}
         </h3>
         <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
