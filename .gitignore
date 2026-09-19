@@ -17,3 +17,6 @@ src-tauri/AGENTS.md
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Generated screenshots, reports, and local test assets.
+/output/

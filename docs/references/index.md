@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-02-26
+last_reviewed: 2026-09-20
 ---
 
 # References index
@@ -21,6 +21,8 @@ External references and source repos used for parity or implementation checks.
   [`./release-pipeline.md`](./release-pipeline.md)
 - Contacts implementation and verification:
   [Contacts](./contacts-implementation.md)
+- Transfer navigation fixture and verification:
+  [Transfer navigation](./transfer-navigation-verification.md)
 - Wallet storage policy: [`./storage-policy.md`](./storage-policy.md)
 - Disposable testnet wallet automation:
   [`./test-wallet-keychain.md`](./test-wallet-keychain.md)

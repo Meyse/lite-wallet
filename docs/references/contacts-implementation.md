@@ -116,16 +116,17 @@ cross-network endpoints, duplicate prevention, concurrent encrypted updates and
 corrupt-file protection. The storage test uses the repository's reduced test
 work factor and establishes correctness, not production latency.
 
-The synthetic browser fixture lives in `output/playwright/`. Run it with the
+The synthetic browser fixture lives in `dev/browser-fixtures/`. Run it with the
 repository Node runtime and
-`node_modules/.bin/vite --config output/playwright/vite.config.js`, then open
-`http://127.0.0.1:1428/output/playwright/contacts.html`. It mounts real
+`node_modules/.bin/vite --config dev/browser-fixtures/vite.config.js`, then open
+`http://127.0.0.1:1428/dev/browser-fixtures/contacts.html`. It mounts real
 Contacts, Send, sidebar and profile components with a synthetic invoke boundary.
 Parameters include `screen=send`, `theme=dark`, `locale=nl`, `delay=2500`,
-`failOnce=1`, `long=1`, `broken=1`, `lines=1`, `empty=1`, `unavailable=1` and
-`saved=1`. `simulateReceipt=1` returns a synthetic typed receipt without
-cryptography or network submission; otherwise fixture signing is disabled.
-Screenshots are in `output/contacts-evidence/`.
+`failOnce=1`, `profileDelay=2500`, `long=1`, `broken=1`, `lines=1`, `empty=1`,
+`unavailable=1` and `saved=1`. `simulateReceipt=1` returns a synthetic typed
+receipt without cryptography or network submission; otherwise fixture signing is
+disabled. Screenshots are local artifacts in the ignored
+`output/contacts-evidence/` directory.
 
 For the initial verification below, no live wallet was unlocked or modified, no
 real public profile RPC was executed, and no live transaction was signed or
@@ -160,16 +161,10 @@ checks.
   keyboard End scrolled the profile viewport. Empty and unavailable profiles
   preserve saved address access. No nested buttons were found in the picker.
 
-Representative screenshots:
-[Contacts light](../../output/contacts-evidence/contacts-light-920.png),
-[Contacts dark](../../output/contacts-evidence/contacts-dark-nl-920.png),
-[Send preview](../../output/contacts-evidence/send-saved-light-920.png),
-[Saving](../../output/contacts-evidence/send-saving-dark-nl-920.png),
-[Retry](../../output/contacts-evidence/send-retry-dark-nl-920.png),
-[Direct Add success](../../output/contacts-evidence/contacts-direct-saved-light-920.png),
-[Long picker preview](../../output/contacts-evidence/send-picker-long-dark-920.png),
-[Review](../../output/contacts-evidence/send-review-light-920.png), and
-[Simulated receipt](../../output/contacts-evidence/send-receipt-light-920.png).
+The original captures cover Contacts in both themes, Send previews, saving and
+retry, direct Add, long-picker content, review, and a simulated receipt. They
+remain local artifacts in `output/contacts-evidence/`; a fresh checkout can
+reproduce the screens with the browser fixture above.
 
 ## Contacts navigation follow-up (2026-09-19)
 

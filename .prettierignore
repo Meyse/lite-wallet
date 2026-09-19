@@ -8,3 +8,6 @@ test-results/
 src-tauri/gen/
 src-tauri/target/
 pnpm-lock.yaml
+
+# Generated screenshots, reports, and local test assets.
+/output/
