@@ -98,6 +98,7 @@ afterEach(async () => {
 describe('address book contact workflows', () => {
   it('copies the full address and keeps contact details available during a search with no matches', async () => {
     await render();
+    expect(button('Add contact')).not.toBeNull();
     expect(document.body.textContent).toContain('Verus, Bitcoin');
     button('Copy').click();
     await settle();
@@ -213,11 +214,21 @@ describe('address book contact workflows', () => {
     expect(service.deleteAddressBookContact).toHaveBeenLastCalledWith('mum');
     expect(get(addressBookStore)).toHaveLength(0);
     expect(document.querySelector('form')).toBeNull();
-    expect(document.body.textContent).toContain('Add a contact to keep their addresses here.');
+    expect(document.body.textContent).toContain('Save trusted recipients in encrypted storage.');
   });
 
   it('creates a contact from the empty state with an optional note', async () => {
     await render([]);
+
+    const emptyState = document.querySelector('[data-testid="address-book-empty"]');
+    expect(emptyState).not.toBeNull();
+    if (!emptyState) throw new Error('Missing address book empty state');
+    expect(emptyState.querySelector('h3')?.textContent).toContain('No contacts yet.');
+    expect(emptyState.textContent).toContain('Save trusted recipients in encrypted storage.');
+    expect(document.querySelectorAll('header button')).toHaveLength(0);
+    expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
+    expect(emptyState.querySelector('button svg')).not.toBeNull();
+
     button('Add contact').click();
     await settle();
     button('Save').click();

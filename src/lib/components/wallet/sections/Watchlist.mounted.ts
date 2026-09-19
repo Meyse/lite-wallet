@@ -145,8 +145,10 @@ describe('watchlist workflows', () => {
 
     const emptyState = document.querySelector('[data-testid="watchlist-empty"]');
     expect(emptyState).not.toBeNull();
-    expect([...emptyState!.children].some((child) => child.tagName === 'svg')).toBe(false);
-    expect(emptyState!.querySelector('button svg')).not.toBeNull();
+    if (!emptyState) throw new Error('Missing watchlist empty state');
+    expect(document.querySelectorAll('header button')).toHaveLength(0);
+    expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
+    expect(emptyState.querySelector('button svg')).not.toBeNull();
   });
 
   it('shows the resolved preview and only adds the entry after persistence succeeds', async () => {

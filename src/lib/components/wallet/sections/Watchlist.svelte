@@ -363,10 +363,12 @@
       <h2 class="text-2xl leading-8 font-semibold tracking-tight">
         {i18n.t('wallet.watchlist.title')}
       </h2>
-      <Button size="sm" onclick={openAddSheet}>
-        <PlusIcon class="size-3.5" aria-hidden="true" />
-        {i18n.t('wallet.watchlist.add')}
-      </Button>
+      {#if records.length > 0}
+        <Button size="sm" onclick={openAddSheet}>
+          <PlusIcon class="size-3.5" aria-hidden="true" />
+          {i18n.t('wallet.watchlist.add')}
+        </Button>
+      {/if}
     </header>
 
     {#if initialLoading}

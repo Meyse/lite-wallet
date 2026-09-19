@@ -358,13 +358,13 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
   <!-- The wallet shell supplies the 24px titlebar above this 58px toolbar. -->
-  <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-7 pb-6">
-    <h2 class="text-xl leading-7 font-semibold tracking-tight">
+  <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
+    <h2 class="text-2xl leading-8 font-semibold tracking-tight">
       {i18n.t('wallet.addressBook.title')}
     </h2>
-    {#if !formMode}
+    {#if !formMode && contacts.length > 0}
       <Button variant="secondary" size="sm" onclick={startCreateContact}>
-        <PlusIcon class="size-4" />
+        <PlusIcon class="size-3.5" aria-hidden="true" />
         {i18n.t('wallet.addressBook.addContact')}
       </Button>
     {/if}
@@ -373,6 +373,7 @@
   <div class="flex min-h-0 flex-1">
     <aside
       class="flex min-h-0 w-[216px] shrink-0 flex-col border-r border-border/50 pr-3 pb-5 pl-4"
+      class:hidden={contacts.length === 0 && !formMode}
       aria-label={i18n.t('wallet.addressBook.title')}
     >
       <SearchInput
@@ -428,7 +429,23 @@
     </aside>
 
     <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-      {#if formMode}
+      {#if contacts.length === 0 && !formMode}
+        <div
+          class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
+          data-testid="address-book-empty"
+        >
+          <h3 class="text-lg font-semibold tracking-tight">
+            {i18n.t('wallet.addressBook.empty')}
+          </h3>
+          <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
+            {i18n.t('wallet.addressBook.description')}
+          </p>
+          <Button size="sm" class="mt-5" onclick={startCreateContact}>
+            <PlusIcon class="size-3.5" aria-hidden="true" />
+            {i18n.t('wallet.addressBook.addContact')}
+          </Button>
+        </div>
+      {:else if formMode}
         <form
           class="flex min-h-0 flex-1 flex-col"
           onsubmit={(event) => {
