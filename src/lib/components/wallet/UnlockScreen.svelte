@@ -334,7 +334,7 @@
 />
 
 <StandardRightSheet bind:isOpen={showWalletSwitcherDrawer} title={i18n.t('unlock.switcher.title')}>
-  <div class="flex-1 space-y-2 overflow-y-auto pr-1">
+  <div class="-m-1 flex-1 space-y-2 overflow-y-auto p-1">
     {#each wallets as wallet}
       {@const isSelected = effectiveAccountId === wallet.account_id}
       <button
