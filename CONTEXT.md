@@ -16,10 +16,19 @@ a VerusID has a local name chosen by the wallet user, such as "Mom".
 identified within its network and chain. Associating one with a contact does not
 grant control of that identity.
 
-**Public profile**: The avatar and short description published for a VerusID,
-presented with that identity's name. Its publisher controls this information
+**Public profile**: Information published for a VerusID, presented with that
+identity's name: avatar, short description, and an optional website connection
+under the verified-websites extension. Its publisher controls this information
 independently of other people's saved addresses and private notes. _Avoid_:
 Wallet profile or account as synonyms for a public profile.
+
+**Website connection**: A public association between a VerusID and a specific
+website address. Verification establishes that connection at a recorded time,
+not the identity holder's real-world identity or trustworthiness.
+
+**Website proof**: A public statement signed by a VerusID and hosted on the
+website it identifies. _Avoid_: Verification badge as a synonym for the proof
+itself.
 
 **Profile preview**: A compact view of a VerusID's public profile available
 beside an identity mention. _Avoid_: Tooltip for a preview that contains

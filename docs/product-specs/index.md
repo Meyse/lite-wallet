@@ -14,6 +14,11 @@ requirements.
   [`./wallet-asset-sorting.md`](./wallet-asset-sorting.md)
 - Contacts and VerusID profiles (draft; includes interactive profile previews):
   [`./contacts-and-verusid-profiles.md`](./contacts-and-verusid-profiles.md)
+- VerusID profile discovery (proposed; independent profiles, lookup, compact
+  Contacts, and contextual return to Send; Paper design only):
+  [`./verusid-profile-discovery.md`](./verusid-profile-discovery.md)
+- Verified websites (draft; guided proof upload, verification, and publication):
+  [`./verusid-verified-websites.md`](./verusid-verified-websites.md)
 - Shared contact and profile terminology: [`../../CONTEXT.md`](../../CONTEXT.md)
 - Verus/PBaaS parity matrix:
   [`./verus-pbaas-core-parity-matrix.md`](./verus-pbaas-core-parity-matrix.md)

@@ -54,8 +54,13 @@ nickname: the example is `alex.example@` everywhere, never "Alex".
   a follow-up establishes the existing format and address-update behavior.
 
 No registration requirement, social feed, messaging, banners, social links,
-contact photo uploads, profile themes, or new profile publishing format is
-added. The existing account profile in Settings is a separate concept.
+contact photo uploads, profile themes, or new profile publishing format is added
+by this core scope. The optional
+[verified websites extension](./verusid-verified-websites.md) separately
+specifies website discovery, proof checking, and the owner's guided
+upload/publication flow. Its status applies only to the website connection and
+never changes the meaning of a saved contact. The existing account profile in
+Settings is a separate concept.
 
 ## Product model
 
