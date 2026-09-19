@@ -235,7 +235,7 @@ describe('address book contact workflows', () => {
 
     button('Add contact').click();
     await settle();
-    expect(document.querySelector('header h2')?.textContent?.trim()).toBe('Address book');
+    expect(document.querySelector('header h2')).toBeNull();
     button('Save').click();
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');

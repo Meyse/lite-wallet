@@ -47,6 +47,7 @@
   let showNote = $state(false);
   let noteInputEl = $state<HTMLInputElement | null>(null);
   let formEndpoints = $state<EndpointDraft[]>([]);
+  const hasEmptyEndpoint = $derived(formEndpoints.some((endpoint) => !endpoint.address.trim()));
   let nameError = $state('');
   let endpointsError = $state('');
   let formError = $state('');
@@ -358,24 +359,9 @@
 </script>
 
 <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-  <!-- The wallet shell supplies the 24px titlebar above this 58px toolbar. -->
-  {#if contacts.length > 0 || formMode}
-    <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
-      <h2 class="text-2xl leading-8 font-semibold tracking-tight">
-        {i18n.t('wallet.addressBook.title')}
-      </h2>
-      {#if !formMode && contacts.length > 0}
-        <Button variant="secondary" size="sm" onclick={startCreateContact}>
-          <PlusIcon class="size-3.5" aria-hidden="true" />
-          {i18n.t('wallet.addressBook.addContact')}
-        </Button>
-      {/if}
-    </header>
-  {/if}
-
   <div class="flex min-h-0 flex-1">
     <aside
-      class="flex min-h-0 w-[216px] shrink-0 flex-col border-r border-border/50 pr-3 pb-5 pl-4"
+      class="flex min-h-0 w-[216px] shrink-0 flex-col border-r border-border/50 pt-10 pr-3 pb-5 pl-4"
       class:hidden={contacts.length === 0 && !formMode}
       aria-label={i18n.t('wallet.addressBook.title')}
     >
@@ -429,9 +415,16 @@
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
+      {#if !formMode && contacts.length > 0}
+        <Button variant="secondary" size="sm" class="mt-3 shrink-0" onclick={startCreateContact}>
+          <PlusIcon class="size-3.5" aria-hidden="true" />
+          {i18n.t('wallet.addressBook.addContact')}
+        </Button>
+      {/if}
     </aside>
 
-    <section class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <!-- Keep controls below the wallet shell's overlaid 24px drag region. -->
+    <section class="flex min-h-0 min-w-0 flex-1 flex-col pt-6">
       {#if contacts.length === 0 && !formMode}
         <WalletEmptyState
           illustration="address-book"
@@ -538,9 +531,9 @@
 
                 <div class="mt-3 flex flex-col items-start">
                   <InlineTextActionButton
-                    class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 dark:text-settings-focus-ring"
+                    class="min-h-9 gap-1.5 text-[13px] text-primary hover:text-primary/80 disabled:text-settings-muted-foreground disabled:opacity-35 dark:text-settings-focus-ring dark:disabled:text-settings-muted-foreground"
                     onclick={addEndpointDraft}
-                    disabled={saving || deleting}
+                    disabled={hasEmptyEndpoint || saving || deleting}
                   >
                     <PlusIcon class="size-3.5" />
                     {i18n.t('wallet.addressBook.form.addEndpoint')}

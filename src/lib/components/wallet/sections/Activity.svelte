@@ -6,14 +6,18 @@
 -->
 
 <script lang="ts">
-  import ActivityIcon from '@lucide/svelte/icons/activity';
+  import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import { i18nStore } from '$lib/i18n';
 
   const i18n = $derived($i18nStore);
 </script>
 
-<div class="flex h-full flex-col items-center justify-center py-12">
-  <ActivityIcon class="mb-4 h-12 w-12 text-muted-foreground" />
-  <h2 class="mb-2 text-2xl font-semibold">{i18n.t('wallet.sidebar.activity')}</h2>
-  <p class="text-muted-foreground">{i18n.t('wallet.placeholder.comingSoon')}</p>
-</div>
+<section class="flex h-full min-h-0 flex-col" aria-label={i18n.t('wallet.sidebar.activity')}>
+  <WalletEmptyState
+    illustration="activity"
+    description={i18n.t('wallet.activity.emptyDescription')}
+    actionLabel={i18n.t('wallet.placeholder.comingSoon')}
+    comingSoon
+    testId="activity-empty"
+  />
+</section>

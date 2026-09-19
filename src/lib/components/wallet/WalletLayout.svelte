@@ -263,7 +263,9 @@
     <Sidebar.Inset class="h-full min-h-0 min-w-0 dark:bg-app-canvas">
       {#if !isTransferFocusMode}
         <div
-          class={`${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
+          class={activeSection === 'address-book'
+            ? 'absolute inset-x-0 top-0 z-40 h-6'
+            : `${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
           data-tauri-drag-region
           aria-hidden="true"
         ></div>

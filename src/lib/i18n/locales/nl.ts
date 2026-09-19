@@ -1065,6 +1065,8 @@ export const nl: Record<string, string> = {
   'wallet.receive.toast.copyFailed': 'Kopiëren van adres mislukt',
 
   'wallet.placeholder.comingSoon': 'Binnenkort beschikbaar',
+  'wallet.apps.emptyDescription': 'Ontdek apps die je met je VerusID kunt gebruiken.',
+  'wallet.activity.emptyDescription': 'Bekijk je authenticatiegeschiedenis.',
   'wallet.identity.loading': 'Gekoppelde identiteiten laden…',
   'wallet.identity.error.load': 'Gekoppelde identiteiten konden nu niet worden geladen.',
   'wallet.identity.error.details': 'Deze VerusID kon nu niet worden geladen.',

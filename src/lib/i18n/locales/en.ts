@@ -1042,6 +1042,8 @@ export const en: Record<string, string> = {
   'wallet.receive.toast.copyFailed': 'Failed to copy address',
 
   'wallet.placeholder.comingSoon': 'Coming soon',
+  'wallet.apps.emptyDescription': 'Discover apps you can use with your VerusID.',
+  'wallet.activity.emptyDescription': 'Review your authentication activity.',
   'wallet.identity.loading': 'Loading linked identities…',
   'wallet.identity.error.load': 'Could not load linked identities right now.',
   'wallet.identity.error.details': 'Could not load this VerusID right now.',

@@ -15,6 +15,10 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- Encrypted Address Book and Watchlist (proposed; implementation not started):
+  [`./active/encrypted-address-book-watchlist.md`](./active/encrypted-address-book-watchlist.md)
+- Remaining settings designs from Paper (ready for implementation):
+  [`./active/settings-remaining-paper-integration.md`](./active/settings-remaining-paper-integration.md)
 - Verus and Noble dependency upgrade (maintenance integration; generic-request
   acceptance deferred):
   [`./active/verus-dependency-upgrade.md`](./active/verus-dependency-upgrade.md)

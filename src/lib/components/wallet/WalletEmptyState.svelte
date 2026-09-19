@@ -4,16 +4,26 @@
   import { Button } from '$lib/components/ui/button';
 
   type WalletEmptyStateProps = {
-    title: string;
+    title?: string;
+    description?: string;
     actionLabel: string;
-    onAction: () => void;
+    onAction?: () => void;
+    comingSoon?: boolean;
     eyebrow?: string;
-    illustration?: 'address-book' | 'watch-list' | 'verus-id';
+    illustration?: 'address-book' | 'watch-list' | 'verus-id' | 'apps' | 'activity';
     testId: string;
   };
 
-  let { title, actionLabel, onAction, eyebrow, illustration, testId }: WalletEmptyStateProps =
-    $props();
+  let {
+    title,
+    description,
+    actionLabel,
+    onAction,
+    comingSoon = false,
+    eyebrow,
+    illustration,
+    testId,
+  }: WalletEmptyStateProps = $props();
 </script>
 
 <!-- Empty sections omit their 58px page header; the extra top padding preserves this group's position. -->
@@ -32,7 +42,15 @@
         width="156"
         height="156"
         draggable="false"
-        class="pointer-events-none size-[156px] shrink-0 object-contain opacity-[0.48] brightness-[0.86] saturate-[0.32] select-none dark:opacity-[0.28] dark:brightness-[0.75]"
+        class="pointer-events-none size-[156px] shrink-0 object-contain opacity-[0.48] brightness-[0.86] saturate-[0.32] select-none dark:hidden"
+      />
+      <img
+        src={`/images/empty-states/${illustration}-dark.png`}
+        alt=""
+        width="156"
+        height="156"
+        draggable="false"
+        class="pointer-events-none hidden size-[156px] shrink-0 object-contain saturate-[0.12] select-none dark:block"
       />
     </div>
   {/if}
@@ -50,11 +68,28 @@
       </div>
     {/if}
   </div>
-  <h3 class="mt-2 text-lg font-semibold tracking-tight" data-testid="wallet-empty-title">
-    {title}
-  </h3>
-  <Button size="sm" class="mt-5" onclick={onAction}>
-    <PlusIcon class="size-3.5" aria-hidden="true" />
+  {#if title}
+    <h3 class="mt-2 text-lg font-semibold tracking-tight" data-testid="wallet-empty-title">
+      {title}
+    </h3>
+  {/if}
+  {#if description}
+    <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
+      {description}
+    </p>
+  {/if}
+  <!-- Coming-soon buttons remain clickable and focusable, with no destination yet. -->
+  <Button
+    size="sm"
+    variant={comingSoon ? 'secondary' : 'default'}
+    class="mt-5 select-none {comingSoon
+      ? 'opacity-[0.48] focus-visible:opacity-100 dark:opacity-[0.28] dark:focus-visible:opacity-100'
+      : ''}"
+    onclick={onAction}
+  >
+    {#if !comingSoon}
+      <PlusIcon class="size-3.5" aria-hidden="true" />
+    {/if}
     {actionLabel}
   </Button>
 </div>
