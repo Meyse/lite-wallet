@@ -1285,7 +1285,7 @@ export const en: Record<string, string> = {
 
   'wallet.watchlist.title': 'Watchlist',
   'wallet.watchlist.add': 'Add',
-  'wallet.empty.encryptedStorage': 'Encrypted storage',
+  'wallet.empty.encrypted': 'Encrypted locally',
   'wallet.watchlist.emptyTitle': 'Watch a Verus address',
   'wallet.watchlist.addAddress': 'Add address',
   'wallet.watchlist.updatedJustNow': 'Updated just now',

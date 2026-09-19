@@ -225,15 +225,17 @@ describe('address book contact workflows', () => {
     if (!emptyState) throw new Error('Missing address book empty state');
     expect(
       emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
-    ).toBe('Encrypted storage');
+    ).toBe('Encrypted locally');
+    expect(emptyState.querySelector('[data-testid="wallet-empty-eyebrow"] svg')).not.toBeNull();
     expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Save a trusted contact');
     expect(emptyState.textContent).not.toContain('Save trusted recipients in encrypted storage.');
-    expect(document.querySelectorAll('header button')).toHaveLength(0);
+    expect(document.querySelector('header')).toBeNull();
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
     expect(emptyState.querySelector('button svg')).not.toBeNull();
 
     button('Add contact').click();
     await settle();
+    expect(document.querySelector('header h2')?.textContent?.trim()).toBe('Address book');
     button('Save').click();
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');

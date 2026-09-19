@@ -360,17 +360,19 @@
       <ScrollArea.Scrollbar orientation="vertical" />
     </ScrollArea.Root>
   {:else}
-    <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
-      <h2 class="text-2xl leading-8 font-semibold tracking-tight">
-        {i18n.t('wallet.watchlist.title')}
-      </h2>
-      {#if records.length > 0}
-        <Button size="sm" onclick={openAddSheet}>
-          <PlusIcon class="size-3.5" aria-hidden="true" />
-          {i18n.t('wallet.watchlist.add')}
-        </Button>
-      {/if}
-    </header>
+    {#if initialLoading || loadError || records.length > 0}
+      <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
+        <h2 class="text-2xl leading-8 font-semibold tracking-tight">
+          {i18n.t('wallet.watchlist.title')}
+        </h2>
+        {#if records.length > 0}
+          <Button size="sm" onclick={openAddSheet}>
+            <PlusIcon class="size-3.5" aria-hidden="true" />
+            {i18n.t('wallet.watchlist.add')}
+          </Button>
+        {/if}
+      </header>
+    {/if}
 
     {#if initialLoading}
       <div class="flex flex-1 items-center justify-center text-settings-muted-foreground">
@@ -390,7 +392,8 @@
       </div>
     {:else if records.length === 0}
       <WalletEmptyState
-        eyebrow={i18n.t('wallet.empty.encryptedStorage')}
+        illustration="watch-list"
+        eyebrow={i18n.t('wallet.empty.encrypted')}
         title={i18n.t('wallet.watchlist.emptyTitle')}
         actionLabel={i18n.t('wallet.watchlist.addAddress')}
         onAction={openAddSheet}

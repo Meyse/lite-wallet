@@ -1312,7 +1312,7 @@ export const nl: Record<string, string> = {
 
   'wallet.watchlist.title': 'Volglijst',
   'wallet.watchlist.add': 'Toevoegen',
-  'wallet.empty.encryptedStorage': 'Versleutelde opslag',
+  'wallet.empty.encrypted': 'Lokaal versleuteld',
   'wallet.watchlist.emptyTitle': 'Bekijk een Verus-adres',
   'wallet.watchlist.addAddress': 'Adres toevoegen',
   'wallet.watchlist.updatedJustNow': 'Zojuist bijgewerkt',

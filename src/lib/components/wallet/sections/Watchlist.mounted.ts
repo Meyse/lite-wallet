@@ -140,7 +140,7 @@ afterEach(async () => {
 });
 
 describe('watchlist workflows', () => {
-  it('shows a concise encrypted empty state without a decorative icon', async () => {
+  it('shows a concise encrypted empty state', async () => {
     await render();
 
     const emptyState = document.querySelector('[data-testid="watchlist-empty"]');
@@ -148,10 +148,11 @@ describe('watchlist workflows', () => {
     if (!emptyState) throw new Error('Missing watchlist empty state');
     expect(
       emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
-    ).toBe('Encrypted storage');
+    ).toBe('Encrypted locally');
+    expect(emptyState.querySelector('[data-testid="wallet-empty-eyebrow"] svg')).not.toBeNull();
     expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Watch a Verus address');
     expect(emptyState.textContent).not.toContain('Follow the public balances');
-    expect(document.querySelectorAll('header button')).toHaveLength(0);
+    expect(document.querySelector('header')).toBeNull();
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
     expect(emptyState.querySelector('button svg')).not.toBeNull();
   });
@@ -176,6 +177,7 @@ describe('watchlist workflows', () => {
     );
 
     await render();
+    expect(document.querySelector('header h2')?.textContent?.trim()).toBe('Watchlist');
     expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
     button('Add').click();
     await settle();

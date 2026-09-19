@@ -359,17 +359,19 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
   <!-- The wallet shell supplies the 24px titlebar above this 58px toolbar. -->
-  <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
-    <h2 class="text-2xl leading-8 font-semibold tracking-tight">
-      {i18n.t('wallet.addressBook.title')}
-    </h2>
-    {#if !formMode && contacts.length > 0}
-      <Button variant="secondary" size="sm" onclick={startCreateContact}>
-        <PlusIcon class="size-3.5" aria-hidden="true" />
-        {i18n.t('wallet.addressBook.addContact')}
-      </Button>
-    {/if}
-  </header>
+  {#if contacts.length > 0 || formMode}
+    <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
+      <h2 class="text-2xl leading-8 font-semibold tracking-tight">
+        {i18n.t('wallet.addressBook.title')}
+      </h2>
+      {#if !formMode && contacts.length > 0}
+        <Button variant="secondary" size="sm" onclick={startCreateContact}>
+          <PlusIcon class="size-3.5" aria-hidden="true" />
+          {i18n.t('wallet.addressBook.addContact')}
+        </Button>
+      {/if}
+    </header>
+  {/if}
 
   <div class="flex min-h-0 flex-1">
     <aside
@@ -432,7 +434,8 @@
     <section class="flex min-h-0 min-w-0 flex-1 flex-col">
       {#if contacts.length === 0 && !formMode}
         <WalletEmptyState
-          eyebrow={i18n.t('wallet.empty.encryptedStorage')}
+          illustration="address-book"
+          eyebrow={i18n.t('wallet.empty.encrypted')}
           title={i18n.t('wallet.addressBook.empty')}
           actionLabel={i18n.t('wallet.addressBook.addContact')}
           onAction={startCreateContact}

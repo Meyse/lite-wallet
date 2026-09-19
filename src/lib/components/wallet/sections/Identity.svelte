@@ -650,11 +650,13 @@
   {/if}
 {:else}
   <div class="mx-auto flex h-full w-full max-w-5xl flex-col px-8 pb-8" aria-busy={loading}>
-    <header class="flex h-[58px] shrink-0 items-center">
-      <h2 class="text-2xl leading-8 font-semibold tracking-tight">
-        {i18n.t('wallet.sidebar.identities')}
-      </h2>
-    </header>
+    {#if showingInitialIdentityLoad || showBlockingIdentityError || linkedIdentities.length > 0}
+      <header class="flex h-[58px] shrink-0 items-center">
+        <h2 class="text-2xl leading-8 font-semibold tracking-tight">
+          {i18n.t('wallet.sidebar.identities')}
+        </h2>
+      </header>
+    {/if}
 
     {#if loading}
       <p class="sr-only" role="status">{i18n.t('wallet.identity.loading')}</p>
@@ -822,6 +824,7 @@
       {#if linkedIdentities.length === 0}
         <div class="-mb-8 flex min-h-0 flex-1">
           <WalletEmptyState
+            illustration="verus-id"
             title={i18n.t('wallet.identity.empty.title')}
             actionLabel={i18n.t('wallet.identity.empty.cta')}
             onAction={() => (linkSheetOpen = true)}

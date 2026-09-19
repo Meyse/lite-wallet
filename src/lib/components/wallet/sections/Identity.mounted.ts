@@ -170,9 +170,11 @@ describe('mounted identity empty state', () => {
         const emptyState = target.querySelector('[data-testid="identity-empty"]');
         expect(emptyState).not.toBeNull();
         if (!emptyState) throw new Error('Missing identity empty state');
-        expect(target.querySelector('header h2')?.textContent?.trim()).toBe('VerusID');
-        expect(target.querySelectorAll('header button')).toHaveLength(0);
+        expect(target.querySelector('header')).toBeNull();
         expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Link your VerusID');
+        expect(
+          emptyState.querySelector('[data-testid="wallet-empty-eyebrow-slot"]')
+        ).not.toBeNull();
         expect(emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')).toBeNull();
         expect(emptyState.textContent).not.toContain('controlled by this wallet address');
         expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
@@ -201,6 +203,7 @@ describe('mounted identity favorite toggle', () => {
 
       try {
         await settle();
+        expect(target.querySelector('header h2')?.textContent?.trim()).toBe('VerusID');
         const favoriteButton = target.querySelector(
           '[data-favorite-state="favorite"]'
         ) as HTMLButtonElement | null;
