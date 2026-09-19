@@ -44,7 +44,7 @@
 
 <div class="mt-4 flex h-9 items-center gap-3" data-testid="overview-asset-tools">
   <div
-    class={`flex h-[34px] min-w-0 shrink items-center gap-2 rounded-md bg-muted px-2.5 focus-within:ring-2 focus-within:ring-ring/60 ${preferences.withBalance ? 'w-64' : 'w-72'}`}
+    class={`flex h-[34px] min-w-0 shrink items-center gap-2 rounded-md bg-muted px-2.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/60 ${preferences.withBalance ? 'w-64' : 'w-72'}`}
   >
     <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     <div class="min-w-0 flex-1">
