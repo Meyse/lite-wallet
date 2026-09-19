@@ -9,6 +9,7 @@
   type StepStatus = 'complete' | 'current' | 'upcoming';
 
   type StepperWithAsideLayoutProps = {
+    active?: boolean;
     currentStep: number;
     totalSteps: number;
     steps?: { id: string; label: string; status: StepStatus }[];
@@ -28,6 +29,7 @@
   const defaultCloseHandler = () => {};
 
   let {
+    active = true,
     currentStep,
     totalSteps,
     steps = [],
@@ -55,7 +57,7 @@
 
   onMount(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (!active || event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
       if (showMobileAside) {
         showMobileAside = false;
@@ -69,7 +71,7 @@
   });
 
   $effect(() => {
-    if (!showAside) {
+    if (!active || !showAside) {
       showMobileAside = false;
     }
   });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -207,6 +207,10 @@
   };
 
   type TransferWizardProps = {
+    active?: boolean;
+    onNavigationStateChange?: (
+      state: import('./transfer-wizard/types').TransferNavigationState
+    ) => void;
     entryIntent: EntryIntent;
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
@@ -222,6 +226,8 @@
   const MAX_TRANSFER_AMOUNT_FRACTION_DIGITS = 8;
 
   let {
+    active = true,
+    onNavigationStateChange = () => {},
     entryIntent,
     entryContext = null,
     onClose = defaultClose,
@@ -278,6 +284,9 @@
   let selectedSourceChannelId = $state('');
   let currentStep = $state<TransferStepId>('details');
   let amount = $state('');
+  let alive = true;
+  let reviewNeedsRefresh = $state(false);
+  let preflightAttempt = 0;
   let amountInputEl = $state<HTMLInputElement | null>(null);
   let destinationAddress = $state('');
   let memo = $state('');
@@ -1268,8 +1277,37 @@
     loadingTargets || preflighting || sending || recoveringEthSubmission || !!pendingEthSubmission
   );
   const transferMutationLocked = $derived(sending || recoveringEthSubmission);
+  $effect(() => {
+    onNavigationStateChange({
+      mode: conversionEnabled ? 'convert' : 'send',
+      dirty: isDirty,
+      locked: transferMutationLocked,
+      completed: currentStep === 'success',
+    });
+  });
+  $effect(() => {
+    if (active) return;
+    untrack(() => {
+      showSourceAssetSheet = false;
+      showReceiveAssetSheet = false;
+      showViaSheet = false;
+      showNetworkSheet = false;
+      showExportSheet = false;
+      showAddressBookSheet = false;
+      showFeeSheet = false;
+      // Retain the visible review, but it is no longer an authorization to send.
+      preflightAttempt += 1;
+      preflightRequestGuard.invalidate();
+      preflighting = false;
+      if (currentStep === 'review') reviewNeedsRefresh = true;
+      unsavedRecipientConfirmed = false;
+    });
+  });
   const isDirty = $derived(
     currentStep !== 'details' ||
+      sourceCoinManuallyChosen ||
+      manualViaLocked ||
+      directSendFeeMode !== DEFAULT_DIRECT_SEND_FEE_MODE ||
       !!amount.trim() ||
       !!destinationAddress.trim() ||
       !!memo.trim() ||
@@ -1281,7 +1319,8 @@
   );
 
   const primaryDisabled = $derived(
-    isBusy ||
+    !active ||
+      isBusy ||
       isShieldedSyncBlocked ||
       (currentStep === 'details' &&
         (!selectedCoin ||
@@ -1294,8 +1333,11 @@
           (activeExportSystemId !== null &&
             isEthereumExport(activeExportSystemId) &&
             bridgeFeeInsufficient))) ||
-      (currentStep === 'review' && !activePreflight) ||
-      (currentStep === 'review' && requiresUnsavedRecipientAck && !unsavedRecipientConfirmed)
+      (currentStep === 'review' && !activePreflight && !reviewNeedsRefresh) ||
+      (currentStep === 'review' &&
+        !reviewNeedsRefresh &&
+        requiresUnsavedRecipientAck &&
+        !unsavedRecipientConfirmed)
   );
 
   const primaryLabel = $derived(
@@ -1308,9 +1350,11 @@
       : currentStep === 'review'
         ? preflighting
           ? i18n.t('wallet.transfer.fee.updating')
-          : sending
-            ? sendStageLabel(sendStage)
-            : i18n.t('wallet.transfer.sendNow')
+          : reviewNeedsRefresh
+            ? i18n.t('wallet.transfer.refreshReview')
+            : sending
+              ? sendStageLabel(sendStage)
+              : i18n.t('wallet.transfer.sendNow')
         : i18n.t('common.continue')
   );
   const sendStageElapsedMs = $derived(
@@ -2066,6 +2110,7 @@
 
     return () => {
       disposed = true;
+      alive = false;
       clearInterval(tickInterval);
       if (unlistenTxSendProgress) unlistenTxSendProgress();
       ethRecoveryLifetime.dispose();
@@ -2086,11 +2131,15 @@
   });
 
   $effect(() => {
+    // Focus on entry/back only; WalletLayout restores the user's field on resume.
     if (currentStep !== 'details') return;
-    void tick().then(() => amountInputEl?.focus());
+    void tick().then(() => {
+      if (active && alive) amountInputEl?.focus();
+    });
   });
 
   function clearPreflightState() {
+    preflightAttempt += 1;
     preflightRequestGuard.invalidate();
     simplePreflightResult = null;
     bridgePreflightResult = null;
@@ -3168,21 +3217,24 @@
     return normalized;
   }
 
-  function goBack() {
+  function goBack(requestClose: () => void) {
+    if (!active || transferMutationLocked) return;
     transferError = '';
 
     if (currentStep === 'details') {
-      onClose();
+      requestClose();
       return;
     }
 
     if (currentStep === 'review') {
       clearPreflightState();
+      reviewNeedsRefresh = false;
       currentStep = 'details';
     }
   }
 
   function continueFlow() {
+    if (primaryDisabled) return;
     transferError = '';
 
     if (currentStep === 'details') {
@@ -3191,12 +3243,13 @@
     }
 
     if (currentStep === 'review') {
-      void broadcast();
+      if (reviewNeedsRefresh) void runPreflight(true);
+      else void broadcast();
     }
   }
 
   async function runPreflight(keepReviewOnError = false) {
-    if (preflighting) return;
+    if (!active || !alive || preflighting) return;
     if (isShieldedSyncBlocked) {
       transferError =
         shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
@@ -3205,6 +3258,7 @@
     const request = resolvedPreflightRequest;
     if (!request || !recipientValid) return;
 
+    const attempt = ++preflightAttempt;
     const requestSignature = preflightRequestSignature(request, preflightWalletContext);
     const privatePreflightStartedAt =
       selectedChannelPrefix === 'dlight_private' ? performance.now() : null;
@@ -3219,7 +3273,8 @@
           durationMs: Math.round(performance.now() - privatePreflightStartedAt),
         });
       }
-      if (!(await ensureDlightSpendReady())) return;
+      if (!(await ensureDlightSpendReady()) || !active || !alive || attempt !== preflightAttempt)
+        return;
 
       if (request.kind === 'bridge') {
         const outcome = await runGuardedPreflight({
@@ -3228,7 +3283,7 @@
           currentSignature: () => preflightInputSignature,
           execute: () => preflightBridgeTransfer(request.params),
         });
-        if (outcome.status === 'stale') return;
+        if (outcome.status === 'stale' || !active || !alive || attempt !== preflightAttempt) return;
         if (outcome.status === 'failed') throw outcome.error;
         bridgePreflightResult = outcome.value;
         simplePreflightResult = null;
@@ -3239,13 +3294,15 @@
           currentSignature: () => preflightInputSignature,
           execute: () => preflightSend(request.params),
         });
-        if (outcome.status === 'stale') return;
+        if (outcome.status === 'stale' || !active || !alive || attempt !== preflightAttempt) return;
         if (outcome.status === 'failed') throw outcome.error;
         simplePreflightResult = outcome.value;
         bridgePreflightResult = null;
       }
+      reviewNeedsRefresh = false;
       currentStep = 'review';
     } catch (error) {
+      if (!active || !alive || attempt !== preflightAttempt) return;
       console.error('[TransferWizard] preflight failed', {
         type: extractWalletErrorType(error),
         message: extractWalletErrorMessage(error),
@@ -3260,21 +3317,21 @@
           durationMs: Math.round(performance.now() - privatePreflightStartedAt),
         });
       }
-      if (requestSignature === preflightInputSignature) {
+      if (alive && attempt === preflightAttempt && requestSignature === preflightInputSignature) {
         preflighting = false;
       }
     }
   }
 
   async function broadcast() {
-    if (sending) return;
+    if (!active || !alive || sending || reviewNeedsRefresh) return;
     if (isShieldedSyncBlocked) {
       transferError =
         shieldedSyncBlockedHelper || i18n.t('wallet.transfer.privateSyncBlockedUnknown');
       return;
     }
     if (!activePreflight) return;
-    if (!(await ensureDlightSpendReady())) return;
+    const reviewedPreflightId = activePreflight.preflightId;
     const receiptSnapshot = buildSubmittedTransferSnapshot();
     if (!receiptSnapshot) return;
 
@@ -3285,7 +3342,9 @@
     transferError = '';
 
     try {
-      const result = await sendTransaction({ preflightId: activePreflight.preflightId });
+      if (!(await ensureDlightSpendReady()) || !alive) return;
+      const result = await sendTransaction({ preflightId: reviewedPreflightId });
+      if (!alive) return;
       sendResult = result;
       submittedTransferSnapshot = finalizeSubmittedTransferSnapshot(receiptSnapshot, result);
       if (matchedSavedRecipient) {
@@ -3294,8 +3353,10 @@
           .catch(() => {});
       }
       await refreshTxHistory();
+      if (!alive) return;
       currentStep = 'success';
     } catch (error) {
+      if (!alive) return;
       console.error('[TransferWizard] broadcast failed', {
         type: extractWalletErrorType(error),
         message: extractWalletErrorMessage(error),
@@ -3397,6 +3458,7 @@
     if (!coinId || !channelId) return;
     try {
       const transactions = await walletService.getTransactionHistory(channelId, coinId);
+      if (!alive) return;
       transactionStore.update((state) => ({
         ...state,
         [channelId]: {
@@ -3430,7 +3492,7 @@
   }
 
   function setTransferMode(mode: 'send' | 'convert') {
-    if (transferMutationLocked) return;
+    if (!active || preflighting || transferMutationLocked) return;
     if (mode === 'convert') {
       if (selectedCoin && !sourceSupportsConversion) return;
       conversionEnabled = true;
@@ -3568,22 +3630,63 @@
 </script>
 
 <WalletTransferStepperShell
+  {active}
+  embedded
   currentStep={stepNumber}
   totalSteps={OPERATIONAL_STEPS.length}
   steps={stepperSteps}
   showProgress={false}
   {onClose}
   closeDisabled={loadingTargets || preflighting || sending || recoveringEthSubmission}
-  dirty={isDirty}
+  dirty={isDirty && currentStep !== 'success' && !pendingEthSubmission}
   showAside={false}
   mobileAsideLabel={i18n.t('wallet.transfer.viewSummary')}
   mobileAsideTitle={i18n.t('wallet.transfer.summary.title')}
 >
+  {#snippet header()}
+    {#if currentStep === 'details' && !pendingEthSubmission}
+      <div class="flex w-full justify-start border-b border-border/70">
+        <Tabs.Root
+          value={conversionEnabled ? 'convert' : 'send'}
+          onValueChange={(value) => setTransferMode(value as 'send' | 'convert')}
+          class="w-full"
+        >
+          <Tabs.List class="h-10 w-full justify-start gap-6 rounded-none bg-transparent p-0">
+            <Tabs.Trigger
+              value="send"
+              class="h-10  rounded-none border-b-2 border-transparent px-0 text-sm font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+              disabled={isBusy}
+            >
+              {i18n.t('wallet.overview.send')}
+            </Tabs.Trigger>
+            <Tabs.Trigger
+              value="convert"
+              class="h-10  rounded-none border-b-2 border-transparent px-0 text-sm font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+              disabled={isBusy || (!!selectedCoin && !sourceSupportsConversion)}
+            >
+              {i18n.t('wallet.overview.convert')}
+            </Tabs.Trigger>
+          </Tabs.List>
+        </Tabs.Root>
+      </div>
+    {:else if currentStep === 'review'}
+      <div class="flex h-10 items-center border-b border-border/70">
+        <h2 class="text-sm font-medium">
+          {i18n.t(
+            conversionEnabled
+              ? 'wallet.transfer.review.conversionTitle'
+              : 'wallet.transfer.review.sendTitle'
+          )}
+        </h2>
+      </div>
+    {/if}
+  {/snippet}
+
   {#snippet aside()}
     <TransferSummaryRail rows={summaryRows} warnings={warningsSummary} class="h-full" />
   {/snippet}
 
-  {#snippet footer()}
+  {#snippet footer({ requestClose })}
     {#if pendingEthSubmission}
       <div class="flex justify-end">
         <Button variant="secondary" onclick={onClose} disabled={recoveringEthSubmission}>
@@ -3597,13 +3700,15 @@
         </Button>
       </div>
     {:else}
-      <div class="flex items-center justify-between gap-3">
-        <Button variant="secondary" onclick={goBack} disabled={isBusy}>
+      <div class="flex items-end justify-between gap-3">
+        <Button variant="secondary" onclick={() => goBack(requestClose)} disabled={isBusy}>
           {currentStep === 'details' ? i18n.t('common.cancel') : i18n.t('common.back')}
         </Button>
         {#if currentStep === 'review'}
-          <div class="flex items-center gap-3">
-            {#if requiresUnsavedRecipientAck}
+          <div
+            class="flex flex-col items-end gap-2 @[800px]/transfer:flex-row @[800px]/transfer:items-center"
+          >
+            {#if requiresUnsavedRecipientAck && !reviewNeedsRefresh}
               <div class="flex items-center gap-1.5">
                 <Checkbox
                   id="review-unsaved-recipient-footer"
@@ -3618,7 +3723,7 @@
               </div>
             {/if}
             <Button
-              class="w-[min(368px,45vw)]"
+              class="w-[min(280px,38cqw)]"
               onclick={continueFlow}
               disabled={primaryDisabled}
               aria-busy={preflighting}
@@ -3628,7 +3733,7 @@
           </div>
         {:else}
           <Button
-            class="w-[min(368px,45vw)]"
+            class="w-[min(280px,38cqw)]"
             onclick={continueFlow}
             disabled={primaryDisabled}
             aria-busy={preflighting}
@@ -3683,6 +3788,11 @@
         ? 'space-y-3'
         : 'space-y-5'}
   >
+    {#if reviewNeedsRefresh}
+      <p class="text-sm text-muted-foreground" role="status">
+        {i18n.t('wallet.transfer.reviewRefreshRequired')}
+      </p>
+    {/if}
     {#if transferError}
       <div
         class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
@@ -3716,33 +3826,13 @@
       {#if currentStep === 'details'}
         <Card.Root class="border-0 bg-transparent py-0 shadow-none">
           <Card.Content class="space-y-3 px-0">
-            <div class="-mt-1 flex w-full justify-start border-b border-border/70">
-              <Tabs.Root value={conversionEnabled ? 'convert' : 'send'} class="w-full">
-                <Tabs.List class="h-9 w-full justify-start rounded-none bg-transparent p-0">
-                  <Tabs.Trigger
-                    value="send"
-                    class="h-9 min-w-[6.5rem] rounded-none border-b-2 border-transparent px-1 text-[22px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
-                    onclick={() => setTransferMode('send')}
-                  >
-                    {i18n.t('wallet.overview.send')}
-                  </Tabs.Trigger>
-                  <Tabs.Trigger
-                    value="convert"
-                    class="h-9 min-w-[6.5rem] rounded-none border-b-2 border-transparent px-1 text-[22px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
-                    disabled={!!selectedCoin && !sourceSupportsConversion}
-                    onclick={() => setTransferMode('convert')}
-                  >
-                    {i18n.t('wallet.overview.convert')}
-                  </Tabs.Trigger>
-                </Tabs.List>
-              </Tabs.Root>
-            </div>
-
             <div
-              class={`relative mx-auto w-full max-w-[840px] gap-x-6 gap-y-3 ${conversionEnabled ? 'grid md:grid-cols-2' : 'space-y-3.5'}`}
+              class={`relative mx-auto w-full max-w-[840px] gap-x-6 gap-y-3 ${conversionEnabled ? 'grid @[760px]/transfer:grid-cols-2' : 'space-y-3.5'}`}
             >
               {#if selectedCoinOption}
-                <div class={`flex items-center gap-4 ${conversionEnabled ? 'md:col-span-2' : ''}`}>
+                <div
+                  class={`flex items-center gap-4 ${conversionEnabled ? '@[760px]/transfer:col-span-2' : ''}`}
+                >
                   <span class="text-sm text-muted-foreground">
                     {i18n.t('wallet.transfer.source.sendFrom')}
                   </span>
@@ -3990,7 +4080,7 @@
         <div class="mx-auto w-full max-w-[840px]">
           <Card.Root class="w-full border-0 bg-transparent py-0 shadow-none">
             <Card.Content class="px-0">
-              <div class="grid gap-4 md:grid-cols-[248px_minmax(0,1fr)]">
+              <div class="grid gap-4 @[720px]/transfer:grid-cols-[200px_minmax(0,1fr)]">
                 <div class="space-y-2">
                   <p class="text-sm font-medium text-muted-foreground">
                     {i18n.t('wallet.transfer.summary.destinationNetwork')}
@@ -4103,15 +4193,6 @@
           <Card.Content class="space-y-3 px-0 pt-0">
             {#if activePreflight}
               <div class="mx-auto w-full max-w-[840px] space-y-5">
-                <div>
-                  <h2 class="text-2xl font-semibold tracking-tight">
-                    {i18n.t(
-                      conversionEnabled
-                        ? 'wallet.transfer.review.conversionTitle'
-                        : 'wallet.transfer.review.sendTitle'
-                    )}
-                  </h2>
-                </div>
                 <div class={`grid gap-4 ${conversionEnabled ? 'sm:grid-cols-2' : ''}`}>
                   <div
                     data-transfer-review-amount
@@ -4204,7 +4285,7 @@
                         sourceNetworkDisplayName}
                     </p>
                     {#if activePreflight}
-                      <div data-review-recipient-identity>
+                      <div data-review-recipient-identity inert={transferMutationLocked}>
                         {#key activePreflight.preflightId}<ResolvedIdentityMention
                             value={activePreflight.toAddress}
                             chainId={recipientProfileChain}

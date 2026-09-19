@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-02-21
+last_reviewed: 2026-09-19
 ---
 
 # Context pack: send flow
@@ -29,8 +29,29 @@ Read this before touching transaction send behavior.
 - dlight private send must fail safely when Sapling proving params are missing
   or checksum-invalid.
 
+## Desktop navigation
+
+- `WalletLayout` owns one in-memory transfer draft for the current wallet,
+  network and unlock session. Sidebar visits keep that wizard mounted but hidden
+  and inert. The return action restores the last focused transfer field.
+- A new Send or Convert entry point must ask before replacing a dirty draft. The
+  default dialog action resumes it. Cancel and Escape share discard protection;
+  Back from review retains the form and clears preflight state.
+- Leaving a review invalidates its permission to submit. Returning displays the
+  retained details and requires a fresh review and recipient confirmation. A
+  suspended preflight must not update the draft or settle a newer request.
+- Keep the sidebar visible throughout details, review and result. During
+  submission/recovery, disable conflicting navigation and request import; keep
+  Lock available. Wallet, network or unlock-session replacement destroys the
+  draft, and late completions must not update the replacement session.
+- Compact Send/Convert tabs occupy the top of the details view without a
+  separate title. The body scrolls independently of its header and footer;
+  Convert panels stack when the available content width is below 760px.
+
 ## Open these files first
 
+- `src/lib/components/wallet/WalletLayout.svelte`
+- `src/lib/components/shared/WalletTransferStepperShell.svelte`
 - `src/lib/components/wallet/sections/Send.svelte`
 - `src/lib/components/wallet/sections/TransferWizard.svelte`
 - `src/lib/components/wallet/sections/transfer-wizard`

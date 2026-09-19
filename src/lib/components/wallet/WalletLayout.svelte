@@ -6,6 +6,9 @@
 -->
 
 <script lang="ts">
+  import { tick } from 'svelte';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import * as Dialog from '$lib/components/ui/dialog';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
@@ -15,9 +18,8 @@
   import AppSidebar from './AppSidebar.svelte';
   import Overview from './sections/Overview.svelte';
   import AssetDetails from './sections/AssetDetails.svelte';
-  import Send from './sections/Send.svelte';
+  import TransferWizard from './sections/TransferWizard.svelte';
   import Receive from './sections/Receive.svelte';
-  import Conversions from './sections/Conversions.svelte';
   import Identity from './sections/Identity.svelte';
   import Apps from './sections/Apps.svelte';
   import Activity from './sections/Activity.svelte';
@@ -41,7 +43,10 @@
   import { i18nStore } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
-  import type { TransferEntryContext } from './sections/transfer-wizard/types';
+  import type {
+    TransferEntryContext,
+    TransferNavigationState,
+  } from './sections/transfer-wizard/types';
   import type { WalletEntrySelection } from '$lib/types/wallet';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import type { GenericRequestFlowSession } from '$lib/genericRequest/session';
@@ -72,7 +77,28 @@
   let activeSection = $state<SectionId>('overview');
   let settingsResetSignal = $state(0);
   let activeAssetDetailsEntry = $state<WalletEntrySelection | null>(null);
-  let transferEntryContext = $state<TransferEntryContext | null>(null);
+  type TransferDraft = {
+    id: number;
+    walletKey: string;
+    intent: 'send' | 'convert';
+    context: TransferEntryContext | null;
+  };
+  let transferDraft = $state<TransferDraft | null>(null);
+  let nextDraftId = 0;
+  let pendingTransfer = $state<{
+    intent: 'send' | 'convert';
+    context: TransferEntryContext | null;
+  } | null>(null);
+  let transferNavigation = $state<TransferNavigationState>({
+    mode: 'send',
+    dirty: false,
+    locked: false,
+    completed: false,
+  });
+  let transferFocus: HTMLElement | null = null;
+  let transferHost = $state<HTMLDivElement>();
+  let resumeTransferButton = $state<HTMLButtonElement | null>(null);
+  const isTransferSection = $derived(activeSection === 'send' || activeSection === 'conversions');
   let genericRequestImportOpen = $state(false);
   let genericRequestImportValue = $state('');
   let genericRequestImportBusy = $state(false);
@@ -96,11 +122,68 @@
       : i18n.t('wallet.layout.noticeTitle')
   );
   const latestErrorMessage = $derived(resolveWalletErrorMessage(latestError));
-  const isTransferFocusMode = $derived(activeSection === 'send' || activeSection === 'conversions');
   const transferWalletKey = $derived(
     transferWalletSessionKey(walletData.name, walletData.network ?? 'mainnet', walletData.sessionId)
   );
   const queuedGenericRequest = $derived($genericRequestQueueStore);
+  const currentDraft = $derived(
+    transferDraft?.walletKey === transferWalletKey ? transferDraft : null
+  );
+  const navigationLocked = $derived(!!currentDraft && transferNavigation.locked);
+
+  function navigateToSection(section: SectionId): void {
+    if (navigationLocked) return;
+    if (
+      isTransferSection &&
+      document.activeElement instanceof HTMLElement &&
+      transferHost?.contains(document.activeElement)
+    ) {
+      transferFocus = document.activeElement;
+    }
+    if (section === 'overview') activeAssetDetailsEntry = null;
+    if (section === 'settings') settingsResetSignal += 1;
+    activeSection = section;
+  }
+
+  function startTransfer(intent: 'send' | 'convert', context: TransferEntryContext | null): void {
+    transferNavigation = { mode: intent, dirty: false, locked: false, completed: false };
+    transferDraft = { id: ++nextDraftId, walletKey: transferWalletKey, intent, context };
+    transferFocus = null;
+    pendingTransfer = null;
+    activeSection = intent === 'send' ? 'send' : 'conversions';
+  }
+
+  function requestTransfer(
+    intent: 'send' | 'convert',
+    context: TransferEntryContext | null = null
+  ): void {
+    if (navigationLocked) return;
+    if (currentDraft && transferNavigation.dirty && !transferNavigation.completed) {
+      // A new entry point must never silently replace the retained payment.
+      pendingTransfer = { intent, context };
+      return;
+    }
+    startTransfer(intent, context);
+  }
+
+  async function resumeTransfer(): Promise<void> {
+    if (!currentDraft || navigationLocked) return;
+    pendingTransfer = null;
+    activeSection = transferNavigation.mode === 'convert' ? 'conversions' : 'send';
+    await tick();
+    if (transferFocus?.isConnected && !transferFocus.closest('[inert]')) transferFocus.focus();
+    else
+      transferHost
+        ?.querySelector<HTMLElement>('[data-transfer-heading], #transfer-amount')
+        ?.focus();
+  }
+
+  function closeTransfer(): void {
+    if (navigationLocked) return;
+    transferDraft = null;
+    transferFocus = null;
+    activeSection = 'overview';
+  }
 
   $effect(() => {
     const walletSessionKey = transferWalletKey;
@@ -108,12 +191,22 @@
   });
 
   $effect(() => {
-    if (activeSection === 'send' || activeSection === 'conversions') return;
-    transferEntryContext = null;
+    if (transferDraft && transferDraft.walletKey !== transferWalletKey) {
+      transferDraft = null;
+      pendingTransfer = null;
+      transferFocus = null;
+      if (isTransferSection) activeSection = 'overview';
+    }
   });
 
   $effect(() => {
-    if (!queuedGenericRequest || genericRequestImportBusy || genericRequestFlowOpen) return;
+    if (
+      !queuedGenericRequest ||
+      genericRequestImportBusy ||
+      genericRequestFlowOpen ||
+      navigationLocked
+    )
+      return;
 
     const queued = consumeQueuedGenericRequest();
     if (!queued) return;
@@ -234,41 +327,44 @@
 </script>
 
 <div class="relative h-screen overflow-hidden">
-  {#if !isTransferFocusMode}
-    <div
-      class="absolute top-0 left-0 z-40 h-11 w-[15.25rem]"
-      data-tauri-drag-region
-      aria-hidden="true"
-    ></div>
-  {/if}
+  <div
+    class="absolute top-0 left-0 z-40 h-11 w-[15.25rem]"
+    data-tauri-drag-region
+    aria-hidden="true"
+  ></div>
   <Sidebar.Provider class="h-full overflow-hidden">
-    {#if !isTransferFocusMode}
-      <AppSidebar
-        bind:activeSection
-        {walletData}
-        onOpenRequest={() => {
-          genericRequestImportError = '';
-          genericRequestImportOpen = true;
-        }}
-        onSelectOverview={() => {
-          activeAssetDetailsEntry = null;
-          transferEntryContext = null;
-          activeSection = 'overview';
-        }}
-        onSelectSettings={() => {
-          settingsResetSignal += 1;
-        }}
-      />
-    {/if}
+    <AppSidebar
+      {activeSection}
+      {walletData}
+      navigationDisabled={navigationLocked}
+      onNavigate={navigateToSection}
+      onOpenRequest={() => {
+        if (navigationLocked) return;
+        genericRequestImportError = '';
+        genericRequestImportOpen = true;
+      }}
+    />
     <Sidebar.Inset class="h-full min-h-0 min-w-0 dark:bg-app-canvas">
-      {#if !isTransferFocusMode}
-        <div
-          class={activeSection === 'address-book'
-            ? 'absolute inset-x-0 top-0 z-40 h-6'
-            : `${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
-          data-tauri-drag-region
-          aria-hidden="true"
-        ></div>
+      <div
+        class={activeSection === 'address-book' && !currentDraft
+          ? 'absolute inset-x-0 top-0 z-40 h-6'
+          : `${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
+        data-tauri-drag-region
+        aria-hidden="true"
+      ></div>
+      {#if currentDraft && !isTransferSection}
+        <div class="shrink-0 px-6 pb-2">
+          <Button variant="ghost" size="sm" class="-ml-2" onclick={resumeTransfer}>
+            <ArrowLeftIcon class="size-4" />
+            {i18n.t(
+              transferNavigation.completed
+                ? 'wallet.transfer.returnToResult'
+                : transferNavigation.mode === 'convert'
+                  ? 'wallet.transfer.resumeConvert'
+                  : 'wallet.transfer.resumeSend'
+            )}
+          </Button>
+        </div>
       {/if}
       {#if latestError}
         <div class="pointer-events-none absolute right-6 bottom-6 left-6 z-50 flex justify-end">
@@ -295,13 +391,38 @@
         </div>
       {/if}
       <main
-        class={isTransferFocusMode ||
+        class={isTransferSection ||
         activeSection === 'overview' ||
         activeSection === 'watchlist' ||
         activeSection === 'address-book'
           ? 'flex min-h-0 flex-1 overflow-hidden'
           : 'min-h-0 flex-1 overflow-auto'}
       >
+        {#if currentDraft}
+          {#key currentDraft.id}
+            <div
+              bind:this={transferHost}
+              onfocusin={(event) => {
+                if (event.target instanceof HTMLElement) transferFocus = event.target;
+              }}
+              class="h-full min-h-0 min-w-0 flex-1"
+              hidden={!isTransferSection}
+              inert={!isTransferSection}
+            >
+              <TransferWizard
+                active={isTransferSection && !genericRequestFlowOpen && !genericRequestImportOpen}
+                entryIntent={currentDraft.intent}
+                entryContext={currentDraft.context}
+                walletNetwork={walletData.network ?? 'mainnet'}
+                walletKey={transferWalletKey}
+                onNavigationStateChange={(state) => {
+                  transferNavigation = state;
+                }}
+                onClose={closeTransfer}
+              />
+            </div>
+          {/key}
+        {/if}
         {#if activeSection === 'overview'}
           {#if activeAssetDetailsEntry}
             <AssetDetails
@@ -316,12 +437,10 @@
                 activeSection = 'receive';
               }}
               onNavigateToSend={(context) => {
-                transferEntryContext = context;
-                activeSection = 'send';
+                requestTransfer('send', context);
               }}
               onNavigateToConvert={(context) => {
-                transferEntryContext = context;
-                activeSection = 'conversions';
+                requestTransfer('convert', context);
               }}
             />
           {:else}
@@ -331,44 +450,18 @@
                 activeAssetDetailsEntry = entry;
               }}
               onNavigateToSend={() => {
-                transferEntryContext = null;
-                activeSection = 'send';
+                requestTransfer('send');
               }}
               onNavigateToReceive={() => {
                 activeSection = 'receive';
               }}
               onNavigateToConvert={() => {
-                transferEntryContext = null;
-                activeSection = 'conversions';
+                requestTransfer('convert');
               }}
             />
           {/if}
-        {:else if activeSection === 'send'}
-          {#key transferWalletKey}
-            <Send
-              entryContext={transferEntryContext}
-              walletNetwork={walletData.network ?? 'mainnet'}
-              walletKey={transferWalletKey}
-              onClose={() => {
-                activeSection = 'overview';
-                transferEntryContext = null;
-              }}
-            />
-          {/key}
         {:else if activeSection === 'receive'}
           <Receive />
-        {:else if activeSection === 'conversions'}
-          {#key transferWalletKey}
-            <Conversions
-              entryContext={transferEntryContext}
-              walletNetwork={walletData.network ?? 'mainnet'}
-              walletKey={transferWalletKey}
-              onClose={() => {
-                activeSection = 'overview';
-                transferEntryContext = null;
-              }}
-            />
-          {/key}
         {:else if activeSection === 'identity'}
           {#key identitySectionWalletKey}
             <Identity
@@ -402,6 +495,43 @@
       </main>
     </Sidebar.Inset>
   </Sidebar.Provider>
+
+  <Dialog.Root
+    open={pendingTransfer !== null}
+    onOpenChange={(open) => {
+      if (!open) pendingTransfer = null;
+    }}
+  >
+    <Dialog.Content
+      class="max-w-md"
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        resumeTransferButton?.focus();
+      }}
+      onCloseAutoFocus={(event) => {
+        if (isTransferSection) event.preventDefault();
+      }}
+    >
+      <Dialog.Header>
+        <Dialog.Title>{i18n.t('wallet.transfer.existingDraftTitle')}</Dialog.Title>
+        <Dialog.Description>{i18n.t('wallet.transfer.existingDraftDescription')}</Dialog.Description
+        >
+      </Dialog.Header>
+      <Dialog.Footer>
+        <Button
+          variant="secondary"
+          onclick={() => {
+            if (pendingTransfer) startTransfer(pendingTransfer.intent, pendingTransfer.context);
+          }}
+        >
+          {i18n.t('wallet.transfer.replaceDraft')}
+        </Button>
+        <Button bind:ref={resumeTransferButton} onclick={resumeTransfer}
+          >{i18n.t('wallet.transfer.resumeDraft')}</Button
+        >
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
 
   <GenericRequestImportSheet
     bind:isOpen={genericRequestImportOpen}

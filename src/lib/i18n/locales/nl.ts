@@ -764,6 +764,17 @@ export const nl: Record<string, string> = {
   'wallet.manageAssets.saving': 'Opslaan…',
   'wallet.send.memoLabel': 'Memo (optioneel)',
   'wallet.send.memoPlaceholder': 'Memo',
+  'wallet.transfer.resumeSend': 'Terug naar versturen',
+  'wallet.transfer.resumeConvert': 'Terug naar omwisselen',
+  'wallet.transfer.returnToResult': 'Terug naar transactieresultaat',
+  'wallet.transfer.existingDraftTitle': 'Je transactie hervatten?',
+  'wallet.transfer.existingDraftDescription':
+    'Je hebt een onvoltooide transactie. Als je een nieuwe start, vervalt dat concept.',
+  'wallet.transfer.replaceDraft': 'Nieuwe transactie starten',
+  'wallet.transfer.resumeDraft': 'Transactie hervatten',
+  'wallet.transfer.refreshReview': 'Controle vernieuwen',
+  'wallet.transfer.reviewRefreshRequired':
+    'Vernieuw de controle voordat je verstuurt. Kosten en beschikbaarheid kunnen zijn gewijzigd.',
   'wallet.transfer.closeDiscardTitle': 'Transfer verwerpen?',
   'wallet.transfer.closeDiscardDescription': 'Je voortgang in deze transfer gaat verloren.',
   'wallet.transfer.closeDiscardConfirm': 'Transfer verwerpen',

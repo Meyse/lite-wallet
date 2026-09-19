@@ -2,10 +2,12 @@
 
 import { mount, tick, unmount } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CoinDefinition, CoinScope, PreflightResult } from '$lib/types/wallet';
+import type { CoinDefinition, CoinScope, PreflightResult, SendResult } from '$lib/types/wallet';
 
 const mocks = vi.hoisted(() => ({
   preflightSend: vi.fn(),
+  sendTransaction: vi.fn(),
+  forceWalletToUnlock: vi.fn(),
   getPendingEthSubmission: vi.fn(),
   getDisplayCoinScopes: vi.fn(),
   getAddresses: vi.fn(),
@@ -18,7 +20,7 @@ vi.mock('$lib/services/txService.js', () => ({
   getPendingEthSubmission: mocks.getPendingEthSubmission,
   preflightSend: mocks.preflightSend,
   resumePendingEthSubmission: vi.fn(),
-  sendTransaction: vi.fn(),
+  sendTransaction: mocks.sendTransaction,
 }));
 
 vi.mock('$lib/services/walletDisplayService.js', () => ({
@@ -47,11 +49,9 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 vi.mock('$lib/services/walletLockCoordinator.js', () => ({
   isForcedWalletLockError: () => false,
+  forceWalletToUnlock: mocks.forceWalletToUnlock,
 }));
 
-vi.mock('$lib/components/wallet/AppSidebar.svelte', async () => ({
-  default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
-}));
 vi.mock('$lib/components/wallet/sections/Overview.svelte', async () => ({
   default: (await import('./test-fixtures/OverviewNavigateStub.svelte')).default,
 }));
@@ -366,6 +366,8 @@ beforeEach(() => {
   ratesStore.set({});
   addressBookStore.set([]);
   mocks.preflightSend.mockReset();
+  mocks.sendTransaction.mockReset();
+  mocks.forceWalletToUnlock.mockReset().mockResolvedValue(undefined);
   mocks.getPendingEthSubmission.mockReset().mockResolvedValue(null);
   mocks.getDisplayCoinScopes.mockReset().mockResolvedValue({ coinId: 'ETH', scopes: [ethScope] });
   mocks.getAddresses.mockReset().mockResolvedValue({
@@ -516,6 +518,10 @@ describe('production transfer preflight session lifecycle', () => {
         expect(oldAmountInput).not.toBeNull();
 
         click(target, replacementSelector);
+        await settle();
+        expect(oldAmountInput?.isConnected).toBe(false);
+        expect(target.querySelector('#transfer-amount')).toBeNull();
+        click(target, '[data-open-production-send]');
         await fillAndStartPreflight(target);
         expect(target.querySelector('#transfer-amount')).not.toBe(oldAmountInput);
         expect(disposeSpy).toHaveBeenCalledTimes(1);
@@ -537,4 +543,185 @@ describe('production transfer preflight session lifecycle', () => {
       }
     }
   );
+});
+
+function buttonNamed(name: string, root: Document | Element = document): HTMLButtonElement {
+  const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === name
+  );
+  if (!button) throw new Error(`Missing button: ${name}`);
+  return button;
+}
+
+async function mountNavigationDraft() {
+  const target = document.createElement('div');
+  document.body.append(target);
+  const component = mount(WalletLayoutLifecycleHarness, { target });
+  await settle();
+  click(target, '[data-open-production-send]');
+  await waitFor(() => target.querySelector('#transfer-amount') !== null, 'draft entry');
+  return { target, component };
+}
+
+describe('sidebar transfer navigation', () => {
+  it('retains exact inputs across sections, restores focus and isolates Escape', async () => {
+    const { target, component } = await mountNavigationDraft();
+    try {
+      enter(target, '#transfer-amount', '0.125');
+      enter(target, '#transfer-recipient', destinationAddress);
+      await settle();
+      const recipient = target.querySelector<HTMLInputElement>('#transfer-recipient');
+      if (!recipient) throw new Error('Missing recipient field');
+      recipient.focus();
+      buttonNamed('Contacts', target).click();
+      await settle();
+      expect(recipient.closest('[hidden]')).not.toBeNull();
+      expect((recipient.closest('[hidden]') as HTMLElement).inert).toBe(true);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(document.body.textContent).not.toContain('Discard transfer?');
+      buttonNamed('Activity', target).click();
+      await settle();
+      buttonNamed('Back to send', target).click();
+      await settle();
+      expect(target.querySelector('#transfer-recipient')).toBe(recipient);
+      expect(recipient.value).toBe(destinationAddress);
+      expect(target.querySelector<HTMLInputElement>('#transfer-amount')?.value).toBe('0.125');
+      expect(document.activeElement).toBe(recipient);
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('requires explicit draft replacement when another entry point starts a payment', async () => {
+    const { target, component } = await mountNavigationDraft();
+    try {
+      enter(target, '#transfer-amount', '0.125');
+      await settle();
+      const input = target.querySelector('#transfer-amount');
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      click(target, '[data-open-production-send]');
+      await settle();
+      expect(document.body.textContent).toContain('Resume your transfer?');
+      buttonNamed('Resume transfer').click();
+      await settle();
+      expect(target.querySelector('#transfer-amount')).toBe(input);
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      click(target, '[data-open-production-send]');
+      await settle();
+      buttonNamed('Start new transfer').click();
+      await settle();
+      expect(input?.isConnected).toBe(false);
+      expect(target.querySelector<HTMLInputElement>('#transfer-amount')?.value).toBe('');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('uses the same discard protection for footer Cancel and Escape', async () => {
+    const { target, component } = await mountNavigationDraft();
+    try {
+      enter(target, '#transfer-amount', '0.125');
+      await settle();
+      buttonNamed('Cancel', target).click();
+      await settle();
+      expect(document.body.textContent).toContain('Discard transfer?');
+      const dialog = document.querySelector('[role="dialog"]');
+      if (!dialog) throw new Error('Missing discard dialog');
+      buttonNamed('Cancel', dialog).click();
+      await settle();
+      expect(target.querySelector<HTMLInputElement>('#transfer-amount')?.value).toBe('0.125');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(document.body.textContent).toContain('Discard transfer?');
+      buttonNamed('Discard transfer').click();
+      await settle();
+      expect(target.querySelector('#transfer-amount')).toBeNull();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('requires a new review after returning, then keeps navigation visible but blocked during submission', async () => {
+    mocks.preflightSend
+      .mockResolvedValueOnce(preflightResult('first', '0.0001'))
+      .mockResolvedValueOnce(preflightResult('refreshed', '0.0002'));
+    const submission = deferred<SendResult>();
+    mocks.sendTransaction.mockReturnValue(submission.promise);
+    const { target, component } = await mountNavigationDraft();
+    try {
+      await fillAndStartPreflight(target);
+      buttonNamed('Contacts', target).click();
+      await settle();
+      buttonNamed('Back to send', target).click();
+      await settle();
+      expect(target.textContent).toContain('Refresh the review before sending.');
+      expect(target.querySelector('[data-transfer-review-amount]')).not.toBeNull();
+      expect(mocks.sendTransaction).not.toHaveBeenCalled();
+      buttonNamed('Refresh review', target).click();
+      await settle();
+      expect(target.textContent).toContain('0.0002 ETH');
+      expect(mocks.sendTransaction).not.toHaveBeenCalled();
+      const ack = target.querySelector<HTMLButtonElement>('#review-unsaved-recipient-footer');
+      ack?.click();
+      await settle();
+      buttonNamed('Send now', target).click();
+      await settle();
+      expect(mocks.sendTransaction).toHaveBeenCalledExactlyOnceWith({ preflightId: 'refreshed' });
+      const contacts = buttonNamed('Contacts', target);
+      expect(contacts.getAttribute('aria-disabled')).toBe('true');
+      contacts.click();
+      await settle();
+      expect(target.querySelector('[data-transfer-review-amount]')?.closest('[hidden]')).toBeNull();
+      expect(buttonNamed('Lock', target).disabled).toBe(false);
+      submission.resolve({
+        txid: 'f'.repeat(64),
+        fromAddress: sourceAddress,
+        toAddress: destinationAddress,
+        value: '0.25',
+        fee: '0.0002',
+      });
+      await settle();
+      expect(contacts.getAttribute('aria-disabled')).toBe('false');
+      contacts.click();
+      await settle();
+      expect(target.textContent).toContain('Back to transfer result');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('ignores a suspended preflight completion without settling the new request', async () => {
+    const oldRequest = deferred<PreflightResult>();
+    const newRequest = deferred<PreflightResult>();
+    mocks.preflightSend
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise);
+    const { target, component } = await mountNavigationDraft();
+    try {
+      await fillAndStartPreflight(target);
+      buttonNamed('Contacts', target).click();
+      await settle();
+      buttonNamed('Back to send', target).click();
+      await settle();
+      clickReviewSend(target);
+      await settle();
+      oldRequest.resolve(preflightResult('old', '0.9999'));
+      await settle();
+      expect(target.textContent).not.toContain('0.9999');
+      expect(buttonNamed('Preparing review…', target).disabled).toBe(true);
+      newRequest.resolve(preflightResult('new', '0.0003'));
+      await settle();
+      expect(target.textContent).toContain('0.0003 ETH');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
 });

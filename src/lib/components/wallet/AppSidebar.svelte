@@ -52,12 +52,16 @@
     onSelectOverview = () => {},
     onSelectSettings = () => {},
     onOpenRequest = () => {},
+    onNavigate,
+    navigationDisabled = false,
   }: {
     activeSection?: SectionId;
     walletData: WalletData;
     onSelectOverview?: () => void;
     onSelectSettings?: () => void;
     onOpenRequest?: () => void;
+    onNavigate?: (section: SectionId) => void;
+    navigationDisabled?: boolean;
   } = $props();
 
   const i18n = $derived($i18nStore);
@@ -98,6 +102,11 @@
   }
 
   function handleMenuClick(itemId: MenuItem['id']): void {
+    if (navigationDisabled) return;
+    if (onNavigate) {
+      onNavigate(itemId);
+      return;
+    }
     if (itemId === 'overview') {
       onSelectOverview();
     }
@@ -105,12 +114,21 @@
   }
 
   function handleSettingsClick(): void {
+    if (navigationDisabled) return;
+    if (onNavigate) {
+      onNavigate('settings');
+      return;
+    }
     onSelectSettings();
     activeSection = 'settings';
   }
 </script>
 
-<Sidebar.Root class="[--sidebar:var(--sidebar-surface)]">
+<Sidebar.Root
+  collapsible="none"
+  data-sidebar="sidebar"
+  class="shrink-0 border-r border-sidebar-border [--sidebar:var(--sidebar-surface)]"
+>
   <Sidebar.Header class="px-3 pt-11 pb-1">
     <div class="flex items-center gap-2 px-2 py-1.5">
       <div
@@ -135,6 +153,7 @@
                 size="sm"
                 class={menuButtonClass}
                 isActive={isMenuItemActive(item.id)}
+                aria-disabled={navigationDisabled}
                 onclick={() => handleMenuClick(item.id)}
                 tooltipContent={item.title}
               >
@@ -158,6 +177,7 @@
               class={footerButtonClass}
               aria-label={i18n.t('wallet.sidebar.openRequest')}
               onclick={onOpenRequest}
+              disabled={navigationDisabled}
             >
               <Link2Icon class="size-4" />
               <span>{i18n.t('wallet.sidebar.openRequest')}</span>
@@ -168,6 +188,7 @@
               size="sm"
               class={menuButtonClass}
               isActive={activeSection === 'settings'}
+              aria-disabled={navigationDisabled}
               onclick={handleSettingsClick}
               tooltipContent={i18n.t('wallet.topbar.settings')}
             >

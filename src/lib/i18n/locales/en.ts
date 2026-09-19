@@ -751,6 +751,17 @@ export const en: Record<string, string> = {
   'wallet.manageAssets.saving': 'Saving…',
   'wallet.send.memoLabel': 'Memo (optional)',
   'wallet.send.memoPlaceholder': 'Memo',
+  'wallet.transfer.resumeSend': 'Back to send',
+  'wallet.transfer.resumeConvert': 'Back to convert',
+  'wallet.transfer.returnToResult': 'Back to transfer result',
+  'wallet.transfer.existingDraftTitle': 'Resume your transfer?',
+  'wallet.transfer.existingDraftDescription':
+    'You have an unfinished transfer. Starting a new one discards that draft.',
+  'wallet.transfer.replaceDraft': 'Start new transfer',
+  'wallet.transfer.resumeDraft': 'Resume transfer',
+  'wallet.transfer.refreshReview': 'Refresh review',
+  'wallet.transfer.reviewRefreshRequired':
+    'Refresh the review before sending. Fees and availability may have changed.',
   'wallet.transfer.closeDiscardTitle': 'Discard transfer?',
   'wallet.transfer.closeDiscardDescription': 'Your transfer progress will be lost.',
   'wallet.transfer.closeDiscardConfirm': 'Discard transfer',

@@ -20,3 +20,10 @@ export type TransferEntryContext = {
   readOnly: boolean;
   scopeKind: ScopeKind;
 };
+
+export type TransferNavigationState = {
+  mode: 'send' | 'convert';
+  dirty: boolean;
+  locked: boolean;
+  completed: boolean;
+};
