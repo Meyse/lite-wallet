@@ -37,7 +37,7 @@
     showEntryModeTabs = true,
     onInputChanged = defaultOnInputChanged,
     onNormalizedChanged = defaultOnNormalizedChanged,
-    onValidityChanged = defaultOnValidityChanged
+    onValidityChanged = defaultOnValidityChanged,
   }: SeedPhraseStepProps = $props();
 
   let entryMode = $state<EntryMode>('paste');
@@ -105,12 +105,7 @@
   }
 
   function normalizeSeedPhrase(value: string): string {
-    return value
-      .toLowerCase()
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .join(' ');
+    return value.toLowerCase().trim().split(/\s+/).filter(Boolean).join(' ');
   }
 
   function normalizeWord(value: string): string {
@@ -278,9 +273,7 @@
     if (event.key === 'ArrowDown' && suggestions.length > 0) {
       event.preventDefault();
       highlightedSuggestionIndex =
-        highlightedSuggestionIndex < 0
-          ? 0
-          : (highlightedSuggestionIndex + 1) % suggestions.length;
+        highlightedSuggestionIndex < 0 ? 0 : (highlightedSuggestionIndex + 1) % suggestions.length;
       return;
     }
 
@@ -400,7 +393,7 @@
     (async () => {
       try {
         const validMnemonic = await invoke<boolean>('validate_mnemonic', {
-          seed_phrase: normalized
+          seed_phrase: normalized,
         });
         if (currentRun !== validationRunId) return;
         validationErrorKey = validMnemonic ? '' : 'walletImport.seed.error.invalid';
@@ -465,7 +458,7 @@
           <button
             type="button"
             onclick={() => selectWordSlot(index)}
-            class="focus-visible:ring-ring/50 h-10 rounded-md border px-1 text-left outline-none focus-visible:ring-[3px] {currentWordIndex ===
+            class="h-10 rounded-md border px-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 {currentWordIndex ===
             index
               ? 'border-foreground/30 bg-muted text-foreground'
               : word
@@ -488,14 +481,14 @@
           <span>
             {i18n.t('walletImport.seed.currentWordProgress', {
               current: currentWordIndex + 1,
-              total: REQUIRED_WORDS
+              total: REQUIRED_WORDS,
             })}
           </span>
           <button
             type="button"
             onclick={clearCurrentWord}
             disabled={!words[currentWordIndex]}
-            class="hover:text-foreground disabled:text-muted-foreground/50 text-xs font-medium transition-colors disabled:cursor-not-allowed"
+            class="rounded-sm text-xs font-medium text-text-action transition-colors hover:text-text-action hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:text-muted-foreground/50 disabled:hover:no-underline"
           >
             {i18n.t('walletImport.seed.clearWord')}
           </button>
@@ -529,7 +522,7 @@
               <div
                 id="wallet-import-suggestions"
                 role="listbox"
-                class="bg-popover border-input absolute right-0 bottom-full left-0 z-20 mb-1 max-h-40 overflow-y-auto rounded-md border py-1 shadow-lg"
+                class="absolute right-0 bottom-full left-0 z-20 mb-1 max-h-40 overflow-y-auto rounded-md border border-input bg-popover py-1 shadow-lg"
               >
                 {#each suggestions as suggestion, index}
                   <button
@@ -540,7 +533,7 @@
                       event.preventDefault();
                     }}
                     onclick={() => chooseSuggestion(index)}
-                    class="hover:bg-accent hover:text-accent-foreground flex h-8 w-full items-center px-3 text-left text-sm {index ===
+                    class="flex h-8 w-full items-center px-3 text-left text-sm hover:bg-accent hover:text-accent-foreground {index ===
                     highlightedSuggestionIndex
                       ? 'bg-accent text-accent-foreground'
                       : 'text-popover-foreground'}"
@@ -561,19 +554,29 @@
   </Tabs.Root>
 
   <div class="space-y-2">
-    <div class="text-muted-foreground flex items-center justify-between text-xs">
+    <div class="flex items-center justify-between text-xs text-muted-foreground">
       <span>{i18n.t('walletImport.seed.wordCountLabel')}</span>
-      <span>{i18n.t('walletImport.seed.wordCount', { current: wordCount, required: REQUIRED_WORDS })}</span>
+      <span
+        >{i18n.t('walletImport.seed.wordCount', {
+          current: wordCount,
+          required: REQUIRED_WORDS,
+        })}</span
+      >
     </div>
 
     {#if entryErrorMessage}
-      <p class="text-destructive min-h-5 text-xs" aria-live="polite">{entryErrorMessage}</p>
+      <p class="min-h-5 text-xs text-destructive" aria-live="polite">{entryErrorMessage}</p>
     {:else if validationMessage}
-      <p class={"min-h-5 text-xs " + (isValidating ? 'text-muted-foreground' : 'text-destructive')} aria-live="polite">
+      <p
+        class={'min-h-5 text-xs ' + (isValidating ? 'text-muted-foreground' : 'text-destructive')}
+        aria-live="polite"
+      >
         {validationMessage}
       </p>
     {:else if entryMode === 'manual' && wordListErrorKey}
-      <p class="text-muted-foreground min-h-5 text-xs" aria-live="polite">{i18n.t(wordListErrorKey)}</p>
+      <p class="min-h-5 text-xs text-muted-foreground" aria-live="polite">
+        {i18n.t(wordListErrorKey)}
+      </p>
     {:else}
       <p class="min-h-5 text-xs"></p>
     {/if}

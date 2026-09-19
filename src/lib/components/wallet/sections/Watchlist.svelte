@@ -412,9 +412,9 @@
             {/if}
           </span>
           <Button
-            variant="ghost"
+            variant="link"
             size="sm"
-            class="h-7 px-2 text-xs text-settings-muted-foreground"
+            class="h-7 px-2 text-xs"
             disabled={refreshing}
             onclick={() => void refreshAll()}
           >

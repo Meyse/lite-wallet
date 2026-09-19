@@ -7,6 +7,7 @@
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -4123,7 +4124,7 @@
                     />
                     <button
                       type="button"
-                      class="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                      class="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold text-text-action transition-colors hover:text-text-action hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
                       onclick={pasteRecipientAddress}
                       aria-label={i18n.t('wallet.transfer.recipient.paste')}
                       title={i18n.t('wallet.transfer.recipient.paste')}
@@ -4652,13 +4653,13 @@
                     class="mt-1 block text-xs leading-5"
                   />
                   <div class="mt-2 flex flex-wrap items-center gap-4">
-                    <InlineTextActionButton
+                    <CopyButton
+                      size="xs"
+                      copied={copiedSuccessField === 'txid'}
                       onclick={() => copySuccessFieldValue(submittedResult.txid, 'txid')}
-                    >
-                      {copiedSuccessField === 'txid'
-                        ? i18n.t('wallet.transfer.receipt.copied')
-                        : i18n.t('wallet.transfer.receipt.copy')}
-                    </InlineTextActionButton>
+                      aria-label={i18n.t('wallet.receive.copy')}
+                      title={i18n.t('wallet.receive.copy')}
+                    />
                     {#if submittedExplorerUrl}
                       <InlineTextActionButton
                         onclick={() => void openTrustedExternalUrl(submittedExplorerUrl)}
@@ -4857,7 +4858,7 @@
                   <div class="min-w-0 flex-1">
                     <p
                       class="truncate text-[15px] leading-tight font-medium {option.contactIdentity
-                        ? 'text-primary dark:text-settings-focus-ring'
+                        ? 'text-text-action'
                         : ''}"
                     >
                       {option.contactName}

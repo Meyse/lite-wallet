@@ -582,7 +582,7 @@
   }
 </script>
 
-<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 pb-6 sm:px-8">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pb-6">
   <section
     class="min-h-0 flex-1 flex-col overflow-hidden"
     class:flex={!showAddAssetSheet}

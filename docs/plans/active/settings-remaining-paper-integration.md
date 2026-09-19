@@ -122,7 +122,7 @@ Paths below are relative to the repository root.
 | `src/lib/components/common/IdentifierText.svelte`                   | Existing raw value display                                                       |
 | `src/lib/components/common/CommunityHangoutButton.svelte`           | Existing community destination/open behavior                                     |
 | `src/lib/components/common/DropdownSelectTrigger.svelte`            | Shared dropdown treatment                                                        |
-| `src/lib/components/ui/sheet`, `scroll-area`, `copy-action-button`  | Reusable interaction primitives                                                  |
+| `src/lib/components/ui/sheet`, `scroll-area`, `copy-button`         | Reusable interaction primitives                                                  |
 | `src/lib/utils/appInfo.ts`, `clipboard-feedback.svelte.ts`          | Runtime metadata and truthful clipboard feedback                                 |
 | `src/lib/services/walletService.ts`, `src/lib/types/wallet.ts`      | Existing command contracts and result types                                      |
 | `src-tauri/src/commands/wallet.rs`                                  | Read to verify setup and recovery semantics; backend changes are not the default |

@@ -2,7 +2,7 @@
   import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
-  import { CopyActionButton, type CopyActionState } from '$lib/components/ui/copy-action-button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import { i18nStore } from '$lib/i18n';
   import type { GuardFlowMode } from './types';
   import type { GuardSendResult } from '$lib/types/wallet.js';
@@ -11,7 +11,7 @@
     mode: GuardFlowMode;
     sendResult: GuardSendResult | null;
     errorMessage?: string;
-    copyStatus?: CopyActionState | 'idle';
+    copyStatus?: 'idle' | 'copied' | 'failed';
     onCopyTxid?: () => void;
   };
 
@@ -69,15 +69,16 @@
     <div class="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-4 text-left">
       <p class="text-xs text-muted-foreground">{i18n.t('guard.flow.result.txidLabel')}</p>
       <IdentifierText value={sendResult.txid} mode="full" class="block text-sm text-foreground" />
-      <CopyActionButton
-        state={copyStatus}
-        variant="outline"
-        size="sm"
-        onclick={onCopyTxid}
-        label={i18n.t('guard.flow.result.copyTxid')}
-        copiedLabel={i18n.t('guard.flow.result.copySuccess')}
-        failedLabel={i18n.t('guard.flow.result.copyFailed')}
-      />
+      <div class="flex justify-end">
+        <CopyButton
+          copied={copyStatus === 'copied'}
+          variant="outline"
+          size="sm"
+          onclick={onCopyTxid}
+          aria-label={i18n.t('guard.flow.result.copyTxid')}
+          title={i18n.t('guard.flow.result.copyTxid')}
+        />
+      </div>
     </div>
   {/if}
 </div>

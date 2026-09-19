@@ -411,7 +411,7 @@
                   : i18n.t('wallet.identity.profile.editor.choose')}
               </Button>
               {#if sourceFile && avatarMode === 'set'}
-                <Button variant="ghost" onclick={() => (cropAdjusting = !cropAdjusting)}>
+                <Button variant="link" onclick={() => (cropAdjusting = !cropAdjusting)}>
                   {i18n.t('wallet.identity.profile.editor.adjust')}
                 </Button>
               {/if}

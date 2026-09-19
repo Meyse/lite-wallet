@@ -25,6 +25,8 @@ const FORM_PRIMITIVE_PATTERN = new RegExp(`<(${governedFormPrimitives.join('|')}
 const HAND_CURSOR_PATTERN =
   /\bcursor-(?:pointer\b|\[(?:pointer|hand)\])|\bcursor\s*:\s*['"]?(?:pointer|hand)\b/g;
 const DIRECT_STATIC_IDENTIFIER_PATTERN = /<(?!Input\b)[^>]*\bidentifier-text\b[^>]*>/gs;
+const LABELED_COPY_ACTION_PATTERN =
+  /<CopyActionButton\b|from\s+['"][^'"]*copy-action-button(?:\/index)?['"]/g;
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const violations = [];
@@ -119,6 +121,21 @@ function walk(currentPath) {
         value: `<${tagName}>`,
         defaultRule: 'ui/form-primitive-outside-ui-layer',
         message: `Use the local ${tagName === 'label' ? 'Label' : tagName} primitive from src/lib/components/ui instead of a raw <${tagName}> in feature code.`,
+      });
+    }
+  }
+
+  if (!relativePath.startsWith('src/lib/components/ui/copy-action-button/')) {
+    for (const match of source.matchAll(LABELED_COPY_ACTION_PATTERN)) {
+      pushViolation({
+        file: relativePath,
+        lineStarts,
+        source,
+        index: match.index ?? 0,
+        value: match[0],
+        defaultRule: 'ui/labeled-copy-action',
+        message:
+          'Use the icon-only CopyButton. Visible Copy/Copied labels are not part of the wallet UI.',
       });
     }
   }

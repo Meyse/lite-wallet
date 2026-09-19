@@ -717,7 +717,7 @@
           </div>
 
           <Button
-            variant="ghost"
+            variant="link"
             size="sm"
             class="shrink-0 gap-2"
             onclick={() => void loadProvisioningJobs(true)}
@@ -774,7 +774,7 @@
                     {#if job.infoUri}
                       <button
                         type="button"
-                        class="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                        class="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-text-action hover:text-text-action hover:underline"
                         onclick={() => void openProvisioningInfo(job.infoUri ?? '')}
                       >
                         <ExternalLinkIcon class="size-3.5" />

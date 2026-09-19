@@ -24,11 +24,14 @@ appearing without first deciding that they are now part of the style.
   `src/lib/components/ui/label`.
 - Standard icon-only copy actions should use the local `CopyButton` primitive in
   `src/lib/components/ui/copy-button`.
-- Standard labeled copy actions should use the local `CopyActionButton`
-  primitive in `src/lib/components/ui/copy-action-button`.
+- Copy actions never render `Copy`, `Copied`, or an equivalent label in the
+  interface. Use `CopyButton` for the icon and changed-icon feedback, with a
+  localized accessible name and tooltip.
 - Standard inline text actions should use the local `InlineTextActionButton`
   primitive in `src/lib/components/common/InlineTextActionButton.svelte` instead
-  of ad hoc underlined buttons or links.
+  of ad hoc underlined buttons or links. Its default accent is `text-action`;
+  use its muted and destructive tones only when the action's meaning requires
+  those semantic states.
 
 ## Native cursor convention
 
@@ -75,6 +78,7 @@ component.
 | `sidebar-item-hover`             | `#E0E0E0` | `#36373B` | Sidebar hover state                          |
 | `sidebar-item-pressed`           | `#D8D8D8` | `#323338` | Sidebar pressed state                        |
 | `sidebar-item-active`            | `#E5E5E5` | `#303136` | Sidebar active state                         |
+| `text-action`                    | `#3165D4` | `#89AEFF` | Standalone, non-destructive text actions     |
 | `guard-revoke`                   | `#D4313E` | `#D4313E` | Guard revoke accent                          |
 | `guard-recover`                  | `#4AA658` | `#4AA658` | Guard recover accent                         |
 | `brand-discord`                  | `#5865F2` | `#5865F2` | Community hangout background                 |
@@ -107,6 +111,8 @@ partial-total, and hide/show states; Paper sample amounts are not app data.
 - `pnpm lint:ui` rejects direct static `identifier-text` classes so identifier
   display behavior stays centralized in `IdentifierText`. Editable `Input`
   fields remain the exception.
+- `pnpm lint:ui` rejects the labeled `CopyActionButton` outside its legacy
+  component directory. Use `CopyButton` instead.
 - The linter fails when a color is outside the approved palette or when an
   approved color is declared outside its token or registry source file.
 - Context-specific errors are surfaced for inline styles and arbitrary Tailwind
