@@ -44,7 +44,7 @@
 
 <div class="mt-4 flex h-9 items-center gap-3" data-testid="overview-asset-tools">
   <div
-    class={`flex h-[34px] min-w-0 shrink items-center gap-2 rounded-md bg-muted px-2.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/60 ${preferences.withBalance ? 'w-64' : 'w-72'}`}
+    class={`flex h-[34px] min-w-0 shrink items-center gap-2 rounded-md bg-muted px-2.5 focus-within:ring-2 focus-within:ring-ring/60 focus-within:ring-inset ${preferences.withBalance ? 'w-64' : 'w-72'}`}
   >
     <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     <div class="min-w-0 flex-1">
@@ -154,7 +154,7 @@
           checked={preferences.withBalance}
           onCheckedChange={(withBalance) => onPreferencesChange({ ...preferences, withBalance })}
           closeOnSelect={false}
-          class="h-12 rounded-none border-t border-input px-2.5 py-0 text-[13px] leading-4 [&>span:first-child]:hidden"
+          class="h-12 rounded-b-[5px] border-t border-input py-0 ps-2.5 pe-2.5 text-[13px] leading-4 [&>span:first-child]:hidden"
         >
           <span class="flex-1">{i18n.t('wallet.overview.withBalance')}</span>
           <span
