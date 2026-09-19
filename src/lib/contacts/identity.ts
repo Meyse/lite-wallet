@@ -1,4 +1,8 @@
-import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
+import type {
+  AddressBookContact,
+  AddressBookEndpoint,
+  ContactIdentity,
+} from '$lib/types/addressBook';
 import type { WalletNetwork } from '$lib/types/wallet';
 
 export function contactChainId(network: WalletNetwork): string {
@@ -25,6 +29,25 @@ export function contactProfile(contact: AddressBookContact): ContactIdentity | n
 
 export function contactName(contact: AddressBookContact): string {
   return contactProfile(contact)?.fullyQualifiedName ?? contact.displayName;
+}
+
+export function endpointIdentity(
+  contact: Pick<AddressBookContact, 'identities'>,
+  endpoint: Pick<AddressBookEndpoint, 'kind' | 'address'>
+): ContactIdentity | undefined {
+  if (endpoint.kind !== 'vrpc') return undefined;
+  return contact.identities?.find(
+    (identity) =>
+      identity.identityAddress === endpoint.address ||
+      identity.fullyQualifiedName.toLowerCase() === endpoint.address.trim().toLowerCase()
+  );
+}
+
+export function contactEndpointName(
+  contact: AddressBookContact,
+  endpoint: AddressBookEndpoint
+): string {
+  return endpointIdentity(contact, endpoint)?.fullyQualifiedName ?? endpoint.address;
 }
 
 export function matchingContacts(

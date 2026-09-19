@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { AddressBookContact } from '$lib/types/addressBook';
-  import { contactName, contactProfile } from '$lib/contacts/identity';
+  import {
+    contactEndpointName,
+    contactName,
+    contactProfile,
+    endpointIdentity,
+    identityKey,
+  } from '$lib/contacts/identity';
   import { i18nStore } from '$lib/i18n';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { CopyButton } from '$lib/components/ui/copy-button';
@@ -12,6 +18,12 @@
   const i18n = $derived($i18nStore);
   const identity = $derived(contactProfile(contact));
   const name = $derived(contactName(contact));
+  const endpoints = $derived(
+    contact.endpoints.filter((endpoint) => {
+      const associated = endpointIdentity(contact, endpoint);
+      return !identity || !associated || identityKey(identity) !== identityKey(associated);
+    })
+  );
   const copied = new TimedValueState<string>();
   async function copy(address: string, id: string) {
     if (await writeClipboardText(address)) copied.set(id, 1800);
@@ -22,7 +34,16 @@
   <div class="relative min-w-0">
     {#if actions}<div class="absolute top-0 right-0 z-10">{@render actions()}</div>{/if}
     {#if identity}
-      <PublicProfile {identity} />
+      <PublicProfile {identity}>
+        {#snippet nameAction()}
+          <CopyButton
+            copied={copied.current === 'identity'}
+            onclick={() => copy(identity!.fullyQualifiedName, 'identity')}
+            title={i18n.t('wallet.contacts.copyIdentity')}
+            aria-label={i18n.t('wallet.contacts.copyIdentity')}
+          />
+        {/snippet}
+      </PublicProfile>
     {:else}
       <div class="space-y-6">
         <ContactAvatar {name} class="size-16 text-[22px]" />
@@ -30,28 +51,25 @@
       </div>
     {/if}
   </div>
-  <div class="divide-y divide-border/70 border-y border-border/70">
-    {#each contact.endpoints as endpoint (endpoint.id)}
-      <div class="flex min-w-0 items-center gap-3 py-[18px]">
-        <div class="min-w-0 flex-1 space-y-1.5">
-          <p class="text-xs leading-4 text-settings-muted-foreground">
-            {i18n.t(`wallet.addressBook.network.${endpoint.kind}`)}
-          </p>
-          <IdentifierText
-            value={endpoint.address}
-            mode="full"
-            class="block text-[13px] leading-5"
+  {#if endpoints.length}<div class="divide-y divide-border/70 border-y border-border/70">
+      {#each endpoints as endpoint (endpoint.id)}
+        {@const address = contactEndpointName(contact, endpoint)}
+        <div class="flex min-w-0 items-center gap-3 py-[18px]">
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <p class="text-xs leading-4 text-settings-muted-foreground">
+              {i18n.t(`wallet.addressBook.network.${endpoint.kind}`)}
+            </p>
+            <IdentifierText value={address} mode="full" class="block text-[13px] leading-5" />
+          </div>
+          <CopyButton
+            copied={copied.current === endpoint.id}
+            onclick={() => copy(address, endpoint.id)}
+            title={i18n.t('wallet.receive.copy')}
+            aria-label={i18n.t('wallet.receive.copy')}
           />
         </div>
-        <CopyButton
-          copied={copied.current === endpoint.id}
-          onclick={() => copy(endpoint.address, endpoint.id)}
-          title={i18n.t('wallet.receive.copy')}
-          aria-label={i18n.t('wallet.receive.copy')}
-        />
-      </div>
-    {/each}
-  </div>
+      {/each}
+    </div>{/if}
   {#if contact.note}<p
       class="text-[13px] leading-5 break-words whitespace-pre-wrap text-settings-muted-foreground"
     >

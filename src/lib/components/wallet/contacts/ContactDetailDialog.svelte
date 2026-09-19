@@ -5,7 +5,7 @@
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { addressBookStore } from '$lib/stores/addressBook';
   import { contactSession } from '$lib/contacts/session';
-  import { contactName, matchingContacts } from '$lib/contacts/identity';
+  import { contactEndpointName, contactName, matchingContacts } from '$lib/contacts/identity';
   import { i18nStore } from '$lib/i18n';
   import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
   import ContactDetail from './ContactDetail.svelte';
@@ -78,7 +78,9 @@
                 ><span
                   >{contactName(contact)}<span
                     class="mt-1 block text-xs break-all text-settings-muted-foreground"
-                    >{contact.endpoints.map((endpoint) => endpoint.address).join(' · ')}</span
+                    >{contact.endpoints
+                      .map((endpoint) => contactEndpointName(contact, endpoint))
+                      .join(' · ')}</span
                   ></span
                 ></Button
               >{/each}

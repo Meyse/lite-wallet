@@ -1,23 +1,12 @@
 <script lang="ts">
-  import type { TransferEntryContext } from '../types';
-
   let {
     onNavigateToSend,
+    onNavigateToConvert,
   }: {
-    onNavigateToSend: (context: TransferEntryContext) => void;
+    onNavigateToSend: () => void;
+    onNavigateToConvert: () => void;
   } = $props();
 </script>
 
-<button
-  data-open-production-send
-  type="button"
-  onclick={() =>
-    onNavigateToSend({
-      coinId: 'ETH',
-      channelId: 'eth.ETH',
-      scopeKind: 'transparent',
-      readOnly: false,
-    })}
->
-  Open send
-</button>
+<button data-open-production-send type="button" onclick={onNavigateToSend}> Send </button>
+<button data-open-production-convert type="button" onclick={onNavigateToConvert}> Convert </button>

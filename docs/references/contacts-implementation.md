@@ -62,17 +62,27 @@ validated inline PNG/JPEG/WebP payloads, with a shared fallback after decode
 failure; descriptions render as plain text.
 
 The preview uses the installed Bits UI non-modal Popover through a local UI
-wrapper: 350 ms hover open, 200 ms hover close, portal collision handling, one
-open preview, keyboard access and Escape dismissal. Escape is consumed before
-the underlying Send cancel shortcut. Tab returns to the document order at the
-anchor. Long content scrolls independently using the available popover height,
-with a keyboard-focusable viewport and a fixed contact action. The action keeps
-the same button node and width across Add, Saving, Saved, retry and View. Saved
-appears only after the encrypted command succeeds, lasts 1.2 seconds, then
-becomes View. Motion is 160 ms for the check and 180 ms for recognition,
-disabled by the reduced-motion preference. A read-only contact dialog and
-duplicate chooser reuse the Contacts detail component and preserve the
-originating draft.
+wrapper: immediate hover open, 200 ms hover close, portal collision handling,
+one open preview, keyboard access and Escape dismissal. Each new pointer entry
+clears reopening suppression, including when the delayed close ran after pointer
+leave. Escape is consumed before the underlying Send cancel shortcut. Tab
+returns to the document order at the anchor. Only the name changes color on
+hover; its gray dotted underline and the adjacent icon stay unchanged. Initial
+profile loading shows a circular avatar skeleton and two description lines,
+keeping the known name visible. Cached content stays visible during refreshes;
+skeleton motion respects reduced motion. Long content scrolls independently
+using the available popover height, with a keyboard-focusable viewport and a
+fixed contact action. The action keeps the same button node and width across
+Add, Saving, Saved, retry and View. Saved appears only after the encrypted
+command succeeds, lasts 1.2 seconds, then becomes View. Motion is 160 ms for the
+check and 180 ms for recognition, disabled by the reduced-motion preference.
+**View in contacts** navigates to the Contacts section, selecting a single match
+or showing matching contacts for duplicate selection. Send and Convert remain
+mounted but hidden and inactive during this visit, with a Back action that
+restores the form and focus. Wallet or session replacement discards the
+suspended form. Contacts shows and copies the VerusID name without repeating its
+canonical i-address; storage and payment destinations retain their original
+values.
 
 ## Call-site inventory
 
@@ -117,13 +127,14 @@ Parameters include `screen=send`, `theme=dark`, `locale=nl`, `delay=2500`,
 cryptography or network submission; otherwise fixture signing is disabled.
 Screenshots are in `output/contacts-evidence/`.
 
-No live wallet was unlocked or modified, no real public profile RPC was
-executed, and no live transaction was signed or broadcast. Native Tauri
-rendering, real screen reader speech, physical touch, pointer travel between the
-hover trigger and card, OS-level reduced-motion behavior, cross-platform
-crash/power-loss durability and production encryption latency remain unverified.
-Automated DOM semantics and synthetic browser rendering are bounded evidence for
-this UI, not substitutes for those native checks.
+For the initial verification below, no live wallet was unlocked or modified, no
+real public profile RPC was executed, and no live transaction was signed or
+broadcast. Native Tauri rendering, real screen reader speech, physical touch,
+pointer travel between the hover trigger and card, OS-level reduced-motion
+behavior, cross-platform crash/power-loss durability and production encryption
+latency remain unverified. Automated DOM semantics and synthetic browser
+rendering are bounded evidence for this UI, not substitutes for those native
+checks.
 
 ## Recorded results
 
@@ -159,3 +170,35 @@ Representative screenshots:
 [Long picker preview](../../output/contacts-evidence/send-picker-long-dark-920.png),
 [Review](../../output/contacts-evidence/send-review-light-920.png), and
 [Simulated receipt](../../output/contacts-evidence/send-receipt-light-920.png).
+
+## Contacts navigation follow-up (2026-09-19)
+
+View in contacts now opens the main Contacts section. The name copies the
+human-readable VerusID, its canonical i-address stays out of the profile and
+edit form, and Add contact uses the primary button style. Other saved endpoints
+remain available and keep their stored payment values. Recipient lookup now
+shows progress and a retryable failure. Escape closes a hover preview even when
+focus remains in the recipient input, without invoking Send's discard shortcut.
+
+- Focused mounted checks: 26 passed across profile preview, Contacts and the
+  production WalletLayout/Send lifecycle. Coverage includes retry, late results,
+  duplicate selection, copying the name while retaining the stored canonical
+  address, draft preservation and disposal on session replacement.
+- Svelte check, scoped ESLint, UI style lint, docs validation, diff whitespace
+  check and production build passed.
+- Native macOS Tauri WebDriver used the designated disposable `mijn app` testnet
+  wallet and real profile RPCs at 920×620 in light and dark mode. Alice's saved
+  profile and Bob's gray unsaved trigger appeared; a nonexistent ID showed the
+  retry message. No payment was reviewed, signed or submitted in these checks.
+- View in contacts selected Alice without a second detail dialog. Back restored
+  the exact recipient input node, `1.25` amount and `TestAlice.antafri@` value.
+  Escape while Contacts was open did not invoke the hidden Send form.
+- The initial missing trigger did not reproduce after restarting the native app.
+  Its original cause remains unconfirmed. The WebDriver's `moveTo` emits
+  mousemove rather than pointerenter, so hover opening was verified with an
+  injected pointer-enter event in the native webview; physical pointer travel
+  remains unverified. The Escape regression failed before the fix and passed
+  afterward in both the mounted test and native webview.
+
+Follow-up screenshots were captured in `output/contacts-followup-evidence/` and
+remain local verification artifacts, outside version control.

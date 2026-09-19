@@ -20,6 +20,7 @@ window.fixture = { delay:Number(params.get('delay') || 0), fail:params.has('fail
 window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
 window.__TAURI_INTERNALS__ = { transformCallback:()=>1, unregisterCallback:()=>{}, invoke:async(command,args)=>{
  window.fixture.calls.push({command,args});
+ if(command==='get_identity_profile' && params.has('profileDelay'))await new Promise(r=>setTimeout(r,Number(params.get('profileDelay'))));
  if(command==='get_identity_profile' && params.has('empty'))return {state:'empty',issues:[],revisionTxid:'empty'};
  if(command==='get_identity_profile' && params.has('unavailable'))return {state:'unavailable',issues:[],revisionTxid:null};
  if(command==='get_identity_profile')return {state:'ready',avatar:{value:{base64:params.has('broken')?'invalid-image':avatar.toDataURL('image/png').split(',')[1],mimeType:'image/png',width:64,height:64,byteLength:100},source:{}},description:{value:params.has('lines')?'A\n'.repeat(75):params.has('long')?'A long public description with a full parent identity name. This text wraps naturally and keeps the contact action visible on a compact desktop. 🌱':'Building things. Growing a little every day.',source:{}},issues:[],revisionTxid:'fixture-confirmed'};

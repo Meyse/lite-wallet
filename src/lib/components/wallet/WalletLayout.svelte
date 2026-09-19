@@ -7,7 +7,8 @@
 
 <script lang="ts">
   import { tick } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import type { ContactIdentity } from '$lib/types/addressBook';
+  import { provideContactNavigation } from '$lib/contacts/navigation';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Alert from '$lib/components/ui/alert';
@@ -85,6 +86,7 @@
   };
   let transferDraft = $state<TransferDraft | null>(null);
   let nextDraftId = 0;
+  let requestedContactIdentity = $state<ContactIdentity | null>(null);
   let pendingTransfer = $state<{
     intent: 'send' | 'convert';
     context: TransferEntryContext | null;
@@ -131,6 +133,18 @@
   );
   const navigationLocked = $derived(!!currentDraft && transferNavigation.locked);
 
+  provideContactNavigation((identity, focus) => {
+    if (navigationLocked) return;
+    if (currentDraft && isTransferSection) transferFocus = focus;
+    requestedContactIdentity = identity;
+    activeSection = 'address-book';
+    closeGenericRequestFlow();
+  });
+
+  $effect(() => {
+    if (activeSection !== 'address-book') requestedContactIdentity = null;
+  });
+
   function navigateToSection(section: SectionId): void {
     if (navigationLocked) return;
     if (
@@ -164,6 +178,15 @@
       return;
     }
     startTransfer(intent, context);
+  }
+
+  function openOverviewTransfer(intent: 'send' | 'convert'): void {
+    if (currentDraft && transferNavigation.mode === intent) {
+      void resumeTransfer();
+      return;
+    }
+
+    requestTransfer(intent);
   }
 
   async function resumeTransfer(): Promise<void> {
@@ -224,6 +247,7 @@
 
     identitySectionWalletKey = nextWalletKey;
     identitySectionSession = createIdentitySectionSessionState();
+    requestedContactIdentity = null;
   });
 
   function resolveGenericRequestErrorMessage(errorValue: unknown): string {
@@ -346,26 +370,12 @@
     />
     <Sidebar.Inset class="h-full min-h-0 min-w-0 dark:bg-app-canvas">
       <div
-        class={activeSection === 'address-book' && !currentDraft
+        class={activeSection === 'address-book'
           ? 'absolute inset-x-0 top-0 z-40 h-6'
           : `${activeSection === 'overview' && !activeAssetDetailsEntry ? 'h-5' : 'h-6'} shrink-0`}
         data-tauri-drag-region
         aria-hidden="true"
       ></div>
-      {#if currentDraft && !isTransferSection}
-        <div class="shrink-0 px-6 pb-2">
-          <Button variant="ghost" size="sm" class="-ml-2" onclick={resumeTransfer}>
-            <ArrowLeftIcon class="size-4" />
-            {i18n.t(
-              transferNavigation.completed
-                ? 'wallet.transfer.returnToResult'
-                : transferNavigation.mode === 'convert'
-                  ? 'wallet.transfer.resumeConvert'
-                  : 'wallet.transfer.resumeSend'
-            )}
-          </Button>
-        </div>
-      {/if}
       {#if latestError}
         <div class="pointer-events-none absolute right-6 bottom-6 left-6 z-50 flex justify-end">
           <Alert.Root
@@ -450,13 +460,13 @@
                 activeAssetDetailsEntry = entry;
               }}
               onNavigateToSend={() => {
-                requestTransfer('send');
+                openOverviewTransfer('send');
               }}
               onNavigateToReceive={() => {
                 activeSection = 'receive';
               }}
               onNavigateToConvert={() => {
-                requestTransfer('convert');
+                openOverviewTransfer('convert');
               }}
             />
           {/if}
@@ -481,7 +491,19 @@
             <Watchlist walletNetwork={walletData.network ?? 'mainnet'} />
           {/key}
         {:else if activeSection === 'address-book'}
-          <AddressBook />
+          <AddressBook
+            requestedIdentity={requestedContactIdentity}
+            onReturn={requestedContactIdentity && currentDraft ? resumeTransfer : undefined}
+            returnLabel={requestedContactIdentity && currentDraft
+              ? i18n.t(
+                  transferNavigation.completed
+                    ? 'wallet.transfer.returnToResult'
+                    : transferNavigation.mode === 'convert'
+                      ? 'wallet.transfer.resumeConvert'
+                      : 'wallet.transfer.resumeSend'
+                )
+              : ''}
+          />
         {:else if activeSection === 'settings'}
           {#key transferWalletKey}
             <Settings

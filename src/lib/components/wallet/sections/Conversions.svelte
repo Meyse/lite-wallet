@@ -9,6 +9,7 @@
   import type { WalletNetwork } from '$lib/types/wallet';
 
   type ConversionsProps = {
+    active?: boolean;
     entryContext?: TransferEntryContext | null;
     onClose?: () => void;
     walletNetwork?: WalletNetwork;
@@ -18,6 +19,7 @@
   const defaultCloseHandler = () => {};
 
   let {
+    active = true,
     entryContext = null,
     onClose = defaultCloseHandler,
     walletNetwork = 'mainnet',
@@ -25,4 +27,11 @@
   }: ConversionsProps = $props();
 </script>
 
-<TransferWizard entryIntent="convert" {entryContext} {onClose} {walletNetwork} {walletKey} />
+<TransferWizard
+  entryIntent="convert"
+  {active}
+  {entryContext}
+  {onClose}
+  {walletNetwork}
+  {walletKey}
+/>

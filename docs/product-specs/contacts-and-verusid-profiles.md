@@ -48,7 +48,7 @@ nickname: the example is `alex.example@` everywhere, never "Alex".
   public preview remains available before saving.
 - **Add to contacts** saves the resolved ID directly from the preview, without a
   form, second confirmation, navigation, or on-chain action. Its in-place
-  success feedback settles to **View contact**.
+  success feedback settles to **View in contacts**.
 - Keep saving contacts private and local; it is not an on-chain publication.
 - Defer reading/importing receiving addresses from public VerusID content until
   a follow-up establishes the existing format and address-update behavior.
@@ -124,8 +124,8 @@ Match and deduplicate by canonical identity address plus account, network, and
 chain. Coalesce repeated clicks and re-check at the persistence boundary. A
 concurrent save of the same identity resolves to the existing contact, without
 creating another or overwriting its notes/addresses. Existing duplicate records
-remain intact and use the **View contacts** chooser. Do not expose Add until the
-local contact match is known.
+remain intact and use the **View in contacts** action. Do not expose Add until
+the local contact match is known.
 
 ### Associate an ID with an existing contact
 
@@ -137,20 +137,23 @@ unlinks from the VerusID tab, or removes the public profile on-chain.
 
 ### Open an existing contact from a profile
 
-With one matching contact, **View contact** opens a compact read-only contact
-detail dialog over the current task, with the VerusID name and manually saved
-addresses. Closing it restores the originating focus and draft. Use the shared
-Contacts detail presentation; editing remains in the Contacts section.
+With one matching contact, **View in contacts** opens the Contacts section with
+that contact selected. A visit from Send or Convert preserves the current form
+and provides a Back action to return to it. Hidden forms are inactive; changing
+the wallet or session discards them. Do not open a second profile detail popup.
 
-With several matches, **View contacts** opens a chooser of matching local
-contacts. Do not arbitrarily select one or display another contact's private
-notes inside the public profile preview.
+With several matches, **View in contacts** shows the matching local contacts in
+Contacts for the user to choose. Do not arbitrarily select one or display
+another contact's private notes inside the public profile preview.
 
 Inside **Contacts**, selecting a list row opens the full contact profile
 directly: avatar, VerusID name, description, and manually saved addresses. Show
 the name once in the profile heading, without a separate alias or duplicate ID
 line. Search identity-backed contacts by their VerusID; address-only contacts
-remain searchable by their local names and saved addresses.
+remain searchable by their local names and saved addresses. The profile heading
+copies the human-readable VerusID. Omit its canonical i-address from contact
+details and editing; retain it unchanged in storage. Additional saved addresses
+remain accessible. Add contact is the primary action.
 
 ## Profile preview
 
@@ -182,7 +185,10 @@ contact initial.
 Keep the same inline geometry in both membership states: a 22-pixel identity
 slot and the dotted VerusID name. For an unsaved ID, use a neutral @ mark in
 that slot and readable secondary text. Do not make it look disabled. Its hover
-card already shows the full-color public avatar and description.
+card already shows the full-color public avatar and description. Give the
+neutral mark a visible gray circle with no hover color change. On hover, change
+the name's text color while keeping its muted gray dotted underline. Apply this
+to both unsaved gray and saved blue names. Keep the layout fixed.
 
 After durable saving, replace the neutral mark with the published avatar and use
 the wallet's accessible blue action color for the inline name. If the avatar is
@@ -205,7 +211,7 @@ presentation, without changing the identity or public profile.
 | Not saved      | Add to contacts                                                     | Neutral mark and secondary name            |
 | Saving         | Spinner and Saving… in the same button bounds; no repeat activation | Remains neutral until persistence succeeds |
 | Save succeeded | Green check and Saved                                               | Published avatar/fallback and blue name    |
-| Saved, settled | View contact, or View contacts for existing duplicates              | Avatar/fallback and blue name              |
+| Saved, settled | View in contacts                                                    | Avatar/fallback and blue name              |
 | Save failed    | Couldn't save contact, with Try again in the same preview           | Remains unsaved; no green check            |
 
 Start saving on activation and acknowledge input immediately. Show success only
@@ -216,11 +222,12 @@ existing spinner and action-specific label explain the wait.
 
 Proposed motion: draw the check over roughly 160 ms and crossfade the inline
 identity in roughly 180 ms, without resizing or moving the name. Keep **Saved**
-visible for about 1.2 seconds, then settle to **View contact** in the same
+visible for about 1.2 seconds, then settle to **View in contacts** in the same
 bounds. The transient Saved state cannot trigger a second save or open the
 contact. Keep the same focus target through label changes; respect normal
 dismissal, and do not force the card to remain open just to finish an animation.
-On the next opening, show View contact immediately without replaying success.
+On the next opening, show View in contacts immediately without replaying
+success.
 
 Reduced motion skips the drawing/crossfade. Announce Saving and Saved once
 through a polite live region; announce a failure and leave keyboard-accessible
@@ -241,8 +248,8 @@ store before retrying rather than creating a duplicate.
   identity mark/avatar and a lightly dotted underline outside the editable
   input. Keep a visible keyboard focus indicator. The full Contacts profile
   needs no dotted trigger on its own heading.
-- Start with a 350 ms hover-open delay and 200 ms close delay. Tune against real
-  desktop use. Crossing a list must not create a trail of popups or requests.
+- Open immediately on hover, with no added delay. Keep the 200 ms close delay so
+  the pointer can cross into the card. Only one preview can be open at a time.
 - Keep the card open while the pointer or keyboard focus is in either its
   trigger or content. The pointer must be able to move into the card and select
   its action.
@@ -273,7 +280,7 @@ store before retrying rather than creating a duplicate.
 
 | State                                            | Avatar and description                                                                                     | Contact action                         |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Resolved ID, profile loading                     | Stable initial; quiet reserved description placeholder in open preview                                     | Available without waiting for profile  |
+| Resolved ID, profile loading                     | Circular avatar skeleton and two description lines; keep the known name and any cached profile visible     | Available without waiting for profile  |
 | Avatar and description                           | Published image and plain-text description                                                                 | Add or View according to local matches |
 | Avatar only                                      | Published image; omit empty description area                                                               | Available                              |
 | Description only                                 | Identity initial and description                                                                           | Available                              |
@@ -420,7 +427,7 @@ saved destinations. No compatibility claim for that format is made here.
       inline identity appear only after durable success. Failure keeps the ID
       unsaved with inline retry. Repeated/concurrent activation creates no
       duplicate, and existing duplicate contacts are never merged implicitly.
-- [ ] The Saved state settles to View contact without a second save, layout
+- [ ] The Saved state settles to View in contacts without a second save, layout
       shift, or focus loss. Reopening does not replay the success animation.
       Keyboard and reduced-motion paths expose equivalent status information.
 - [ ] Unsaved IDs remain readable and show their full public profile on preview;

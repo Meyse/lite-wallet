@@ -33,10 +33,15 @@ Read this before touching transaction send behavior.
 
 - `WalletLayout` owns one in-memory transfer draft for the current wallet,
   network and unlock session. Sidebar visits keep that wizard mounted but hidden
-  and inert. The return action restores the last focused transfer field.
+  and inert. The Wallet actions always keep their standard labels. Choosing the
+  matching Send or Convert action reopens the existing flow at its retained
+  state; true detours from Send or Convert use a contextual Back action.
+  Returning restores the last focused transfer field.
 - A new Send or Convert entry point must ask before replacing a dirty draft. The
-  default dialog action resumes it. Cancel and Escape share discard protection;
-  Back from review retains the form and clears preflight state.
+  matching Wallet action resumes directly; conflicting entry points keep the
+  existing resume-or-replace dialog, whose default action resumes. Clear removes
+  the whole draft and confirms first when progress would be lost. Escape shares
+  that protection; Back from review retains the form and clears preflight state.
 - Leaving a review invalidates its permission to submit. Returning displays the
   retained details and requires a fresh review and recipient confirmation. A
   suspended preflight must not update the draft or settle a newer request.

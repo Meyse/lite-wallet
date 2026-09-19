@@ -1,9 +1,10 @@
 <script lang="ts">
   import BookUserIcon from '@lucide/svelte/icons/book-user';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import MinusIcon from '@lucide/svelte/icons/minus';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
@@ -31,7 +32,13 @@
   import ContactAvatar from '../contacts/ContactAvatar.svelte';
   import PublicProfile from '../contacts/PublicProfile.svelte';
   import IdentityLookup from '../contacts/IdentityLookup.svelte';
-  import { contactName, contactProfile, identityKey } from '$lib/contacts/identity';
+  import {
+    contactName,
+    contactProfile,
+    endpointIdentity,
+    identityKey,
+    matchingContacts,
+  } from '$lib/contacts/identity';
   import { loadContacts, resolveContactIdentity } from '$lib/contacts/service';
   import { contactSession, contactsLoadState } from '$lib/contacts/session';
 
@@ -45,6 +52,16 @@
   };
 
   type FormMode = 'create' | 'edit' | null;
+
+  let {
+    requestedIdentity = null,
+    onReturn,
+    returnLabel = '',
+  }: {
+    requestedIdentity?: ContactIdentity | null;
+    onReturn?: () => void;
+    returnLabel?: string;
+  } = $props();
 
   const i18n = $derived($i18nStore);
   const contacts = $derived($addressBookStore);
@@ -92,6 +109,16 @@
     showDeleteDialog = false;
   });
 
+  $effect(() => {
+    const identity = requestedIdentity;
+    if (!identity) return;
+    untrack(() => {
+      const matches = matchingContacts(contacts, identity);
+      selectedContactId = matches.length === 1 ? matches[0].id : null;
+      searchTerm = matches.length > 1 ? identity.fullyQualifiedName : '';
+    });
+  });
+
   const ETH_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
   const ZS_MAINNET_ADDRESS_PATTERN = /^zs[0-9a-z]{60,140}$/i;
   const VRPC_HANDLE_PATTERN = /^[A-Za-z0-9._-]+@$/;
@@ -102,7 +129,11 @@
   const filteredContacts = $derived(
     (() => {
       const query = searchTerm.trim().toLowerCase();
-      const sorted = [...contacts].sort((a, b) => {
+      const candidates =
+        requestedIdentity && query === requestedIdentity.fullyQualifiedName.toLowerCase()
+          ? matchingContacts(contacts, requestedIdentity)
+          : contacts;
+      const sorted = [...candidates].sort((a, b) => {
         if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt;
         return contactName(a).localeCompare(contactName(b));
       });
@@ -135,6 +166,7 @@
       return;
     }
 
+    if (requestedIdentity) return;
     selectedContactId = contacts[0]?.id ?? null;
   });
 
@@ -143,6 +175,16 @@
       address: '',
       kind: null,
     };
+  }
+
+  function isAssociatedEndpoint(endpoint: EndpointDraft): boolean {
+    return Boolean(
+      endpoint.kind &&
+      endpointIdentity(
+        { identities: formIdentities },
+        { kind: endpoint.kind, address: endpoint.address }
+      )
+    );
   }
 
   function inferEndpointKind(address: string): AddressEndpointKind | null {
@@ -454,13 +496,21 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 min-w-0 flex-1 flex-col px-7 pt-10 pb-6">
+<div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col px-7 pt-10 pb-6">
+  {#if onReturn}
+    <div class="mb-4 shrink-0">
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        onclick={onReturn}
+      >
+        <ArrowLeftIcon class="size-4" aria-hidden="true" />{returnLabel}
+      </button>
+    </div>
+  {/if}
   {#if contacts.length > 0 && !formMode}
-    <div class="mb-6 flex shrink-0 items-center justify-between gap-3">
-      <h2 class="text-2xl leading-[30px] font-semibold tracking-tight">
-        {i18n.t('wallet.addressBook.title')}
-      </h2>
-      <Button variant="ghost" size="sm" onclick={startCreateContact}
+    <div class="absolute top-10 right-7 z-10 shrink-0">
+      <Button size="sm" onclick={startCreateContact}
         ><PlusIcon class="size-3.5" aria-hidden="true" />{i18n.t(
           'wallet.addressBook.addContact'
         )}</Button
@@ -530,7 +580,11 @@
     </aside>
 
     <!-- Keep controls below the wallet shell's overlaid 24px drag region. -->
-    <section class="flex min-h-0 min-w-0 flex-1 flex-col pt-2">
+    <section
+      class="flex min-h-0 min-w-0 flex-1 flex-col"
+      class:pt-16={contacts.length > 0 && !formMode}
+      class:pt-2={contacts.length === 0 || formMode}
+    >
       {#if $contactSession && ($contactsLoadState === 'loading' || $contactsLoadState === 'error') && !contacts.length && !formMode}
         <div class="m-auto space-y-3 px-7 text-sm" role="status">
           <p>
@@ -662,7 +716,7 @@
                     {/if}
                     <div class="space-y-[18px]">
                       {#each formEndpoints as endpoint, index}
-                        <div class="space-y-2">
+                        <div class="space-y-2" hidden={isAssociatedEndpoint(endpoint)}>
                           <Label
                             for={`endpoint-address-${index}`}
                             class="block text-[13px] leading-[18px] font-normal text-settings-muted-foreground"

@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   getAddresses: vi.fn(),
   getDlightRuntimeStatus: vi.fn(),
   getBridgeCapabilities: vi.fn(),
+  contactInvoke: vi.fn(),
+}));
+
+vi.mock('$lib/services/invokeWalletCommand', () => ({
+  invokeSessionBoundWalletCommand: mocks.contactInvoke,
 }));
 
 vi.mock('$lib/services/txService.js', () => ({
@@ -74,9 +79,6 @@ vi.mock('$lib/components/wallet/sections/Apps.svelte', async () => ({
 vi.mock('$lib/components/wallet/sections/Activity.svelte', async () => ({
   default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
 }));
-vi.mock('$lib/components/wallet/sections/AddressBook.svelte', async () => ({
-  default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
-}));
 vi.mock('$lib/components/wallet/sections/Settings.svelte', async () => ({
   default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
 }));
@@ -90,6 +92,7 @@ import { coinsStore } from '$lib/stores/coins';
 import { networkStore } from '$lib/stores/network';
 import { ratesStore } from '$lib/stores/rates';
 import { localeStore } from '$lib/i18n';
+import { contactsLoadState, setContactSession } from '$lib/contacts/session';
 import { PreflightRequestGuard } from './preflightRequestGuard';
 import TransferWizard from '../TransferWizard.svelte';
 import WalletLayoutLifecycleHarness from './test-fixtures/WalletLayoutLifecycleHarness.svelte';
@@ -333,6 +336,7 @@ async function mountPrivateSend(target: HTMLElement) {
 }
 
 beforeEach(() => {
+  setContactSession(null);
   class ResizeObserverStub {
     observe(): void {}
     unobserve(): void {}
@@ -381,6 +385,125 @@ beforeEach(() => {
     executionEngine: 'none',
     reasonCode: 'unsupported_channel',
   });
+});
+
+it('visits Contacts from the production Send preview and returns to the same draft', async () => {
+  const identity = {
+    identityAddress: vrscSystemId,
+    chainId: vrscSystemId,
+    fullyQualifiedName: 'alice@',
+    network: 'mainnet' as const,
+  };
+  const channelId = `vrpc.${privateDestinationAddress}.${vrscSystemId}`;
+  coinsStore.set([vrscCoin]);
+  balanceStore.set({ [channelId]: { VRSC: { confirmed: '10', pending: '0', total: '10' } } });
+  mocks.getDisplayCoinScopes.mockResolvedValue({
+    coinId: 'VRSC',
+    scopes: [
+      {
+        ...privateScope,
+        channelId,
+        address: privateDestinationAddress,
+        scopeKind: 'transparent',
+        isPrimaryAddress: true,
+      },
+    ],
+  });
+  setContactSession({ sessionId: 'session-1', network: 'mainnet' });
+  addressBookStore.set([
+    {
+      id: 'alice',
+      displayName: 'alice@',
+      note: 'Saved contact note',
+      createdAt: 1,
+      updatedAt: 1,
+      identities: [identity],
+      endpoints: [
+        {
+          id: 'alice-endpoint',
+          address: vrscSystemId,
+          normalizedAddress: vrscSystemId,
+          kind: 'vrpc',
+          label: 'VerusID',
+          lastUsedAt: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    },
+  ]);
+  contactsLoadState.set('ready');
+  mocks.contactInvoke.mockImplementation((command: string) =>
+    Promise.resolve(
+      command === 'resolve_contact_identity'
+        ? identity
+        : { state: 'empty', issues: [], revisionTxid: null }
+    )
+  );
+  const target = document.createElement('div');
+  document.body.append(target);
+  const component = mount(WalletLayoutLifecycleHarness, { target });
+  const button = (text: string) => {
+    const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (el) => el.textContent?.trim() === text
+    );
+    if (!found) throw new Error(`Missing ${text}`);
+    return found;
+  };
+  try {
+    await settle();
+    click(target, '[data-open-production-send]');
+    await settle();
+    button('Choose currency').click();
+    await settle();
+    const source = document.querySelector<HTMLButtonElement>('[role="dialog"] button.group');
+    expect(source).not.toBeNull();
+    source?.click();
+    await settle();
+    enter(target, '#transfer-amount', '1.25');
+    enter(target, '#transfer-recipient', 'alice@');
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await settle();
+    const amount = target.querySelector<HTMLInputElement>('#transfer-amount');
+    const recipient = target.querySelector<HTMLInputElement>('#transfer-recipient');
+    const trigger = target.querySelector<HTMLButtonElement>(
+      '[data-recipient-identity] [data-popover-trigger]'
+    );
+    if (!amount || !recipient || !trigger) throw new Error('Missing recipient form or preview');
+    trigger.click();
+    await settle();
+    button('View in contacts').click();
+    await settle();
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain(
+      'Saved contact note'
+    );
+    expect(amount.closest('[hidden]')).not.toBeNull();
+    expect((amount.closest('[hidden]') as HTMLElement).inert).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(document.body.textContent).not.toContain('Discard changes');
+    button('Back to send').click();
+    await settle();
+    expect(target.querySelector('#transfer-amount')).toBe(amount);
+    expect(target.querySelector('#transfer-recipient')).toBe(recipient);
+    expect(amount.value).toBe('1.25');
+    expect(recipient.value).toBe('alice@');
+    expect(amount.closest('[hidden]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    trigger.click();
+    await settle();
+    button('View in contacts').click();
+    await settle();
+    click(target, '[data-replace-session]');
+    await settle();
+    expect(amount.isConnected).toBe(false);
+    expect(target.textContent).not.toContain('Back to send');
+  } finally {
+    await unmount(component);
+    target.remove();
+    setContactSession(null);
+  }
 });
 
 describe('transfer review refinements', () => {
@@ -579,10 +702,16 @@ describe('sidebar transfer navigation', () => {
       expect((recipient.closest('[hidden]') as HTMLElement).inert).toBe(true);
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await settle();
-      expect(document.body.textContent).not.toContain('Discard transfer?');
+      expect(document.body.textContent).not.toContain('Clear transfer?');
       buttonNamed('Activity', target).click();
       await settle();
-      buttonNamed('Back to send', target).click();
+      expect(target.textContent).not.toContain('Back to send');
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      expect(
+        target.querySelector<HTMLButtonElement>('[data-open-production-send]')?.textContent?.trim()
+      ).toBe('Send');
+      click(target, '[data-open-production-send]');
       await settle();
       expect(target.querySelector('#transfer-recipient')).toBe(recipient);
       expect(recipient.value).toBe(destinationAddress);
@@ -594,7 +723,25 @@ describe('sidebar transfer navigation', () => {
     }
   });
 
-  it('requires explicit draft replacement when another entry point starts a payment', async () => {
+  it('reopens an untouched transfer from the unchanged Wallet action', async () => {
+    const { target, component } = await mountNavigationDraft();
+    try {
+      const input = target.querySelector('#transfer-amount');
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      expect(
+        target.querySelector<HTMLButtonElement>('[data-open-production-send]')?.textContent?.trim()
+      ).toBe('Send');
+      click(target, '[data-open-production-send]');
+      await settle();
+      expect(target.querySelector('#transfer-amount')).toBe(input);
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('resumes the matching Wallet action and protects the draft from a conflicting transfer', async () => {
     const { target, component } = await mountNavigationDraft();
     try {
       enter(target, '#transfer-amount', '0.125');
@@ -602,7 +749,16 @@ describe('sidebar transfer navigation', () => {
       const input = target.querySelector('#transfer-amount');
       buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
       await settle();
+      expect(
+        target.querySelector<HTMLButtonElement>('[data-open-production-send]')?.textContent?.trim()
+      ).toBe('Send');
       click(target, '[data-open-production-send]');
+      await settle();
+      expect(document.body.textContent).not.toContain('Resume your transfer?');
+      expect(target.querySelector('#transfer-amount')).toBe(input);
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      click(target, '[data-open-production-convert]');
       await settle();
       expect(document.body.textContent).toContain('Resume your transfer?');
       buttonNamed('Resume transfer').click();
@@ -610,7 +766,7 @@ describe('sidebar transfer navigation', () => {
       expect(target.querySelector('#transfer-amount')).toBe(input);
       buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
       await settle();
-      click(target, '[data-open-production-send]');
+      click(target, '[data-open-production-convert]');
       await settle();
       buttonNamed('Start new transfer').click();
       await settle();
@@ -622,14 +778,14 @@ describe('sidebar transfer navigation', () => {
     }
   });
 
-  it('uses the same discard protection for footer Cancel and Escape', async () => {
+  it('uses the same clear protection for the footer action and Escape', async () => {
     const { target, component } = await mountNavigationDraft();
     try {
       enter(target, '#transfer-amount', '0.125');
       await settle();
-      buttonNamed('Cancel', target).click();
+      buttonNamed('Clear', target).click();
       await settle();
-      expect(document.body.textContent).toContain('Discard transfer?');
+      expect(document.body.textContent).toContain('Clear transfer?');
       const dialog = document.querySelector('[role="dialog"]');
       if (!dialog) throw new Error('Missing discard dialog');
       buttonNamed('Cancel', dialog).click();
@@ -637,8 +793,8 @@ describe('sidebar transfer navigation', () => {
       expect(target.querySelector<HTMLInputElement>('#transfer-amount')?.value).toBe('0.125');
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await settle();
-      expect(document.body.textContent).toContain('Discard transfer?');
-      buttonNamed('Discard transfer').click();
+      expect(document.body.textContent).toContain('Clear transfer?');
+      buttonNamed('Clear transfer').click();
       await settle();
       expect(target.querySelector('#transfer-amount')).toBeNull();
     } finally {
@@ -658,7 +814,13 @@ describe('sidebar transfer navigation', () => {
       await fillAndStartPreflight(target);
       buttonNamed('Contacts', target).click();
       await settle();
-      buttonNamed('Back to send', target).click();
+      expect(target.textContent).not.toContain('Back to send');
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      expect(
+        target.querySelector<HTMLButtonElement>('[data-open-production-send]')?.textContent?.trim()
+      ).toBe('Send');
+      click(target, '[data-open-production-send]');
       await settle();
       expect(target.textContent).toContain('Refresh the review before sending.');
       expect(target.querySelector('[data-transfer-review-amount]')).not.toBeNull();
@@ -690,7 +852,15 @@ describe('sidebar transfer navigation', () => {
       expect(contacts.getAttribute('aria-disabled')).toBe('false');
       contacts.click();
       await settle();
-      expect(target.textContent).toContain('Back to transfer result');
+      expect(target.textContent).not.toContain('Back to transfer result');
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      expect(
+        target.querySelector<HTMLButtonElement>('[data-open-production-send]')?.textContent?.trim()
+      ).toBe('Send');
+      click(target, '[data-open-production-send]');
+      await settle();
+      expect(target.textContent).toContain('Send has been submitted');
     } finally {
       await unmount(component);
       target.remove();
@@ -708,7 +878,9 @@ describe('sidebar transfer navigation', () => {
       await fillAndStartPreflight(target);
       buttonNamed('Contacts', target).click();
       await settle();
-      buttonNamed('Back to send', target).click();
+      buttonNamed('Wallet', target.querySelector('[data-sidebar="sidebar"]') ?? target).click();
+      await settle();
+      click(target, '[data-open-production-send]');
       await settle();
       clickReviewSend(target);
       await settle();

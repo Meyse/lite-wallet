@@ -150,7 +150,7 @@
   import IdentityMention from '../contacts/IdentityMention.svelte';
   import ResolvedIdentityMention from '../contacts/ResolvedIdentityMention.svelte';
   import ContactAvatar from '../contacts/ContactAvatar.svelte';
-  import { contactName, contactProfile } from '$lib/contacts/identity';
+  import { contactEndpointName, contactName, contactProfile } from '$lib/contacts/identity';
   import type { ContactIdentity } from '$lib/types/addressBook';
 
   type EntryIntent = 'send' | 'convert';
@@ -163,6 +163,7 @@
     endpointKind: AddressEndpointKind;
     endpointLabel: string;
     endpointAddress: string;
+    endpointDisplayName: string;
     normalizedAddress: string;
     lastUsedAt: number | null;
   };
@@ -879,6 +880,7 @@
             endpointKind: endpoint.kind,
             endpointLabel: endpoint.label,
             endpointAddress: endpoint.address,
+            endpointDisplayName: contactEndpointName(contact, endpoint),
             normalizedAddress: endpoint.normalizedAddress,
             lastUsedAt: endpoint.lastUsedAt,
           }))
@@ -3703,7 +3705,7 @@
     {:else}
       <div class="flex items-end justify-between gap-3">
         <Button variant="secondary" onclick={() => goBack(requestClose)} disabled={isBusy}>
-          {currentStep === 'details' ? i18n.t('common.cancel') : i18n.t('common.back')}
+          {currentStep === 'details' ? i18n.t('wallet.transfer.clear') : i18n.t('common.back')}
         </Button>
         {#if currentStep === 'review'}
           <div
@@ -4137,6 +4139,7 @@
                       <ResolvedIdentityMention
                         value={destinationAddress}
                         chainId={recipientProfileChain}
+                        showStatus
                       />
                     </div>
                   {/if}
@@ -4871,11 +4874,13 @@
                       >
                         {endpointBadgeLabel(option.endpointKind)}
                       </span>
-                      <IdentifierText
-                        value={option.endpointAddress}
-                        mode="compact"
-                        class="min-w-0 truncate"
-                      />
+                      {#if option.endpointDisplayName !== option.contactName}
+                        <IdentifierText
+                          value={option.endpointDisplayName}
+                          mode="compact"
+                          class="min-w-0 truncate"
+                        />
+                      {/if}
                     </p>
                   </div>
                   {#if option.lastUsedAt}

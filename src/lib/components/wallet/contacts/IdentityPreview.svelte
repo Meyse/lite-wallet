@@ -18,10 +18,11 @@
   import { addIdentityContact, loadContacts } from '$lib/contacts/service';
   import ContactAvatar from './ContactAvatar.svelte';
   import PublicProfile from './PublicProfile.svelte';
-  import ContactDetailDialog from './ContactDetailDialog.svelte';
+  import { getContactNavigation } from '$lib/contacts/navigation';
 
   let { identity, iconOnly = false }: { identity: ContactIdentity; iconOnly?: boolean } = $props();
   const instance = $props.id();
+  const openContact = getContactNavigation();
   const i18n = $derived($i18nStore);
   const matches = $derived(matchingContacts($addressBookStore, identity));
   const saved = $derived(matches.length > 0);
@@ -31,7 +32,6 @@
   let action = $state<HTMLButtonElement | null>(null);
   let profileViewport = $state<HTMLDivElement | null>(null);
   let saveState = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  let detailOpen = $state(false);
   let suppressed = false;
   let alive = true;
   let opening = 0;
@@ -51,7 +51,7 @@
   );
 
   function changeOpen(next: boolean) {
-    if (next && (suppressed || detailOpen)) {
+    if (next && suppressed) {
       open = false;
       return;
     }
@@ -70,6 +70,20 @@
   $effect(() => {
     if (open && ($activeProfilePreview !== instance || !$contactSession)) changeOpen(false);
   });
+  $effect(() => {
+    if (!open) return undefined;
+    // Hover leaves focus in the recipient field. Capture Escape before Send's
+    // window shortcut, even when the event originates outside the popover.
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      changeOpen(false);
+      trigger?.focus();
+    };
+    window.addEventListener('keydown', dismiss, true);
+    return () => window.removeEventListener('keydown', dismiss, true);
+  });
   onDestroy(() => {
     alive = false;
     clearTimeout(timer);
@@ -84,7 +98,7 @@
     }
     if (saved) {
       changeOpen(false);
-      detailOpen = true;
+      openContact?.(identity, trigger);
       return;
     }
     const opened = opening;
@@ -119,11 +133,11 @@
   <Popover.Trigger
     bind:ref={trigger}
     openOnHover
-    openDelay={350}
+    openDelay={0}
     closeDelay={200}
     class="inline-flex max-w-full cursor-default items-center gap-2 rounded-sm text-[13px] leading-5 outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-offset-2 {saved
-      ? 'text-primary dark:text-settings-focus-ring'
-      : 'text-settings-muted-foreground'}"
+      ? 'text-text-action hover:text-text-action data-[state=open]:text-text-action'
+      : 'text-settings-muted-foreground hover:text-foreground data-[state=open]:text-foreground'}"
     aria-label={i18n.t(saved ? 'wallet.contacts.mentionSaved' : 'wallet.contacts.mentionUnsaved', {
       name: identity.fullyQualifiedName,
     })}
@@ -135,6 +149,11 @@
       suppressed = false;
     }}
     onpointerdown={() => {
+      suppressed = false;
+    }}
+    onpointerenter={() => {
+      // A delayed close can suppress reopening after pointerleave has already
+      // run. A fresh entry must re-arm hover before the primitive opens it.
       suppressed = false;
     }}
     onpointerleave={() => {
@@ -166,11 +185,12 @@
             /></span
           >
         {:else}<span
-            class="inline-flex size-[22px] items-center justify-center rounded-full bg-muted"
+            class="inline-flex size-[22px] items-center justify-center rounded-full bg-settings-muted-foreground/20 text-settings-muted-foreground"
             ><AtSignIcon class="size-3.5" aria-hidden="true" /></span
           >{/if}
       </span>
-      <span class="min-w-0 truncate underline decoration-dotted underline-offset-[5px]"
+      <span
+        class="min-w-0 truncate underline decoration-settings-muted-foreground/60 decoration-dotted underline-offset-[5px]"
         >{identity.fullyQualifiedName}</span
       >
     {/if}
@@ -277,15 +297,6 @@
     </Popover.Content>
   </Popover.Portal>
 </Popover.Root>
-
-<ContactDetailDialog
-  {identity}
-  bind:open={detailOpen}
-  onClosed={() => {
-    suppressed = true;
-    trigger?.focus();
-  }}
-/>
 
 <style>
   .recognition {

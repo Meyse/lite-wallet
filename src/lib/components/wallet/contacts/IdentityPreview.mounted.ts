@@ -6,7 +6,7 @@ import { setLocale } from '$lib/i18n';
 import { setContactSession } from '$lib/contacts/session';
 import { addressBookStore } from '$lib/stores/addressBook';
 import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
-import IdentityMention from './IdentityMention.svelte';
+import PreviewHarness from './test-fixtures/PreviewHarness.svelte';
 import IdentityLookup from './IdentityLookup.svelte';
 import RecipientHarness from './test-fixtures/RecipientHarness.svelte';
 const invoke = vi.hoisted(() => vi.fn());
@@ -53,6 +53,7 @@ const profile = {
   revisionTxid: 'confirmed',
 };
 let components: ReturnType<typeof mount>[] = [];
+const onView = vi.fn();
 async function settle() {
   await tick();
   await new Promise((resolve) => setTimeout(resolve, 10));
@@ -68,7 +69,7 @@ function button(text: string): HTMLButtonElement {
 async function render() {
   const target = document.createElement('div');
   document.body.append(target);
-  components.push(mount(IdentityMention, { target, props: { identity } }));
+  components.push(mount(PreviewHarness, { target, props: { identity, onView } }));
   await settle();
 }
 beforeEach(() => {
@@ -95,7 +96,88 @@ afterEach(async () => {
 });
 
 describe('interactive identity preview', () => {
-  it('saves once, waits for persistence, settles in place, and opens detail without navigation', async () => {
+  it.each([0, 100, 220])('accepts repeated hover entries after %i ms away', async (timeAway) => {
+    await render();
+    const trigger = document.querySelector('[data-popover-trigger]') as HTMLButtonElement;
+    vi.useFakeTimers();
+    try {
+      trigger.dispatchEvent(new MouseEvent('pointerenter'));
+      await tick();
+      for (let cycle = 0; cycle < 3; cycle++) {
+        expect(trigger.getAttribute('aria-expanded')).toBe('true');
+        trigger.dispatchEvent(new MouseEvent('pointerleave', { relatedTarget: document.body }));
+        // Move beyond both the trigger and the card to exercise the primitive's
+        // real safe-polygon exit and delayed close, rather than closing by click.
+        document.dispatchEvent(new MouseEvent('pointermove', { clientX: 800, clientY: 600 }));
+        await vi.advanceTimersByTimeAsync(timeAway);
+        expect(trigger.getAttribute('aria-expanded')).toBe(timeAway < 200 ? 'true' : 'false');
+        trigger.dispatchEvent(new MouseEvent('pointerenter'));
+        await tick();
+        expect(trigger.getAttribute('aria-expanded')).toBe('true');
+        // A cancelled close must not fire underneath the returned pointer.
+        await vi.advanceTimersByTimeAsync(250);
+        expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it.each(['ready', 'empty', 'unavailable'] as const)(
+    'replaces the profile skeleton when loading completes as %s',
+    async (state) => {
+      let complete!: (value: unknown) => void;
+      invoke.mockImplementation((command: string) =>
+        command === 'get_identity_profile'
+          ? new Promise((resolve) => {
+              complete = resolve;
+            })
+          : Promise.resolve([])
+      );
+      await render();
+      const trigger = document.querySelector('[data-popover-trigger]') as HTMLButtonElement;
+      trigger.click();
+      await settle();
+      const preview = document.querySelector('[data-popover-content]');
+      if (!preview) throw new Error('Missing profile preview');
+      expect(preview.querySelector('[aria-busy="true"]')).not.toBeNull();
+      expect(preview.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+      expect(preview.textContent).toContain(identity.fullyQualifiedName);
+      expect(button('Add to contacts').getAttribute('aria-disabled')).toBe('false');
+      complete(state === 'ready' ? profile : { state, issues: [], revisionTxid: null });
+      await settle();
+      expect(preview.querySelector('[aria-busy="true"]')).toBeNull();
+      expect(preview.querySelector('[data-slot="skeleton"]')).toBeNull();
+      expect(preview.textContent?.includes('A published description.')).toBe(state === 'ready');
+      expect(preview.textContent?.includes('Profile unavailable')).toBe(state === 'unavailable');
+    }
+  );
+  it('opens on hover without a delay and consumes Escape while the recipient input keeps focus', async () => {
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    const closeSend = vi.fn();
+    window.addEventListener('keydown', closeSend);
+    try {
+      await render();
+      const trigger = document.querySelector('[data-popover-trigger]') as HTMLButtonElement;
+      trigger.dispatchEvent(new MouseEvent('pointerenter'));
+      await tick();
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      expect(document.activeElement).toBe(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle();
+      expect(closeSend).not.toHaveBeenCalled();
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+      trigger.dispatchEvent(new MouseEvent('pointerleave', { relatedTarget: document.body }));
+      trigger.dispatchEvent(new MouseEvent('pointerenter'));
+      await tick();
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    } finally {
+      window.removeEventListener('keydown', closeSend);
+    }
+  });
+  it('saves once, waits for persistence, then navigates to Contacts without another detail dialog', async () => {
     let complete!: (contact: AddressBookContact) => void;
     invoke.mockImplementation((command: string) =>
       command === 'save_address_book_contact'
@@ -131,15 +213,11 @@ describe('interactive identity preview', () => {
     expect(document.querySelector('[data-contact-detail]')).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 1220));
     await settle();
-    expect(button('View contact')).toBe(action);
+    expect(button('View in contacts')).toBe(action);
     action.click();
     await settle();
-    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain(
-      'Only in contact detail'
-    );
-    button('Close').click();
-    await settle();
-    expect(document.activeElement).toBe(trigger);
+    expect(onView).toHaveBeenCalledWith(identity, trigger);
+    expect(document.querySelector('[data-contact-detail]')).toBeNull();
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(
       invoke.mock.calls.filter(([command]) => command === 'save_address_book_contact')
@@ -191,7 +269,7 @@ describe('interactive identity preview', () => {
   });
 });
 
-it('withholds Add until local matches are known and uses a chooser for duplicates', async () => {
+it('withholds Add until local matches are known and routes duplicates to Contacts without choosing one', async () => {
   let finish!: (contacts: AddressBookContact[]) => void;
   invoke.mockImplementation((command: string) =>
     command === 'list_address_book_contacts'
@@ -218,11 +296,11 @@ it('withholds Add until local matches are known and uses a chooser for duplicate
     },
   ]);
   await settle();
-  button('View contacts').click();
+  button('View in contacts').click();
   await settle();
   expect(document.querySelector('[data-contact-detail]')).toBeNull();
   expect(document.body.textContent).not.toContain('Only in contact detail');
-  expect(document.body.textContent).toContain('Different saved destination');
+  expect(onView).toHaveBeenCalledWith(identity, trigger);
   expect(invoke.mock.calls.some(([command]) => command === 'save_address_book_contact')).toBe(
     false
   );
@@ -296,4 +374,38 @@ it('saves directly after a Contacts lookup and discards feedback when the query 
   expect(target.textContent).not.toContain('Saved');
   expect(onSaved).not.toHaveBeenCalled();
   expect(get(addressBookStore)[0].id).toBe(contact.id);
+});
+
+it('shows testnet lookup failures, retries, and clears the mention when the session changes', async () => {
+  const chainId = 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq';
+  const testIdentity = { ...identity, chainId, network: 'testnet' as const };
+  setContactSession({ sessionId: 'testnet-session', network: 'testnet' });
+  let fail = true;
+  invoke.mockImplementation((command: string) =>
+    command === 'resolve_contact_identity'
+      ? fail
+        ? Promise.reject(new Error('Provider unavailable'))
+        : Promise.resolve(testIdentity)
+      : Promise.resolve(command === 'get_identity_profile' ? profile : [])
+  );
+  const target = document.createElement('div');
+  document.body.append(target);
+  components.push(mount(RecipientHarness, { target, props: { chainId } }));
+  await settle();
+  expect(target.textContent).toContain('Couldn’t resolve this VerusID');
+  expect(document.querySelector('[data-popover-trigger]')).toBeNull();
+  fail = false;
+  button('Try again').click();
+  await settle();
+  expect(document.querySelector('[data-popover-trigger]')?.getAttribute('aria-label')).toContain(
+    'not in Contacts'
+  );
+  expect(invoke).toHaveBeenCalledWith('resolve_contact_identity', {
+    identity: 'alex@',
+    expected_session_id: 'testnet-session',
+  });
+  setContactSession({ sessionId: 'mainnet-session', network: 'mainnet' });
+  await settle();
+  expect(document.querySelector('[data-popover-trigger]')).toBeNull();
+  expect(target.textContent).not.toContain('Couldn’t resolve');
 });

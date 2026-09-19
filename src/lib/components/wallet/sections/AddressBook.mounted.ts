@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { setLocale } from '$lib/i18n';
 import { addressBookStore } from '$lib/stores/addressBook';
-import type { AddressBookContact } from '$lib/types/addressBook';
+import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
 import AddressBook from './AddressBook.svelte';
 
 const service = vi.hoisted(() => ({
@@ -74,11 +74,11 @@ async function input(selector: string, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   await settle();
 }
-async function render(contacts = [structuredClone(contact)]) {
+async function render(contacts = [structuredClone(contact)], requestedIdentity?: ContactIdentity) {
   addressBookStore.set(contacts);
   const target = document.createElement('div');
   document.body.append(target);
-  component = mount(AddressBook, { target });
+  component = mount(AddressBook, { target, props: { requestedIdentity } });
   await settle();
 }
 
@@ -96,9 +96,72 @@ afterEach(async () => {
 });
 
 describe('address book contact workflows', () => {
+  const identity: ContactIdentity = {
+    fullyQualifiedName: 'alice.example@',
+    identityAddress: 'iQjVunnXvHswZhmNnqT4ucbRmvDkr5hBAg',
+    chainId: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq',
+    network: 'testnet',
+  };
+  const identityContact = {
+    ...contact,
+    id: 'alice',
+    displayName: identity.fullyQualifiedName,
+    identities: [identity],
+    endpoints: [
+      {
+        ...contact.endpoints[0],
+        address: identity.identityAddress,
+        normalizedAddress: identity.identityAddress,
+      },
+    ],
+  };
+
+  it('copies the VerusID name, hides the canonical address, and preserves it when editing', async () => {
+    await render([identityContact]);
+    expect(document.querySelector('[data-contact-detail]')?.textContent).not.toContain(
+      identity.identityAddress
+    );
+    button('Copy VerusID').click();
+    await settle();
+    expect(copy).toHaveBeenCalledWith(identity.fullyQualifiedName);
+    button('Edit').click();
+    await settle();
+    expect(document.querySelector('#endpoint-address-0')?.closest('[hidden]')).not.toBeNull();
+    service.saveAddressBookContact.mockResolvedValue(identityContact);
+    button('Save').click();
+    await settle();
+    expect(service.saveAddressBookContact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoints: [expect.objectContaining({ address: identity.identityAddress })],
+        identities: [identity],
+      })
+    );
+    expect(service.validateDestinationAddress).not.toHaveBeenCalled();
+  });
+
+  it('selects the requested contact and leaves existing duplicates for the user to choose', async () => {
+    await render([contact, identityContact], identity);
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain(
+      identity.fullyQualifiedName
+    );
+    await unmount(component);
+    document.body.replaceChildren();
+    await render(
+      [contact, identityContact, { ...identityContact, id: 'alice-second', note: 'Private note' }],
+      identity
+    );
+    expect(document.querySelector('[data-contact-detail]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Private note');
+    const row = document.querySelector('aside li button') as HTMLButtonElement;
+    row.click();
+    await settle();
+    expect(document.querySelector('[data-contact-detail]')).not.toBeNull();
+  });
   it('copies the full address and keeps contact details available during a search with no matches', async () => {
     await render();
-    expect(button('Add contact')).not.toBeNull();
+    expect(document.querySelector('h2')).toBeNull();
+    expect(button('Add contact').parentElement?.classList.contains('absolute')).toBe(true);
+    expect(document.querySelector('aside + section')?.classList.contains('pt-16')).toBe(true);
     expect(document.body.textContent).toContain('Verus, Bitcoin');
     button('Copy').click();
     await settle();
