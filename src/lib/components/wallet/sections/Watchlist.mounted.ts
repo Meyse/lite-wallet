@@ -140,12 +140,17 @@ afterEach(async () => {
 });
 
 describe('watchlist workflows', () => {
-  it('keeps the empty state neutral without a decorative icon', async () => {
+  it('shows a concise encrypted empty state without a decorative icon', async () => {
     await render();
 
     const emptyState = document.querySelector('[data-testid="watchlist-empty"]');
     expect(emptyState).not.toBeNull();
     if (!emptyState) throw new Error('Missing watchlist empty state');
+    expect(
+      emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
+    ).toBe('Encrypted storage');
+    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Follow a Verus address');
+    expect(emptyState.textContent).not.toContain('Follow the public balances');
     expect(document.querySelectorAll('header button')).toHaveLength(0);
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
     expect(emptyState.querySelector('button svg')).not.toBeNull();

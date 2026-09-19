@@ -7,6 +7,7 @@
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -430,21 +431,13 @@
 
     <section class="flex min-h-0 min-w-0 flex-1 flex-col">
       {#if contacts.length === 0 && !formMode}
-        <div
-          class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
-          data-testid="address-book-empty"
-        >
-          <h3 class="text-lg font-semibold tracking-tight">
-            {i18n.t('wallet.addressBook.empty')}
-          </h3>
-          <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
-            {i18n.t('wallet.addressBook.description')}
-          </p>
-          <Button size="sm" class="mt-5" onclick={startCreateContact}>
-            <PlusIcon class="size-3.5" aria-hidden="true" />
-            {i18n.t('wallet.addressBook.addContact')}
-          </Button>
-        </div>
+        <WalletEmptyState
+          eyebrow={i18n.t('wallet.empty.encryptedStorage')}
+          title={i18n.t('wallet.addressBook.empty')}
+          actionLabel={i18n.t('wallet.addressBook.addContact')}
+          onAction={startCreateContact}
+          testId="address-book-empty"
+        />
       {:else if formMode}
         <form
           class="flex min-h-0 flex-1 flex-col"

@@ -10,6 +10,7 @@
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
+  import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -388,21 +389,13 @@
         </Button>
       </div>
     {:else if records.length === 0}
-      <div
-        class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
-        data-testid="watchlist-empty"
-      >
-        <h3 class="text-lg font-semibold tracking-tight">
-          {i18n.t('wallet.watchlist.emptyTitle')}
-        </h3>
-        <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
-          {i18n.t('wallet.watchlist.emptyDescription')}
-        </p>
-        <Button size="sm" class="mt-5" onclick={openAddSheet}>
-          <PlusIcon class="size-3.5" aria-hidden="true" />
-          {i18n.t('wallet.watchlist.addAddress')}
-        </Button>
-      </div>
+      <WalletEmptyState
+        eyebrow={i18n.t('wallet.empty.encryptedStorage')}
+        title={i18n.t('wallet.watchlist.emptyTitle')}
+        actionLabel={i18n.t('wallet.watchlist.addAddress')}
+        onAction={openAddSheet}
+        testId="watchlist-empty"
+      />
     {:else}
       <div class="flex min-h-0 flex-1 flex-col">
         <div class="flex h-8 shrink-0 items-center justify-between px-8 text-xs">

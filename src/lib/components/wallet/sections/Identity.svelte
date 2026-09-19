@@ -13,6 +13,7 @@
   import { toast } from 'svelte-sonner';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
+  import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
@@ -819,20 +820,13 @@
       {/if}
 
       {#if linkedIdentities.length === 0}
-        <div
-          class="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center"
-          data-testid="identity-empty"
-        >
-          <h3 class="text-lg font-semibold tracking-tight">
-            {i18n.t('wallet.identity.empty.title')}
-          </h3>
-          <p class="mt-1.5 max-w-sm text-[13px] leading-5 text-settings-muted-foreground">
-            {i18n.t('wallet.identity.empty.description')}
-          </p>
-          <Button size="sm" class="mt-5" onclick={() => (linkSheetOpen = true)}>
-            <PlusIcon class="size-3.5" aria-hidden="true" />
-            {i18n.t('wallet.identity.empty.cta')}
-          </Button>
+        <div class="-mb-8 flex min-h-0 flex-1">
+          <WalletEmptyState
+            title={i18n.t('wallet.identity.empty.title')}
+            actionLabel={i18n.t('wallet.identity.empty.cta')}
+            onAction={() => (linkSheetOpen = true)}
+            testId="identity-empty"
+          />
         </div>
       {:else}
         {#if !hasVisibleIdentities}

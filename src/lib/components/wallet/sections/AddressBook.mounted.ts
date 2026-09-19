@@ -214,7 +214,7 @@ describe('address book contact workflows', () => {
     expect(service.deleteAddressBookContact).toHaveBeenLastCalledWith('mum');
     expect(get(addressBookStore)).toHaveLength(0);
     expect(document.querySelector('form')).toBeNull();
-    expect(document.body.textContent).toContain('Save trusted recipients in encrypted storage.');
+    expect(document.body.textContent).toContain('Save a trusted contact');
   });
 
   it('creates a contact from the empty state with an optional note', async () => {
@@ -223,8 +223,11 @@ describe('address book contact workflows', () => {
     const emptyState = document.querySelector('[data-testid="address-book-empty"]');
     expect(emptyState).not.toBeNull();
     if (!emptyState) throw new Error('Missing address book empty state');
-    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('No contacts yet');
-    expect(emptyState.textContent).toContain('Save trusted recipients in encrypted storage.');
+    expect(
+      emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
+    ).toBe('Encrypted storage');
+    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Save a trusted contact');
+    expect(emptyState.textContent).not.toContain('Save trusted recipients in encrypted storage.');
     expect(document.querySelectorAll('header button')).toHaveLength(0);
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
     expect(emptyState.querySelector('button svg')).not.toBeNull();

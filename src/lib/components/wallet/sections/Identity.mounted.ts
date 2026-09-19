@@ -172,7 +172,11 @@ describe('mounted identity empty state', () => {
         if (!emptyState) throw new Error('Missing identity empty state');
         expect(target.querySelector('header h2')?.textContent?.trim()).toBe('VerusID');
         expect(target.querySelectorAll('header button')).toHaveLength(0);
-        expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('No linked VerusIDs yet');
+        expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe(
+          'Link a VerusID to this wallet'
+        );
+        expect(emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')).toBeNull();
+        expect(emptyState.textContent).not.toContain('controlled by this wallet address');
         expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
         expect(emptyState.querySelector('button svg')).not.toBeNull();
       } finally {
