@@ -149,7 +149,7 @@ describe('watchlist workflows', () => {
     expect(
       emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
     ).toBe('Encrypted storage');
-    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Follow a Verus address');
+    expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Watch a Verus address');
     expect(emptyState.textContent).not.toContain('Follow the public balances');
     expect(document.querySelectorAll('header button')).toHaveLength(0);
     expect([...emptyState.children].some((child) => child.tagName === 'svg')).toBe(false);
