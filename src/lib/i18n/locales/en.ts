@@ -1310,7 +1310,7 @@ export const en: Record<string, string> = {
   'wallet.addressBook.form.saving': 'Saving',
   'wallet.addressBook.error.nameRequired': 'Enter a contact name.',
   'wallet.addressBook.error.endpointRequired': 'Add at least one address.',
-  'wallet.addressBook.error.endpointFieldsRequired': 'Enter an address in each field.',
+  'wallet.addressBook.error.endpointFieldsRequired': 'Enter an address.',
   'wallet.addressBook.error.invalidEndpoint': 'One or more addresses are invalid.',
   'wallet.addressBook.error.invalidInput': 'Invalid contacts input.',
   'wallet.addressBook.error.duplicate':

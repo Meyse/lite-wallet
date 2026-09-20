@@ -1339,7 +1339,7 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.form.saving': 'Opslaan…',
   'wallet.addressBook.error.nameRequired': 'Voer een contactnaam in.',
   'wallet.addressBook.error.endpointRequired': 'Voeg minimaal één adres toe.',
-  'wallet.addressBook.error.endpointFieldsRequired': 'Vul in elk veld een adres in.',
+  'wallet.addressBook.error.endpointFieldsRequired': 'Voer een adres in.',
   'wallet.addressBook.error.invalidEndpoint': 'Een of meer adressen zijn ongeldig.',
   'wallet.addressBook.error.invalidInput': 'Ongeldige contactgegevens.',
   'wallet.addressBook.error.duplicate': 'Er bestaat al een overeenkomstig adres voor dit netwerk.',

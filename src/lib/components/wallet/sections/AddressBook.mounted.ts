@@ -403,7 +403,18 @@ describe('address book contact workflows', () => {
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');
     await input('#address-book-name', 'New contact');
+    button('Save').click();
+    await settle();
+    const addressInput = document.querySelector<HTMLInputElement>('#endpoint-address-0');
+    const addressError = document.querySelector('#address-book-endpoint-error-0');
+    expect(document.body.textContent).toContain('Enter an address.');
+    expect(document.activeElement).toBe(addressInput);
+    expect(addressInput?.getAttribute('aria-invalid')).toBe('true');
+    expect(addressInput?.getAttribute('aria-describedby')).toBe('address-book-endpoint-error-0');
+    expect(addressError?.closest('[data-address-book-endpoint="0"]')).not.toBeNull();
+    expect(addressError?.parentElement?.classList.contains('space-y-2')).toBe(true);
     await input('#endpoint-address-0', contact.endpoints[0].address);
+    expect(document.querySelector('#address-book-endpoint-error-0')).toBeNull();
     button('Add note').click();
     await settle();
     await input('#address-book-note', 'A note');

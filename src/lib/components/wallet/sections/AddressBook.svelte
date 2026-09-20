@@ -91,9 +91,11 @@
   let showNote = $state(false);
   let noteInputEl = $state<HTMLInputElement | null>(null);
   let formEndpoints = $state<EndpointDraft[]>([]);
+  let endpointInputEls = $state<Array<HTMLInputElement | null>>([]);
   const hasEmptyEndpoint = $derived(formEndpoints.some((endpoint) => !endpoint.address.trim()));
   let nameError = $state('');
   let endpointsError = $state('');
+  let endpointErrorIndex = $state<number | null>(null);
   let formError = $state('');
   let saving = $state(false);
   let nameInputEl = $state<HTMLInputElement | null>(null);
@@ -255,8 +257,10 @@
     formNote = '';
     showNote = false;
     formEndpoints = [newEndpointDraft()];
+    endpointInputEls = [null];
     nameError = '';
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
   }
 
@@ -276,8 +280,10 @@
       address: endpoint.address,
       kind: endpoint.kind,
     }));
+    endpointInputEls = formEndpoints.map(() => null);
     nameError = '';
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
   }
 
@@ -292,22 +298,28 @@
     formNote = '';
     showNote = false;
     formEndpoints = [];
+    endpointInputEls = [];
     nameError = '';
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
     saving = false;
   }
 
   function addEndpointDraft() {
     formEndpoints = [...formEndpoints, newEndpointDraft()];
+    endpointInputEls = [...endpointInputEls, null];
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
   }
 
   function removeEndpointDraft(index: number) {
     if (formEndpoints.length <= 1) return;
     formEndpoints = formEndpoints.filter((_, current) => current !== index);
+    endpointInputEls = endpointInputEls.filter((_, current) => current !== index);
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
   }
 
@@ -325,6 +337,7 @@
       resolving: false,
     });
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
   }
 
@@ -340,8 +353,10 @@
         return;
       updateEndpointDraft(index, { identity });
     } catch {
-      if (alive && generation === formGeneration && formEndpoints[index]?.address === address)
+      if (alive && generation === formGeneration && formEndpoints[index]?.address === address) {
         endpointsError = i18n.t('wallet.contacts.lookupFailed');
+        endpointErrorIndex = index;
+      }
     } finally {
       if (alive && generation === formGeneration && formEndpoints[index]?.address === address)
         updateEndpointDraft(index, { resolving: false });
@@ -389,6 +404,7 @@
     if (saving || deleting || !formMode) return;
     nameError = '';
     endpointsError = '';
+    endpointErrorIndex = null;
     formError = '';
 
     const generation = formGeneration;
@@ -417,11 +433,14 @@
         address: string;
       }> = [];
 
-      for (const endpoint of formEndpoints) {
+      for (const [index, endpoint] of formEndpoints.entries()) {
         const trimmedAddress = endpoint.address.trim();
         if (!trimmedAddress) {
           endpointsError = i18n.t('wallet.addressBook.error.endpointFieldsRequired');
+          endpointErrorIndex = index;
           saving = false;
+          await tick();
+          endpointInputEls[index]?.focus();
           return;
         }
 
@@ -436,7 +455,10 @@
           : await resolveEndpointKind(trimmedAddress, inferredKind);
         if (!resolvedKind) {
           endpointsError = i18n.t('wallet.addressBook.error.invalidEndpoint');
+          endpointErrorIndex = index;
           saving = false;
+          await tick();
+          endpointInputEls[index]?.focus();
           return;
         }
 
@@ -732,7 +754,11 @@
                     {/if}
                     <div class="space-y-[18px]">
                       {#each formEndpoints as endpoint, index}
-                        <div class="space-y-2" hidden={isAssociatedEndpoint(endpoint)}>
+                        <div
+                          class="space-y-2"
+                          hidden={isAssociatedEndpoint(endpoint)}
+                          data-address-book-endpoint={index}
+                        >
                           <Label
                             for={`endpoint-address-${index}`}
                             class="block text-[13px] leading-[18px] font-normal text-settings-muted-foreground"
@@ -744,15 +770,17 @@
                           <div class="flex min-w-0 items-center gap-2">
                             <div class="min-w-0 flex-1">
                               <Input
+                                bind:ref={endpointInputEls[index]}
                                 id={`endpoint-address-${index}`}
                                 value={endpoint.address}
                                 oninput={(event) =>
                                   updateEndpointAddress(index, event.currentTarget.value)}
                                 placeholder={i18n.t('wallet.addressBook.form.addressPlaceholder')}
                                 class="identifier-text h-[38px] px-3 text-xs md:text-xs"
-                                aria-invalid={Boolean(endpointsError)}
-                                aria-describedby={endpointsError
-                                  ? 'address-book-endpoints-error'
+                                aria-invalid={Boolean(endpointsError) &&
+                                  endpointErrorIndex === index}
+                                aria-describedby={endpointsError && endpointErrorIndex === index
+                                  ? `address-book-endpoint-error-${index}`
                                   : undefined}
                               />
                             </div>
@@ -768,6 +796,15 @@
                               <MinusIcon class="size-4" />
                             </Button>
                           </div>
+                          {#if endpointsError && endpointErrorIndex === index}
+                            <p
+                              id={`address-book-endpoint-error-${index}`}
+                              class="text-xs text-destructive"
+                              role="alert"
+                            >
+                              {endpointsError}
+                            </p>
+                          {/if}
                           {#if endpoint.kind === 'vrpc' && (endpoint.address
                               .trim()
                               .endsWith('@') || endpoint.address.trim().startsWith('i'))}
@@ -797,7 +834,7 @@
                           {/if}
                         </div>
                       {/each}
-                      {#if endpointsError}
+                      {#if endpointsError && endpointErrorIndex === null}
                         <p
                           id="address-book-endpoints-error"
                           class="text-xs text-destructive"
