@@ -1333,7 +1333,7 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.form.notePlaceholder': 'Optionele notitie',
   'wallet.addressBook.form.endpointsTitle': 'Adressen',
   'wallet.addressBook.form.addEndpoint': 'Adres toevoegen',
-  'wallet.addressBook.form.addressLabel': 'Adres',
+  'wallet.addressBook.form.addressLabel': 'Adres: Verus-ecosysteem, Ethereum, Bitcoin',
   'wallet.addressBook.form.addressPlaceholder': 'Plak adres',
   'wallet.addressBook.form.save': 'Opslaan',
   'wallet.addressBook.form.saving': 'Opslaan…',

@@ -399,6 +399,9 @@ describe('address book contact workflows', () => {
     await settle();
     expect(verusIdTab.getAttribute('data-state')).toBe('inactive');
     expect(addressTab.getAttribute('data-state')).toBe('active');
+    expect(document.querySelector('label[for="endpoint-address-0"]')?.textContent?.trim()).toBe(
+      'Address: Verus ecosystem, Ethereum, Bitcoin'
+    );
     button('Save').click();
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');

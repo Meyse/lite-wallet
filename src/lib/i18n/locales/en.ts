@@ -1304,7 +1304,7 @@ export const en: Record<string, string> = {
   'wallet.addressBook.form.notePlaceholder': 'Optional note',
   'wallet.addressBook.form.endpointsTitle': 'Addresses',
   'wallet.addressBook.form.addEndpoint': 'Add address',
-  'wallet.addressBook.form.addressLabel': 'Address',
+  'wallet.addressBook.form.addressLabel': 'Address: Verus ecosystem, Ethereum, Bitcoin',
   'wallet.addressBook.form.addressPlaceholder': 'Paste address',
   'wallet.addressBook.form.save': 'Save',
   'wallet.addressBook.form.saving': 'Saving',
