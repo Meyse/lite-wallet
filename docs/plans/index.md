@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-02-14
+last_reviewed: 2026-09-20
 ---
 
 # Plans index
@@ -15,6 +15,9 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- VerusID lookup and public profile (ready for implementation; focused Paper
+  handoff):
+  [`./active/verusid-lookup-and-profile.md`](./active/verusid-lookup-and-profile.md)
 - Encrypted Address Book and Watchlist (proposed; implementation not started):
   [`./active/encrypted-address-book-watchlist.md`](./active/encrypted-address-book-watchlist.md)
 - Remaining settings designs from Paper (ready for implementation):

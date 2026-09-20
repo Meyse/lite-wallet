@@ -1,9 +1,17 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-20
 ---
 
 # VerusID profile discovery
+
+Supersession note, 2026-09-20: the approved, focused
+[VerusID lookup and public profile specification](verusid-lookup-and-profile.md)
+and its linked Paper project now govern the VerusID tab, linked-list
+presentation and canonical full-profile layout. Use that document and its
+implementation plan for the current handoff. Contacts, preview actions, websites
+and covers in this broader proposal are not part of that increment. Older Paper
+transfer-profile artboards with the sidebar hidden are superseded.
 
 Status: proposed product specification and Paper design, 2026-09-19. This task
 authorizes documentation and design only. No wallet behavior is implemented by
@@ -76,8 +84,10 @@ The Find tab remains available when there are no linked IDs.
 Create one internal public-profile destination, keyed by canonical identity
 address plus network and chain. It is reusable from search, Contacts, inline
 previews and linked identity management. A profile entered through Contacts or
-search uses the normal wallet shell with VerusID highlighted. A profile entered
-from Send uses the existing transfer focus shell and a contextual Back action.
+search uses the normal wallet shell with VerusID highlighted. The subsequent
+approved direction requires every full profile to retain this sidebar and
+content-width rule, including any future entry from Send; only the contextual
+Back destination and applicable actions change.
 
 External share links, an unauthenticated wallet mode, a web profile site, a
 public directory index, suggestions of popular people, social feeds, messaging,
