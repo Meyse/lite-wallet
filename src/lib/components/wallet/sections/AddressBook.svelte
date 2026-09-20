@@ -10,6 +10,7 @@
   import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
+  import * as Tabs from '$lib/components/ui/tabs';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -209,16 +210,15 @@
     return i18n.t(`wallet.addressBook.network.${kind}`);
   }
 
-  function contactNetworks(contact: AddressBookContact): string {
-    return [
-      ...new Set(contact.endpoints.map((endpoint) => endpointNetworkLabel(endpoint.kind))),
-    ].join(', ');
-  }
-
   async function revealNote() {
     showNote = true;
     await tick();
     noteInputEl?.focus();
+  }
+
+  function selectContact(contactId: string) {
+    if (formMode === 'create') cancelForm();
+    selectedContactId = contactId;
   }
 
   async function resolveEndpointKind(
@@ -496,7 +496,10 @@
   }
 </script>
 
-<div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col px-7 pt-10 pb-6">
+<div
+  class="relative mx-auto flex h-full min-h-0 w-full max-w-6xl min-w-0 flex-1 flex-col px-5 pt-5 pb-6"
+  data-address-book-layout
+>
   {#if onReturn}
     <div class="mb-4 shrink-0">
       <button
@@ -509,7 +512,7 @@
     </div>
   {/if}
   {#if contacts.length > 0 && !formMode}
-    <div class="absolute top-10 right-7 z-10 shrink-0">
+    <div class="absolute top-5 right-5 z-10 shrink-0">
       <Button size="sm" onclick={startCreateContact}
         ><PlusIcon class="size-3.5" aria-hidden="true" />{i18n.t(
           'wallet.addressBook.addContact'
@@ -517,7 +520,7 @@
       >
     </div>
   {/if}
-  <div class="flex min-h-0 flex-1 gap-6">
+  <div class="flex min-h-0 flex-1">
     <aside
       class="flex min-h-0 w-[184px] shrink-0 flex-col"
       class:hidden={contacts.length === 0 && !formMode}
@@ -548,25 +551,23 @@
                   <button
                     type="button"
                     class="flex min-h-[58px] w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-inset disabled:cursor-default
-                      {selectedContactId === contact.id
+                      {formMode !== 'create' && selectedContactId === contact.id
                       ? 'bg-settings-selection-surface'
                       : 'hover:bg-muted/60'}"
-                    aria-current={selectedContactId === contact.id ? 'true' : undefined}
-                    disabled={formMode !== null}
-                    onclick={() => (selectedContactId = contact.id)}
+                    aria-current={formMode !== 'create' && selectedContactId === contact.id
+                      ? 'true'
+                      : undefined}
+                    disabled={formMode === 'edit'}
+                    onclick={() => selectContact(contact.id)}
                   >
                     <ContactAvatar
                       identity={contactProfile(contact)}
                       name={contactName(contact)}
                       class="size-[30px] text-xs"
                     />
-                    <span class="min-w-0 flex-1 space-y-0.5">
+                    <span class="min-w-0 flex-1">
                       <span class="block truncate text-[13px] leading-[18px] font-medium"
                         >{contactName(contact)}</span
-                      >
-                      <span
-                        class="block truncate text-[11px] leading-[15px] text-settings-muted-foreground"
-                        >{contactNetworks(contact)}</span
                       >
                     </span>
                   </button>
@@ -579,11 +580,23 @@
       </ScrollArea.Root>
     </aside>
 
-    <!-- Keep controls below the wallet shell's overlaid 24px drag region. -->
+    {#if contacts.length > 0 || formMode}
+      <div
+        class="relative mx-5 w-px shrink-0 self-stretch"
+        data-address-book-divider
+        aria-hidden="true"
+      >
+        <div
+          class="absolute inset-x-0 -top-5 -bottom-6 bg-border/50"
+          data-address-book-divider-line
+        ></div>
+      </div>
+    {/if}
+
     <section
       class="flex min-h-0 min-w-0 flex-1 flex-col"
       class:pt-16={contacts.length > 0 && !formMode}
-      class:pt-2={contacts.length === 0 || formMode}
+      class:pt-2={contacts.length === 0 && !formMode}
     >
       {#if $contactSession && ($contactsLoadState === 'loading' || $contactsLoadState === 'error') && !contacts.length && !formMode}
         <div class="m-auto space-y-3 px-7 text-sm" role="status">
@@ -617,32 +630,35 @@
         >
           <ScrollArea.Root class="min-h-0 flex-1">
             <ScrollArea.Viewport>
-              <div class="mx-auto w-full max-w-2xl pb-5">
-                <h3 class="text-xl leading-7 font-semibold tracking-tight">
-                  {i18n.t(
-                    formMode === 'edit'
-                      ? 'wallet.addressBook.editContact'
-                      : 'wallet.addressBook.addContact'
-                  )}
-                </h3>
+              <div class="mx-auto w-full max-w-2xl px-1 pb-5" data-address-book-form-content>
+                {#if formMode === 'edit'}
+                  <h3 class="text-xl leading-7 font-semibold tracking-tight">
+                    {i18n.t('wallet.addressBook.editContact')}
+                  </h3>
+                {/if}
                 {#if formMode === 'create'}
-                  <div
-                    class="mt-5 mb-5 flex gap-2"
-                    role="group"
-                    aria-label={i18n.t('wallet.contacts.contactType')}
-                  >
-                    <Button
-                      variant={lookupMode ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onclick={() => (lookupMode = true)}
-                      >{i18n.t('wallet.contacts.verusId')}</Button
+                  <div class="mb-5 flex w-full justify-start border-b border-border/70">
+                    <Tabs.Root
+                      value={lookupMode ? 'verusid' : 'address'}
+                      onValueChange={(value) => (lookupMode = value === 'verusid')}
+                      class="w-full"
                     >
-                    <Button
-                      variant={!lookupMode ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onclick={() => (lookupMode = false)}
-                      >{i18n.t('wallet.contacts.addressOnly')}</Button
-                    >
+                      <Tabs.List
+                        class="h-10 w-full justify-start gap-6 rounded-none bg-transparent p-0"
+                        aria-label={i18n.t('wallet.contacts.contactType')}
+                      >
+                        <Tabs.Trigger
+                          value="verusid"
+                          class="h-10 rounded-none border-b-2 border-transparent px-0 text-sm font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+                          >{i18n.t('wallet.contacts.verusId')}</Tabs.Trigger
+                        >
+                        <Tabs.Trigger
+                          value="address"
+                          class="h-10 rounded-none border-b-2 border-transparent px-0 text-sm font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+                          >{i18n.t('wallet.contacts.addressOnly')}</Tabs.Trigger
+                        >
+                      </Tabs.List>
+                    </Tabs.Root>
                   </div>
                 {/if}
                 {#if lookupMode}
@@ -841,7 +857,7 @@
           </ScrollArea.Root>
 
           <footer
-            class="mx-auto flex w-full max-w-2xl shrink-0 flex-wrap items-center justify-between gap-3 pt-3"
+            class="mx-auto flex w-full max-w-2xl shrink-0 flex-wrap items-center justify-between gap-3 px-1 pt-3"
           >
             <div>
               {#if formMode === 'edit'}

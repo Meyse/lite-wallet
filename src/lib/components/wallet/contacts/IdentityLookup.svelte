@@ -128,7 +128,7 @@
         }
       }}
     />
-    <Button size="sm" variant="secondary" disabled={busy || !value.trim()} onclick={lookup}
+    <Button size="sm" variant="default" disabled={busy || !value.trim()} onclick={lookup}
       >{busy ? i18n.t('wallet.contacts.lookingUp') : i18n.t('wallet.contacts.findIdentity')}</Button
     >
   </div>

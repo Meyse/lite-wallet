@@ -1580,6 +1580,8 @@ export const en: Record<string, string> = {
   'wallet.contacts.view': 'View in contacts',
   'wallet.contacts.viewMany': 'View in contacts',
   'wallet.contacts.copyIdentity': 'Copy VerusID',
+  'wallet.contacts.identityIdentifier': 'VerusID identifier',
+  'wallet.contacts.copyIdentityIdentifier': 'Copy VerusID identifier',
   'wallet.contacts.backToSend': 'Back to Send',
   'wallet.contacts.backToConvert': 'Back to Convert',
   'wallet.contacts.add': 'Add to contacts',

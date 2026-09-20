@@ -1613,6 +1613,8 @@ export const nl: Record<string, string> = {
   'wallet.contacts.view': 'Bekijken in contacten',
   'wallet.contacts.viewMany': 'Bekijken in contacten',
   'wallet.contacts.copyIdentity': 'VerusID kopiëren',
+  'wallet.contacts.identityIdentifier': 'VerusID-identificatie',
+  'wallet.contacts.copyIdentityIdentifier': 'VerusID-identificatie kopiëren',
   'wallet.contacts.backToSend': 'Terug naar Versturen',
   'wallet.contacts.backToConvert': 'Terug naar Omzetten',
   'wallet.contacts.add': 'Toevoegen aan contacten',

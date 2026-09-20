@@ -3,6 +3,8 @@ import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { setLocale } from '$lib/i18n';
+import { identityKey } from '$lib/contacts/identity';
+import { identityProfiles } from '$lib/contacts/profiles';
 import { addressBookStore } from '$lib/stores/addressBook';
 import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
 import AddressBook from './AddressBook.svelte';
@@ -93,6 +95,7 @@ afterEach(async () => {
   await settle();
   document.body.replaceChildren();
   addressBookStore.set([]);
+  identityProfiles.set({});
 });
 
 describe('address book contact workflows', () => {
@@ -116,14 +119,44 @@ describe('address book contact workflows', () => {
     ],
   };
 
-  it('copies the VerusID name, hides the canonical address, and preserves it when editing', async () => {
+  it('shows the VerusID name and identifier without its description and preserves it when editing', async () => {
+    const description = 'A published profile description.';
+    identityProfiles.set({
+      [identityKey(identity)]: {
+        profile: {
+          state: 'ready',
+          description: {
+            value: description,
+            source: {
+              systemId: identity.chainId,
+              txid: 'profile-transaction',
+              vout: 0,
+              height: 1,
+              blockhash: 'profile-block',
+              digest: 'profile-digest',
+            },
+          },
+          avatar: null,
+          issues: [],
+          revisionTxid: 'confirmed',
+        },
+        loading: false,
+        unavailable: false,
+        checkedAt: Date.now(),
+      },
+    });
     await render([identityContact]);
-    expect(document.querySelector('[data-contact-detail]')?.textContent).not.toContain(
-      identity.identityAddress
-    );
+    const detail = document.querySelector('[data-contact-detail]');
+    expect(detail?.textContent).toContain(identity.fullyQualifiedName);
+    expect(detail?.textContent).toContain('VerusID identifier');
+    expect(detail?.textContent).toContain(identity.identityAddress);
+    expect(detail?.textContent).not.toContain(description);
     button('Copy VerusID').click();
     await settle();
     expect(copy).toHaveBeenCalledWith(identity.fullyQualifiedName);
+    button('Copy VerusID identifier').click();
+    await settle();
+    expect(copy).toHaveBeenCalledWith(identity.identityAddress);
     button('Edit').click();
     await settle();
     expect(document.querySelector('#endpoint-address-0')?.closest('[hidden]')).not.toBeNull();
@@ -157,12 +190,49 @@ describe('address book contact workflows', () => {
     await settle();
     expect(document.querySelector('[data-contact-detail]')).not.toBeNull();
   });
+
+  it('selects the first contact for browsing and clears visible selection while adding', async () => {
+    await render([
+      structuredClone(contact),
+      { ...structuredClone(contact), id: 'other', displayName: 'Other' },
+    ]);
+    const rows = [...document.querySelectorAll<HTMLButtonElement>('aside li button')];
+    expect(rows[0].getAttribute('aria-current')).toBe('true');
+    rows[1].click();
+    await settle();
+    expect(rows[1].getAttribute('aria-current')).toBe('true');
+
+    button('Add contact').click();
+    await settle();
+    expect(rows.every((row) => row.getAttribute('aria-current') === null)).toBe(true);
+    expect(rows.every((row) => !row.classList.contains('bg-settings-selection-surface'))).toBe(
+      true
+    );
+    expect(rows.every((row) => !row.disabled)).toBe(true);
+
+    rows[0].click();
+    await settle();
+    expect(document.querySelector('form')).toBeNull();
+    expect(rows[0].getAttribute('aria-current')).toBe('true');
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain('Mum');
+
+    button('Edit').click();
+    await settle();
+    expect(rows.every((row) => row.disabled)).toBe(true);
+  });
+
   it('copies the full address and keeps contact details available during a search with no matches', async () => {
     await render();
     expect(document.querySelector('h2')).toBeNull();
     expect(button('Add contact').parentElement?.classList.contains('absolute')).toBe(true);
-    expect(document.querySelector('aside + section')?.classList.contains('pt-16')).toBe(true);
-    expect(document.body.textContent).toContain('Verus, Bitcoin');
+    expect(button('Add contact').parentElement?.classList.contains('top-5')).toBe(true);
+    expect(
+      document.querySelector('[data-address-book-divider] + section')?.classList.contains('pt-16')
+    ).toBe(true);
+    const contactRow = document.querySelector('aside li button');
+    expect(contactRow?.textContent).toContain('Mum');
+    expect(contactRow?.textContent).not.toContain('Verus');
+    expect(contactRow?.textContent).not.toContain('Bitcoin');
     button('Copy').click();
     await settle();
     expect(copy).toHaveBeenCalledWith(contact.endpoints[0].address);
@@ -171,7 +241,7 @@ describe('address book contact workflows', () => {
     expect(document.body.textContent).toContain(contact.endpoints[1].address);
     button('Clear search').click();
     await settle();
-    expect(document.body.textContent).toContain('Verus, Bitcoin');
+    expect(document.querySelector('aside li button')?.textContent).toContain('Mum');
   });
 
   it('reveals notes on demand, cancels drafts, and reopens an existing note', async () => {
@@ -301,8 +371,34 @@ describe('address book contact workflows', () => {
     button('Add contact').click();
     await settle();
     expect(document.querySelector('header h2')).toBeNull();
+    const layout = document.querySelector('[data-address-book-layout]');
+    expect(layout?.classList.contains('max-w-6xl')).toBe(true);
+    expect(layout?.classList.contains('px-5')).toBe(true);
+    expect(layout?.classList.contains('pt-5')).toBe(true);
+    const divider = document.querySelector('[data-address-book-divider]');
+    expect(divider).not.toBeNull();
+    expect(divider?.classList.contains('mx-5')).toBe(true);
+    const dividerLine = document.querySelector('[data-address-book-divider-line]');
+    expect(dividerLine?.classList.contains('-top-5')).toBe(true);
+    expect(dividerLine?.classList.contains('-bottom-6')).toBe(true);
+    expect(
+      document.querySelector('[data-address-book-divider] + section')?.classList.contains('pt-2')
+    ).toBe(false);
+    expect(document.querySelector('form h3')).toBeNull();
+    expect(
+      document.querySelector('[data-address-book-form-content]')?.classList.contains('px-1')
+    ).toBe(true);
+    const verusIdTab = button('VerusID');
+    const addressTab = button('Receiving address');
+    const findIdentity = button('Find VerusID');
+    expect(verusIdTab.getAttribute('role')).toBe('tab');
+    expect(verusIdTab.getAttribute('data-state')).toBe('active');
+    expect(addressTab.getAttribute('data-state')).toBe('inactive');
+    expect(findIdentity.classList.contains('bg-primary')).toBe(true);
     button('Receiving address').click();
     await settle();
+    expect(verusIdTab.getAttribute('data-state')).toBe('inactive');
+    expect(addressTab.getAttribute('data-state')).toBe('active');
     button('Save').click();
     await settle();
     expect(document.activeElement?.id).toBe('address-book-name');

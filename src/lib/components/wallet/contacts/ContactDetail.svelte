@@ -34,7 +34,7 @@
   <div class="relative min-w-0">
     {#if actions}<div class="absolute top-0 right-0 z-10">{@render actions()}</div>{/if}
     {#if identity}
-      <PublicProfile {identity}>
+      <PublicProfile {identity} showDescription={false}>
         {#snippet nameAction()}
           <CopyButton
             copied={copied.current === 'identity'}
@@ -51,7 +51,30 @@
       </div>
     {/if}
   </div>
-  {#if endpoints.length}<div class="divide-y divide-border/70 border-y border-border/70">
+  {#if identity || endpoints.length}<div
+      class="divide-y divide-border/70 border-y border-border/70"
+    >
+      {#if identity}<div
+          class="flex min-w-0 items-center gap-3 py-[18px]"
+          data-contact-identity-identifier
+        >
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <p class="text-xs leading-4 text-settings-muted-foreground">
+              {i18n.t('wallet.contacts.identityIdentifier')}
+            </p>
+            <IdentifierText
+              value={identity.identityAddress}
+              mode="full"
+              class="block text-[13px] leading-5"
+            />
+          </div>
+          <CopyButton
+            copied={copied.current === 'identity-address'}
+            onclick={() => copy(identity!.identityAddress, 'identity-address')}
+            title={i18n.t('wallet.contacts.copyIdentityIdentifier')}
+            aria-label={i18n.t('wallet.contacts.copyIdentityIdentifier')}
+          />
+        </div>{/if}
       {#each endpoints as endpoint (endpoint.id)}
         {@const address = contactEndpointName(contact, endpoint)}
         <div class="flex min-w-0 items-center gap-3 py-[18px]">

@@ -11,11 +11,13 @@
     identity,
     compact = false,
     showName = true,
+    showDescription = true,
     nameAction,
   }: {
     identity: ContactIdentity;
     compact?: boolean;
     showName?: boolean;
+    showDescription?: boolean;
     nameAction?: Snippet;
   } = $props();
   const i18n = $derived($i18nStore);
@@ -61,7 +63,7 @@
       {#if nameAction}<div class="shrink-0">{@render nameAction()}</div>{/if}
     </div>
   {/if}
-  {#if entry?.profile?.description?.value}
+  {#if showDescription && entry?.profile?.description?.value}
     <p
       class={compact
         ? 'text-[13px] leading-[19px] break-words whitespace-pre-wrap text-settings-muted-foreground'
@@ -69,7 +71,7 @@
     >
       {entry.profile.description.value}
     </p>
-  {:else if loading}
+  {:else if showDescription && loading}
     <div class="space-y-2" role="status">
       <span class="sr-only">{i18n.t('common.loading')}</span>
       <Skeleton class="h-3 w-full rounded bg-muted motion-reduce:animate-none" aria-hidden="true" />
