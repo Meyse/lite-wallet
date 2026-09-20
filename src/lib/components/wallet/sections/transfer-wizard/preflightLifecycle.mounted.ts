@@ -876,6 +876,28 @@ async function mountNavigationDraft() {
 }
 
 describe('sidebar transfer navigation', () => {
+  it('overlays the Settings drag region instead of reserving a top strip', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(WalletLayoutLifecycleHarness, { target });
+
+    try {
+      await settle();
+      buttonNamed('Settings', target).click();
+      await settle();
+
+      const dragRegion = target.querySelector(
+        '[data-slot="sidebar-inset"] > [data-tauri-drag-region]'
+      );
+      expect(dragRegion?.classList.contains('absolute')).toBe(true);
+      expect(dragRegion?.classList.contains('h-5')).toBe(true);
+      expect(dragRegion?.classList.contains('shrink-0')).toBe(false);
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
   it('retains exact inputs across sections, restores focus and isolates Escape', async () => {
     const { target, component } = await mountNavigationDraft();
     try {

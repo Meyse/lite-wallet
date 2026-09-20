@@ -30,10 +30,8 @@
   const i18n = $derived($i18nStore);
 </script>
 
-<div
-  class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
->
-  <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-2">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-5 pt-5 pb-6">
+  <section class="flex min-h-0 flex-1 flex-col overflow-auto">
     <header class="flex h-[72px] shrink-0 flex-col gap-3">
       <NavigationBackButton
         label={i18n.t('wallet.settings.backLabel')}

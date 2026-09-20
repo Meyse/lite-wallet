@@ -86,4 +86,26 @@ describe('mounted settings controls', () => {
 
     await unmount(component);
   });
+
+  it('keeps the contextual back action sized to its label', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(ProfileSecuritySettings, {
+      target,
+      props: {
+        autoLockMinutes: 15,
+        autoLockOptions: [5, 15, 30, 60],
+        onSetAutoLockMinutes: vi.fn(),
+        onBack: vi.fn(),
+        onOpenRecovery: vi.fn(),
+      },
+    });
+
+    const backButton = [...target.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Back to settings'
+    );
+    expect(backButton?.classList.contains('w-fit')).toBe(true);
+
+    await unmount(component);
+  });
 });

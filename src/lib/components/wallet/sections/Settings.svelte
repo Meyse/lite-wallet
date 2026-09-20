@@ -138,10 +138,8 @@
 </script>
 
 {#if activeView === 'home'}
-  <div
-    class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
-  >
-    <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-4">
+  <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-5 pt-5 pb-6">
+    <section class="flex min-h-0 flex-1 flex-col overflow-auto">
       <div>
         <h2 class="text-xl leading-7 font-semibold tracking-[-0.015em]">
           {i18n.t('wallet.settings.home.title')}
