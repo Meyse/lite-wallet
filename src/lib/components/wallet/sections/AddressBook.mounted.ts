@@ -159,6 +159,7 @@ describe('address book contact workflows', () => {
     expect(copy).toHaveBeenCalledWith(identity.identityAddress);
     button('Edit').click();
     await settle();
+    expect(document.body.textContent).not.toContain(description);
     expect(document.querySelector('#endpoint-address-0')?.closest('[hidden]')).not.toBeNull();
     service.saveAddressBookContact.mockResolvedValue(identityContact);
     button('Save').click();

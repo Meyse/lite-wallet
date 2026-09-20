@@ -693,7 +693,7 @@
                 {:else}
                   <fieldset disabled={saving || deleting} class="mt-6 min-w-0 space-y-6">
                     {#if formProfile}
-                      <PublicProfile identity={formProfile} compact />
+                      <PublicProfile identity={formProfile} compact showDescription={false} />
                     {:else if !formIdentities.length}
                       <div class="space-y-2">
                         <Label
