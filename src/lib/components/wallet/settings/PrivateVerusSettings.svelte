@@ -523,7 +523,6 @@
     {/if}
     <div class="mt-5 flex justify-end gap-2">
       <Button
-        size="sm"
         variant="secondary"
         disabled={submittingMode !== null}
         onclick={() => handleImportOpenChange(false)}
@@ -531,7 +530,6 @@
         {i18n.t('common.cancel')}
       </Button>
       <Button
-        size="sm"
         disabled={submittingMode !== null || !importText.trim()}
         onclick={() => void setup('import_text')}
       >
@@ -585,7 +583,7 @@
       </p>
     {/if}
     <div class="mt-5 flex justify-end">
-      <Button size="sm" disabled={!backupAcknowledged} onclick={closeBackup}>
+      <Button disabled={!backupAcknowledged} onclick={closeBackup}>
         {i18n.t('common.done')}
       </Button>
     </div>

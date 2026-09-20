@@ -11,6 +11,7 @@
   import type { HTMLInputAttributes } from 'svelte/elements';
 
   type SearchInputProps = WithElementRef<Omit<HTMLInputAttributes, 'type' | 'files'>> & {
+    type?: 'text' | 'search';
     inputClass?: string;
     iconClass?: string;
     clearLabel?: string;
@@ -20,6 +21,7 @@
   let {
     ref = $bindable(null),
     value = $bindable(''),
+    type = 'text',
     placeholder = '',
     inputClass = '',
     iconClass = '',
@@ -45,7 +47,7 @@
     absoluteStrokeWidth
   />
   <Input
-    type="text"
+    {type}
     bind:ref
     bind:value
     {placeholder}
@@ -53,7 +55,7 @@
       'pl-10',
       clearLabel && value ? 'pr-9' : '',
       showFocusRing
-        ? 'focus-visible:ring-2 focus-visible:ring-settings-focus-ring'
+        ? 'focus-visible:ring-[3px] focus-visible:ring-ring/60'
         : 'focus-visible:ring-0 focus-visible:ring-transparent',
       inputClass
     )}

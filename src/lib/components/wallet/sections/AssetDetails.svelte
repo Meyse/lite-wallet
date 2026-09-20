@@ -1379,6 +1379,7 @@
     <SearchInput
       bind:value={addressSearchTerm}
       placeholder={i18n.t('wallet.assetDetails.scopeSearchPlaceholder')}
+      inputClass="h-10"
     />
     <ScrollArea.Root class="min-h-0 flex-1" type="scroll">
       <ScrollArea.Viewport class="h-full pr-1">

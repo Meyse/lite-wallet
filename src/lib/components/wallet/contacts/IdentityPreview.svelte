@@ -239,8 +239,7 @@
       <Button
         bind:ref={action}
         variant="secondary"
-        class="mt-3.5 h-[34px] w-full gap-2 rounded-[7px] text-[13px] font-medium {saveState ===
-        'saved'
+        class="mt-3.5 w-full gap-2 rounded-[7px] text-[13px] font-medium {saveState === 'saved'
           ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved'
           : ''}"
         aria-busy={saveState === 'saving'}

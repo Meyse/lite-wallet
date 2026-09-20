@@ -78,10 +78,10 @@
       {/if}
 
       <div class="mt-3 flex justify-end gap-2">
-        <Button variant="secondary" size="sm" onclick={closeOverlay}>
+        <Button variant="secondary" onclick={closeOverlay}>
           {resolvedCancelLabel}
         </Button>
-        <Button size="sm" onclick={confirm} disabled={!canSubmit}>
+        <Button onclick={confirm} disabled={!canSubmit}>
           {loading ? resolvedLoadingLabel : resolvedConfirmLabel}
         </Button>
       </div>

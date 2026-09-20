@@ -707,7 +707,7 @@
                           id="address-book-name"
                           value={formDisplayName}
                           oninput={(event) => updateDisplayName(event.currentTarget.value)}
-                          class="h-[38px] px-3"
+                          class="h-10 px-3"
                           aria-invalid={Boolean(nameError)}
                           aria-describedby={nameError ? 'address-book-name-error' : undefined}
                           placeholder={i18n.t('wallet.addressBook.form.namePlaceholder')}
@@ -776,7 +776,7 @@
                                 oninput={(event) =>
                                   updateEndpointAddress(index, event.currentTarget.value)}
                                 placeholder={i18n.t('wallet.addressBook.form.addressPlaceholder')}
-                                class="identifier-text h-[38px] px-3 text-xs md:text-xs"
+                                class="identifier-text h-10 px-3 text-xs md:text-xs"
                                 aria-invalid={Boolean(endpointsError) &&
                                   endpointErrorIndex === index}
                                 aria-describedby={endpointsError && endpointErrorIndex === index
@@ -880,7 +880,7 @@
                         bind:value={formNote}
                         disabled={saving || deleting}
                         placeholder={i18n.t('wallet.addressBook.form.notePlaceholder')}
-                        class="h-[38px] px-3"
+                        class="h-10 px-3"
                       />
                     </div>
                   {/if}
@@ -910,17 +910,11 @@
               {/if}
             </div>
             <div class="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onclick={cancelForm}
-                disabled={saving || deleting}
-              >
+              <Button variant="secondary" onclick={cancelForm} disabled={saving || deleting}>
                 {i18n.t('common.cancel')}
               </Button>
               {#if !lookupMode}<Button
                   type="submit"
-                  size="sm"
                   class="relative"
                   disabled={saving || deleting}
                   aria-busy={saving}
@@ -1014,15 +1008,10 @@
       <p class="text-sm text-destructive" role="alert">{deleteError}</p>
     {/if}
     <Dialog.Footer class="flex justify-end gap-3">
-      <Button
-        variant="secondary"
-        size="sm"
-        onclick={() => (showDeleteDialog = false)}
-        disabled={deleting}
-      >
+      <Button variant="secondary" onclick={() => (showDeleteDialog = false)} disabled={deleting}>
         {i18n.t('common.cancel')}
       </Button>
-      <Button variant="destructive" size="sm" onclick={confirmDeleteSelected} disabled={deleting}>
+      <Button variant="destructive" onclick={confirmDeleteSelected} disabled={deleting}>
         {deleting ? i18n.t('common.loading') : i18n.t('wallet.addressBook.deleteContact')}
       </Button>
     </Dialog.Footer>

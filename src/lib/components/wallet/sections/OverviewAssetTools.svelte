@@ -1,10 +1,9 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
+  import SearchInput from '$lib/components/common/SearchInput.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
-  import SearchIcon from '@lucide/svelte/icons/search';
   import XIcon from '@lucide/svelte/icons/x';
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -43,39 +42,26 @@
 </script>
 
 <div class="mt-4 flex h-9 items-center gap-3" data-testid="overview-asset-tools">
-  <div
-    class={`flex h-[34px] min-w-0 shrink items-center gap-2 rounded-md bg-muted px-2.5 focus-within:ring-2 focus-within:ring-ring/60 focus-within:ring-inset ${preferences.withBalance ? 'w-64' : 'w-72'}`}
-  >
-    <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-    <div class="min-w-0 flex-1">
-      <Input
-        bind:ref={searchElement}
-        bind:value={query}
-        type="search"
-        aria-label={i18n.t('wallet.overview.searchAssets')}
-        placeholder={i18n.t('wallet.overview.searchAssets')}
-        autocomplete="off"
-        spellcheck={false}
-        class="h-[34px] rounded-none border-0 bg-transparent p-0 text-[13px] leading-4 placeholder:text-muted-foreground focus-visible:ring-0 md:text-[13px] dark:bg-transparent dark:placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
-        onkeydown={(event) => {
-          if (event.key === 'Escape' && query) {
-            event.preventDefault();
-            clearSearch();
-          }
-        }}
-      />
-    </div>
-    {#if query}
-      <button
-        type="button"
-        class="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        aria-label={i18n.t('wallet.overview.clearSearch')}
-        onclick={clearSearch}
-      >
-        <XIcon class="size-3" aria-hidden="true" />
-      </button>
-    {/if}
-  </div>
+  <SearchInput
+    bind:ref={searchElement}
+    bind:value={query}
+    type="search"
+    placeholder={i18n.t('wallet.overview.searchAssets')}
+    aria-label={i18n.t('wallet.overview.searchAssets')}
+    clearLabel={i18n.t('wallet.overview.clearSearch')}
+    showFocusRing
+    class={`ml-[3px] min-w-0 shrink ${preferences.withBalance ? 'w-64' : 'w-72'}`}
+    inputClass="h-[34px] rounded-md bg-muted pl-8 text-[13px] leading-4 placeholder:text-muted-foreground md:text-[13px] dark:bg-muted dark:placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
+    iconClass="left-2.5 size-4 text-muted-foreground"
+    autocomplete="off"
+    spellcheck={false}
+    onkeydown={(event) => {
+      if (event.key === 'Escape' && query) {
+        event.preventDefault();
+        clearSearch();
+      }
+    }}
+  />
   {#if preferences.withBalance}
     <button
       type="button"

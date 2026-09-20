@@ -141,7 +141,7 @@
       placeholder={i18n.t('wallet.settings.display.currency.searchPlaceholder')}
       clearLabel={i18n.t('common.clearSearch')}
       showFocusRing
-      inputClass="bg-settings-surface dark:bg-settings-control-surface h-9 rounded-md text-[13px] leading-[18px]"
+      inputClass="h-10 rounded-md bg-settings-surface text-[13px] leading-[18px] dark:bg-settings-control-surface"
     />
 
     {#if !hasCurrencySearch}

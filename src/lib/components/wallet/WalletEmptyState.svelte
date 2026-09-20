@@ -80,7 +80,6 @@
   {/if}
   <!-- Coming-soon buttons remain clickable and focusable, with no destination yet. -->
   <Button
-    size="sm"
     variant={comingSoon ? 'secondary' : 'default'}
     class="mt-5 select-none {comingSoon
       ? 'opacity-[0.48] focus-visible:opacity-100 dark:opacity-[0.28] dark:focus-visible:opacity-100'

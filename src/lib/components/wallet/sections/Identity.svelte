@@ -837,6 +837,7 @@
             <SearchInput
               bind:value={listSearchInput}
               placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
+              inputClass="h-10"
             />
           </div>
 

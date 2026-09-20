@@ -120,7 +120,7 @@
       oninput={invalidate}
       aria-label={i18n.t('wallet.contacts.findIdentity')}
       placeholder={i18n.t('wallet.contacts.identityPlaceholder')}
-      class="h-[38px]"
+      class="h-10"
       onkeydown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -128,7 +128,12 @@
         }
       }}
     />
-    <Button size="sm" variant="default" disabled={busy || !value.trim()} onclick={lookup}
+    <Button
+      size="lg"
+      variant="default"
+      class="shrink-0 px-4"
+      disabled={busy || !value.trim()}
+      onclick={lookup}
       >{busy ? i18n.t('wallet.contacts.lookingUp') : i18n.t('wallet.contacts.findIdentity')}</Button
     >
   </div>
@@ -137,7 +142,7 @@
       <PublicProfile identity={resolved} compact />
       <Button
         variant="secondary"
-        class="mt-3.5 h-[34px] w-full gap-2 rounded-[7px] text-[13px] {saveState === 'saved'
+        class="mt-3.5 w-full gap-2 rounded-[7px] text-[13px] {saveState === 'saved'
           ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved'
           : ''}"
         aria-busy={saving}

@@ -193,7 +193,7 @@
         <SearchInput
           bind:value={searchInput}
           placeholder={i18n.t('wallet.identity.sheet.searchPlaceholder')}
-          inputClass="focus-visible:ring-0 focus-visible:ring-transparent"
+          inputClass="h-10 focus-visible:ring-0 focus-visible:ring-transparent"
         />
 
         {#if allowManualLinkEntry}
@@ -208,7 +208,7 @@
               <Input
                 bind:value={manualIdentityInput}
                 placeholder={i18n.t('wallet.identity.sheet.manualPlaceholder')}
-                class="h-9"
+                class="h-10"
                 disabled={manualLinkBusy || busyIdentityAddress !== null}
                 onkeydown={(event) => {
                   if (event.key === 'Enter') {
@@ -218,8 +218,8 @@
                 }}
               />
               <Button
-                size="sm"
-                class="h-9 shrink-0 px-3"
+                size="lg"
+                class="shrink-0 px-4"
                 disabled={!manualIdentityInput.trim() ||
                   manualLinkBusy ||
                   busyIdentityAddress !== null}

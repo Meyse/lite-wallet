@@ -157,7 +157,7 @@ checks.
   address.
 - Long-name and broken-image fallbacks render without horizontal overflow. The
   75-line profile stress case produced a 316×392 card at y=12, ending at y=404,
-  above its trigger at y=414; its 34-pixel action remained visible while
+  above its trigger at y=414; its standard action remained visible while
   keyboard End scrolled the profile viewport. Empty and unavailable profiles
   preserve saved address access. No nested buttons were found in the picker.
 

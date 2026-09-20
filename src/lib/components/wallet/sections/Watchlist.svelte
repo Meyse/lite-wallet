@@ -574,13 +574,12 @@
     <footer class="flex shrink-0 justify-end gap-2 pt-6">
       <Button
         variant="secondary"
-        size="sm"
         disabled={resolving || adding}
         onclick={() => (addSheetOpen = false)}
       >
         {i18n.t('common.cancel')}
       </Button>
-      <Button type="submit" size="sm" disabled={resolving || adding || !addQuery.trim()}>
+      <Button type="submit" disabled={resolving || adding || !addQuery.trim()}>
         {#if resolving || adding}
           <LoaderCircleIcon
             class="size-3.5 animate-spin motion-reduce:animate-none"
@@ -616,15 +615,10 @@
       <p class="text-sm text-destructive" role="alert">{removeError}</p>
     {/if}
     <Dialog.Footer class="flex justify-end gap-3">
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={removing}
-        onclick={() => (removeDialogOpen = false)}
-      >
+      <Button variant="secondary" disabled={removing} onclick={() => (removeDialogOpen = false)}>
         {i18n.t('common.cancel')}
       </Button>
-      <Button variant="destructive" size="sm" disabled={removing} onclick={confirmRemove}>
+      <Button variant="destructive" disabled={removing} onclick={confirmRemove}>
         {i18n.t(removing ? 'wallet.watchlist.removing' : 'wallet.watchlist.remove')}
       </Button>
     </Dialog.Footer>

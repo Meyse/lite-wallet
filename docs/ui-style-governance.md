@@ -33,6 +33,20 @@ appearing without first deciding that they are now part of the style.
   use its muted and destructive tones only when the action's meaning requires
   those semantic states.
 
+## Control heights
+
+- Use 32px buttons for compact toolbar, list-row and small inline actions.
+- Use 36px buttons for ordinary form, footer, dialog and confirmation actions.
+- Use 40px buttons for prominent wallet actions and for buttons paired with a
+  40px field in the same control group.
+- Use 40px fields for standard unlocked-wallet forms and right-sheet searches.
+  Narrow sidebar or list filters may use 32px fields. Entry and onboarding
+  screens may retain the shared Input's larger 44px default.
+- Adjacent fields, buttons and select triggers in one control group should have
+  equal heights. Avoid arbitrary intermediate heights unless a documented design
+  source explicitly requires them. The wallet Overview's approved 34px
+  search-and-sort toolbar remains such an exception.
+
 ## Native cursor convention
 
 All clickable actions use the normal arrow (`cursor: default`), including
