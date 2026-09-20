@@ -101,6 +101,7 @@
   import type {
     DestinationAddressKind,
     TransferEntryContext,
+    TransferRecipientIntent,
     TransferStepId,
     TransferStepperStep,
     WizardOperationalStepId,
@@ -215,6 +216,7 @@
     ) => void;
     entryIntent: EntryIntent;
     entryContext?: TransferEntryContext | null;
+    recipientIntent?: TransferRecipientIntent | null;
     onClose?: () => void;
     walletNetwork?: WalletNetwork;
     walletKey?: string;
@@ -232,6 +234,7 @@
     onNavigationStateChange = () => {},
     entryIntent,
     entryContext = null,
+    recipientIntent = null,
     onClose = defaultClose,
     walletNetwork = 'mainnet',
     walletKey = '',
@@ -301,6 +304,9 @@
   let manualViaLocked = $state(false);
   let sourceCoinManuallyChosen = $state(false);
   const entryContextGuard = new EntryContextGuard();
+  const recipientIntentGuard = new EntryContextGuard();
+  let recipientIntentApplied = $state(false);
+  let recipientIntentCancelled = $state(false);
   let discoveredPathQuotes = $state<Record<string, BridgeConversionPathQuote[]>>({});
   let receiveSearchTerm = $state('');
   let pendingGroupedReceiveOption = $state<ReceiveAssetOption | null>(null);
@@ -961,6 +967,14 @@
   );
 
   const recipientInputCopy = $derived(getRecipientInputCopy(i18n.t, destinationAddressKind));
+  const pendingRecipientIntent = $derived(
+    entryIntent === 'send' &&
+      recipientIntent &&
+      !recipientIntentApplied &&
+      !recipientIntentCancelled
+      ? recipientIntent
+      : null
+  );
   const recipientValid = $derived(
     validateDestinationAddressForKind(destinationAddress, destinationAddressKind)
   );
@@ -1768,6 +1782,25 @@
   });
 
   $effect(() => {
+    const intent = recipientIntent;
+    if (!intent) return;
+
+    const expectedChainId = walletNetwork === 'testnet' ? VRSCTEST_SYSTEM_ID : VRSC_SYSTEM_ID;
+    const ready =
+      entryIntent === 'send' &&
+      !recipientIntentCancelled &&
+      !!selectedCoinOption &&
+      selectedChannelPrefix === 'vrpc' &&
+      intent.network === walletNetwork &&
+      intent.chainId === expectedChainId;
+    const intentKey = `${intent.network}|${intent.chainId}|${intent.identityAddress}`;
+    if (!recipientIntentGuard.claim(intentKey, ready)) return;
+
+    recipientIntentApplied = true;
+    destinationAddress = intent.fullyQualifiedName;
+  });
+
+  $effect(() => {
     if (!sourceSupportsConversion) {
       discoveredPathQuotes = {};
       loadingTargets = false;
@@ -2157,6 +2190,7 @@
   }
 
   function selectAddressBookRecipient(option: AddressBookEndpointOption) {
+    cancelPendingRecipientIntent();
     destinationAddress = option.endpointAddress;
     showAddressBookSheet = false;
     addressBookSearchTerm = '';
@@ -2165,6 +2199,7 @@
 
   function selectSelfRecipient() {
     if (!selfDestinationAddress) return;
+    cancelPendingRecipientIntent();
     destinationAddress = selfDestinationAddress;
     transferError = '';
   }
@@ -2173,11 +2208,16 @@
     try {
       const pastedAddress = (await walletService.readClipboardText()).trim();
       if (!pastedAddress) return;
+      cancelPendingRecipientIntent();
       destinationAddress = pastedAddress;
       transferError = '';
     } catch {
       // Ignore clipboard read errors and keep manual entry available.
     }
+  }
+
+  function cancelPendingRecipientIntent(): void {
+    if (recipientIntent && !recipientIntentApplied) recipientIntentCancelled = true;
   }
 
   async function copySuccessFieldValue(value: string, field: 'recipient' | 'txid') {
@@ -4122,6 +4162,7 @@
                       id="transfer-recipient"
                       class="identifier-text h-10 rounded-lg bg-muted/85 px-4 pr-14 text-left text-sm font-medium dark:bg-muted/55"
                       bind:value={destinationAddress}
+                      oninput={cancelPendingRecipientIntent}
                       placeholder={recipientInputCopy.placeholder}
                     />
                     <button
@@ -4134,6 +4175,13 @@
                       {i18n.t('wallet.transfer.recipient.paste')}
                     </button>
                   </div>
+                  {#if pendingRecipientIntent}
+                    <p class="text-xs text-muted-foreground" data-pending-recipient-intent>
+                      {i18n.t('wallet.transfer.recipientIntent.pending', {
+                        identity: pendingRecipientIntent.fullyQualifiedName,
+                      })}
+                    </p>
+                  {/if}
                   {#if recipientValid && destinationAddress.trim()}
                     <div class="empty:hidden" data-recipient-identity>
                       <ResolvedIdentityMention

@@ -23,6 +23,8 @@
     pendingProfile?: PendingIdentityProfileUpdate | null;
     favoriteBusy?: boolean;
     favoriteDisabled?: boolean;
+    profileLoading?: boolean;
+    showDivider?: boolean;
     onProfileVisible?: () => void;
     onSelect?: typeof noop;
     onToggleFavorite?: typeof noop;
@@ -34,6 +36,8 @@
     pendingProfile = null,
     favoriteBusy = false,
     favoriteDisabled = false,
+    profileLoading = false,
+    showDivider = false,
     onProfileVisible = () => {},
     onSelect = noop,
     onToggleFavorite = noop,
@@ -84,38 +88,51 @@
 
 <div
   bind:this={rowElement}
-  class="flex w-full items-center gap-2 rounded-lg bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/45 dark:hover:bg-muted/35"
+  data-linked-identity-row
+  data-divider={showDivider ? 'between' : 'none'}
+  class={`flex w-full items-center gap-3.5 py-[18px] transition-colors hover:bg-muted/25 dark:hover:bg-muted/15 ${showDivider ? 'border-b' : ''}`}
 >
   <button
     type="button"
-    class="group flex min-w-0 flex-1 items-center gap-3 text-left"
+    class="group flex min-w-0 flex-1 items-center gap-3.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
     onclick={() => onSelect(identity)}
   >
     <IdentityAvatar
       seed={identity.identityAddress}
       label={displayName}
       imageUrl={avatarUrl}
-      class="size-8 text-[10px]"
+      class="size-12 text-sm"
     />
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       {#if displayNameIsAddress}
         <IdentifierText
           value={identity.identityAddress}
           mode="compact"
-          class="block truncate text-sm font-semibold text-foreground"
+          class="block truncate text-[17px] leading-[21px] font-semibold text-foreground"
         />
       {:else}
-        <p class="truncate text-sm font-semibold text-foreground">{displayName}</p>
+        <p class="truncate text-[17px] leading-[21px] font-semibold text-foreground">
+          {displayName}
+        </p>
       {/if}
-      <p class="mt-0.5 truncate text-xs text-muted-foreground">
-        {pendingProfile
-          ? i18n.t('wallet.identity.profile.pendingShort')
-          : description || i18n.t('wallet.identity.profile.noProfile')}
-      </p>
+      {#if pendingProfile}
+        <p class="mt-1 truncate text-[13px] leading-[21px] text-muted-foreground">
+          {i18n.t('wallet.identity.profile.pendingShort')}
+        </p>
+      {:else if description}
+        <p class="mt-1 truncate text-[13px] leading-[21px] text-muted-foreground">
+          {description}
+        </p>
+      {:else if profileLoading}
+        <p class="mt-1 truncate text-xs leading-[21px] text-muted-foreground">
+          {i18n.t('wallet.identity.profile.loading')}
+        </p>
+      {:else if profile?.state === 'unavailable'}
+        <p class="mt-1 truncate text-xs leading-[21px] text-muted-foreground">
+          {i18n.t('wallet.contacts.profileUnavailable')}
+        </p>
+      {/if}
     </div>
-    <ChevronRightIcon
-      class="size-4 shrink-0 text-muted-foreground/80 transition-colors group-hover:text-foreground"
-    />
   </button>
 
   <button
@@ -133,5 +150,14 @@
     {:else}
       <StarIcon class={`size-4 ${identity.favorite ? 'fill-current text-amber-500' : ''}`} />
     {/if}
+  </button>
+
+  <button
+    type="button"
+    class="inline-flex h-[34px] w-[98px] shrink-0 items-center justify-end gap-2 rounded-sm px-1 text-[13px] font-medium text-text-action outline-none hover:text-text-action focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+    onclick={() => onSelect(identity)}
+  >
+    <span>{i18n.t('wallet.identity.list.manage')}</span>
+    <ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" />
   </button>
 </div>

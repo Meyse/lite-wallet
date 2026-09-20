@@ -5,12 +5,11 @@ last_reviewed: 2026-09-20
 
 # VerusID lookup and public profile
 
-Status: implementation handoff. The user approved the focused Paper direction
-and its follow-up refinements. This document specifies future implementation;
-the documentation task does not implement wallet behavior.
+Status: implemented and verified in the Lite Wallet frontend, 2026-09-20. The
+user approved the focused Paper direction and its follow-up refinements.
 
 Implementation plan:
-[`../plans/active/verusid-lookup-and-profile.md`](../plans/active/verusid-lookup-and-profile.md).
+[`../plans/done/verusid-lookup-and-profile.md`](../plans/done/verusid-lookup-and-profile.md).
 
 ## Outcome and scope
 
@@ -99,7 +98,7 @@ loading, refresh, provisioning and pending-profile reconciliation semantics.
 
 The toolbar contains **Search linked IDs** and **Link VerusID** in one flex row:
 search grows into the available width; the button remains content-sized and does
-not shrink; gap is 12px; both controls are 40px high. The English Paper button
+not shrink; gap is 12px; both controls are 36px high. The English Paper button
 is 122px wide, but translations must be allowed more width. Do not use
 space-between to create a second, larger gap. Linked search filters the current
 list; it does not query public identities.

@@ -47,6 +47,7 @@
   import type {
     TransferEntryContext,
     TransferNavigationState,
+    TransferRecipientIntent,
   } from './sections/transfer-wizard/types';
   import type { WalletEntrySelection } from '$lib/types/wallet';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
@@ -83,6 +84,7 @@
     walletKey: string;
     intent: 'send' | 'convert';
     context: TransferEntryContext | null;
+    recipientIntent: TransferRecipientIntent | null;
   };
   let transferDraft = $state<TransferDraft | null>(null);
   let nextDraftId = 0;
@@ -90,6 +92,7 @@
   let pendingTransfer = $state<{
     intent: 'send' | 'convert';
     context: TransferEntryContext | null;
+    recipientIntent: TransferRecipientIntent | null;
   } | null>(null);
   let transferNavigation = $state<TransferNavigationState>({
     mode: 'send',
@@ -159,9 +162,19 @@
     activeSection = section;
   }
 
-  function startTransfer(intent: 'send' | 'convert', context: TransferEntryContext | null): void {
+  function startTransfer(
+    intent: 'send' | 'convert',
+    context: TransferEntryContext | null,
+    recipientIntent: TransferRecipientIntent | null = null
+  ): void {
     transferNavigation = { mode: intent, dirty: false, locked: false, completed: false };
-    transferDraft = { id: ++nextDraftId, walletKey: transferWalletKey, intent, context };
+    transferDraft = {
+      id: ++nextDraftId,
+      walletKey: transferWalletKey,
+      intent,
+      context,
+      recipientIntent,
+    };
     transferFocus = null;
     pendingTransfer = null;
     activeSection = intent === 'send' ? 'send' : 'conversions';
@@ -169,15 +182,16 @@
 
   function requestTransfer(
     intent: 'send' | 'convert',
-    context: TransferEntryContext | null = null
+    context: TransferEntryContext | null = null,
+    recipientIntent: TransferRecipientIntent | null = null
   ): void {
     if (navigationLocked) return;
     if (currentDraft && transferNavigation.dirty && !transferNavigation.completed) {
       // A new entry point must never silently replace the retained payment.
-      pendingTransfer = { intent, context };
+      pendingTransfer = { intent, context, recipientIntent };
       return;
     }
-    startTransfer(intent, context);
+    startTransfer(intent, context, recipientIntent);
   }
 
   function openOverviewTransfer(intent: 'send' | 'convert'): void {
@@ -403,6 +417,7 @@
       <main
         class={isTransferSection ||
         activeSection === 'overview' ||
+        activeSection === 'identity' ||
         activeSection === 'watchlist' ||
         activeSection === 'address-book'
           ? 'flex min-h-0 flex-1 overflow-hidden'
@@ -423,6 +438,7 @@
                 active={isTransferSection && !genericRequestFlowOpen && !genericRequestImportOpen}
                 entryIntent={currentDraft.intent}
                 entryContext={currentDraft.context}
+                recipientIntent={currentDraft.recipientIntent}
                 walletNetwork={walletData.network ?? 'mainnet'}
                 walletKey={transferWalletKey}
                 onNavigationStateChange={(state) => {
@@ -479,6 +495,10 @@
               sessionState={identitySectionSession}
               onSessionStateChange={(nextState) => {
                 identitySectionSession = nextState;
+              }}
+              navigationDisabled={navigationLocked}
+              onSend={(identity) => {
+                requestTransfer('send', null, identity);
               }}
             />
           {/key}
@@ -543,7 +563,12 @@
         <Button
           variant="secondary"
           onclick={() => {
-            if (pendingTransfer) startTransfer(pendingTransfer.intent, pendingTransfer.context);
+            if (pendingTransfer)
+              startTransfer(
+                pendingTransfer.intent,
+                pendingTransfer.context,
+                pendingTransfer.recipientIntent
+              );
           }}
         >
           {i18n.t('wallet.transfer.replaceDraft')}

@@ -4,6 +4,12 @@ import type {
   PendingIdentityProfileUpdate,
   ProvisioningJobRecord,
 } from '$lib/types/wallet.js';
+import {
+  createVerusIdLookupState,
+  type IdentitySectionTab,
+  type VerusIdLookupState,
+  type VerusIdProfileDestination,
+} from './verusIdPublicProfile';
 
 export type IdentitySectionSessionState = {
   linkedIdentities: LinkedIdentity[];
@@ -14,6 +20,10 @@ export type IdentitySectionSessionState = {
   hasLoadedProvisioningOnce: boolean;
   profilesByAddress: Record<string, IdentityProfileLoadResult>;
   pendingProfilesByAddress: Record<string, PendingIdentityProfileUpdate>;
+  activeTab: IdentitySectionTab;
+  linkedFilter: string;
+  lookup: VerusIdLookupState;
+  publicProfile: VerusIdProfileDestination | null;
 };
 
 export function createIdentitySectionSessionState(): IdentitySectionSessionState {
@@ -26,5 +36,9 @@ export function createIdentitySectionSessionState(): IdentitySectionSessionState
     hasLoadedProvisioningOnce: false,
     profilesByAddress: {},
     pendingProfilesByAddress: {},
+    activeTab: 'linked',
+    linkedFilter: '',
+    lookup: createVerusIdLookupState(),
+    publicProfile: null,
   };
 }

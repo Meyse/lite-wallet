@@ -6,6 +6,7 @@ import type {
   IdentityProfileLoadResult,
   LinkedIdentity,
   PendingIdentityProfileUpdate,
+  ProvisioningJobRecord,
 } from '$lib/types/wallet';
 
 const mocks = vi.hoisted(() => ({
@@ -75,6 +76,20 @@ const otherIdentity: LinkedIdentity = {
   systemId: null,
   favorite: false,
 };
+
+const provisioningJobs: ProvisioningJobRecord[] = Array.from({ length: 6 }, (_, index) => ({
+  jobId: `provisioning-${index}`,
+  requestType: 'identity_provisioning',
+  requestHex: `request-${index}`,
+  requestedIdentityAddress: null,
+  requestedFqn: `pending-${index + 1}.example@`,
+  signingId: `service-${index + 1}@`,
+  hasResponseUris: false,
+  infoUri: null,
+  status: index === 0 ? 'ready' : 'pending',
+  createdAt: index + 1,
+  error: null,
+}));
 
 const TXID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 const OTHER_TXID = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
@@ -188,6 +203,77 @@ describe('mounted identity empty state', () => {
 });
 
 describe('mounted identity favorite toggle', () => {
+  it('keeps provisioning jobs and linked rows in one scroll region below the fixed toolbar', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: {
+        sessionState: {
+          ...initialSessionState(),
+          provisioningJobs,
+        },
+      },
+    });
+
+    try {
+      await settle();
+      const scrollHost = target.querySelector('[data-identity-linked-scroll]');
+      const viewport = scrollHost?.querySelector('[data-slot="scroll-area-viewport"]');
+      const search = target.querySelector('input[placeholder="Search linked identities"]');
+      expect(scrollHost).not.toBeNull();
+      expect(scrollHost?.querySelectorAll('[data-slot="scroll-area-viewport"]')).toHaveLength(1);
+      expect(viewport?.contains(search ?? null)).toBe(false);
+      expect(viewport?.textContent).toContain('Pending provisioning');
+      expect(viewport?.textContent).toContain('pending-6.example@');
+      expect(viewport?.textContent).toContain('favorite@');
+      expect(viewport?.textContent).toContain('other@');
+      expect(viewport?.textContent).toContain('Link identity');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('draws dividers only between rows within the same visible group', async () => {
+    const identities = [{ ...favoriteIdentity, favorite: false }, otherIdentity];
+    mocks.getLinkedIdentities.mockResolvedValue(identities);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: {
+        sessionState: {
+          ...initialSessionState(),
+          linkedIdentities: identities,
+        },
+      },
+    });
+
+    try {
+      await settle();
+      const rows = target.querySelectorAll('[data-linked-identity-row]');
+      expect(rows).toHaveLength(2);
+      expect(rows[0].getAttribute('data-divider')).toBe('between');
+      expect(rows[1].getAttribute('data-divider')).toBe('none');
+
+      const search = target.querySelector<HTMLInputElement>(
+        'input[placeholder="Search linked identities"]'
+      );
+      if (!search) throw new Error('Missing linked identity search');
+      search.value = 'other@';
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 175));
+      await settle();
+      const filteredRows = target.querySelectorAll('[data-linked-identity-row]');
+      expect(filteredRows).toHaveLength(1);
+      expect(filteredRows[0].getAttribute('data-divider')).toBe('none');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
   it.each(['light', 'dark'] as const)(
     'shows a single-flight saving state and applies persisted success in %s mode',
     async (theme) => {
@@ -203,7 +289,14 @@ describe('mounted identity favorite toggle', () => {
 
       try {
         await settle();
-        expect(target.querySelector('header h2')?.textContent?.trim()).toBe('VerusID');
+        expect(target.querySelector('header h2')).toBeNull();
+        expect(target.querySelector('[role="tab"][data-state="active"]')?.textContent?.trim()).toBe(
+          'Linked IDs'
+        );
+        const rows = target.querySelectorAll('[data-linked-identity-row]');
+        expect(rows).toHaveLength(2);
+        expect(rows[0].getAttribute('data-divider')).toBe('none');
+        expect(rows[1].getAttribute('data-divider')).toBe('none');
         const favoriteButton = target.querySelector(
           '[data-favorite-state="favorite"]'
         ) as HTMLButtonElement | null;

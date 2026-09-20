@@ -5,7 +5,7 @@ last_reviewed: 2026-09-20
 
 # Plan: integrate VerusID lookup and public profile
 
-- Status: ready for implementation; not started by this documentation task.
+- Status: complete; frontend implementation and scoped verification finished.
 - Owner: implementing agent / lite-wallet-team.
 - Updated: 2026-09-20.
 - Product contract:
@@ -14,6 +14,43 @@ last_reviewed: 2026-09-20
   [Paper light](https://app.paper.design/file/01M2XWTH7058XSW3C332QYC5R6/p-1-0)
   and
   [Paper dark](https://app.paper.design/file/01M2XWTH7058XSW3C332QYC5R6/p-2-0).
+
+## Result summary
+
+Implemented the approved VerusID tabs, consistent linked-ID rows, deliberate
+public lookup, canonical sidebar-contained profile, durable contact action, and
+one-shot compatible Send recipient intent. Existing LinkIdentitySheet,
+management, favorites, provisioning, pending-profile reconciliation, retained
+drafts, transfer review, and validation remain on their prior paths.
+
+Verification completed with Node 22.23.2 and the pinned dependency tree:
+
+- 86 focused Vitest assertions passed across Contacts, linked identity,
+  lookup/profile, existing preview/management, and transfer lifecycle suites.
+- Review corrections cover whitespace-only lookup edits, interrupted lookup
+  restoration, manual recipient ownership before source selection, and a
+  shared compact-height scroll region for provisioning jobs and linked rows.
+- Svelte diagnostics reported 0 errors and 0 warnings; scoped ESLint, UI-style
+  lint, docs validation, the production build, and diff whitespace checks
+  passed.
+- The production wallet shell and components were exercised against the
+  synthetic browser fixture in English and Dutch, light and dark, at 920x620 and
+  1200x800. Captures are retained locally under
+  `output/playwright/verusid-lookup-profile/`; browser evidence proves
+  composition and frontend behavior, not native IPC or encrypted persistence.
+- The compact provisioning fixture was also verified in light and dark at
+  920x620 from the first job through the final linked row while the tabs and
+  search/link toolbar remained fixed.
+- The browser flow verified profile -> Send -> compatible Verus source -> exact
+  `alex.example@` recipient prefill without an amount, review, signing, or
+  broadcast.
+- Native proof was not run: the guarded `mijn app` helper reported that its
+  stored credential binding does not match this account and checkout. The
+  binding was not changed. Live resolver behavior, durable Stronghold contact
+  persistence, and native transfer review remain outside this run's proof.
+
+The optional website row, cover imagery, Contacts redesign, preview redesign,
+and Send/Convert redesign remain intentionally out of scope.
 
 ## Brief for the implementing AI
 
@@ -74,15 +111,15 @@ the old full-width focus shell from earlier design notes.
 
 ## Step 1 — Model the public destination and session state
 
-- [ ] Define a small typed public-profile destination keyed by ContactIdentity
+- [x] Define a small typed public-profile destination keyed by ContactIdentity
       (canonical address, chain, network) and a session-bound origin. Keep it
       separate from linked management selection and private contact selection.
-- [ ] Add session-local selected tab, linked filter, lookup query, submitted
+- [x] Add session-local selected tab, linked filter, lookup query, submitted
       query/result/status and scroll/focus restoration. Preserve existing
       IdentitySectionSessionState fields and confirmation reconciliation.
-- [ ] Keep the public-profile host in the normal VerusID wallet shell. Opening
+- [x] Keep the public-profile host in the normal VerusID wallet shell. Opening
       from lookup highlights VerusID; returning restores the Find tab.
-- [ ] Reset on lock, account/session/network replacement. Invalidate request
+- [x] Reset on lock, account/session/network replacement. Invalidate request
       generations on query edit, replacement and destruction. Do not store DOM
       references in serialized state or introduce persistent browsing history.
 
@@ -97,37 +134,37 @@ state survives unrelated tab or section navigation.
 
 ## Step 2 — Integrate the linked-list and tab layout
 
-- [ ] Remove the redundant visible header and account for existing shell
+- [x] Remove the redundant visible header and account for existing shell
       padding. Keep an accessible section name and semantic keyboard-operable
       tabs.
-- [ ] Replace the count-dependent grid with consistent rows. Add between-row
+- [x] Replace the count-dependent grid with consistent rows. Add between-row
       separators only; no trailing separator, including filtered single results.
-- [ ] Use confirmed avatars or existing initials gradients. Omit missing
+- [x] Use confirmed avatars or existing initials gradients. Omit missing
       descriptions and center the name; retain truthful loading/failure states.
-- [ ] Make linked search flex to fill, Link content-sized, gap 12px, height
-      40px. Allow translated button text to grow without overflow.
-- [ ] Keep favorites available in their existing quiet star action slot and
+- [x] Make linked search flex to fill, Link content-sized, gap 12px, height
+      36px. Allow translated button text to grow without overflow.
+- [x] Keep favorites available in their existing quiet star action slot and
       preserve grouping/limit/save behavior. Keep pending updates/provisioning
       visible when applicable; do not replace them with static Paper examples.
-- [ ] Keep Manage and row activation routed to existing identity details.
-- [ ] Preserve LinkIdentitySheet binding, discovery service, candidate
+- [x] Keep Manage and row activation routed to existing identity details.
+- [x] Preserve LinkIdentitySheet binding, discovery service, candidate
       filtering, callback, errors/retry and the testnet-only manual link gate.
-- [ ] Keep Find available in linked-list empty, loading and failure states.
+- [x] Keep Find available in linked-list empty, loading and failure states.
 
 Checkpoint: compare mixed-profile and single-ID rows with Paper in both themes;
 exercise Link and Manage before proceeding.
 
 ## Step 3 — Implement explicit lookup and the exact result
 
-- [ ] Reuse resolveContactIdentity; classify typed IdentityNotFound separately
+- [x] Reuse resolveContactIdentity; classify typed IdentityNotFound separately
       from transient/unavailable errors using existing error helpers.
-- [ ] Match the field/network/button/result layout. Enter and button submission
+- [x] Match the field/network/button/result layout. Enter and button submission
       use one handler with duplicate prevention; typing performs no lookup.
-- [ ] Resolve independently of contact membership and optional profile loading.
+- [x] Resolve independently of contact membership and optional profile loading.
       Reuse the canonical profile cache for result enrichment.
-- [ ] Render empty, busy, exact result, not-found and unavailable states. Query
+- [x] Render empty, busy, exact result, not-found and unavailable states. Query
       edits immediately invalidate an old result and pending response.
-- [ ] Open the profile with a confirmed identity result; Back restores the
+- [x] Open the profile with a confirmed identity result; Back restores the
       lookup and originating result focus without repeating the request.
 
 Checkpoint: an unsaved, unlinked identity opens while Contacts loading fails; a
@@ -135,20 +172,20 @@ slower previous lookup cannot replace the latest query/result.
 
 ## Step 4 — Build the canonical full profile and contact action
 
-- [ ] Match Paper's sidebar, 620px content rule, Back, 72px avatar, exact name,
+- [x] Match Paper's sidebar, 620px content rule, Back, 72px avatar, exact name,
       network, action group, plain-text description and Identity details.
-- [ ] Reuse/extract shared profile rendering without changing compact previews
+- [x] Reuse/extract shared profile rendering without changing compact previews
       or private ContactDetail presentation. Do not make a second full-page
       size.
-- [ ] Add explicit missing/loading/error/cached states and image fallback. Show
+- [x] Add explicit missing/loading/error/cached states and image fallback. Show
       only confirmed public content; preserve existing pending-edit semantics.
-- [ ] Implement identity details from public resolved data; do not require the
+- [x] Implement identity details from public resolved data; do not require the
       identity to be linked or call a management endpoint merely to view it.
-- [ ] Reuse membership and addIdentityContact for Add → Saving → Saved → In
+- [x] Reuse membership and addIdentityContact for Add → Saving → Saved → In
       contacts. Reserve state-label width, handle retry independently and
       preserve private data. Multiple matches are membership, not a prompt to
       merge/edit.
-- [ ] Omit the optional website row entirely, and do not add covers or public
+- [x] Omit the optional website row entirely, and do not add covers or public
       editing controls. A complete implemented profile has no fake extension
       data.
 
@@ -158,20 +195,20 @@ state.
 
 ## Step 5 — Wire Send without changing transfer policy
 
-- [ ] Add a typed, optional recipient intent separate from the asset-only
+- [x] Add a typed, optional recipient intent separate from the asset-only
       TransferEntryContext. Carry canonical identity/network/chain; retain all
       existing source-entry call sites and behavior.
-- [ ] Route through WalletLayout's requestTransfer/pendingTransfer decision.
+- [x] Route through WalletLayout's requestTransfer/pendingTransfer decision.
       Include the pending recipient intent in new/replace state so it cannot be
       dropped by the existing conflict dialog. Resume/cancel must not apply it.
-- [ ] Apply intent once for the new draft, scoped to its ID/session and a
+- [x] Apply intent once for the new draft, scoped to its ID/session and a
       compatible Verus destination. Wait for necessary source readiness; do not
       repeatedly assign destinationAddress from a reactive identity prop.
-- [ ] Respect destination changes, no eligible source, unsupported address
+- [x] Respect destination changes, no eligible source, unsupported address
       kinds, revoked/inactive identities, account/network changes and navigation
       locks. Keep the exact intended identity visible when user correction is
       required.
-- [ ] Preserve recipient validation, acknowledgment, review and preflight
+- [x] Preserve recipient validation, acknowledgment, review and preflight
       freshness. Never infer an amount, fee, spend authority or token source
       from a profile.
 
@@ -236,11 +273,11 @@ explicitly.
 
 ## Completion criteria
 
-- [ ] Every specification acceptance criterion is addressed with evidence.
-- [ ] Link VerusID and all preserved management capabilities still function.
-- [ ] New profile/lookup code uses shared services and one canonical page
+- [x] Every specification acceptance criterion is addressed with evidence.
+- [x] Link VerusID and all preserved management capabilities still function.
+- [x] New profile/lookup code uses shared services and one canonical page
       layout.
-- [ ] No website/cover/Contacts/transfer redesign has slipped into the change.
-- [ ] Source changes, tests, rendered screenshots and proof limits are reported.
-- [ ] Update relevant implementation docs, record decisions/deviations, and move
+- [x] No website/cover/Contacts/transfer redesign has slipped into the change.
+- [x] Source changes, tests, rendered screenshots and proof limits are reported.
+- [x] Update relevant implementation docs, record decisions/deviations, and move
       this plan to done only after implementation and validation are complete.

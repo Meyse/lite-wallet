@@ -5,17 +5,16 @@ last_reviewed: 2026-09-20
 
 # VerusID profile discovery
 
-Supersession note, 2026-09-20: the approved, focused
-[VerusID lookup and public profile specification](verusid-lookup-and-profile.md)
-and its linked Paper project now govern the VerusID tab, linked-list
-presentation and canonical full-profile layout. Use that document and its
-implementation plan for the current handoff. Contacts, preview actions, websites
-and covers in this broader proposal are not part of that increment. Older Paper
-transfer-profile artboards with the sidebar hidden are superseded.
-
 Status: proposed product specification and Paper design, 2026-09-19. This task
 authorizes documentation and design only. No wallet behavior is implemented by
 this document or by its Paper artboards.
+
+> **Superseded for the implemented increment:**
+> [`VerusID lookup and public profile`](./verusid-lookup-and-profile.md) and its
+> focused Paper file are authoritative for the VerusID tabs, linked-list rows,
+> public lookup, canonical profile layout, contact action, and Send entry. This
+> broader document remains background for later Contacts, preview, website, and
+> cross-flow work.
 
 Paper:
 [Lite Wallet · VerusID profiles & discovery](https://app.paper.design/file/01M2X49JSSK4JP0DX2XAA51VX2/p-1-0).

@@ -15,9 +15,6 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
-- VerusID lookup and public profile (ready for implementation; focused Paper
-  handoff):
-  [`./active/verusid-lookup-and-profile.md`](./active/verusid-lookup-and-profile.md)
 - Encrypted Address Book and Watchlist (proposed; implementation not started):
   [`./active/encrypted-address-book-watchlist.md`](./active/encrypted-address-book-watchlist.md)
 - Remaining settings designs from Paper (ready for implementation):
@@ -43,6 +40,8 @@ Plans are first-class artifacts for multi-step work.
 
 ## Recent completed plans
 
+- VerusID lookup and public profile:
+  [`./done/verusid-lookup-and-profile.md`](./done/verusid-lookup-and-profile.md)
 - VerusID guard signed-out entry and flows:
   [`./done/verusid-guard-entry-signed-out.md`](./done/verusid-guard-entry-signed-out.md)
 - Fiat rates via CoinPaprika + PBaaS derivation:

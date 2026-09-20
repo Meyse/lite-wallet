@@ -10,16 +10,16 @@ requirements.
 
 ## Current specs and trackers
 
-- VerusID lookup and public profile (approved focused Paper design;
-  implementation handoff, preserves existing Link workflow):
-  [`./verusid-lookup-and-profile.md`](./verusid-lookup-and-profile.md)
 - Wallet asset sorting and search (approved Paper design):
   [`./wallet-asset-sorting.md`](./wallet-asset-sorting.md)
 - Contacts and VerusID profiles (draft; includes interactive profile previews):
   [`./contacts-and-verusid-profiles.md`](./contacts-and-verusid-profiles.md)
-- VerusID profile discovery (broader proposal; tab/list/profile layout
-  superseded by the focused handoff above; Contacts and preview extensions
-  deferred): [`./verusid-profile-discovery.md`](./verusid-profile-discovery.md)
+- VerusID lookup and public profile (implemented; focused linked-list, lookup,
+  profile, contact-save, and Send-entry contract):
+  [`./verusid-lookup-and-profile.md`](./verusid-lookup-and-profile.md)
+- VerusID profile discovery (background; tab/list/profile-layout portions are
+  superseded by the focused implemented specification):
+  [`./verusid-profile-discovery.md`](./verusid-profile-discovery.md)
 - Verified websites (draft; guided proof upload, verification, and publication):
   [`./verusid-verified-websites.md`](./verusid-verified-websites.md)
 - Shared contact and profile terminology: [`../../CONTEXT.md`](../../CONTEXT.md)

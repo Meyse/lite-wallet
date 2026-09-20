@@ -1,10 +1,10 @@
 import '../../src/app.css';
 import { mount } from 'svelte';
 import Fixture from './TransferNavigationFixture.svelte';
-import { setContactSession, contactsLoadState } from '$lib/contacts/session';
+import { contactsLoadState, setContactSession } from '$lib/contacts/session';
 import { setAddressBookContacts } from '$lib/stores/addressBook';
 import { coinsStore } from '$lib/stores/coins';
-import { walletChannelsStore, buildWalletChannels } from '$lib/stores/walletChannels';
+import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels';
 import { get } from 'svelte/store';
 import { balanceStore } from '$lib/stores/balances';
 import { setLocale } from '$lib/i18n';
@@ -17,6 +17,32 @@ const identity = {
   network: 'mainnet',
   chainId: chain,
 };
+const linkedIdentities = [
+  {
+    identityAddress: chain,
+    name: 'alex.example',
+    fullyQualifiedName: 'alex.example@',
+    status: 'active',
+    systemId: chain,
+    favorite: false,
+  },
+  {
+    identityAddress: 'iLinkedIdentityWithoutDescription',
+    name: 'verusbuilder',
+    fullyQualifiedName: 'verusbuilder@',
+    status: 'active',
+    systemId: chain,
+    favorite: false,
+  },
+  {
+    identityAddress: 'iSecondLinkedIdentityWithoutDescription',
+    name: 'max',
+    fullyQualifiedName: 'max@',
+    status: 'active',
+    systemId: chain,
+    favorite: false,
+  },
+];
 const make = (id, name, endpoints, extra = {}) => ({
   id,
   displayName: name,
@@ -40,7 +66,7 @@ if (params.has('long'))
   identity.fullyQualifiedName = 'averylongcanonicalidentityname.withparent.namespace@';
 let saveAttempts = 0;
 let contacts =
-  params.get('screen') === 'send' && !params.has('saved')
+  (params.get('screen') === 'send' && !params.has('saved')) || params.has('unsaved')
     ? []
     : [
         make('alex', 'alex.example@', [chain, `0x${'ab'.repeat(20)}`], {
@@ -53,7 +79,8 @@ let contacts =
 const avatar = document.createElement('canvas');
 avatar.width = 64;
 avatar.height = 64;
-const ctx = avatar.getContext('2d')!;
+const ctx = avatar.getContext('2d');
+if (!ctx) throw new Error('Canvas context unavailable');
 const gradient = ctx.createLinearGradient(0, 0, 64, 64);
 gradient.addColorStop(0, '#007baf');
 gradient.addColorStop(1, '#83dabd');
@@ -94,10 +121,38 @@ window.__TAURI_INTERNALS__ = {
   unregisterCallback: () => {},
   invoke: async (command, args) => {
     window.fixture.calls.push({ command, args });
+    if (command === 'get_linked_identities')
+      return structuredClone(
+        params.has('single') ? linkedIdentities.slice(1, 2) : linkedIdentities
+      );
+    if (command === 'get_pending_identity_profile_updates') return [];
+    if (command === 'list_identity_provisioning_jobs')
+      return params.has('provisioning')
+        ? Array.from({ length: 6 }, (_, index) => ({
+            jobId: `fixture-provisioning-${index}`,
+            requestType: 'identity_provisioning',
+            requestHex: `fixture-request-${index}`,
+            requestedIdentityAddress: null,
+            requestedFqn: `pending-${index + 1}.example@`,
+            signingId: `provisioning.service.${index + 1}@`,
+            hasResponseUris: index % 2 === 0,
+            infoUri: null,
+            status: index % 3 === 0 ? 'ready' : 'pending',
+            createdAt: index + 1,
+            error: null,
+          }))
+        : [];
+    if (command === 'discover_linkable_identities') return [];
     if (command === 'get_identity_profile' && params.has('empty'))
       return { state: 'empty', issues: [], revisionTxid: 'empty' };
     if (command === 'get_identity_profile' && params.has('unavailable'))
       return { state: 'unavailable', issues: [], revisionTxid: null };
+    if (
+      command === 'get_identity_profile' &&
+      args.identity_address &&
+      args.identity_address !== chain
+    )
+      return { state: 'empty', issues: [], revisionTxid: 'empty' };
     if (command === 'get_identity_profile')
       return {
         state: 'ready',
@@ -254,4 +309,6 @@ coinsStore.set([
 ]);
 balanceStore.set({ [channelId]: { VRSC: { confirmed: '100', pending: '0', total: '100' } } });
 walletChannelsStore.set(buildWalletChannels(get(coinsStore), source));
-mount(Fixture, { target: document.getElementById('fixture')! });
+const fixtureTarget = document.getElementById('fixture');
+if (!fixtureTarget) throw new Error('Fixture target unavailable');
+mount(Fixture, { target: fixtureTarget });

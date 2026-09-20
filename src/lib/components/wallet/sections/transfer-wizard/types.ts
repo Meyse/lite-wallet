@@ -1,4 +1,4 @@
-import type { ScopeKind } from '$lib/types/wallet';
+import type { ScopeKind, WalletNetwork } from '$lib/types/wallet';
 
 export type TransferStepId = 'details' | 'recipient' | 'review' | 'success';
 
@@ -19,6 +19,13 @@ export type TransferEntryContext = {
   channelId: string;
   readOnly: boolean;
   scopeKind: ScopeKind;
+};
+
+export type TransferRecipientIntent = {
+  identityAddress: string;
+  fullyQualifiedName: string;
+  network: WalletNetwork;
+  chainId: string;
 };
 
 export type TransferNavigationState = {

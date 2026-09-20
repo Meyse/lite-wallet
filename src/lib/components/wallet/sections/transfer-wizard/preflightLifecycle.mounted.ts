@@ -387,6 +387,195 @@ beforeEach(() => {
   });
 });
 
+it('applies a public VerusID recipient once after a compatible source is chosen', async () => {
+  const recipient = {
+    identityAddress: 'iCanonicalIdentityAddress',
+    fullyQualifiedName: 'alex.example@',
+    network: 'mainnet' as const,
+    chainId: vrscSystemId,
+  };
+  const channelId = `vrpc.${privateDestinationAddress}.${vrscSystemId}`;
+  coinsStore.set([vrscCoin]);
+  balanceStore.set({ [channelId]: { VRSC: { confirmed: '10', pending: '0', total: '10' } } });
+  mocks.getDisplayCoinScopes.mockResolvedValue({
+    coinId: 'VRSC',
+    scopes: [
+      {
+        ...privateScope,
+        channelId,
+        address: privateDestinationAddress,
+        scopeKind: 'transparent',
+        isPrimaryAddress: true,
+      },
+    ],
+  });
+  const target = document.createElement('div');
+  document.body.append(target);
+  const component = mount(TransferWizard, {
+    target,
+    props: {
+      entryIntent: 'send',
+      recipientIntent: recipient,
+      walletNetwork: 'mainnet',
+      walletKey: 'synthetic-wallet',
+    },
+  });
+
+  try {
+    await waitFor(() => target.textContent?.includes('Choose currency') ?? false, 'source picker');
+    expect(target.querySelector<HTMLInputElement>('#transfer-recipient')?.value).toBe('');
+    expect(target.querySelector('[data-pending-recipient-intent]')?.textContent).toContain(
+      'alex.example@'
+    );
+    buttonNamed('Choose currency', target).click();
+    await waitFor(
+      () =>
+        Array.from(document.querySelectorAll('button')).some((candidate) =>
+          candidate.textContent?.includes('Verus')
+        ),
+      'Verus source option'
+    );
+    const source = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (candidate) => candidate.textContent?.includes('Verus')
+    );
+    expect(source).toBeDefined();
+    source?.click();
+    await waitFor(
+      () =>
+        target.querySelector<HTMLInputElement>('#transfer-recipient')?.value === 'alex.example@',
+      'recipient intent application'
+    );
+    expect(target.querySelector('[data-pending-recipient-intent]')).toBeNull();
+
+    enter(target, '#transfer-recipient', 'manually-edited@');
+    await settle();
+    expect(target.querySelector<HTMLInputElement>('#transfer-recipient')?.value).toBe(
+      'manually-edited@'
+    );
+  } finally {
+    await unmount(component);
+    target.remove();
+  }
+});
+
+it.each([
+  ['a newer recipient', 'manually-edited@'],
+  ['a type-then-clear edit', ''],
+] as const)('does not overwrite %s before source selection', async (_case, expectedRecipient) => {
+  const recipient = {
+    identityAddress: 'iCanonicalIdentityAddress',
+    fullyQualifiedName: 'alex.example@',
+    network: 'mainnet' as const,
+    chainId: vrscSystemId,
+  };
+  const channelId = `vrpc.${privateDestinationAddress}.${vrscSystemId}`;
+  coinsStore.set([vrscCoin]);
+  balanceStore.set({ [channelId]: { VRSC: { confirmed: '10', pending: '0', total: '10' } } });
+  mocks.getDisplayCoinScopes.mockResolvedValue({
+    coinId: 'VRSC',
+    scopes: [
+      {
+        ...privateScope,
+        channelId,
+        address: privateDestinationAddress,
+        scopeKind: 'transparent',
+        isPrimaryAddress: true,
+      },
+    ],
+  });
+  const target = document.createElement('div');
+  document.body.append(target);
+  const component = mount(TransferWizard, {
+    target,
+    props: {
+      entryIntent: 'send',
+      recipientIntent: recipient,
+      walletNetwork: 'mainnet',
+      walletKey: 'synthetic-wallet',
+    },
+  });
+
+  try {
+    await waitFor(() => target.textContent?.includes('Choose currency') ?? false, 'source picker');
+    enter(target, '#transfer-recipient', 'manually-edited@');
+    await settle();
+    if (!expectedRecipient) {
+      enter(target, '#transfer-recipient', '');
+      await settle();
+    }
+    expect(target.querySelector('[data-pending-recipient-intent]')).toBeNull();
+
+    buttonNamed('Choose currency', target).click();
+    await waitFor(
+      () =>
+        Array.from(document.querySelectorAll('button')).some((candidate) =>
+          candidate.textContent?.includes('Verus')
+        ),
+      'Verus source option'
+    );
+    const source = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (candidate) => candidate.textContent?.includes('Verus')
+    );
+    expect(source).toBeDefined();
+    source?.click();
+    await waitFor(() => !target.textContent?.includes('Choose currency'), 'source selection');
+    await settle();
+
+    expect(target.querySelector<HTMLInputElement>('#transfer-recipient')?.value).toBe(
+      expectedRecipient
+    );
+  } finally {
+    await unmount(component);
+    target.remove();
+  }
+});
+
+it('does not apply a VerusID recipient to an incompatible source', async () => {
+  const target = document.createElement('div');
+  document.body.append(target);
+  const component = mount(TransferWizard, {
+    target,
+    props: {
+      entryIntent: 'send',
+      recipientIntent: {
+        identityAddress: 'iCanonicalIdentityAddress',
+        fullyQualifiedName: 'alex.example@',
+        network: 'mainnet',
+        chainId: vrscSystemId,
+      },
+      walletNetwork: 'mainnet',
+      walletKey: 'synthetic-wallet',
+    },
+  });
+
+  try {
+    await waitFor(() => target.textContent?.includes('Choose currency') ?? false, 'source picker');
+    buttonNamed('Choose currency', target).click();
+    await waitFor(
+      () =>
+        Array.from(document.querySelectorAll('button')).some((candidate) =>
+          candidate.textContent?.includes('Ethereum')
+        ),
+      'Ethereum source option'
+    );
+    const source = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (candidate) => candidate.textContent?.includes('Ethereum')
+    );
+    source?.click();
+    await waitFor(
+      () => !target.textContent?.includes('Choose currency'),
+      'Ethereum source selection'
+    );
+    expect(target.querySelector<HTMLInputElement>('#transfer-recipient')?.value).toBe('');
+    expect(target.querySelector('[data-pending-recipient-intent]')?.textContent).toContain(
+      'alex.example@'
+    );
+  } finally {
+    await unmount(component);
+    target.remove();
+  }
+});
+
 it('visits Contacts from the production Send preview and returns to the same draft', async () => {
   const identity = {
     identityAddress: vrscSystemId,
