@@ -194,7 +194,15 @@ describe('mounted identity empty state', () => {
         expect(emptyState).not.toBeNull();
         if (!emptyState) throw new Error('Missing identity empty state');
         expect(target.querySelector('header')).toBeNull();
+        expect(target.querySelector('[data-identity-search-toolbar]')).toBeNull();
+        expect(target.querySelector('input[placeholder="Search linked identities"]')).toBeNull();
+        expect(
+          target
+            .querySelector('[data-identity-linked-scroll] [data-slot="scroll-area-viewport"]')
+            ?.classList.contains('pr-1')
+        ).toBe(false);
         expect(emptyState.querySelector('h3')?.textContent?.trim()).toBe('Link your VerusID');
+        expect(emptyState.parentElement?.classList.contains('-mt-14')).toBe(true);
         expect(
           emptyState.querySelector('[data-testid="wallet-empty-eyebrow-slot"]')
         ).not.toBeNull();

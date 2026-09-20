@@ -212,6 +212,9 @@
   const hasContentBeforeIdentityList = $derived(
     showProvisioningSection || showInlineIdentityError || showBlockingIdentityError
   );
+  const showPureLinkedEmptyState = $derived(
+    !showingInitialIdentityLoad && linkedIdentities.length === 0 && !hasContentBeforeIdentityList
+  );
 
   $effect(() => {
     onSessionStateChange({
@@ -842,22 +845,27 @@
           <p class="sr-only" role="status">{i18n.t('wallet.identity.loading')}</p>
         {/if}
 
-        <div class="min-w-0 shrink-0" data-identity-search-toolbar>
-          <SearchInput
-            bind:value={listSearchInput}
-            class="w-full"
-            inputClass="h-9 bg-muted/70 text-[13px] dark:bg-muted"
-            placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
-            aria-label={i18n.t('wallet.identity.list.searchPlaceholder')}
-            showFocusRing
-          />
-        </div>
+        {#if linkedIdentities.length > 0}
+          <div class="min-w-0 shrink-0" data-identity-search-toolbar>
+            <SearchInput
+              bind:value={listSearchInput}
+              class="w-full"
+              inputClass="h-9 bg-muted/70 text-[13px] dark:bg-muted"
+              placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
+              aria-label={i18n.t('wallet.identity.list.searchPlaceholder')}
+              showFocusRing
+            />
+          </div>
+        {/if}
 
-        <div class="relative mt-6 min-h-0 flex-1" data-identity-linked-scroll>
+        <div
+          class="relative min-h-0 flex-1 {linkedIdentities.length > 0 ? 'mt-6' : ''}"
+          data-identity-linked-scroll
+        >
           <ScrollArea.Root class="h-full" type="scroll">
             <ScrollArea.Viewport
               bind:ref={linkedScrollElement}
-              class="h-full pr-1"
+              class="h-full {showPureLinkedEmptyState ? '' : 'pr-1'}"
               onscroll={onLinkedScroll}
             >
               <div class="flex min-h-full flex-col">
@@ -1000,8 +1008,15 @@
                     <IdentityListSkeleton revealed={showDelayedIdentitySkeleton} />
                   </div>
                 {:else if linkedIdentities.length === 0}
+                  <!-- Offset the tabs/content stack so the pure empty state keeps the shared 24px canvas origin. -->
                   <div
-                    class={`-mb-7 flex min-h-0 flex-1 ${hasContentBeforeIdentityList ? 'mt-6' : ''}`}
+                    class={`-mb-7 flex min-h-0 flex-1 ${
+                      hasContentBeforeIdentityList
+                        ? 'mt-6'
+                        : showPureLinkedEmptyState
+                          ? '-mt-14'
+                          : ''
+                    }`}
                   >
                     <WalletEmptyState
                       illustration="verus-id"

@@ -359,6 +359,8 @@ describe('address book contact workflows', () => {
     const emptyState = document.querySelector('[data-testid="address-book-empty"]');
     expect(emptyState).not.toBeNull();
     if (!emptyState) throw new Error('Missing address book empty state');
+    expect(emptyState.parentElement?.classList.contains('pt-1')).toBe(true);
+    expect(emptyState.parentElement?.classList.contains('pt-2')).toBe(false);
     expect(
       emptyState.querySelector('[data-testid="wallet-empty-eyebrow"]')?.textContent?.trim()
     ).toBe('Encrypted locally');

@@ -612,7 +612,7 @@
     <section
       class="flex min-h-0 min-w-0 flex-1 flex-col"
       class:pt-16={contacts.length > 0 && !formMode}
-      class:pt-2={contacts.length === 0 && !formMode}
+      class:pt-1={contacts.length === 0 && !formMode}
     >
       {#if $contactSession && ($contactsLoadState === 'loading' || $contactsLoadState === 'error') && !contacts.length && !formMode}
         <div class="m-auto space-y-3 px-7 text-sm" role="status">
