@@ -764,12 +764,26 @@
 </script>
 
 {#if publicProfile}
-  <VerusIdProfilePage
-    identity={publicProfile.identity}
-    {navigationDisabled}
-    onBack={closePublicProfile}
-    {onSend}
-  />
+  {@const profileIdentity = publicProfile.identity}
+  {#key identityKey(publicProfile.identity)}
+    <VerusIdProfilePage
+      identity={publicProfile.identity}
+      linked={linkedIdentities.some(
+        (linkedIdentity) =>
+          linkedIdentity.identityAddress === profileIdentity.identityAddress &&
+          (linkedIdentity.systemId || contactChainId(walletNetwork)) === profileIdentity.chainId
+      )
+        ? true
+        : hasLoadedLinkedIdentitiesOnce
+          ? false
+          : null}
+      linkedUnavailable={Boolean(error)}
+      onRetryLinked={() => void loadLinkedIdentities()}
+      {navigationDisabled}
+      onBack={closePublicProfile}
+      {onSend}
+    />
+  {/key}
 {:else if showingDetail}
   {#if detailsLoading}
     <IdentityDetailSkeleton identity={selectedLinkedIdentity} />

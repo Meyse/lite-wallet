@@ -14,6 +14,8 @@ requirements.
   [`./wallet-asset-sorting.md`](./wallet-asset-sorting.md)
 - Contacts and VerusID profiles (draft; includes interactive profile previews):
   [`./contacts-and-verusid-profiles.md`](./contacts-and-verusid-profiles.md)
+- VerusID profile screen 05 (selected Paper layout and image recommendations):
+  [`./verusid-profile-screen.md`](./verusid-profile-screen.md)
 - VerusID lookup and public profile (implemented; focused linked-list, lookup,
   profile, contact-save, and Send-entry contract):
   [`./verusid-lookup-and-profile.md`](./verusid-lookup-and-profile.md)

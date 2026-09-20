@@ -11,6 +11,9 @@ user approved the focused Paper direction and its follow-up refinements.
 Implementation plan:
 [`../plans/done/verusid-lookup-and-profile.md`](../plans/done/verusid-lookup-and-profile.md).
 
+The profile layout is superseded by [screen 05](./verusid-profile-screen.md).
+The lookup and navigation behavior below remains in effect.
+
 ## Outcome and scope
 
 Users can open **VerusID**, switch between **Linked IDs** and **Find a

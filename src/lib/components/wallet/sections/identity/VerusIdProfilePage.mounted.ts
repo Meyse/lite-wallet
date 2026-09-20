@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
   addIdentityContact: vi.fn(),
   loadContacts: vi.fn(),
   loadIdentityProfile: vi.fn(),
+  getIdentityDetails: vi.fn(),
+}));
+
+vi.mock('$lib/services/identityLinkService', () => ({
+  getIdentityDetails: mocks.getIdentityDetails,
 }));
 
 vi.mock('$lib/contacts/service', () => ({
@@ -26,7 +31,7 @@ vi.mock('$lib/contacts/profiles', async () => {
 
 import { identityKey } from '$lib/contacts/identity';
 import { identityProfiles } from '$lib/contacts/profiles';
-import { contactsLoadState } from '$lib/contacts/session';
+import { contactsLoadState, setContactSession } from '$lib/contacts/session';
 import { localeStore } from '$lib/i18n';
 import { addressBookStore } from '$lib/stores/addressBook';
 import VerusIdProfilePage from './VerusIdProfilePage.svelte';
@@ -65,7 +70,17 @@ function button(target: HTMLElement, label: string): HTMLButtonElement {
 beforeEach(() => {
   document.body.innerHTML = '';
   localeStore.set('en');
+  setContactSession({ sessionId: 'profile-test', network: 'mainnet' });
   addressBookStore.set([]);
+  mocks.getIdentityDetails.mockReset().mockResolvedValue({
+    identityAddress: identity.identityAddress,
+    status: 'active',
+    primaryAddresses: ['RSigningAddress'],
+    minimumSignatures: 1,
+    systemDisplayName: 'Verus',
+    revocationAuthorityName: 'alex.example@',
+    recoveryAuthorityName: 'recovery.example@',
+  });
   contactsLoadState.set('ready');
   identityProfiles.set({
     [identityKey(identity)]: {
@@ -122,7 +137,7 @@ describe('mounted public VerusID profile', () => {
     try {
       await settle();
       expect(target.textContent).toContain('Building things.');
-      expect(target.textContent).not.toContain('Website');
+      expect(target.textContent).toContain('No websites to show.');
       expect(mocks.loadContacts).toHaveBeenCalledOnce();
 
       const add = button(target, 'Add to contacts');
@@ -131,11 +146,11 @@ describe('mounted public VerusID profile', () => {
       await settle();
       expect(mocks.addIdentityContact).toHaveBeenCalledOnce();
       expect(mocks.addIdentityContact).toHaveBeenCalledWith(identity);
-      expect(target.textContent).toContain('Saving');
+      expect(target.textContent).toContain('Adding');
 
       save.resolve({});
       await settle();
-      expect(target.textContent).toContain('Saved');
+      expect(target.textContent).toContain('In contacts');
 
       button(target, 'Send').click();
       expect(sent).toEqual([identity]);
@@ -181,7 +196,7 @@ describe('mounted public VerusID profile', () => {
       button(target, 'Try again').click();
       await settle();
       expect(mocks.addIdentityContact).toHaveBeenCalledTimes(2);
-      expect(target.textContent).toContain('Saved');
+      expect(target.textContent).toContain('In contacts');
     } finally {
       await unmount(component);
       target.remove();
@@ -218,6 +233,7 @@ describe('mounted public VerusID profile', () => {
 
   it('disables Send when the resolved identity is known to be revoked', async () => {
     const revoked = { ...identity, status: 'revoked' };
+    mocks.getIdentityDetails.mockRejectedValue(new Error('unavailable'));
     const target = document.createElement('div');
     document.body.append(target);
     const component = mount(VerusIdProfilePage, { target, props: { identity: revoked } });
@@ -229,6 +245,119 @@ describe('mounted public VerusID profile', () => {
     } finally {
       await unmount(component);
       target.remove();
+    }
+  });
+  it('replaces both actions with linked status for a linked identity', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, { target, props: { identity, linked: true } });
+    try {
+      await settle();
+      expect(target.textContent).toContain('Linked to this wallet');
+      expect(
+        Array.from(target.querySelectorAll('button')).some((item) =>
+          ['Send', 'Add to contacts'].includes(item.textContent?.trim() ?? '')
+        )
+      ).toBe(false);
+      expect(mocks.addIdentityContact).not.toHaveBeenCalled();
+    } finally {
+      await unmount(component);
+    }
+  });
+
+  it('keeps the canonical destination separate from signing addresses and loads public details', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, { target, props: { identity } });
+    try {
+      await settle();
+      const addressesTab = Array.from(
+        target.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      ).find((item) => item.textContent?.includes('Addresses'));
+      if (!addressesTab) throw new Error('Missing Addresses tab');
+      addressesTab.click();
+      await settle();
+      expect(target.textContent).toContain(identity.identityAddress);
+      expect(
+        target.querySelector('[role="tabpanel"][data-state="active"]')?.textContent
+      ).not.toContain('RSigningAddress');
+      button(target, 'Identity details').click();
+      await settle();
+      expect(target.textContent).toContain('RSigningAddress');
+      expect(target.textContent).toContain('recovery.example@');
+      expect(target.textContent).toContain('1 of 1');
+      expect(target.textContent).not.toContain('Chain ID');
+      expect(target.querySelector('button[aria-label="Copy Primary address"]')).not.toBeNull();
+    } finally {
+      await unmount(component);
+    }
+  });
+
+  it('does not turn unsafe links or unverified claims into verified links', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, {
+      target,
+      props: {
+        identity,
+        content: {
+          websites: [
+            { url: 'javascript:alert(1)', verification: 'verified' },
+            { url: 'https://example.com', verification: 'unverified' },
+          ],
+          socials: [
+            { platform: 'x', profileUrl: 'https://x.com/example', verification: 'unverified' },
+          ],
+        },
+      },
+    });
+    try {
+      await settle();
+      expect(target.querySelector('a[href^="javascript:"]')).toBeNull();
+      expect(target.textContent).toContain('example.com');
+      expect(target.textContent).not.toContain('Verified');
+      const social = target.querySelector<HTMLButtonElement>('[aria-label="X account"]');
+      if (!social) throw new Error('Missing X account');
+      social.click();
+      await settle();
+      expect(document.body.textContent).toContain('Not verified');
+      expect(document.body.textContent).toContain('View profile');
+      expect(document.body.textContent).not.toContain('View proof post');
+      social.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      );
+      await settle();
+      expect(document.activeElement?.textContent).toContain('View profile');
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
+      await settle();
+      expect(document.body.textContent).not.toContain('Not verified');
+    } finally {
+      await unmount(component);
+    }
+  });
+
+  it('ignores identity details that finish after the wallet session changes', async () => {
+    const request = deferred<unknown>();
+    mocks.getIdentityDetails.mockReturnValue(request.promise);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, { target, props: { identity } });
+    try {
+      await settle();
+      setContactSession(null);
+      request.resolve({
+        identityAddress: identity.identityAddress,
+        primaryAddresses: ['RStaleAddress'],
+        minimumSignatures: 1,
+      });
+      await settle();
+      button(target, 'Identity details').click();
+      await settle();
+      expect(target.textContent).not.toContain('RStaleAddress');
+    } finally {
+      await unmount(component);
     }
   });
 });

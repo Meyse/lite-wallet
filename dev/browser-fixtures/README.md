@@ -11,6 +11,11 @@ pnpm exec vite --config dev/browser-fixtures/vite.config.js
 
 Open either page on `http://127.0.0.1:1428`:
 
+- `/dev/browser-fixtures/profile.html`: selected Paper 05 profile, using
+  production components and synthetic public data. Add `?rich&header`, `&saved`,
+  `&linked`, `&long`, `&detailsError`, `&unavailable`, or `&failOnce` for the
+  corresponding states. Rich content is a UI contract fixture, not evidence of
+  working claim readers.
 - `/dev/browser-fixtures/contacts.html`: isolated Contacts and Send states,
   profile loading, long content, saving, and retry. See the
   [Contacts verification notes](../../docs/references/contacts-implementation.md).
