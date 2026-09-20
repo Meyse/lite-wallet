@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
   import InfoIcon from '@lucide/svelte/icons/info';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -8,6 +7,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
@@ -234,14 +234,12 @@
   {#if selectedView && selectedRecord}
     <header class="flex shrink-0 items-start justify-between gap-4 px-8 pt-5 pb-4">
       <div class="min-w-0">
-        <button
-          type="button"
-          class="mb-4 flex items-center gap-1.5 text-[13px] text-settings-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+        <NavigationBackButton
+          label={i18n.t('wallet.watchlist.back')}
+          tone="settings"
+          class="mb-4"
           onclick={() => (selectedEntryId = null)}
-        >
-          <ArrowLeftIcon class="size-3.5" aria-hidden="true" />
-          {i18n.t('wallet.watchlist.back')}
-        </button>
+        />
         <div class="flex min-w-0 items-center gap-2.5">
           <h2 class="truncate text-2xl leading-8 font-semibold tracking-tight">
             {selectedView.displayName}

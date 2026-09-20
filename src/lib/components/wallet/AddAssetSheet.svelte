@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import CheckIcon from '@lucide/svelte/icons/check';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -10,6 +9,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import XIcon from '@lucide/svelte/icons/x';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -1410,14 +1410,11 @@
           <XIcon class="h-[18px] w-[18px]" />
         </Button>
       </div>
-      <button
-        type="button"
-        class="mt-3 inline-flex h-7 items-center gap-1.5 text-[13px] text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+      <NavigationBackButton
+        label={i18n.t('wallet.manageAssets.back')}
+        class="mt-3"
         onclick={closeManual}
-      >
-        <ArrowLeftIcon class="h-3.5 w-3.5" />
-        {i18n.t('wallet.manageAssets.title')}
-      </button>
+      />
     </header>
 
     <div class="mt-11 min-h-0 flex-1">

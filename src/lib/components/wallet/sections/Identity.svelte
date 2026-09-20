@@ -13,6 +13,7 @@
   import { toast } from 'svelte-sonner';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -771,13 +772,10 @@
     <IdentityDetailSkeleton identity={selectedLinkedIdentity} />
   {:else if detailsError}
     <div class="mx-auto flex h-full w-full max-w-6xl min-w-0 flex-col gap-3 px-5 pt-5 pb-6">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      <NavigationBackButton
+        label={i18n.t('wallet.identity.detail.back')}
         onclick={closeDetailView}
-      >
-        {i18n.t('wallet.identity.detail.back')}
-      </button>
+      />
 
       <p class="rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">{detailsError}</p>
 

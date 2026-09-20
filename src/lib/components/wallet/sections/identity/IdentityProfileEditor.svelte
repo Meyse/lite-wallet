@@ -1,10 +1,10 @@
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import Clock3Icon from '@lucide/svelte/icons/clock-3';
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { untrack } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
@@ -348,14 +348,10 @@
 <div class="mx-auto flex h-full w-full max-w-3xl min-w-0 flex-col px-5 pt-5 pb-6">
   {#if step === 'edit'}
     <div class="flex items-center justify-between gap-3">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      <NavigationBackButton
+        label={i18n.t('wallet.identity.profile.editor.back')}
         onclick={onCancel}
-      >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('wallet.identity.profile.editor.back')}
-      </button>
+      />
       <p class="text-xs text-muted-foreground">{displayName}</p>
     </div>
 
@@ -539,17 +535,13 @@
     </div>
   {:else if step === 'review' && preflight}
     <div class="flex items-center justify-between gap-3">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      <NavigationBackButton
+        label={i18n.t('wallet.identity.profile.review.back')}
         onclick={() => {
           step = 'edit';
           preflight = null;
         }}
-      >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('wallet.identity.profile.review.back')}
-      </button>
+      />
       <p class="text-xs text-muted-foreground">{displayName}</p>
     </div>
 

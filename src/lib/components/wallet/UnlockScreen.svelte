@@ -6,7 +6,6 @@
 -->
 
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CirclePlusIcon from '@lucide/svelte/icons/circle-plus';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -372,6 +371,8 @@
 <StandardRightSheet
   bind:isOpen={showCreateOptionsDrawer}
   title={i18n.t(createDrawerView === 'root' ? 'unlock.create.title' : 'unlock.importMethods.title')}
+  backLabel={createDrawerView === 'importMethods' ? i18n.t('unlock.importMethods.back') : undefined}
+  onBack={createDrawerView === 'importMethods' ? () => (createDrawerView = 'root') : undefined}
 >
   {#if createDrawerView === 'root'}
     <div class="space-y-3">
@@ -420,18 +421,7 @@
       </button>
     </div>
   {:else}
-    <div class="space-y-3">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        onclick={() => {
-          createDrawerView = 'root';
-        }}
-      >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('unlock.importMethods.back')}
-      </button>
-
+    <div>
       <ImportMethodList
         showHeader={false}
         onSelect={(method) => {

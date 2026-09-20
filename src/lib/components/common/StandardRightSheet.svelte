@@ -5,6 +5,7 @@
 
 <script lang="ts">
   import type { ComponentProps, Snippet } from 'svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { cn } from '$lib/utils.js';
 
@@ -12,6 +13,8 @@
     isOpen?: boolean;
     title: string;
     hideTitle?: boolean;
+    backLabel?: string;
+    onBack?: () => void;
     closeLabel?: string;
     onOpenAutoFocus?: (event: Event) => void;
     onOpenChange?: ComponentProps<typeof Sheet.Root>['onOpenChange'];
@@ -26,6 +29,8 @@
     isOpen = $bindable(false),
     title,
     hideTitle = false,
+    backLabel = undefined,
+    onBack = undefined,
     closeLabel = 'Close',
     onOpenAutoFocus = undefined,
     onOpenChange = undefined,
@@ -57,6 +62,14 @@
         {/if}
 
         <div class={cn(hideTitle ? 'mt-8' : 'mt-5', 'flex min-h-0 flex-1 flex-col', bodyClass)}>
+          {#if backLabel && onBack}
+            <NavigationBackButton
+              label={backLabel}
+              tone="settings"
+              class="mb-3 shrink-0"
+              onclick={onBack}
+            />
+          {/if}
           {@render children?.()}
         </div>
       </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
   import SquarePenIcon from '@lucide/svelte/icons/square-pen';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { i18nStore } from '$lib/i18n';
   import type { ImportMethod } from './types';
@@ -21,7 +21,7 @@
     title = '',
     showHeader = true,
     onSelect = defaultOnSelect,
-    onBack = null
+    onBack = null,
   }: ImportMethodListProps = $props();
 
   const i18n = $derived($i18nStore);
@@ -30,18 +30,15 @@
 
 <div>
   {#if showHeader && onBack}
-    <button
-      type="button"
-      class="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1.5 text-sm transition-colors"
+    <NavigationBackButton
+      label={i18n.t('unlock.importMethods.back')}
+      class="mb-3"
       onclick={() => onBack?.()}
-    >
-      <ArrowLeftIcon class="size-4" />
-      {i18n.t('unlock.importMethods.back')}
-    </button>
+    />
   {/if}
 
   {#if showHeader}
-    <Sheet.Header class="gap-1 p-0 pr-8 pt-4">
+    <Sheet.Header class="gap-1 p-0 pt-4 pr-8">
       <Sheet.Title class="text-base">{resolvedTitle}</Sheet.Title>
     </Sheet.Header>
   {/if}
@@ -60,8 +57,10 @@
           aria-hidden="true"
         />
         <div class="min-w-0">
-          <p class="text-foreground text-sm font-semibold">{i18n.t('unlock.importMethods.seed24Title')}</p>
-          <p class="text-muted-foreground mt-1 text-xs">
+          <p class="text-sm font-semibold text-foreground">
+            {i18n.t('unlock.importMethods.seed24Title')}
+          </p>
+          <p class="mt-1 text-xs text-muted-foreground">
             {i18n.t('unlock.importMethods.seed24Description')}
           </p>
         </div>
@@ -81,8 +80,10 @@
           aria-hidden="true"
         />
         <div class="min-w-0">
-          <p class="text-foreground text-sm font-semibold">{i18n.t('unlock.importMethods.textTitle')}</p>
-          <p class="text-muted-foreground mt-1 text-xs">
+          <p class="text-sm font-semibold text-foreground">
+            {i18n.t('unlock.importMethods.textTitle')}
+          </p>
+          <p class="mt-1 text-xs text-muted-foreground">
             {i18n.t('unlock.importMethods.textDescription')}
           </p>
         </div>

@@ -83,7 +83,7 @@ describe('mounted recovery navigation', () => {
     expect(target.textContent).toContain('Profile and security');
     expect(walletService.getWalletRecoverySecrets).not.toHaveBeenCalled();
 
-    findButton('Settings')?.click();
+    findButton('Back to settings')?.click();
     await settle();
     findButton('Private Verus')?.click();
     await settle();

@@ -271,8 +271,8 @@
     {walletName}
     backLabel={i18n.t(
       recoveryOrigin === 'private-verus'
-        ? 'wallet.settings.privateVerus.title'
-        : 'wallet.settings.profile.title'
+        ? 'wallet.settings.recovery.backToPrivateVerus'
+        : 'wallet.settings.recovery.backToProfileSecurity'
     )}
     onBack={returnFromRecovery}
   />

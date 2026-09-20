@@ -3,12 +3,12 @@
   import { contactSession } from '$lib/contacts/session';
   import { contactChainId } from '$lib/contacts/identity';
   import AlertTriangleIcon from '@lucide/svelte/icons/alert-triangle';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import Clock3Icon from '@lucide/svelte/icons/clock-3';
   import Link2OffIcon from '@lucide/svelte/icons/link-2-off';
   import { toast } from 'svelte-sonner';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -171,14 +171,7 @@
 {:else}
   <div class="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-col px-5 pt-5 pb-6">
     <div class="flex items-center justify-between gap-3">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        onclick={onBack}
-      >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('wallet.identity.detail.back')}
-      </button>
+      <NavigationBackButton label={i18n.t('wallet.identity.detail.back')} onclick={onBack} />
 
       <Button
         variant="ghost"

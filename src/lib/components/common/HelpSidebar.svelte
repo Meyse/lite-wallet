@@ -5,7 +5,6 @@
 -->
 
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import * as Accordion from '$lib/components/ui/accordion';
   import { Separator } from '$lib/components/ui/separator';
@@ -30,17 +29,15 @@
     topics: Array<HelpTopic>;
   };
 
-   
   let {
     isOpen = $bindable(false),
     title,
-    content
+    content,
   }: {
     isOpen?: boolean;
     title: string;
     content: HelpContent;
   } = $props();
-   
 
   const topics = $derived(content.topics);
   const i18n = $derived($i18nStore);
@@ -50,7 +47,7 @@
   let activeAccordionItem = $state('');
 
   const activeTopic = $derived(
-    activeTopicId ? topics.find((topic) => topic.id === activeTopicId) ?? null : null
+    activeTopicId ? (topics.find((topic) => topic.id === activeTopicId) ?? null) : null
   );
 
   $effect(() => {
@@ -86,20 +83,22 @@
   {title}
   hideTitle={view === 'detail'}
   bodyClass={view === 'detail' ? 'mt-2' : ''}
+  backLabel={view === 'detail' ? i18n.t('help.backToTopics') : undefined}
+  onBack={view === 'detail' ? backToTopics : undefined}
 >
   {#if view === 'topics'}
     <div class="flex h-full min-h-0 flex-col">
       <div class="flex-1 overflow-y-auto pr-1">
-        <div class="divide-border/70 overflow-hidden rounded-md border border-border/70 divide-y">
+        <div class="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
           {#each topics as topic (topic.id)}
             <button
               type="button"
-              class="group hover:bg-muted/45 focus-visible:ring-ring/50 text-foreground flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-[2px]"
+              class="group flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm font-medium text-foreground transition-colors outline-none hover:bg-muted/45 focus-visible:ring-[2px] focus-visible:ring-ring/50"
               onclick={() => openTopic(topic.id)}
             >
               <span>{topic.label}</span>
               <ChevronRightIcon
-                class="text-muted-foreground size-4 shrink-0 transition-transform duration-150 group-hover:translate-x-0.5"
+                class="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
                 aria-hidden="true"
               />
             </button>
@@ -114,15 +113,6 @@
     </div>
   {:else if activeTopic}
     <div class="flex h-full min-h-0 flex-col">
-      <button
-        type="button"
-        class="text-muted-foreground hover:text-foreground mb-2 inline-flex items-center gap-1.5 text-sm transition-colors"
-        onclick={backToTopics}
-      >
-        <ArrowLeftIcon class="size-4" />
-        {i18n.t('common.back')}
-      </button>
-
       <Accordion.Root
         type="single"
         class="mt-1 flex-1 overflow-y-auto pr-1 text-left"

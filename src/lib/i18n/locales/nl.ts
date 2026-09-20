@@ -50,7 +50,7 @@ export const nl: Record<string, string> = {
   'unlock.create.importDescription':
     'Gebruik je bestaande geheime herstelzin om een wallet op dit apparaat te herstellen.',
   'unlock.importMethods.title': 'Wallet importeren',
-  'unlock.importMethods.back': 'Terug',
+  'unlock.importMethods.back': 'Terug naar aanmaakopties',
   'unlock.importMethods.seed24Title': 'Importeer geheime herstelzin',
   'unlock.importMethods.seed24Description':
     'Voer je geheime herstelzin van 24 woorden in om deze wallet te herstellen.',
@@ -449,7 +449,7 @@ export const nl: Record<string, string> = {
   'wallet.settings.home.summary.privateConfigured': 'Ingesteld',
   'wallet.settings.home.summary.privateNotConfigured': 'Niet ingesteld',
   'wallet.settings.home.summary.version': 'Versie {version}',
-  'wallet.settings.backLabel': 'Instellingen',
+  'wallet.settings.backLabel': 'Terug naar instellingen',
   'wallet.settings.display.title': 'Weergave en taal',
   'wallet.settings.display.description': 'Kies je weergavevaluta en apptaal.',
   'wallet.settings.display.currency.label': 'Weergavevaluta',
@@ -580,6 +580,8 @@ export const nl: Record<string, string> = {
   'wallet.settings.recovery.qr.show': 'QR-code voor {label} tonen',
   'wallet.settings.recovery.qr.ariaLabel': 'QR-code voor {label}',
   'wallet.settings.recovery.qr.back': 'Terug naar sleutels',
+  'wallet.settings.recovery.backToProfileSecurity': 'Terug naar profiel en beveiliging',
+  'wallet.settings.recovery.backToPrivateVerus': 'Terug naar Private Verus',
   'wallet.settings.recovery.qr.loading': 'QR-code maken…',
   'wallet.settings.recovery.qr.error': 'De QR-code kon niet worden gemaakt.',
   'wallet.settings.recovery.qr.warning': 'Deze QR-code bevat je private key.',
@@ -640,6 +642,7 @@ export const nl: Record<string, string> = {
   'wallet.overview.partialTotalLabel': 'Gedeeltelijk',
   'wallet.overview.partialTotalDescription':
     'Sommige saldi of wisselkoersen zijn niet beschikbaar, waardoor dit totaal onvolledig is.',
+  'wallet.assetDetails.back': 'Terug naar wallet',
   'wallet.assetDetails.errorLoadScopes': 'Subwallet-scopes konden niet worden geladen.',
   'wallet.assetDetails.scopeUnavailable': 'Er is geen scope beschikbaar voor deze asset.',
   'wallet.assetDetails.scopePicker': 'Adres en netwerk wijzigen',
@@ -700,6 +703,7 @@ export const nl: Record<string, string> = {
   'wallet.addAsset.error.erc20ResolveFailed': 'Dit ERC20-contract kon niet worden opgelost.',
   'wallet.manageAssets.action': 'Assets',
   'wallet.manageAssets.title': 'Assets beheren',
+  'wallet.manageAssets.back': 'Terug naar assetbeheer',
   'wallet.manageAssets.close': 'Assetbeheer sluiten',
   'wallet.manageAssets.search': 'Assets zoeken',
   'wallet.manageAssets.searchTab': '{tab} doorzoeken',
@@ -1642,6 +1646,7 @@ export const nl: Record<string, string> = {
   'help.lostAccess.needQuestion': 'Wat heb ik nodig?',
   'help.lostAccess.needAnswer':
     'Gebruik exact dezelfde 24 woorden in dezelfde volgorde. Zonder de geheime herstelzin is herstel niet mogelijk.',
+  'help.backToTopics': 'Terug naar helponderwerpen',
   'help.communityHangout': 'Communitykanaal',
   'wallet.contacts.profileUnavailable': 'Profiel niet beschikbaar',
   'wallet.contacts.saved': 'Opgeslagen',

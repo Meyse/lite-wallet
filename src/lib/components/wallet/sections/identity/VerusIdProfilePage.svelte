@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import CheckIcon from '@lucide/svelte/icons/check';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -8,6 +7,7 @@
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
   import SendIcon from '@lucide/svelte/icons/send';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -131,14 +131,10 @@
 
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pt-5 pb-6">
   <div class="flex h-9 shrink-0 items-center">
-    <Button
-      variant="ghost"
-      class="h-9 gap-1.5 px-0 text-[13px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+    <NavigationBackButton
+      label={i18n.t('wallet.identity.publicProfile.backToSearch')}
       onclick={onBack}
-    >
-      <ArrowLeftIcon class="size-4" aria-hidden="true" />
-      {i18n.t('wallet.identity.publicProfile.backToSearch')}
-    </Button>
+    />
   </div>
 
   <ScrollArea.Root class="mt-9 min-h-0 flex-1" type="scroll">

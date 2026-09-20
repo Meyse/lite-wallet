@@ -246,13 +246,13 @@ describe('mounted Private Verus settings', () => {
     expect(document.body.textContent).toContain('Replace Private Verus setup?');
     expect(findButton('Cancel')).toBeUndefined();
 
-    findButton('Settings')?.click();
+    findButton('Back to settings')?.click();
     await settle();
     expect(document.body.textContent).toContain('Private Verus is set up');
     expect(document.body.textContent).not.toContain('Replace Private Verus setup?');
     expect(onBack).not.toHaveBeenCalled();
 
-    findButton('Settings')?.click();
+    findButton('Back to settings')?.click();
     expect(onBack).toHaveBeenCalledOnce();
 
     await unmount(component);

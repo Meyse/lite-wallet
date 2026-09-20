@@ -40,7 +40,7 @@ export const de: Record<string, string> = {
   'unlock.create.importDescription':
     'Verwende deine bestehende geheime Wiederherstellungsphrase, um eine Wallet auf diesem Gerat wiederherzustellen.',
   'unlock.importMethods.title': 'Wallet importieren',
-  'unlock.importMethods.back': 'Zuruck',
+  'unlock.importMethods.back': 'Zurück zu den Erstellungsoptionen',
   'unlock.importMethods.seed24Title': 'Geheime Wiederherstellungsphrase importieren',
   'unlock.importMethods.seed24Description':
     'Gib deine geheime Wiederherstellungsphrase mit 24 Wortern ein, um diese Wallet wiederherzustellen.',
@@ -373,7 +373,9 @@ export const de: Record<string, string> = {
   'wallet.settings.home.summary.privateConfigured': 'Eingerichtet',
   'wallet.settings.home.summary.privateNotConfigured': 'Nicht eingerichtet',
   'wallet.settings.home.summary.version': 'Version {version}',
-  'wallet.settings.backLabel': 'Einstellungen',
+  'wallet.settings.backLabel': 'Zurück zu den Einstellungen',
+  'wallet.settings.recovery.backToProfileSecurity': 'Zurück zu Profil und Sicherheit',
+  'wallet.settings.recovery.backToPrivateVerus': 'Zurück zu Private Verus',
   'wallet.settings.display.title': 'Anzeige und Sprache',
   'wallet.settings.display.description': 'Wahle deine Anzeigewahrung und App-Sprache.',
   'wallet.settings.display.currency.label': 'Anzeigewährung',
@@ -529,6 +531,7 @@ export const de: Record<string, string> = {
     'Einige Guthaben oder Wechselkurse sind nicht verfugbar, daher ist diese Summe unvollstandig.',
   'wallet.assetDetails.noTransactionsInRecentRange':
     'Keine Transaktionen im letzten Verlaufsbereich.',
+  'wallet.assetDetails.back': 'Zurück zur Wallet',
   'wallet.assetDetails.loadOlderTransactions': 'Alteren Verlauf prufen',
   'wallet.assetDetails.errorLoadScopes': 'Subwallet-Scopes konnten nicht geladen werden.',
   'wallet.assetDetails.scopeUnavailable': 'Fur dieses Asset ist kein Scope verfugbar.',
@@ -537,4 +540,6 @@ export const de: Record<string, string> = {
     'Senden und Konvertieren sind nur von deiner primaren Adresse verfugbar.',
   'wallet.assetDetails.privateSyncInlineHelper': 'Bestand wird synchronisiert',
   'wallet.assetDetails.sendCapabilityInline': 'Send-Sync {percent}%',
+  'wallet.manageAssets.back': 'Zurück zur Asset-Verwaltung',
+  'help.backToTopics': 'Zurück zu den Hilfethemen',
 };

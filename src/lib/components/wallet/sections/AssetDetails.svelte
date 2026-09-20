@@ -5,13 +5,13 @@
 
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import CheckIcon from '@lucide/svelte/icons/check';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -990,14 +990,7 @@
 </script>
 
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pb-6">
-  <button
-    type="button"
-    class="mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-    onclick={onBack}
-  >
-    <ArrowLeftIcon class="size-4" aria-hidden="true" />
-    {i18n.t('common.back')}
-  </button>
+  <NavigationBackButton label={i18n.t('wallet.assetDetails.back')} class="mb-2" onclick={onBack} />
 
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
     {#if scopesLoading}

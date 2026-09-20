@@ -27,6 +27,9 @@ const HAND_CURSOR_PATTERN =
 const DIRECT_STATIC_IDENTIFIER_PATTERN = /<(?!Input\b)[^>]*\bidentifier-text\b[^>]*>/gs;
 const LABELED_COPY_ACTION_PATTERN =
   /<CopyActionButton\b|from\s+['"][^'"]*copy-action-button(?:\/index)?['"]/g;
+const DIRECT_BACK_ICON_IMPORT_PATTERN =
+  /from\s+['"]@lucide\/svelte\/icons\/(?:arrow-left|chevron-left)['"]/g;
+const navigationBackButtonPath = 'src/lib/components/common/NavigationBackButton.svelte';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const violations = [];
@@ -136,6 +139,21 @@ function walk(currentPath) {
         defaultRule: 'ui/labeled-copy-action',
         message:
           'Use the icon-only CopyButton. Visible Copy/Copied labels are not part of the wallet UI.',
+      });
+    }
+  }
+
+  if (relativePath !== navigationBackButtonPath) {
+    for (const match of source.matchAll(DIRECT_BACK_ICON_IMPORT_PATTERN)) {
+      pushViolation({
+        file: relativePath,
+        lineStarts,
+        source,
+        index: match.index ?? 0,
+        value: match[0],
+        defaultRule: 'ui/ad-hoc-back-navigation',
+        message:
+          'Use NavigationBackButton for contextual page and nested-sheet back actions. Wizard footer Back remains a normal secondary Button.',
       });
     }
   }

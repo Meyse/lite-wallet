@@ -1,11 +1,11 @@
 <script lang="ts">
   import BookUserIcon from '@lucide/svelte/icons/book-user';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import MinusIcon from '@lucide/svelte/icons/minus';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import { onDestroy, tick, untrack } from 'svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import WalletEmptyState from '$lib/components/wallet/WalletEmptyState.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -524,13 +524,7 @@
 >
   {#if onReturn}
     <div class="mb-4 shrink-0">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-        onclick={onReturn}
-      >
-        <ArrowLeftIcon class="size-4" aria-hidden="true" />{returnLabel}
-      </button>
+      <NavigationBackButton label={returnLabel} onclick={onReturn} />
     </div>
   {/if}
   {#if contacts.length > 0 && !formMode}

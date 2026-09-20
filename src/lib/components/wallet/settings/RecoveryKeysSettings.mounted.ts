@@ -68,7 +68,7 @@ function mountRecovery(onBack = vi.fn()) {
     props: {
       walletNetwork: 'testnet',
       walletName: 'Synthetic test wallet',
-      backLabel: 'Profile and security',
+      backLabel: 'Back to profile and security',
       onBack,
     },
   });

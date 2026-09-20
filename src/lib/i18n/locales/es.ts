@@ -40,7 +40,7 @@ export const es: Record<string, string> = {
   'unlock.create.importDescription':
     'Usa tu frase secreta de recuperacion para restaurar una cartera en este dispositivo.',
   'unlock.importMethods.title': 'Importar cartera',
-  'unlock.importMethods.back': 'Atras',
+  'unlock.importMethods.back': 'Volver a las opciones de creación',
   'unlock.importMethods.seed24Title': 'Importar frase secreta de recuperacion',
   'unlock.importMethods.seed24Description':
     'Ingresa tu frase secreta de recuperacion de 24 palabras para restaurar esta cartera.',
@@ -373,7 +373,9 @@ export const es: Record<string, string> = {
   'wallet.settings.home.summary.privateConfigured': 'Configurado',
   'wallet.settings.home.summary.privateNotConfigured': 'Sin configurar',
   'wallet.settings.home.summary.version': 'Versión {version}',
-  'wallet.settings.backLabel': 'Ajustes',
+  'wallet.settings.backLabel': 'Volver a ajustes',
+  'wallet.settings.recovery.backToProfileSecurity': 'Volver a perfil y seguridad',
+  'wallet.settings.recovery.backToPrivateVerus': 'Volver a Private Verus',
   'wallet.settings.display.title': 'Pantalla e idioma',
   'wallet.settings.display.description': 'Elige tu moneda de visualizacion y el idioma de la app.',
   'wallet.settings.display.currency.label': 'Moneda de visualización',
@@ -527,6 +529,7 @@ export const es: Record<string, string> = {
     'Algunos saldos o tipos de cambio no estan disponibles, por lo que este total esta incompleto.',
   'wallet.assetDetails.noTransactionsInRecentRange':
     'No hay transacciones en el historial reciente.',
+  'wallet.assetDetails.back': 'Volver a la cartera',
   'wallet.assetDetails.loadOlderTransactions': 'Consultar historial anterior',
   'wallet.assetDetails.errorLoadScopes': 'No se pudieron cargar los alcances de subcartera.',
   'wallet.assetDetails.scopeUnavailable': 'No hay alcance disponible para este activo.',
@@ -535,4 +538,6 @@ export const es: Record<string, string> = {
     'Enviar y convertir solo estan disponibles desde tu direccion principal.',
   'wallet.assetDetails.privateSyncInlineHelper': 'Sincronizando balance',
   'wallet.assetDetails.sendCapabilityInline': 'Sync de envio {percent}%',
+  'wallet.manageAssets.back': 'Volver a gestionar activos',
+  'help.backToTopics': 'Volver a los temas de ayuda',
 };

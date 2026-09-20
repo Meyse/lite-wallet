@@ -5,11 +5,11 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import CopyButton from '$lib/components/ui/copy-button/copy-button.svelte';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
@@ -295,15 +295,12 @@
   class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
 >
   <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-2">
-    <header class="flex h-[60px] shrink-0 flex-col gap-3">
-      <button
-        type="button"
-        class="inline-flex h-5 w-fit items-center gap-1 text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+    <header class="flex h-[72px] shrink-0 flex-col gap-3">
+      <NavigationBackButton
+        label={i18n.t('wallet.settings.backLabel')}
+        tone="settings"
         onclick={handleBack}
-      >
-        <ChevronLeftIcon class="size-4" />
-        {i18n.t('wallet.settings.backLabel')}
-      </button>
+      />
       <h2 class="text-xl leading-7 font-semibold tracking-[-0.015em]">
         {i18n.t('wallet.settings.privateVerus.title')}
       </h2>

@@ -48,7 +48,7 @@ export const en: Record<string, string> = {
   'unlock.create.importDescription':
     'Use your existing Secret Recovery Phrase to restore a wallet on this device.',
   'unlock.importMethods.title': 'Import wallet',
-  'unlock.importMethods.back': 'Back',
+  'unlock.importMethods.back': 'Back to create options',
   'unlock.importMethods.seed24Title': 'Import Secret Recovery Phrase',
   'unlock.importMethods.seed24Description':
     'Enter your 24-word Secret Recovery Phrase to restore this wallet.',
@@ -445,7 +445,7 @@ export const en: Record<string, string> = {
   'wallet.settings.home.summary.privateConfigured': 'Set up',
   'wallet.settings.home.summary.privateNotConfigured': 'Not set up',
   'wallet.settings.home.summary.version': 'Version {version}',
-  'wallet.settings.backLabel': 'Settings',
+  'wallet.settings.backLabel': 'Back to settings',
   'wallet.settings.display.title': 'Display and language',
   'wallet.settings.display.description': 'Choose your display currency and app language.',
   'wallet.settings.display.currency.label': 'Display currency',
@@ -572,6 +572,8 @@ export const en: Record<string, string> = {
   'wallet.settings.recovery.qr.show': 'Show QR code for {label}',
   'wallet.settings.recovery.qr.ariaLabel': 'QR code for {label}',
   'wallet.settings.recovery.qr.back': 'Back to keys',
+  'wallet.settings.recovery.backToProfileSecurity': 'Back to profile and security',
+  'wallet.settings.recovery.backToPrivateVerus': 'Back to Private Verus',
   'wallet.settings.recovery.qr.loading': 'Creating QR code…',
   'wallet.settings.recovery.qr.error': 'The QR code could not be created.',
   'wallet.settings.recovery.qr.warning': 'This QR code contains your private key.',
@@ -632,6 +634,7 @@ export const en: Record<string, string> = {
   'wallet.overview.partialTotalLabel': 'Partial',
   'wallet.overview.partialTotalDescription':
     'Some balances or exchange rates are unavailable, so this total is incomplete.',
+  'wallet.assetDetails.back': 'Back to wallet',
   'wallet.assetDetails.errorLoadScopes': 'Could not load subwallet scopes.',
   'wallet.assetDetails.scopeUnavailable': 'No scope is available for this asset.',
   'wallet.assetDetails.scopePicker': 'Change address and network',
@@ -690,6 +693,7 @@ export const en: Record<string, string> = {
   'wallet.addAsset.error.erc20ResolveFailed': 'Could not resolve this ERC20 contract.',
   'wallet.manageAssets.action': 'Assets',
   'wallet.manageAssets.title': 'Manage assets',
+  'wallet.manageAssets.back': 'Back to manage assets',
   'wallet.manageAssets.close': 'Close asset management',
   'wallet.manageAssets.search': 'Search assets',
   'wallet.manageAssets.searchTab': 'Search {tab}',
@@ -1609,6 +1613,7 @@ export const en: Record<string, string> = {
   'help.lostAccess.needQuestion': 'What do I need?',
   'help.lostAccess.needAnswer':
     'Use the exact 24 words in the same order. Without the Secret Recovery Phrase, wallet recovery is not possible.',
+  'help.backToTopics': 'Back to help topics',
   'help.communityHangout': 'Community hangout',
   'wallet.contacts.profileUnavailable': 'Profile unavailable',
   'wallet.contacts.saved': 'Saved',

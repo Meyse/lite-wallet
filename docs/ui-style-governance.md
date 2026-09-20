@@ -47,6 +47,18 @@ appearing without first deciding that they are now part of the style.
   source explicitly requires them. The wallet Overview's approved 34px
   search-and-sort toolbar remains such an exception.
 
+## Back navigation
+
+- Contextual back actions at the top-left of a page or nested right-sheet view
+  use `NavigationBackButton`. It standardizes a 32px control height, 16px
+  `ArrowLeft` icon, 13px normal-weight label, 6px icon gap, transparent hover,
+  and a visible focus ring.
+- Use a destination label such as “Back to settings” or “Back to search” when
+  the destination is known. The containing page or sheet owns the outer inset
+  and vertical spacing.
+- Multi-step flows keep Back in their footer action group as a normal secondary
+  button. Do not replace wizard footer navigation with the contextual control.
+
 ## Native cursor convention
 
 All clickable actions use the normal arrow (`cursor: default`), including
@@ -127,6 +139,9 @@ partial-total, and hide/show states; Paper sample amounts are not app data.
   fields remain the exception.
 - `pnpm lint:ui` rejects the labeled `CopyActionButton` outside its legacy
   component directory. Use `CopyButton` instead.
+- `pnpm lint:ui` rejects direct `ArrowLeft` and `ChevronLeft` icon imports
+  outside `NavigationBackButton`, preventing new ad hoc contextual Back
+  controls.
 - The linter fails when a color is outside the approved palette or when an
   approved color is declared outside its token or registry source file.
 - Context-specific errors are surfaced for inline styles and arbitrary Tailwind

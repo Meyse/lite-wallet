@@ -5,13 +5,13 @@
 
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import InfoIcon from '@lucide/svelte/icons/info';
   import QrCodeIcon from '@lucide/svelte/icons/qr-code';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import PasswordConfirmOverlay from '$lib/components/common/PasswordConfirmOverlay.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -366,15 +366,8 @@
   class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col bg-app-canvas px-6 pt-0 pb-6 sm:px-8"
 >
   <section class="flex min-h-0 flex-1 flex-col overflow-auto pt-2">
-    <header class="flex h-[60px] shrink-0 flex-col gap-3">
-      <button
-        type="button"
-        class="inline-flex h-5 w-fit items-center gap-1 text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-        onclick={leaveRecovery}
-      >
-        <ChevronLeftIcon class="size-4" />
-        {backLabel}
-      </button>
+    <header class="flex h-[72px] shrink-0 flex-col gap-3">
+      <NavigationBackButton label={backLabel} tone="settings" onclick={leaveRecovery} />
       <h2 class="text-xl leading-7 font-semibold tracking-[-0.015em]">
         {i18n.t('wallet.settings.recovery.title')}
       </h2>
@@ -475,19 +468,13 @@
   isOpen={activeDetail !== null}
   title={detailTitle}
   closeLabel={i18n.t('common.close')}
+  backLabel={qrEntry ? i18n.t('wallet.settings.recovery.qr.back') : undefined}
+  onBack={qrEntry ? closeQr : undefined}
   onOpenChange={handleDetailOpenChange}
 >
   {#if qrEntry}
     <div class="flex h-full min-h-0 flex-col items-center">
-      <button
-        type="button"
-        class="inline-flex w-fit items-center gap-1 self-start text-[13px] leading-5 text-settings-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-        onclick={closeQr}
-      >
-        <ChevronLeftIcon class="size-4" />
-        {i18n.t('wallet.settings.recovery.qr.back')}
-      </button>
-      <p class="mt-4 self-start text-[13px] leading-5 text-settings-muted-foreground">
+      <p class="self-start text-[13px] leading-5 text-settings-muted-foreground">
         {networkLabel} · {qrEntry.formatLabel}
       </p>
       <p class="self-start text-[13px] leading-5 text-settings-muted-foreground">
