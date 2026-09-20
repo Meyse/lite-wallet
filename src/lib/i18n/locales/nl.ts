@@ -1386,8 +1386,6 @@ export const nl: Record<string, string> = {
   'wallet.addressBook.deleteConfirmDescription':
     'Hiermee verwijder je alle opgeslagen adressen van dit contact.',
   'wallet.addressBook.noSelectionTitle': 'Selecteer een contact',
-  'wallet.addressBook.noSelectionDescription':
-    'Kies een contact uit de lijst of voeg een nieuw contact toe om te beginnen.',
   'wallet.addressBook.endpointDefaultLabel': 'Standaard',
   'wallet.addressBook.form.nameLabel': 'Naam',
   'wallet.addressBook.form.namePlaceholder': 'Voer een contactnaam in',

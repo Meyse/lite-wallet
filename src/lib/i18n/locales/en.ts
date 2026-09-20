@@ -1356,8 +1356,6 @@ export const en: Record<string, string> = {
   'wallet.addressBook.deleteConfirmDescription':
     'This removes all saved endpoints for this contact.',
   'wallet.addressBook.noSelectionTitle': 'Select a contact',
-  'wallet.addressBook.noSelectionDescription':
-    'Choose a contact from the list, or add a new one to get started.',
   'wallet.addressBook.endpointDefaultLabel': 'Default',
   'wallet.addressBook.form.nameLabel': 'Name',
   'wallet.addressBook.form.namePlaceholder': 'Enter a contact name',

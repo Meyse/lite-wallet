@@ -6,7 +6,7 @@
   type WalletEmptyStateProps = {
     title?: string;
     description?: string;
-    actionLabel: string;
+    actionLabel?: string;
     onAction?: () => void;
     comingSoon?: boolean;
     eyebrow?: string;
@@ -78,17 +78,19 @@
       {description}
     </p>
   {/if}
-  <!-- Coming-soon buttons remain clickable and focusable, with no destination yet. -->
-  <Button
-    variant={comingSoon ? 'secondary' : 'default'}
-    class="mt-5 select-none {comingSoon
-      ? 'opacity-[0.48] focus-visible:opacity-100 dark:opacity-[0.28] dark:focus-visible:opacity-100'
-      : ''}"
-    onclick={onAction}
-  >
-    {#if !comingSoon}
-      <PlusIcon class="size-3.5" aria-hidden="true" />
-    {/if}
-    {actionLabel}
-  </Button>
+  {#if actionLabel}
+    <!-- Coming-soon buttons remain clickable and focusable, with no destination yet. -->
+    <Button
+      variant={comingSoon ? 'secondary' : 'default'}
+      class="mt-5 select-none {comingSoon
+        ? 'opacity-[0.48] focus-visible:opacity-100 dark:opacity-[0.28] dark:focus-visible:opacity-100'
+        : ''}"
+      onclick={onAction}
+    >
+      {#if !comingSoon}
+        <PlusIcon class="size-3.5" aria-hidden="true" />
+      {/if}
+      {actionLabel}
+    </Button>
+  {/if}
 </div>

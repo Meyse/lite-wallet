@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BookUserIcon from '@lucide/svelte/icons/book-user';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import MinusIcon from '@lucide/svelte/icons/minus';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -963,23 +962,11 @@
           <ScrollArea.Scrollbar orientation="vertical" />
         </ScrollArea.Root>
       {:else}
-        <div
-          class="flex flex-1 flex-col items-center justify-center px-7 text-center text-settings-muted-foreground"
-        >
-          <BookUserIcon class="mb-3 size-8" aria-hidden="true" />
-          <p class="text-sm font-medium">
-            {i18n.t(
-              contacts.length ? 'wallet.addressBook.noSelectionTitle' : 'wallet.addressBook.empty'
-            )}
-          </p>
-          <p class="mt-1 max-w-64 text-[13px] leading-5">
-            {i18n.t(
-              contacts.length
-                ? 'wallet.addressBook.noSelectionDescription'
-                : 'wallet.addressBook.emptyDescription'
-            )}
-          </p>
-        </div>
+        <WalletEmptyState
+          illustration="address-book"
+          title={i18n.t('wallet.addressBook.noSelectionTitle')}
+          testId="address-book-no-selection"
+        />
       {/if}
     </section>
   </div>

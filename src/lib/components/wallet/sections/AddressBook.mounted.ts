@@ -186,6 +186,20 @@ describe('address book contact workflows', () => {
     );
     expect(document.querySelector('[data-contact-detail]')).toBeNull();
     expect(document.body.textContent).not.toContain('Private note');
+    const noSelection = document.querySelector('[data-testid="address-book-no-selection"]');
+    expect(
+      noSelection?.querySelector('[data-testid="wallet-empty-title"]')?.textContent?.trim()
+    ).toBe('Select a contact');
+    expect(noSelection?.textContent).not.toContain('Choose a contact from the list');
+    expect(noSelection?.querySelector('button')).toBeNull();
+    expect(
+      [...(noSelection?.querySelectorAll<HTMLImageElement>('img') ?? [])].map((image) =>
+        image.getAttribute('src')
+      )
+    ).toEqual([
+      '/images/empty-states/address-book.png',
+      '/images/empty-states/address-book-dark.png',
+    ]);
     const row = document.querySelector('aside li button') as HTMLButtonElement;
     row.click();
     await settle();
