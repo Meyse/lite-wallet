@@ -9,6 +9,14 @@ import type {
   ProvisioningJobRecord,
 } from '$lib/types/wallet';
 
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+
 const mocks = vi.hoisted(() => ({
   getLinkedIdentities: vi.fn(),
   getIdentityProfile: vi.fn(),
@@ -219,16 +227,134 @@ describe('mounted identity favorite toggle', () => {
     try {
       await settle();
       const scrollHost = target.querySelector('[data-identity-linked-scroll]');
-      const viewport = scrollHost?.querySelector('[data-slot="scroll-area-viewport"]');
-      const search = target.querySelector('input[placeholder="Search linked identities"]');
+      const viewport = scrollHost?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]');
+      const search = target.querySelector<HTMLInputElement>(
+        'input[placeholder="Search linked identities"]'
+      );
+      const layout = target.querySelector('[data-identity-layout]');
       expect(scrollHost).not.toBeNull();
       expect(scrollHost?.querySelectorAll('[data-slot="scroll-area-viewport"]')).toHaveLength(1);
       expect(viewport?.contains(search ?? null)).toBe(false);
+      expect(layout?.classList.contains('max-w-6xl')).toBe(true);
+      expect(layout?.classList.contains('px-5')).toBe(true);
+      expect(layout?.classList.contains('pt-5')).toBe(true);
+      expect(search?.classList.contains('h-9')).toBe(true);
+      expect(search?.classList.contains('focus-visible:ring-[3px]')).toBe(true);
       expect(viewport?.textContent).toContain('Pending provisioning');
       expect(viewport?.textContent).toContain('pending-6.example@');
       expect(viewport?.textContent).toContain('favorite@');
       expect(viewport?.textContent).toContain('other@');
       expect(viewport?.textContent).toContain('Link identity');
+      expect(target.querySelector('[data-linked-identity-manage]')?.textContent?.trim()).toBe('');
+      expect(
+        target.querySelector('[data-linked-identity-manage]')?.getAttribute('aria-label')
+      ).toBe('Manage');
+
+      if (!viewport) throw new Error('Missing linked identity viewport');
+      Object.defineProperties(viewport, {
+        clientHeight: { configurable: true, value: 200 },
+        scrollHeight: { configurable: true, value: 800 },
+      });
+      viewport.scrollTop = 0;
+      viewport.dispatchEvent(new Event('scroll'));
+      await settle();
+      expect(target.querySelector('[data-identity-scroll-fade="top"]')).toBeNull();
+      expect(target.querySelector('[data-identity-scroll-fade="bottom"]')).not.toBeNull();
+
+      viewport.scrollTop = 300;
+      viewport.dispatchEvent(new Event('scroll'));
+      await settle();
+      expect(target.querySelector('[data-identity-scroll-fade="top"]')).not.toBeNull();
+      expect(target.querySelector('[data-identity-scroll-fade="bottom"]')).not.toBeNull();
+
+      viewport.scrollTop = 600;
+      viewport.dispatchEvent(new Event('scroll'));
+      await settle();
+      expect(target.querySelector('[data-identity-scroll-fade="top"]')).not.toBeNull();
+      expect(target.querySelector('[data-identity-scroll-fade="bottom"]')).toBeNull();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('uses shared search inputs with separate primary Link and Find actions', async () => {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: { sessionState: initialSessionState() },
+    });
+
+    try {
+      await settle();
+      const linkedInput = target.querySelector<HTMLInputElement>(
+        'input[placeholder="Search linked identities"]'
+      );
+      const linkButton = Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === 'Link VerusID'
+      );
+      const linkAction = target.querySelector('[data-identity-link-action]');
+      expect(linkedInput?.classList.contains('h-9')).toBe(true);
+      expect(linkedInput?.classList.contains('focus-visible:ring-[3px]')).toBe(true);
+      expect(linkAction?.classList.contains('absolute')).toBe(true);
+      expect(linkAction?.classList.contains('top-5')).toBe(true);
+      expect(linkAction?.classList.contains('right-5')).toBe(true);
+      expect(linkAction?.contains(linkButton ?? null)).toBe(true);
+      expect(linkButton?.classList.contains('bg-primary')).toBe(true);
+      expect(
+        target.querySelector('[data-identity-search-toolbar]')?.contains(linkButton ?? null)
+      ).toBe(false);
+
+      const lookupTab = Array.from(target.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
+        (button) => button.textContent?.trim() === 'Find a VerusID'
+      );
+      lookupTab?.click();
+      await settle();
+
+      const lookupInput = target.querySelector<HTMLInputElement>('[data-verusid-lookup-input]');
+      const lookupButton = target.querySelector<HTMLButtonElement>(
+        '[data-verusid-lookup-toolbar] button[type="submit"]'
+      );
+      expect(target.querySelector('[data-identity-link-action]')).toBeNull();
+      expect(lookupInput?.classList.contains('h-9')).toBe(true);
+      expect(lookupInput?.classList.contains('focus-visible:ring-[3px]')).toBe(true);
+      expect(lookupButton?.classList.contains('h-9')).toBe(true);
+      expect(lookupButton?.classList.contains('bg-primary')).toBe(true);
+      expect(lookupButton?.textContent?.trim()).toBe('Find VerusID');
+      expect(target.textContent).not.toContain('Verus Mainnet');
+      expect(target.textContent).not.toContain('Full VerusID');
+      expect(target.textContent).not.toContain('For example');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('keeps name-only rows stable while optional profile enrichment loads', async () => {
+    const profile = deferred<IdentityProfileLoadResult>();
+    mocks.getIdentityProfile.mockReturnValue(profile.promise);
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: { sessionState: initialSessionState() },
+    });
+
+    try {
+      await settle();
+      expect(target.querySelector('[data-linked-identity-profile-skeleton]')).toBeNull();
+      expect(target.textContent).not.toContain('Loading profile…');
+
+      profile.resolve({
+        state: 'empty',
+        avatar: null,
+        description: null,
+        issues: [],
+        readHeight: null,
+        revisionTxid: null,
+      });
+      await settle();
     } finally {
       await unmount(component);
       target.remove();

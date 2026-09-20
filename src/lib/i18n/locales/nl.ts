@@ -1124,7 +1124,7 @@ export const nl: Record<string, string> = {
   'wallet.identity.lookup.label': 'Volledige VerusID',
   'wallet.identity.lookup.placeholder': 'Voer een VerusID in',
   'wallet.identity.lookup.example': 'Bijvoorbeeld alex.example@',
-  'wallet.identity.lookup.submit': 'Profiel zoeken',
+  'wallet.identity.lookup.submit': 'VerusID zoeken',
   'wallet.identity.lookup.lookingUp': 'Zoeken…',
   'wallet.identity.lookup.notFound': 'Geen VerusID gevonden.',
   'wallet.identity.lookup.unavailable': 'Deze VerusID kon niet worden opgezocht.',
@@ -1162,7 +1162,7 @@ export const nl: Record<string, string> = {
   'wallet.identity.sheet.emptySearch': 'Geen identiteiten gevonden voor je zoekopdracht.',
   'wallet.identity.sheet.manualTitle': 'Handmatig koppelen',
   'wallet.identity.sheet.manualDescription':
-    'Op testnet kun je een VerusID handmatig koppelen door de handle of het i-adres in te voeren.',
+    'Er zijn geen VerusIDs automatisch gevonden. Voer een exacte handle of een i-adres in.',
   'wallet.identity.sheet.manualPlaceholder': 'Voer handle of i-adres in',
   'wallet.identity.sheet.manualLink': 'Koppelen',
   'wallet.identity.sheet.link': 'Identiteit koppelen',

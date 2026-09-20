@@ -142,7 +142,18 @@ window.__TAURI_INTERNALS__ = {
             error: null,
           }))
         : [];
-    if (command === 'discover_linkable_identities') return [];
+    if (command === 'discover_linkable_identities') {
+      if (window.fixture.delay) await new Promise((r) => setTimeout(r, window.fixture.delay));
+      return params.has('manyLinkable')
+        ? Array.from({ length: 12 }, (_, index) => ({
+            identityAddress: `iFixtureLinkableIdentity${index + 1}`,
+            name: `fixture-${index + 1}`,
+            fullyQualifiedName: `fixture-${index + 1}@`,
+            status: 'active',
+            linked: index === 0,
+          }))
+        : [];
+    }
     if (command === 'get_identity_profile' && params.has('empty'))
       return { state: 'empty', issues: [], revisionTxid: 'empty' };
     if (command === 'get_identity_profile' && params.has('unavailable'))

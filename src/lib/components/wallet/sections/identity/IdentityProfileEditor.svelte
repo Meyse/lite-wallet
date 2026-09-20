@@ -345,7 +345,7 @@
   }
 </script>
 
-<div class="mx-auto flex h-full w-full max-w-3xl min-w-0 flex-col px-6 pt-3 pb-6">
+<div class="mx-auto flex h-full w-full max-w-3xl min-w-0 flex-col px-5 pt-5 pb-6">
   {#if step === 'edit'}
     <div class="flex items-center justify-between gap-3">
       <button

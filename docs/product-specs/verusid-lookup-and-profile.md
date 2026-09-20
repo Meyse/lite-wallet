@@ -43,13 +43,14 @@ The file is **Lite Wallet · VerusID lookup & profile**. Each theme has five
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 01 · Linked IDs · With and without profile data | Three aligned rows; two have initials and no description; adjacent search and Link controls   |
 | 01b · Linked IDs · Single ID, no divider        | A lone row has no separator                                                                   |
-| 02 · Find a VerusID · Start                     | Empty, disabled lookup; network beside the field label                                        |
+| 02 · Find a VerusID · Start                     | Empty lookup using the same search-and-action toolbar as Linked IDs                           |
 | 03 · Find a VerusID · Exact result              | One exact result and View profile                                                             |
 | 04 · VerusID profile · Canonical layout         | Full profile with the sidebar, contextual Back, identity, actions, description and disclosure |
 
 The latest approved refinements are mandatory: **no visible VerusID page title
-above the tabs**, content moved up, missing profile data omitted from linked
-rows, dividers only between rows, and a 12px search/button gap.
+above the tabs**, 20px page gutters, missing profile data omitted from linked
+rows, dividers only between rows, a shared search treatment, quiet row
+navigation, and a bottom fade while more list content remains below.
 
 This focused specification supersedes the tab/list/profile-layout portions of
 [`verusid-profile-discovery.md`](verusid-profile-discovery.md) and its older,
@@ -79,16 +80,18 @@ Paper CSS.
   A linked-list failure must not prevent public lookup.
 - Keep each tab's query, result/selection and scroll state separate. Moving
   between tabs must not link or save an identity or clear a valid lookup result.
-- At 920×620, preserve the 244px sidebar and a 620px content lane starting at
-  window x=272. Tabs begin at approximately window y=40, with no heading gap.
-  Account for the shell's existing drag-region spacing; do not add it twice.
+- At 920×620, preserve the 244px sidebar and use 20px left, right, and top page
+  insets, matching Wallet and Contacts. The shell drag region overlays this
+  inset; do not stack another spacer above it.
 - The tabs are 36px high, with a quiet baseline and an active underline. Main
   groups have 24px spacing. Use Google Sans and existing light/dark tokens.
-- At larger desktop sizes keep this same content-width rule for all full
-  profiles: 620px maximum, left-aligned within the available main area with 28px
-  minimum gutters. Wider windows add space, not a second profile layout.
-- Use the shared ScrollArea for long content. Keep Back and the active tab
-  controls reachable without horizontal scrolling.
+- At larger desktop sizes the section may use the established 6xl wallet page
+  width. Keep public-profile content itself at 620px maximum and left-aligned
+  within that page.
+- Use the shared ScrollArea for long content. Show the established top fade only
+  after content has scrolled above the viewport, and the bottom fade only while
+  overflow content remains below. Keep Back and the active tab controls
+  reachable without horizontal scrolling.
 
 ### Linked IDs
 
@@ -96,37 +99,37 @@ Use one row presentation at every list count instead of switching between cards
 and rows at seven IDs. Preserve current ordering, favorite grouping/limit,
 loading, refresh, provisioning and pending-profile reconciliation semantics.
 
-The toolbar contains **Search linked IDs** and **Link VerusID** in one flex row:
-search grows into the available width; the button remains content-sized and does
-not shrink; gap is 12px; both controls are 36px high. The English Paper button
-is 122px wide, but translations must be allowed more width. Do not use
-space-between to create a second, larger gap. Linked search filters the current
-list; it does not query public identities.
+The linked search uses the shared 36px SearchInput and fills the available row.
+**Link VerusID** is a primary action in the page's top-right action position,
+matching **Add contact** in Contacts; it is not grouped with the search field
+and is hidden while the **Find a VerusID** tab is active. Linked search filters
+the current list; it does not query public identities.
 
 Rows have a 48px avatar slot, a flexible name/description area, and aligned
 trailing management controls. Paper uses 14px gaps and 18px vertical padding.
 Preserve a fixed trailing-action lane across rows.
 
-| Available profile data           | Row presentation                                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Confirmed avatar and description | Photo, exact display name, one concise description line                                                       |
-| No avatar                        | Existing IdentityAvatar initials and deterministic gradient                                                   |
-| No description                   | Name only, vertically centered; no empty second line or No profile placeholder                                |
-| Neither avatar nor description   | Initials and name; identical action alignment                                                                 |
-| Loading or failed enrichment     | Identity remains usable; do not report failure as confirmed absence; preserve existing loading/retry feedback |
+| Available profile data           | Row presentation                                                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Confirmed avatar and description | Photo, exact display name, one concise description line                                                                |
+| No avatar                        | Existing IdentityAvatar initials and deterministic gradient                                                            |
+| No description                   | Name only, vertically centered; no empty second line or No profile placeholder                                         |
+| Neither avatar nor description   | Initials and name; identical action alignment                                                                          |
+| Loading enrichment               | Identity remains usable in its stable name-only layout; show no provisional text or skeleton for optional row metadata |
+| Failed enrichment                | Identity remains usable; do not report failure as confirmed absence; preserve truthful retry feedback                  |
 
 Render subtle separators **between adjacent visible rows only**. No top line, no
 line below the last row, and no divider for a single visible result, including
 when search reduces a larger list to one. The tab underline is unaffected. Do
 not add separators around favorite-group headings.
 
-The row's primary activation and **Manage** action continue to open the existing
-identity management detail. They do not become public-profile lookup or Link.
-Preserve favorite toggling through its existing accessible star control in a
-fixed trailing slot; it is an existing capability omitted from the happy-path
+The row's primary activation and quiet trailing chevron continue to open the
+existing identity management detail. They do not become public-profile lookup or
+Link. Preserve favorite toggling through its existing accessible star control in
+a fixed trailing slot; it is an existing capability omitted from the happy-path
 Paper row. Retain its busy state, persistence-before-success, rollback and
-limit. Keep the new Manage label and existing favorite control from becoming
-nested buttons or overlapping click targets.
+limit. Keep row navigation and the favorite control as separate, non-overlapping
+click targets.
 
 ### Link VerusID is unchanged
 
@@ -138,18 +141,26 @@ This button remains the existing **LinkIdentitySheet** entry point:
    `onLinkedChange={applyLinkedIdentities}`.
 4. Preserve candidate filtering, busy/linked states, errors, retry,
    cancellation, and current behavior after a successful link.
-5. Preserve `allowManualLinkEntry={walletNetwork === 'testnet'}`. Do not
-   introduce manual linking on mainnet.
+5. Preserve `allowManualLinkEntry={walletNetwork === 'testnet'}` as a fallback
+   capability, but reveal manual entry only after successful automatic discovery
+   returns no candidates. Do not introduce manual linking on mainnet or show it
+   alongside automatically discovered identities.
 
-The visible position and size change; the workflow and backend contract do not.
-Finding a public VerusID must never implicitly invoke linking or open this
-sheet. Empty-list Link actions must use the same existing flow.
+The sheet uses the shared focus-ring and clearable SearchInput treatment. While
+automatic discovery is pending, show three candidate-shaped skeleton rows
+instead of loading copy. Keep discovered identities in a bounded scroll region;
+show its bottom fade only while more content remains below and its top fade only
+after the user has scrolled. The visible position and size change; the workflow
+and backend contract do not. Finding a public VerusID must never implicitly
+invoke linking or open this sheet. Empty-list Link actions must use the same
+existing flow.
 
 ## Find a VerusID
 
-The form contains **Full VerusID**, active network context, a text field, and
-**Find profile**. Keep the short example under the field. Use a deliberate click
-or Enter submission; no requests on hover or every keystroke.
+Use the shared SearchInput and a 36px toolbar. The primary action is **Find
+VerusID**. Do not repeat the active network, add a visible field label, or keep
+example copy under the field. Use a deliberate click or Enter submission; no
+requests on hover or every keystroke.
 
 Reuse `resolveContactIdentity` and its session-bound backend resolver. Trim
 surrounding whitespace and use its existing name normalization. Do not invent a
@@ -159,10 +170,10 @@ resolution may remain available without advertising a new lookup mode.
 
 | State                   | Required behavior                                                                                   |
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
-| Empty                   | Find profile disabled; no empty result card                                                         |
+| Empty                   | Find VerusID disabled; no empty result card                                                         |
 | Looking up              | Keep input/query visible; stable button width; Looking up…; prevent duplicate submission            |
 | Exact result            | One canonical identity, optional avatar/description, and View profile; row activation also opens it |
-| Not found               | No VerusID found; keep query and network visible; allow correction                                  |
+| Not found               | No VerusID found; keep query visible and allow correction                                           |
 | Unavailable             | Couldn't look up this VerusID; retain query and offer Try again                                     |
 | Query changed           | Invalidate the previous result and request generation immediately                                   |
 | Session/network changed | Clear query/result/navigation state; ignore every late response from the old context                |
@@ -267,9 +278,9 @@ Use `identityKey`; Base58 addresses are case-sensitive. Scope tab/profile/origin
 state to wallet account/session/network, and clear it on lock or replacement.
 Reuse the shared bounded profile cache instead of fetching separately per view.
 
-Use semantic tabs, labelled inputs and keyboard-operable result/Manage actions.
-Restore focus after Back; Escape closes a disclosure or sheet before any parent
-navigation. Announce lookup and save outcomes without moving focus on
+Use semantic tabs, accessibly labelled inputs and keyboard-operable result/row
+actions. Restore focus after Back; Escape closes a disclosure or sheet before
+any parent navigation. Announce lookup and save outcomes without moving focus on
 completion. Provide visible focus, normal arrow cursors for actions, text
 cursors in inputs, and selectable/copyable public data. Use the shared UI
 primitives, ScrollArea, Lucide icons, InlineTextActionButton, and English/Dutch
@@ -280,13 +291,15 @@ translation keys.
 - [ ] Approved light/dark frames match at 920×620; no redundant heading or old
       heading-sized gap remains. Larger desktop windows use the same profile
       rule.
-- [ ] Search and Link controls have equal height and a 12px gap; Dutch fits.
+- [ ] Both search toolbars use the shared component, equal 36px controls and a
+      12px gap; Dutch fits and focus rings are not clipped.
 - [ ] Linked lists use rows at every count; mixed/missing profile data, one
       item, a filtered single result, favorites and long names work without
       misalignment.
 - [ ] No divider appears below a last/only row.
-- [ ] Existing Link sheet, testnet-only manual entry, linking updates, Manage,
-      favorites, provisioning and profile confirmation behavior still work.
+- [ ] Existing Link sheet, testnet-only manual entry, linking updates, row
+      management, favorites, provisioning and profile confirmation behavior
+      still work.
 - [ ] Unlinked/unsaved identities resolve and open without a contact/link write.
 - [ ] Empty, busy, not-found, unavailable and stale-query states are distinct;
       Contacts failure does not block lookup or public viewing.

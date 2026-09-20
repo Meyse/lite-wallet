@@ -28,8 +28,11 @@ Verification completed with Node 22.23.2 and the pinned dependency tree:
 - 86 focused Vitest assertions passed across Contacts, linked identity,
   lookup/profile, existing preview/management, and transfer lifecycle suites.
 - Review corrections cover whitespace-only lookup edits, interrupted lookup
-  restoration, manual recipient ownership before source selection, and a
-  shared compact-height scroll region for provisioning jobs and linked rows.
+  restoration, manual recipient ownership before source selection, and a shared
+  compact-height scroll region for provisioning jobs and linked rows.
+- Follow-up visual corrections align the section to 20px page insets, reuse the
+  shared search toolbar in both tabs, simplify row navigation, and add the
+  conditional linked-list fade used elsewhere in the wallet.
 - Svelte diagnostics reported 0 errors and 0 warnings; scoped ESLint, UI-style
   lint, docs validation, the production build, and diff whitespace checks
   passed.
@@ -141,14 +144,22 @@ state survives unrelated tab or section navigation.
       separators only; no trailing separator, including filtered single results.
 - [x] Use confirmed avatars or existing initials gradients. Omit missing
       descriptions and center the name; retain truthful loading/failure states.
-- [x] Make linked search flex to fill, Link content-sized, gap 12px, height
-      36px. Allow translated button text to grow without overflow.
-- [x] Keep favorites available in their existing quiet star action slot and
+- [x] Use shared 36px search inputs, keep their focus rings visible, move the
+      primary Link action to the Contacts-style top-right position, and make
+      Find VerusID a primary submit action.
+- [x] Remove provisional linked-row profile-loading copy and skeletons so
+      name-only rows do not shift; keep favorites in their quiet star slot and
       preserve grouping/limit/save behavior. Keep pending updates/provisioning
       visible when applicable; do not replace them with static Paper examples.
-- [x] Keep Manage and row activation routed to existing identity details.
+- [x] Keep row activation and its quiet trailing chevron routed to existing
+      identity details.
 - [x] Preserve LinkIdentitySheet binding, discovery service, candidate
-      filtering, callback, errors/retry and the testnet-only manual link gate.
+      filtering, callback, errors/retry and the testnet-only manual fallback;
+      reveal manual entry only when automatic discovery returns no candidates.
+- [x] Align the sheet search with the shared clearable focus-ring treatment and
+      use three candidate-shaped skeleton rows while discovery is pending.
+- [x] Bound the discovered-ID list so it scrolls inside the sheet and add
+      directional top/bottom fades based on the remaining overflow.
 - [x] Keep Find available in linked-list empty, loading and failure states.
 
 Checkpoint: compare mixed-profile and single-ID rows with Paper in both themes;
@@ -158,8 +169,9 @@ exercise Link and Manage before proceeding.
 
 - [x] Reuse resolveContactIdentity; classify typed IdentityNotFound separately
       from transient/unavailable errors using existing error helpers.
-- [x] Match the field/network/button/result layout. Enter and button submission
-      use one handler with duplicate prevention; typing performs no lookup.
+- [x] Match the shared search/action toolbar and result layout without repeating
+      network context. Enter and button submission use one handler with
+      duplicate prevention; typing performs no lookup.
 - [x] Resolve independently of contact membership and optional profile loading.
       Reuse the canonical profile cache for result enrichment.
 - [x] Render empty, busy, exact result, not-found and unavailable states. Query

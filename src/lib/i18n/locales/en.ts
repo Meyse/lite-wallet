@@ -1100,7 +1100,7 @@ export const en: Record<string, string> = {
   'wallet.identity.lookup.label': 'Full VerusID',
   'wallet.identity.lookup.placeholder': 'Enter a VerusID',
   'wallet.identity.lookup.example': 'For example, alex.example@',
-  'wallet.identity.lookup.submit': 'Find profile',
+  'wallet.identity.lookup.submit': 'Find VerusID',
   'wallet.identity.lookup.lookingUp': 'Looking up…',
   'wallet.identity.lookup.notFound': 'No VerusID found.',
   'wallet.identity.lookup.unavailable': "Couldn't look up this VerusID.",
@@ -1138,7 +1138,7 @@ export const en: Record<string, string> = {
   'wallet.identity.sheet.emptySearch': 'No identities match your search.',
   'wallet.identity.sheet.manualTitle': 'Manual link',
   'wallet.identity.sheet.manualDescription':
-    'On testnet, you can link a VerusID manually by entering its handle or i-address.',
+    'No VerusIDs were discovered automatically. Enter an exact handle or i-address.',
   'wallet.identity.sheet.manualPlaceholder': 'Enter handle or i-address',
   'wallet.identity.sheet.manualLink': 'Link',
   'wallet.identity.sheet.link': 'Link identity',

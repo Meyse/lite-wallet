@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
@@ -6,6 +7,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { i18nStore } from '$lib/i18n';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
@@ -31,8 +33,10 @@
   }: LinkIdentitySheetProps = $props();
 
   const i18n = $derived($i18nStore);
+  const loadingRows = [0, 1, 2];
 
   let searchInput = $state('');
+  let searchElement = $state<HTMLInputElement | null>(null);
   let debouncedSearch = $state('');
   let loading = $state(false);
   let sheetError = $state('');
@@ -40,6 +44,9 @@
   let busyIdentityAddress = $state<string | null>(null);
   let manualIdentityInput = $state('');
   let manualLinkBusy = $state(false);
+  let candidateScrollElement = $state<HTMLDivElement | null>(null);
+  let canScrollCandidatesUp = $state(false);
+  let canScrollCandidatesDown = $state(false);
 
   const filteredCandidates = $derived(
     (() => {
@@ -57,6 +64,9 @@
         return fields.some((value) => value.includes(query));
       });
     })()
+  );
+  const showManualLinkEntry = $derived(
+    allowManualLinkEntry && !loading && !sheetError && candidates.length === 0
   );
 
   $effect(() => {
@@ -82,8 +92,67 @@
     void hydrateCandidates();
   });
 
+  function updateCandidateScrollAffordance(
+    element: HTMLElement | null = candidateScrollElement
+  ): void {
+    if (!element) {
+      canScrollCandidatesUp = false;
+      canScrollCandidatesDown = false;
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    canScrollCandidatesUp = maxScrollTop > 1 && element.scrollTop > 1;
+    canScrollCandidatesDown = maxScrollTop > 1 && element.scrollTop < maxScrollTop - 1;
+  }
+
+  function onCandidateScroll(event: Event): void {
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) updateCandidateScrollAffordance(target);
+  }
+
+  $effect(() => {
+    isOpen;
+    loading;
+    filteredCandidates.length;
+    showManualLinkEntry;
+
+    const element = candidateScrollElement;
+    if (!isOpen || !element) {
+      canScrollCandidatesUp = false;
+      canScrollCandidatesDown = false;
+      return undefined;
+    }
+
+    if (typeof ResizeObserver === 'undefined') {
+      void tick().then(() => {
+        if (candidateScrollElement === element && isOpen) {
+          updateCandidateScrollAffordance(element);
+        }
+      });
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(() => updateCandidateScrollAffordance(element));
+    resizeObserver.observe(element);
+    const viewportContent = element.querySelector('[data-scroll-area-content]');
+    if (viewportContent instanceof HTMLElement) {
+      resizeObserver.observe(viewportContent);
+    } else if (element.lastElementChild instanceof HTMLElement) {
+      resizeObserver.observe(element.lastElementChild);
+    }
+    void tick().then(() => {
+      if (candidateScrollElement === element && isOpen) {
+        updateCandidateScrollAffordance(element);
+      }
+    });
+
+    return () => resizeObserver.disconnect();
+  });
+
   function handleOpenAutoFocus(event: Event) {
     event.preventDefault();
+    void tick().then(() => searchElement?.focus());
   }
 
   function mapSheetError(error: unknown, fallbackKey: string): string {
@@ -188,15 +257,19 @@
       </h2>
     </div>
 
-    <div class="mt-4 min-h-0 flex-1">
+    <div class="mt-4 flex min-h-0 flex-1 flex-col" data-link-identity-sheet-body>
       <div class="pr-1 pb-3">
         <SearchInput
+          bind:ref={searchElement}
           bind:value={searchInput}
           placeholder={i18n.t('wallet.identity.sheet.searchPlaceholder')}
-          inputClass="h-10 focus-visible:ring-0 focus-visible:ring-transparent"
+          aria-label={i18n.t('wallet.identity.sheet.searchPlaceholder')}
+          clearLabel={i18n.t('common.clearSearch')}
+          inputClass="h-9 bg-muted/70 text-[13px] dark:bg-muted"
+          showFocusRing
         />
 
-        {#if allowManualLinkEntry}
+        {#if showManualLinkEntry}
           <div class="mt-3 rounded-lg bg-muted/35 p-2.5 dark:bg-muted/28">
             <p class="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
               {i18n.t('wallet.identity.sheet.manualTitle')}
@@ -208,7 +281,7 @@
               <Input
                 bind:value={manualIdentityInput}
                 placeholder={i18n.t('wallet.identity.sheet.manualPlaceholder')}
-                class="h-10"
+                class="h-9"
                 disabled={manualLinkBusy || busyIdentityAddress !== null}
                 onkeydown={(event) => {
                   if (event.key === 'Enter') {
@@ -218,7 +291,6 @@
                 }}
               />
               <Button
-                size="lg"
                 class="shrink-0 px-4"
                 disabled={!manualIdentityInput.trim() ||
                   manualLinkBusy ||
@@ -255,36 +327,74 @@
         {/if}
       </div>
 
-      <ScrollArea.Root class="min-h-0 flex-1">
-        <ScrollArea.Viewport class="h-full pr-1">
-          {#if loading}
-            <p
-              class="mt-2 rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
-            >
-              {i18n.t('wallet.identity.sheet.loading')}
-            </p>
-          {:else if filteredCandidates.length === 0}
-            <p
-              class="mt-2 rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
-            >
-              {debouncedSearch
-                ? i18n.t('wallet.identity.sheet.emptySearch')
-                : i18n.t('wallet.identity.sheet.empty')}
-            </p>
-          {:else}
-            <ul class="mt-2 space-y-2 pb-1">
-              {#each filteredCandidates as candidate (candidate.identityAddress)}
-                <LinkIdentityRow
-                  identity={candidate}
-                  busy={busyIdentityAddress === candidate.identityAddress}
-                  onLink={handleLink}
-                />
-              {/each}
-            </ul>
-          {/if}
-        </ScrollArea.Viewport>
-        <ScrollArea.Scrollbar orientation="vertical" />
-      </ScrollArea.Root>
+      <div class="relative min-h-0 flex-1" data-link-identity-scroll-container>
+        <ScrollArea.Root class="h-full" data-link-identity-scroll>
+          <ScrollArea.Viewport
+            bind:ref={candidateScrollElement}
+            class="h-full pr-1"
+            onscroll={onCandidateScroll}
+            data-link-identity-scroll-viewport
+          >
+            {#if loading}
+              <div
+                class="mt-2 space-y-2"
+                role="status"
+                aria-label={i18n.t('wallet.identity.sheet.loading')}
+                data-link-identity-loading
+              >
+                {#each loadingRows as row (row)}
+                  <div
+                    class="flex items-center gap-3 rounded-lg bg-muted/65 px-3.5 py-3 dark:bg-muted/55"
+                    data-link-identity-skeleton
+                  >
+                    <div class="min-w-0 flex-1">
+                      <Skeleton class="h-3.5 w-32 max-w-[70%] rounded-sm" />
+                      <Skeleton class="mt-2 h-3 w-44 max-w-[85%] rounded-sm" />
+                    </div>
+                    <Skeleton class="h-5 w-14 shrink-0 rounded-full" />
+                    <Skeleton class="size-8 shrink-0 rounded-md" />
+                  </div>
+                {/each}
+              </div>
+            {:else if filteredCandidates.length === 0}
+              {#if debouncedSearch || !showManualLinkEntry}
+                <p
+                  class="mt-2 rounded-lg bg-muted/55 px-3 py-2.5 text-xs text-muted-foreground dark:bg-muted/50"
+                >
+                  {debouncedSearch
+                    ? i18n.t('wallet.identity.sheet.emptySearch')
+                    : i18n.t('wallet.identity.sheet.empty')}
+                </p>
+              {/if}
+            {:else}
+              <ul class="mt-2 space-y-2 pb-1">
+                {#each filteredCandidates as candidate (candidate.identityAddress)}
+                  <LinkIdentityRow
+                    identity={candidate}
+                    busy={busyIdentityAddress === candidate.identityAddress}
+                    onLink={handleLink}
+                  />
+                {/each}
+              </ul>
+            {/if}
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar orientation="vertical" />
+        </ScrollArea.Root>
+
+        {#if canScrollCandidatesUp}
+          <div
+            class="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-settings-sheet-surface to-transparent"
+            data-link-identity-scroll-fade="top"
+          ></div>
+        {/if}
+
+        {#if canScrollCandidatesDown}
+          <div
+            class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-settings-sheet-surface to-transparent"
+            data-link-identity-scroll-fade="bottom"
+          ></div>
+        {/if}
+      </div>
     </div>
   </div>
 </StandardRightSheet>

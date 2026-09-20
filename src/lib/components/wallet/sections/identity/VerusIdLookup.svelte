@@ -1,12 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import Globe2Icon from '@lucide/svelte/icons/globe-2';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-  import SearchIcon from '@lucide/svelte/icons/search';
+  import SearchInput from '$lib/components/common/SearchInput.svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Label } from '$lib/components/ui/label';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { identityKey } from '$lib/contacts/identity';
   import { identityProfiles, loadIdentityProfile, profileImage } from '$lib/contacts/profiles';
@@ -23,7 +20,7 @@
   const noop = (): void => {};
 
   let {
-    walletNetwork,
+    walletNetwork: _walletNetwork,
     initialState,
     restoreResultFocus = false,
     onStateChange = noopState,
@@ -60,13 +57,6 @@
   const resultDescription = $derived(resultEntry?.profile?.description?.value?.trim() ?? '');
   const resultAvatar = $derived(profileImage(resultEntry?.profile));
   const busy = $derived(status === 'looking-up');
-  const networkLabel = $derived(
-    i18n.t(
-      walletNetwork === 'testnet'
-        ? 'wallet.identity.lookup.network.testnet'
-        : 'wallet.identity.lookup.network.mainnet'
-    )
-  );
 
   function publish(): void {
     onStateChange({ query, submittedQuery, status, result, scrollTop });
@@ -137,126 +127,119 @@
   });
 </script>
 
-<ScrollArea.Root class="min-h-0 flex-1" type="scroll">
-  <ScrollArea.Viewport
-    bind:ref={viewport}
-    class="h-full pr-1"
-    onscroll={(event) => {
-      scrollTop = event.currentTarget.scrollTop;
-      publish();
+<div class="flex min-h-0 flex-1 flex-col">
+  <form
+    class="flex min-w-0 shrink-0 items-center gap-3"
+    data-verusid-lookup-toolbar
+    onsubmit={(event) => {
+      event.preventDefault();
+      void lookup();
     }}
   >
-    <form
-      class="space-y-2"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void lookup();
-      }}
+    <SearchInput
+      id="verusid-public-lookup"
+      bind:ref={inputElement}
+      bind:value={query}
+      class="min-w-0 flex-1"
+      inputClass="h-9 bg-muted/70 text-[13px] dark:bg-muted"
+      placeholder={i18n.t('wallet.identity.lookup.placeholder')}
+      aria-label={i18n.t('wallet.identity.lookup.label')}
+      autocomplete="off"
+      spellcheck="false"
+      showFocusRing
+      data-verusid-lookup-input
+      oninput={invalidateResult}
+    />
+    <Button
+      type="submit"
+      class="h-9 shrink-0 justify-center gap-1.5 rounded-[7px] px-3 text-[13px]"
+      disabled={!query.trim() || busy}
     >
-      <div class="flex items-center justify-between gap-4">
-        <Label for="verusid-public-lookup" class="text-[13px] font-medium">
-          {i18n.t('wallet.identity.lookup.label')}
-        </Label>
-        <span class="inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-          <Globe2Icon class="size-3.5" aria-hidden="true" />
-          {networkLabel}
-        </span>
-      </div>
-
-      <div class="flex min-w-0 gap-2.5">
-        <div class="relative min-w-0 flex-1">
-          <SearchIcon
-            class="pointer-events-none absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            id="verusid-public-lookup"
-            bind:ref={inputElement}
-            bind:value={query}
-            class="h-10 pl-10 text-[13px]"
-            placeholder={i18n.t('wallet.identity.lookup.placeholder')}
-            autocomplete="off"
-            spellcheck="false"
-            oninput={invalidateResult}
-          />
-        </div>
-        <Button
-          type="submit"
-          class="h-10 w-[122px] shrink-0 text-[13px]"
-          disabled={!query.trim() || busy}
-        >
-          {#if busy}
-            <LoaderCircleIcon
-              class="size-3.5 animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-            {i18n.t('wallet.identity.lookup.lookingUp')}
-          {:else}
-            {i18n.t('wallet.identity.lookup.submit')}
-          {/if}
-        </Button>
-      </div>
-      <p class="text-xs text-muted-foreground">{i18n.t('wallet.identity.lookup.example')}</p>
-    </form>
-
-    <div aria-live="polite" class="mt-6">
-      {#if status === 'resolved' && result}
-        <div
-          class="flex items-center gap-3.5 rounded-[10px] bg-muted/70 px-4 py-[18px] dark:bg-muted"
-        >
-          <button
-            bind:this={resultButton}
-            type="button"
-            class="flex min-w-0 flex-1 items-center gap-3.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-            onclick={openResult}
-          >
-            <IdentityAvatar
-              seed={result.identityAddress}
-              label={result.fullyQualifiedName}
-              imageUrl={resultAvatar}
-              class="size-12 text-sm"
-            />
-            <span class="min-w-0 flex-1">
-              <span class="block truncate text-[17px] leading-[21px] font-semibold">
-                {result.fullyQualifiedName}
-              </span>
-              {#if resultDescription}
-                <span class="mt-1 block truncate text-[13px] text-muted-foreground">
-                  {resultDescription}
-                </span>
-              {:else if resultEntry?.unavailable}
-                <span class="mt-1 block truncate text-xs text-muted-foreground">
-                  {i18n.t('wallet.identity.lookup.profileUnavailable')}
-                </span>
-              {/if}
-            </span>
-          </button>
-          <Button
-            variant="ghost"
-            class="h-[34px] shrink-0 gap-1.5 px-3 text-[13px] text-text-action hover:text-text-action"
-            onclick={openResult}
-          >
-            {i18n.t('wallet.identity.lookup.viewProfile')}
-            <ChevronRightIcon class="size-4" aria-hidden="true" />
-          </Button>
-        </div>
-      {:else if status === 'not-found'}
-        <p class="rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground" role="status">
-          {i18n.t('wallet.identity.lookup.notFound')}
-        </p>
-      {:else if status === 'unavailable'}
-        <div
-          class="flex items-center justify-between gap-4 rounded-lg bg-destructive/10 px-3 py-2.5"
-        >
-          <p class="text-sm text-destructive" role="alert">
-            {i18n.t('wallet.identity.lookup.unavailable')}
-          </p>
-          <Button variant="ghost" size="sm" class="shrink-0" onclick={() => void lookup()}>
-            {i18n.t('common.retry')}
-          </Button>
-        </div>
+      {#if busy}
+        <LoaderCircleIcon
+          class="size-3.5 animate-spin motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+        {i18n.t('wallet.identity.lookup.lookingUp')}
+      {:else}
+        {i18n.t('wallet.identity.lookup.submit')}
       {/if}
-    </div>
-  </ScrollArea.Viewport>
-  <ScrollArea.Scrollbar orientation="vertical" />
-</ScrollArea.Root>
+    </Button>
+  </form>
+
+  <div class="mt-6 min-h-0 flex-1">
+    <ScrollArea.Root class="h-full" type="scroll">
+      <ScrollArea.Viewport
+        bind:ref={viewport}
+        class="h-full pr-1"
+        onscroll={(event) => {
+          scrollTop = event.currentTarget.scrollTop;
+          publish();
+        }}
+      >
+        <div aria-live="polite">
+          {#if status === 'resolved' && result}
+            <div
+              class="flex items-center gap-3.5 rounded-[10px] bg-muted/70 px-4 py-[18px] dark:bg-muted"
+            >
+              <button
+                bind:this={resultButton}
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-3.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+                onclick={openResult}
+              >
+                <IdentityAvatar
+                  seed={result.identityAddress}
+                  label={result.fullyQualifiedName}
+                  imageUrl={resultAvatar}
+                  class="size-12 text-sm"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-[17px] leading-[21px] font-semibold">
+                    {result.fullyQualifiedName}
+                  </span>
+                  {#if resultDescription}
+                    <span class="mt-1 block truncate text-[13px] text-muted-foreground">
+                      {resultDescription}
+                    </span>
+                  {:else if resultEntry?.unavailable}
+                    <span class="mt-1 block truncate text-xs text-muted-foreground">
+                      {i18n.t('wallet.identity.lookup.profileUnavailable')}
+                    </span>
+                  {/if}
+                </span>
+              </button>
+              <Button
+                variant="ghost"
+                class="h-8 shrink-0 gap-1.5 px-2 text-[13px] text-text-action hover:text-text-action"
+                onclick={openResult}
+              >
+                {i18n.t('wallet.identity.lookup.viewProfile')}
+                <ChevronRightIcon class="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          {:else if status === 'not-found'}
+            <p
+              class="rounded-lg bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground"
+              role="status"
+            >
+              {i18n.t('wallet.identity.lookup.notFound')}
+            </p>
+          {:else if status === 'unavailable'}
+            <div
+              class="flex items-center justify-between gap-4 rounded-lg bg-destructive/10 px-3 py-2.5"
+            >
+              <p class="text-sm text-destructive" role="alert">
+                {i18n.t('wallet.identity.lookup.unavailable')}
+              </p>
+              <Button variant="ghost" size="sm" class="shrink-0" onclick={() => void lookup()}>
+                {i18n.t('common.retry')}
+              </Button>
+            </div>
+          {/if}
+        </div>
+      </ScrollArea.Viewport>
+      <ScrollArea.Scrollbar orientation="vertical" />
+    </ScrollArea.Root>
+  </div>
+</div>

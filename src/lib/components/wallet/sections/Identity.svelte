@@ -125,6 +125,9 @@
       : null
   );
   let restoreLookupFocus = $state(false);
+  let linkedScrollElement = $state<HTMLDivElement | null>(null);
+  let canScrollLinkedUp = $state(false);
+  let canScrollLinkedDown = $state(false);
 
   const showingDetail = $derived(Boolean(selectedIdentityAddress));
   const favoriteToggleDisabled = $derived(favoriteBusyIdentityAddress !== null);
@@ -245,6 +248,65 @@
     }, 150);
 
     return () => clearTimeout(timer);
+  });
+
+  function updateLinkedScrollAffordance(element: HTMLElement | null = linkedScrollElement): void {
+    if (!element) {
+      canScrollLinkedUp = false;
+      canScrollLinkedDown = false;
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    canScrollLinkedUp = maxScrollTop > 1 && element.scrollTop > 1;
+    canScrollLinkedDown = maxScrollTop > 1 && element.scrollTop < maxScrollTop - 1;
+  }
+
+  function onLinkedScroll(event: Event): void {
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) updateLinkedScrollAffordance(target);
+  }
+
+  $effect(() => {
+    activeTab;
+    filteredFavoriteIdentities.length;
+    filteredNonFavoriteIdentities.length;
+    visibleProvisioningJobs.length;
+    provisioningLoading;
+    provisioningError;
+    error;
+
+    const element = linkedScrollElement;
+    if (activeTab !== 'linked' || !element) {
+      canScrollLinkedUp = false;
+      canScrollLinkedDown = false;
+      return undefined;
+    }
+
+    if (typeof ResizeObserver === 'undefined') {
+      void tick().then(() => {
+        if (linkedScrollElement === element && activeTab === 'linked') {
+          updateLinkedScrollAffordance(element);
+        }
+      });
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(() => updateLinkedScrollAffordance(element));
+    resizeObserver.observe(element);
+    const viewportContent = element.querySelector('[data-scroll-area-content]');
+    if (viewportContent instanceof HTMLElement) {
+      resizeObserver.observe(viewportContent);
+    } else if (element.lastElementChild instanceof HTMLElement) {
+      resizeObserver.observe(element.lastElementChild);
+    }
+    void tick().then(() => {
+      if (linkedScrollElement === element && activeTab === 'linked') {
+        updateLinkedScrollAffordance(element);
+      }
+    });
+
+    return () => resizeObserver.disconnect();
   });
 
   $effect(() => {
@@ -708,7 +770,7 @@
   {#if detailsLoading}
     <IdentityDetailSkeleton identity={selectedLinkedIdentity} />
   {:else if detailsError}
-    <div class="flex h-full w-full max-w-[676px] min-w-0 flex-col gap-3 px-7 pt-3 pb-7">
+    <div class="mx-auto flex h-full w-full max-w-6xl min-w-0 flex-col gap-3 px-5 pt-5 pb-6">
       <button
         type="button"
         class="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -742,8 +804,21 @@
     />
   {/if}
 {:else}
-  <div class="flex h-full min-h-0 w-full max-w-[676px] flex-col px-7 pt-4 pb-7" aria-busy={loading}>
+  <div
+    class="relative mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pt-5 pb-6"
+    aria-busy={loading}
+    data-identity-layout
+  >
     <h2 class="sr-only">{i18n.t('wallet.sidebar.identities')}</h2>
+
+    {#if activeTab === 'linked' && linkedIdentities.length > 0}
+      <div class="absolute top-5 right-5 z-10 shrink-0" data-identity-link-action>
+        <Button size="sm" onclick={() => (linkSheetOpen = true)}>
+          <PlusIcon class="size-3.5" aria-hidden="true" />
+          {i18n.t('wallet.identity.list.linkButton')}
+        </Button>
+      </div>
+    {/if}
 
     <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
       <Tabs.List
@@ -769,27 +844,24 @@
           <p class="sr-only" role="status">{i18n.t('wallet.identity.loading')}</p>
         {/if}
 
-        <div class="flex min-w-0 shrink-0 items-center gap-3">
+        <div class="min-w-0 shrink-0" data-identity-search-toolbar>
           <SearchInput
             bind:value={listSearchInput}
-            class="min-w-0 flex-1"
+            class="w-full"
             inputClass="h-9 bg-muted/70 text-[13px] dark:bg-muted"
             placeholder={i18n.t('wallet.identity.list.searchPlaceholder')}
+            aria-label={i18n.t('wallet.identity.list.searchPlaceholder')}
+            showFocusRing
           />
-
-          <Button
-            variant="secondary"
-            class="h-9 shrink-0 justify-center gap-1.5 rounded-[7px] px-3 text-[13px]"
-            onclick={() => (linkSheetOpen = true)}
-          >
-            <PlusIcon class="size-4" aria-hidden="true" />
-            {i18n.t('wallet.identity.list.linkButton')}
-          </Button>
         </div>
 
-        <div class="mt-6 min-h-0 flex-1" data-identity-linked-scroll>
+        <div class="relative mt-6 min-h-0 flex-1" data-identity-linked-scroll>
           <ScrollArea.Root class="h-full" type="scroll">
-            <ScrollArea.Viewport class="h-full pr-1">
+            <ScrollArea.Viewport
+              bind:ref={linkedScrollElement}
+              class="h-full pr-1"
+              onscroll={onLinkedScroll}
+            >
               <div class="flex min-h-full flex-col">
                 {#if showProvisioningSection}
                   <section class="rounded-xl bg-muted/30 p-4">
@@ -971,9 +1043,6 @@
                               onProfileVisible={() =>
                                 void loadIdentityProfile(identity.identityAddress)}
                               profile={profilesByAddress[identity.identityAddress] ?? null}
-                              profileLoading={Boolean(
-                                profileLoadingByAddress[identity.identityAddress]
-                              )}
                               pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                                 null}
                               favoriteBusy={isFavoriteToggleBusy(identity)}
@@ -1004,9 +1073,6 @@
                               onProfileVisible={() =>
                                 void loadIdentityProfile(identity.identityAddress)}
                               profile={profilesByAddress[identity.identityAddress] ?? null}
-                              profileLoading={Boolean(
-                                profileLoadingByAddress[identity.identityAddress]
-                              )}
                               pendingProfile={pendingProfilesByAddress[identity.identityAddress] ??
                                 null}
                               favoriteBusy={isFavoriteToggleBusy(identity)}
@@ -1025,6 +1091,20 @@
             </ScrollArea.Viewport>
             <ScrollArea.Scrollbar orientation="vertical" />
           </ScrollArea.Root>
+
+          {#if canScrollLinkedUp}
+            <div
+              class="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-background to-transparent dark:from-app-canvas"
+              data-identity-scroll-fade="top"
+            ></div>
+          {/if}
+
+          {#if canScrollLinkedDown}
+            <div
+              class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
+              data-identity-scroll-fade="bottom"
+            ></div>
+          {/if}
         </div>
       </Tabs.Content>
 

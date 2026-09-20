@@ -22,7 +22,7 @@
           <Skeleton class="mt-2 h-3 w-56 max-w-[75%] rounded-sm" />
         </div>
         <Skeleton class="size-8 shrink-0 rounded-md" />
-        <Skeleton class="h-[34px] w-[98px] shrink-0 rounded-md" />
+        <Skeleton class="size-8 shrink-0 rounded-md" />
       </div>
     {/each}
   </div>

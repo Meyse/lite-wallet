@@ -129,8 +129,8 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 w-full max-w-[676px] flex-col px-7 pb-7">
-  <div class="mt-3 flex h-9 shrink-0 items-center">
+<div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-5 pt-5 pb-6">
+  <div class="flex h-9 shrink-0 items-center">
     <Button
       variant="ghost"
       class="h-9 gap-1.5 px-0 text-[13px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"

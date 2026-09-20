@@ -101,7 +101,7 @@ describe('mounted public VerusID lookup', () => {
       enter(target, '  alex.example@  ');
       await settle();
       const findButton = Array.from(target.querySelectorAll('button')).find(
-        (candidate) => candidate.textContent?.trim() === 'Find profile'
+        (candidate) => candidate.type === 'submit'
       );
       findButton?.click();
       findButton?.click();
@@ -114,7 +114,9 @@ describe('mounted public VerusID lookup', () => {
       expect(mocks.loadIdentityProfile).toHaveBeenCalledWith(identity, false, true);
       expect(target.textContent).toContain('View profile');
 
-      (target.querySelector('button.h-\\[34px\\]') as HTMLButtonElement | null)?.click();
+      Array.from(target.querySelectorAll<HTMLButtonElement>('button'))
+        .find((candidate) => candidate.textContent?.trim() === 'View profile')
+        ?.click();
       expect(opened).toEqual([identity]);
     } finally {
       await unmount(component);

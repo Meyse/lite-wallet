@@ -4,6 +4,7 @@
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import StarIcon from '@lucide/svelte/icons/star';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { i18nStore } from '$lib/i18n';
   import type {
     IdentityProfileLoadResult,
@@ -23,7 +24,6 @@
     pendingProfile?: PendingIdentityProfileUpdate | null;
     favoriteBusy?: boolean;
     favoriteDisabled?: boolean;
-    profileLoading?: boolean;
     showDivider?: boolean;
     onProfileVisible?: () => void;
     onSelect?: typeof noop;
@@ -36,7 +36,6 @@
     pendingProfile = null,
     favoriteBusy = false,
     favoriteDisabled = false,
-    profileLoading = false,
     showDivider = false,
     onProfileVisible = () => {},
     onSelect = noop,
@@ -123,10 +122,6 @@
         <p class="mt-1 truncate text-[13px] leading-[21px] text-muted-foreground">
           {description}
         </p>
-      {:else if profileLoading}
-        <p class="mt-1 truncate text-xs leading-[21px] text-muted-foreground">
-          {i18n.t('wallet.identity.profile.loading')}
-        </p>
       {:else if profile?.state === 'unavailable'}
         <p class="mt-1 truncate text-xs leading-[21px] text-muted-foreground">
           {i18n.t('wallet.contacts.profileUnavailable')}
@@ -152,12 +147,15 @@
     {/if}
   </button>
 
-  <button
-    type="button"
-    class="inline-flex h-[34px] w-[98px] shrink-0 items-center justify-end gap-2 rounded-sm px-1 text-[13px] font-medium text-text-action outline-none hover:text-text-action focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class="shrink-0 text-muted-foreground hover:text-foreground"
     onclick={() => onSelect(identity)}
+    aria-label={i18n.t('wallet.identity.list.manage')}
+    title={i18n.t('wallet.identity.list.manage')}
+    data-linked-identity-manage
   >
-    <span>{i18n.t('wallet.identity.list.manage')}</span>
-    <ChevronRightIcon class="size-4 text-muted-foreground" aria-hidden="true" />
-  </button>
+    <ChevronRightIcon class="size-4" aria-hidden="true" />
+  </Button>
 </div>
