@@ -296,7 +296,7 @@
   {#if owner?.loading}
     <p class="sr-only" role="status">{i18n.t('wallet.identity.detail.loading')}</p>
   {/if}
-  <div class="flex h-9 shrink-0 items-center justify-between">
+  <div class="flex h-9 shrink-0 items-start justify-between">
     <NavigationBackButton
       label={i18n.t(
         owner ? 'wallet.identity.detail.back' : 'wallet.identity.publicProfile.backToSearch'
