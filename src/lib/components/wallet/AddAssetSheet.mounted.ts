@@ -244,7 +244,28 @@ describe('mounted Manage assets', () => {
     expect(row('USD Coin')).toBeDefined();
   });
 
-  it('shows a bottom fade only while the asset list can scroll further', async () => {
+  it('shows asset-shaped skeletons until the initial lookup finishes', async () => {
+    let finishRegistry: (coins: (typeof vrsc | typeof usdc)[]) => void = () => {};
+    service.getCoinRegistry.mockImplementation(
+      () => new Promise((resolve) => (finishRegistry = resolve))
+    );
+    await render();
+    expect(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('true');
+    expect(document.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(12);
+    finishRegistry([vrsc, usdc]);
+    await settle();
+    expect(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('false');
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+  });
+
+  it('keeps the divider between Found and shown assets but omits the last one', async () => {
+    await render();
+    expect(row('USD Coin')?.firstElementChild?.className).toContain('border-b');
+    const rows = [...document.querySelectorAll<HTMLElement>('.asset-row')];
+    expect(rows.at(-1)?.firstElementChild?.className).not.toContain('border-b');
+  });
+
+  it('shows top and bottom fades only while content remains in that direction', async () => {
     await render();
     const viewport = requiredElement<HTMLElement>('[data-slot="scroll-area-viewport"]');
     Object.defineProperties(viewport, {
@@ -255,12 +276,20 @@ describe('mounted Manage assets', () => {
 
     viewport.dispatchEvent(new Event('scroll'));
     await settle();
-    expect(document.querySelector('[data-manage-assets-scroll-fade]')).not.toBeNull();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="top"]')).toBeNull();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="bottom"]')).not.toBeNull();
+
+    viewport.scrollTop = 150;
+    viewport.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="top"]')).not.toBeNull();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="bottom"]')).not.toBeNull();
 
     viewport.scrollTop = 300;
     viewport.dispatchEvent(new Event('scroll'));
     await settle();
-    expect(document.querySelector('[data-manage-assets-scroll-fade]')).toBeNull();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="top"]')).not.toBeNull();
+    expect(document.querySelector('[data-manage-assets-scroll-fade="bottom"]')).toBeNull();
   });
 
   it('uses the standard secondary treatment for both custom-asset actions', async () => {
@@ -343,13 +372,13 @@ describe('mounted Manage assets', () => {
     expect(row('iUnknownCurrency')?.textContent).toContain('Review');
   });
 
-  it('promotes a newly positive known balance into Found after refreshing', async () => {
+  it('promotes a newly positive known balance into Found when reopening', async () => {
     service.getBalances.mockResolvedValueOnce({ total: '0', confirmed: '0', pending: '0' });
     await render();
     expect(row('USD Coin')).toBeUndefined();
     service.getBalances.mockResolvedValue({ total: '125', confirmed: '125', pending: '0' });
-    button('Refresh asset discovery').click();
-    await settle();
+    await unmountRenderedComponent();
+    await render();
     expect(service.getBalances).toHaveBeenCalledTimes(2);
     expect(row('USD Coin')).toBeDefined();
     expect(row('USD Coin')?.closest('section')?.querySelector('h2')?.textContent).toContain(
@@ -471,6 +500,11 @@ describe('mounted Manage assets', () => {
     expect(document.querySelector('dl')?.textContent).toContain(
       '0x1111111111111111111111111111111111111111'
     );
+    input.value = 'another asset';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(document.querySelector('dl')).toBeNull();
+    expect(document.body.textContent).not.toContain('Show in portfolio');
   });
 
   it('keeps the acted-on row connected while changing its portfolio state', async () => {
@@ -629,11 +663,15 @@ describe('mounted Manage assets', () => {
   it('implements arrow-key tab selection and focus', async () => {
     await render();
     const yours = button('Your assets');
+    expect(yours.className).toContain('border-primary');
+    expect(yours.className).not.toContain('border-transparent');
     yours.focus();
     yours.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     await settle();
     const browse = button('Browse');
     expect(browse.getAttribute('aria-selected')).toBe('true');
+    expect(browse.className).toContain('border-primary');
+    expect(browse.className).not.toContain('border-transparent');
     expect(document.activeElement).toBe(browse);
   });
 
@@ -674,6 +712,18 @@ describe('mounted Manage assets', () => {
       service.getCoinRegistry.mockResolvedValue([vrsc, usdc, custom]);
       return custom;
     });
+    service.setAssetPreferences.mockImplementation(
+      async (expectedSessionId: string, portfolioCoinIds: string[], hiddenAssetKeys: string[]) => {
+        const preferences = {
+          network: 'mainnet',
+          sessionId: expectedSessionId,
+          portfolioCoinIds,
+          hiddenAssetKeys,
+        };
+        service.getAssetPreferences.mockResolvedValue(preferences);
+        return preferences;
+      }
+    );
     await render();
     button('Add custom asset').click();
     await settle();
@@ -684,11 +734,15 @@ describe('mounted Manage assets', () => {
     await settle();
     button('Show in portfolio').click();
     await settle();
+    const success = requiredElement<HTMLButtonElement>('[data-manage-assets-success]');
+    expect(success.textContent).toContain('Shown in portfolio');
+    expect(success.className).toContain('bg-contact-saved');
+    expect(success.className).toContain('text-contact-saved-foreground');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();
     expect(row('Other token')).toBeDefined();
-    expect(row('Other token')?.closest('section')?.querySelector('h2')?.textContent).toContain(
-      'Shown in portfolio'
+    expect(row('Other token')?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
+      'true'
     );
     expect(row('Other token')?.textContent).toContain('Unavailable');
     expect(row('Other token')?.textContent).not.toContain('0 OTHER');
@@ -697,8 +751,8 @@ describe('mounted Manage assets', () => {
       const total = coinId === 'OTHER' ? '0' : '125';
       return { total, confirmed: total, pending: '0' };
     });
-    button('Refresh asset discovery').click();
-    await settle();
+    await unmountRenderedComponent();
+    await render();
     expect(row('Other token')?.textContent).toContain('0 OTHER');
     expect(row('Other token')?.textContent).not.toContain('Unavailable');
   });

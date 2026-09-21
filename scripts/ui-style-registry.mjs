@@ -17,6 +17,7 @@ export const approvedUiHexColorRegistry = {
     '#C4C4CA',
   ],
   contactSavedFeedback: ['#E5F5EC', '#167347', '#173A2A', '#78DDA9'],
+  assetResultSurface: ['#F8F8FA', '#232326'],
   guardActions: ['#D4313E', '#4AA658'],
   communityBrand: ['#5865F2', '#4752C4', '#3F49B7', '#7B86F8', '#A0A8FF'],
   walletPalette: [
@@ -59,6 +60,7 @@ export const approvedUiHexSources = {
     'settingsSurfaces',
     'guardActions',
     'contactSavedFeedback',
+    'assetResultSurface',
     'communityBrand',
   ],
   'src/lib/constants/walletColors.ts': ['walletPalette'],

@@ -7,16 +7,15 @@
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import InfoIcon from '@lucide/svelte/icons/info';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import SearchIcon from '@lucide/svelte/icons/search';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
-  import XIcon from '@lucide/svelte/icons/x';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
@@ -95,6 +94,7 @@
 
   let headingElement = $state<HTMLElement | null>(null);
   let listScrollElement = $state<HTMLElement | null>(null);
+  let canScrollUp = $state(false);
   let canScrollDown = $state(false);
   let registryCoins = $state<CoinDefinition[]>([]);
   let portfolioCoinIds = $state<string[]>([]);
@@ -417,6 +417,13 @@
   );
   const manualAlreadyShown = $derived(
     manualResolvedCoin ? activeSet.has(normalize(manualResolvedCoin.id)) : false
+  );
+  const manualLookupLabel = $derived(
+    manualResolvedCoin?.proto === 'erc20' || normalizedErc20ContractCandidate(manualInput)
+      ? i18n.t('wallet.manageAssets.contractAddress')
+      : manualResolvedCoin
+        ? i18n.t('wallet.manageAssets.currencyNameOrId')
+        : i18n.t('wallet.manageAssets.lookupLabel')
   );
 
   function translateAssetError(error: unknown, fallbackKey: string): string {
@@ -763,6 +770,16 @@
     return null;
   }
 
+  function clearManualLookup(): void {
+    manualLookupRevision += 1;
+    manualResolving = false;
+    manualResolvedCoin = null;
+    manualCandidates = [];
+    manualAdded = false;
+    manualError = '';
+    identifierCopyState = 'idle';
+  }
+
   async function resolveManualAsset(inputOverride?: string): Promise<void> {
     const generation = lifecycleGeneration;
     const sessionId = expectedSessionId;
@@ -826,7 +843,7 @@
   }
 
   async function addResolvedManualAsset(): Promise<void> {
-    if (!manualResolvedCoin || manualAdded) return;
+    if (!manualResolvedCoin || manualAdded || manualAdding || manualAlreadyShown) return;
     const generation = lifecycleGeneration;
     const sessionId = expectedSessionId;
     manualAdding = true;
@@ -984,10 +1001,12 @@
 
   function updateScrollAffordance(element = listScrollElement): void {
     if (!element) {
+      canScrollUp = false;
       canScrollDown = false;
       return;
     }
     const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    canScrollUp = maxScrollTop > 1 && element.scrollTop > 1;
     canScrollDown = maxScrollTop > 1 && element.scrollTop < maxScrollTop - 1;
   }
 
@@ -1009,6 +1028,7 @@
 
     const element = listScrollElement;
     if (view !== 'manage' || !element) {
+      canScrollUp = false;
       canScrollDown = false;
       return undefined;
     }
@@ -1059,30 +1079,39 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<section class="flex h-full min-h-0 flex-col pt-4" aria-labelledby="manage-assets-title">
+<section
+  class="flex h-full min-h-0 flex-col"
+  aria-labelledby={view === 'manage' ? 'manage-assets-title' : 'add-custom-asset-title'}
+>
   {#if view === 'manage'}
     <header class="flex h-8 shrink-0 items-center justify-between">
       <h1
         id="manage-assets-title"
-        class="text-xl leading-7 font-semibold text-foreground outline-none"
+        class="sr-only outline-none"
         tabindex="-1"
         bind:this={headingElement}
       >
         {i18n.t('wallet.manageAssets.title')}
       </h1>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="h-7 w-7 rounded-md text-muted-foreground"
-        aria-label={i18n.t('wallet.manageAssets.close')}
+      <NavigationBackButton
+        label={i18n.t('wallet.assetDetails.back')}
         disabled={closing}
         onclick={closeManageAssets}
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        class="h-8 gap-1.5 px-3 text-[13px]"
+        data-manage-assets-return-focus="add-custom"
+        onclick={() => openManual()}
       >
-        <XIcon class="h-[18px] w-[18px]" />
+        <PlusIcon class="h-3.5 w-3.5" aria-hidden="true" />
+        {i18n.t('wallet.manageAssets.addCustom')}
       </Button>
     </header>
 
-    <div class="mt-5 flex h-10 shrink-0 gap-3">
+    <div class="mt-4 flex h-10 shrink-0 gap-3">
       <Label class="relative min-w-0 flex-1">
         <span class="sr-only">{i18n.t('wallet.manageAssets.search')}</span>
         <SearchIcon
@@ -1125,8 +1154,12 @@
       </DropdownMenu.Root>
     </div>
 
-    <div class="mt-4 flex h-8 shrink-0 items-center justify-between">
-      <div class="flex gap-1" role="tablist" aria-label={i18n.t('wallet.manageAssets.title')}>
+    <div class="mt-4 grid h-9 shrink-0 grid-cols-[minmax(0,1fr)_190px_84px] items-center border-b">
+      <div
+        class="flex h-9 min-w-0 gap-5"
+        role="tablist"
+        aria-label={i18n.t('wallet.manageAssets.title')}
+      >
         {#each ['yours', 'browse', 'hidden'] as item (item)}
           <button
             type="button"
@@ -1136,10 +1169,10 @@
             id={`manage-assets-tab-${item}`}
             data-manage-assets-tab={item}
             tabindex={tab === item ? 0 : -1}
-            class={`h-8 rounded-md px-[13px] text-[13px] transition-colors focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none ${
+            class={`h-9 shrink-0 border-b-2 px-0 text-[13px] transition-colors focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none ${
               tab === item
-                ? 'bg-muted font-medium text-foreground dark:bg-muted/75'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'border-primary font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
             onclick={() => (tab = item as ManageTab)}
             onkeydown={(event) => handleTabKeydown(event, item as ManageTab)}
@@ -1148,16 +1181,12 @@
           </button>
         {/each}
       </div>
-      <button
-        type="button"
-        class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none disabled:opacity-50"
-        aria-label={i18n.t('wallet.manageAssets.refresh')}
-        title={i18n.t('wallet.manageAssets.refresh')}
-        disabled={refreshing || loading}
-        onclick={() => refreshDiscovery()}
+      <span class="text-right text-xs text-muted-foreground"
+        >{i18n.t('wallet.manageAssets.balance')}</span
       >
-        <RefreshCwIcon class={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-      </button>
+      <span class="text-right text-xs text-muted-foreground"
+        >{i18n.t('wallet.manageAssets.inPortfolio')}</span
+      >
     </div>
 
     {#if discoveryError || discoveryStale || refreshError || hasPartialDiscoveryCoverage}
@@ -1191,6 +1220,7 @@
       class="relative mt-3 min-h-0 flex-1"
       role="tabpanel"
       aria-labelledby={`manage-assets-tab-${tab}`}
+      aria-busy={loading}
     >
       <ScrollArea.Root class="h-full" type="scroll">
         <ScrollArea.Viewport
@@ -1199,9 +1229,22 @@
           onscroll={onManageAssetsScroll}
         >
           {#if loading}
-            <div class="flex h-32 items-center justify-center text-sm text-muted-foreground">
-              <RefreshCwIcon class="mr-2 h-4 w-4 animate-spin" />
-              {i18n.t('wallet.manageAssets.checking')}
+            <p class="sr-only" role="status">{i18n.t('wallet.manageAssets.checking')}</p>
+            <div aria-hidden="true">
+              {#each [0, 1, 2] as index}
+                <div
+                  class={`grid min-h-[72px] grid-cols-[minmax(0,1fr)_190px_84px] items-center px-1 ${index < 2 ? 'border-b' : ''}`}
+                >
+                  <div class="flex items-center gap-3">
+                    <div class="flex w-9 shrink-0 justify-center">
+                      <Skeleton class="h-8 w-8 rounded-full" />
+                    </div>
+                    <Skeleton class={`h-4 rounded-sm ${index === 1 ? 'w-28' : 'w-36'}`} />
+                  </div>
+                  <Skeleton class="ml-auto h-4 w-24 rounded-sm" />
+                  <Skeleton class="ml-auto h-5 w-[34px] rounded-full" />
+                </div>
+              {/each}
             </div>
           {:else}
             {#if tab === 'hidden' && !hasQuery}
@@ -1217,13 +1260,11 @@
                 {@render AssetSection({
                   title: i18n.t('wallet.manageAssets.found'),
                   rows: foundRows,
+                  hideLastDivider: shownRows.length === 0,
                 })}
               {/if}
               {#if shownRows.length > 0}
-                {@render AssetSection({
-                  title: i18n.t('wallet.manageAssets.shown'),
-                  rows: shownRows,
-                })}
+                {@render AssetSection({ rows: shownRows, hideLastDivider: true })}
               {/if}
             {:else if tab === 'browse'}
               {@render AssetSection({ rows: browseRows })}
@@ -1235,7 +1276,7 @@
               <section class="mt-4">
                 <button
                   type="button"
-                  class="flex h-8 w-full items-center justify-between text-left text-[13px] font-semibold text-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                  class="flex h-9 w-full items-center justify-between px-1 text-left text-[13px] font-medium text-foreground focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
                   aria-expanded={otherAssetsExpanded}
                   onclick={() => (otherAssetsExpanded = !otherAssetsExpanded)}
                 >
@@ -1247,13 +1288,10 @@
                   {/if}
                 </button>
                 {#if otherAssetsExpanded || hasQuery}
-                  <p class="mb-1 text-xs text-muted-foreground">
-                    {i18n.t('wallet.manageAssets.notCataloged')}
-                  </p>
                   {#each visibleOtherRows as row (row.key)}
                     {@const balance = displayedBalance(row)}
-                    <div class="asset-row">
-                      <div class="flex min-h-[60px] items-center gap-3 py-2">
+                    <div class="asset-row mt-2 rounded-xl bg-muted/65 px-3 dark:bg-muted/55">
+                      <div class="flex min-h-[68px] items-center gap-3 py-2">
                         <div class="flex w-9 shrink-0 justify-center">
                           <CoinIcon
                             coinId={row.coinId}
@@ -1371,232 +1409,226 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
 
+      {#if canScrollUp}
+        <div
+          class="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-background to-transparent dark:from-app-canvas"
+          data-manage-assets-scroll-fade="top"
+          aria-hidden="true"
+        ></div>
+      {/if}
+
       {#if canScrollDown}
         <div
           class="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent dark:from-app-canvas"
-          data-manage-assets-scroll-fade
+          data-manage-assets-scroll-fade="bottom"
           aria-hidden="true"
         ></div>
       {/if}
     </div>
-
-    <footer class="flex h-12 shrink-0 items-end">
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        class="h-8 gap-1.5 px-3 text-[13px]"
-        data-manage-assets-return-focus="add-custom"
-        onclick={() => openManual()}
-      >
-        <PlusIcon class="h-3.5 w-3.5" />
-        {i18n.t('wallet.manageAssets.addCustom')}
-      </Button>
-    </footer>
   {:else}
     <header class="shrink-0">
-      <div class="flex h-8 items-center justify-between">
-        <h1 class="text-xl leading-7 font-semibold text-foreground">
-          {i18n.t('wallet.manageAssets.addCustom')}
-        </h1>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          class="h-7 w-7 rounded-md text-muted-foreground"
-          aria-label={i18n.t('wallet.manageAssets.close')}
-          disabled={closing}
-          onclick={closeManageAssets}
-        >
-          <XIcon class="h-[18px] w-[18px]" />
-        </Button>
-      </div>
-      <NavigationBackButton
-        label={i18n.t('wallet.manageAssets.back')}
-        class="mt-3"
-        onclick={closeManual}
-      />
+      <NavigationBackButton label={i18n.t('wallet.manageAssets.back')} onclick={closeManual} />
+      <h1 id="add-custom-asset-title" class="mt-6 text-xl leading-7 font-semibold text-foreground">
+        {i18n.t('wallet.manageAssets.addCustom')}
+      </h1>
     </header>
 
-    <div class="mt-11 min-h-0 flex-1">
-      <form
-        onsubmit={(event) => {
-          event.preventDefault();
-          if (!manualResolving && !manualAdding) resolveManualAsset();
-        }}
-      >
-        <Label class="text-[13px] text-foreground" for="custom-asset-input">
-          {i18n.t('wallet.manageAssets.lookupLabel')}
-        </Label>
-        <div class="mt-2 flex gap-3">
-          <div class="min-w-0 flex-1">
-            <Input
-              id="custom-asset-input"
-              bind:ref={manualInputElement}
-              bind:value={manualInput}
-              autocomplete="off"
-              spellcheck={false}
-              class="h-10 border-0 bg-muted/75 focus-visible:ring-2 dark:bg-muted/55"
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="secondary"
-            class="h-10 w-[116px]"
-            disabled={manualResolving || manualAdding}
+    <ScrollArea.Root class="-mx-1 mt-7 min-h-0 flex-1" type="scroll">
+      <ScrollArea.Viewport class="h-full overscroll-contain px-1">
+        <div class="pb-1">
+          <form
+            onsubmit={(event) => {
+              event.preventDefault();
+              if (!manualResolving && !manualAdding) resolveManualAsset();
+            }}
           >
-            {manualResolving
-              ? i18n.t('wallet.addAsset.resolving')
-              : i18n.t('wallet.manageAssets.findAsset')}
-          </Button>
-        </div>
-      </form>
-
-      {#if manualCandidates.length > 1}
-        <div class="mt-6 space-y-1">
-          <p class="text-xs text-muted-foreground">{i18n.t('wallet.addAsset.pbaasMatches')}</p>
-          {#each manualCandidates as candidate (candidate.currencyId)}
-            <button
-              type="button"
-              class="block max-w-full truncate text-left text-sm text-text-action hover:text-text-action hover:underline"
-              onclick={() => resolveManualAsset(candidate.currencyId)}
-            >
-              {candidate.displayName} · {candidate.currencyId}
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if manualResolvedCoin}
-        <section class="mt-9">
-          <div class="flex items-center gap-3">
-            <div class="flex w-9 shrink-0 justify-center">
-              <CoinIcon
-                coinId={manualResolvedCoin.id}
-                coinName={manualResolvedCoin.displayName}
-                proto={manualResolvedCoin.proto}
-                size={32}
-                showBadge
-                decorative
-              />
-            </div>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-medium text-foreground">
-                {manualResolvedCoin.displayName}
-              </p>
-              <p class="truncate text-xs text-muted-foreground">
-                {manualResolvedCoin.displayTicker} ·
-                {manualResolvedCoin.proto === 'erc20'
-                  ? i18n.t('wallet.manageAssets.ethereum')
-                  : i18n.t('wallet.manageAssets.verus')}
-              </p>
-            </div>
-          </div>
-
-          <dl class="mt-6 space-y-2 text-[13px]">
-            <div class="flex gap-6">
-              <dt class="w-32 shrink-0 text-muted-foreground">
-                {manualResolvedCoin.proto === 'erc20'
-                  ? i18n.t('wallet.manageAssets.contractAddress')
-                  : i18n.t('wallet.manageAssets.currencyId')}
-              </dt>
-              <dd class="flex min-w-0 flex-1 items-start gap-1.5 text-foreground">
-                <IdentifierText
-                  value={manualResolvedCoin.currencyId}
-                  mode="full"
-                  class="min-w-0 flex-1 font-mono text-xs leading-5"
+            <Label class="text-[13px] text-foreground" for="custom-asset-input">
+              {manualLookupLabel}
+            </Label>
+            <div class="mt-2 flex gap-3">
+              <div class="min-w-0 flex-1">
+                <Input
+                  id="custom-asset-input"
+                  bind:ref={manualInputElement}
+                  bind:value={manualInput}
+                  oninput={clearManualLookup}
+                  autocomplete="off"
+                  spellcheck={false}
+                  disabled={manualAdding}
+                  class="h-10 border-0 bg-muted/75 focus-visible:ring-2 dark:bg-muted/55"
                 />
-                <CopyButton
-                  size="xs"
-                  copied={identifierCopyState === 'copied'}
-                  aria-label={i18n.t(
-                    identifierCopyState === 'copied' ? 'common.copied' : 'common.copy'
-                  )}
-                  onclick={copyResolvedIdentifier}
-                />
-              </dd>
+              </div>
+              <Button
+                type="submit"
+                variant="secondary"
+                class="h-10 w-[116px]"
+                disabled={manualResolving || manualAdding}
+              >
+                {manualResolving
+                  ? i18n.t('wallet.addAsset.resolving')
+                  : i18n.t('wallet.manageAssets.findAsset')}
+              </Button>
             </div>
-            <div class="flex gap-6">
-              <dt class="w-32 shrink-0 text-muted-foreground">
-                {i18n.t('wallet.manageAssets.balance')}
-              </dt>
-              <dd class="min-w-0 flex-1 text-right font-medium text-foreground tabular-nums">
-                {#if !manualResolvedBalance || manualResolvedBalance.status === 'unavailable'}
-                  {i18n.t('wallet.manageAssets.unavailable')}
-                {:else if manualResolvedBalance.status === 'loading'}
-                  {i18n.t('common.loading')}
-                {:else}
-                  <span>{manualResolvedBalance.balance} {manualResolvedCoin.displayTicker}</span>
-                  {#if manualResolvedBalance.status === 'partial'}
-                    <span class="block text-[11px] font-normal text-muted-foreground">
-                      {i18n.t('wallet.manageAssets.partial')}
-                    </span>
-                  {/if}
-                {/if}
-              </dd>
-            </div>
-          </dl>
+          </form>
 
-          {#if identifierCopyState === 'failed'}
-            <p class="mt-2 text-xs text-destructive" role="status">
-              {i18n.t('common.copyFailed')}
-            </p>
+          {#if manualCandidates.length > 1}
+            <div class="mt-6 space-y-1">
+              <p class="text-xs text-muted-foreground">{i18n.t('wallet.addAsset.pbaasMatches')}</p>
+              {#each manualCandidates as candidate (candidate.currencyId)}
+                <button
+                  type="button"
+                  class="block max-w-full truncate text-left text-sm text-text-action hover:text-text-action hover:underline"
+                  onclick={() => resolveManualAsset(candidate.currencyId)}
+                >
+                  {candidate.displayName} · {candidate.currencyId}
+                </button>
+              {/each}
+            </div>
           {/if}
 
-          {#if manualAlreadyShown}
-            <p class="mt-5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <CheckIcon class="h-3.5 w-3.5 text-primary" />
-              {i18n.t('wallet.manageAssets.alreadyShown')}
-            </p>
-          {:else}
-            <p class="mt-5 text-xs text-muted-foreground">
-              {i18n.t('wallet.manageAssets.notCataloged')}
+          {#if manualResolvedCoin}
+            <section class="mt-6 rounded-xl bg-asset-result-surface p-4">
+              <div class="flex items-center gap-3 pb-4">
+                <div class="flex w-9 shrink-0 justify-center">
+                  <CoinIcon
+                    coinId={manualResolvedCoin.id}
+                    coinName={manualResolvedCoin.displayName}
+                    proto={manualResolvedCoin.proto}
+                    size={36}
+                    showBadge
+                    decorative
+                  />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-[15px] font-semibold text-foreground">
+                    {manualResolvedCoin.displayName}
+                  </p>
+                  <p class="truncate text-[13px] text-muted-foreground">
+                    {manualResolvedCoin.displayTicker} ·
+                    {manualResolvedCoin.proto === 'erc20'
+                      ? i18n.t('wallet.manageAssets.ethereumErc20')
+                      : i18n.t('wallet.manageAssets.verusPbaas')}
+                  </p>
+                </div>
+              </div>
+
+              <dl class="space-y-3 border-t pt-3.5 text-[13px]">
+                <div class="flex gap-3">
+                  <dt class="w-[120px] shrink-0 text-muted-foreground">
+                    {manualResolvedCoin.proto === 'erc20'
+                      ? i18n.t('wallet.manageAssets.contractAddress')
+                      : i18n.t('wallet.manageAssets.currencyId')}
+                  </dt>
+                  <dd class="flex min-w-0 flex-1 items-start gap-1.5 text-foreground">
+                    <IdentifierText
+                      value={manualResolvedCoin.currencyId}
+                      mode="full"
+                      class="min-w-0 flex-1 font-mono text-[13px] leading-5"
+                    />
+                    <CopyButton
+                      size="xs"
+                      copied={identifierCopyState === 'copied'}
+                      aria-label={i18n.t(
+                        identifierCopyState === 'copied' ? 'common.copied' : 'common.copy'
+                      )}
+                      onclick={copyResolvedIdentifier}
+                    />
+                  </dd>
+                </div>
+                <div class="flex gap-3">
+                  <dt class="w-[120px] shrink-0 text-muted-foreground">
+                    {i18n.t('wallet.manageAssets.balance')}
+                  </dt>
+                  <dd class="min-w-0 flex-1 text-foreground tabular-nums">
+                    {#if !manualResolvedBalance || manualResolvedBalance.status === 'unavailable'}
+                      <span class="text-muted-foreground"
+                        >{i18n.t('wallet.manageAssets.unavailable')}</span
+                      >
+                    {:else if manualResolvedBalance.status === 'loading'}
+                      <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+                    {:else}
+                      <span class="font-medium"
+                        >{manualResolvedBalance.balance} {manualResolvedCoin.displayTicker}</span
+                      >
+                      {#if manualResolvedBalance.status === 'partial'}
+                        <span class="block text-[11px] font-normal text-muted-foreground">
+                          {i18n.t('wallet.manageAssets.partial')}
+                        </span>
+                      {/if}
+                    {/if}
+                  </dd>
+                </div>
+              </dl>
+
+              {#if identifierCopyState === 'failed'}
+                <p class="mt-2 text-xs text-destructive" role="status">
+                  {i18n.t('common.copyFailed')}
+                </p>
+              {/if}
+
+              <div class="flex justify-end pt-[18px]">
+                <Button
+                  type="button"
+                  variant={manualAlreadyShown || manualAdded ? 'secondary' : 'default'}
+                  class="h-10 min-w-[164px] gap-1.5 px-4 text-[13px] {manualAlreadyShown ||
+                  manualAdded
+                    ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved aria-disabled:opacity-100'
+                    : ''}"
+                  aria-busy={manualAdding}
+                  aria-disabled={manualAdding || manualAlreadyShown || manualAdded}
+                  data-manage-assets-success={manualAlreadyShown || manualAdded ? '' : undefined}
+                  onclick={addResolvedManualAsset}
+                >
+                  {#if manualAlreadyShown || manualAdded}<CheckIcon
+                      class="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />{/if}
+                  {manualAlreadyShown || manualAdded
+                    ? i18n.t('wallet.manageAssets.shownSuccess')
+                    : manualAdding
+                      ? i18n.t('wallet.manageAssets.saving')
+                      : i18n.t('wallet.manageAssets.showInPortfolio')}
+                </Button>
+              </div>
+              <span class="sr-only" aria-live="polite">
+                {manualAdded ? i18n.t('wallet.manageAssets.shownSuccess') : ''}
+              </span>
+            </section>
+          {/if}
+
+          {#if manualError}
+            <p class="mt-5 flex items-start gap-1.5 text-xs text-destructive" role="alert">
+              <AlertCircleIcon class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {manualError}
             </p>
           {/if}
-        </section>
-      {/if}
-
-      {#if manualError}
-        <p class="mt-5 flex items-start gap-1.5 text-xs text-destructive" role="alert">
-          <AlertCircleIcon class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {manualError}
-        </p>
-      {/if}
-    </div>
-
-    {#if manualResolvedCoin && !manualAlreadyShown}
-      <footer class="flex h-14 shrink-0 items-start justify-end">
-        <Button
-          type="button"
-          class="h-10 min-w-42"
-          disabled={manualAdding || manualAdded}
-          onclick={addResolvedManualAsset}
-        >
-          {manualAdded
-            ? i18n.t('wallet.manageAssets.shownSuccess')
-            : manualAdding
-              ? i18n.t('wallet.manageAssets.saving')
-              : i18n.t('wallet.manageAssets.showInPortfolio')}
-        </Button>
-      </footer>
-    {/if}
+        </div>
+      </ScrollArea.Viewport>
+      <ScrollArea.Scrollbar orientation="vertical" />
+    </ScrollArea.Root>
   {/if}
 </section>
 
-{#snippet AssetSection({ title = '', rows }: { title?: string; rows: ManagedAssetRow[] })}
-  <section class={title ? 'mb-4' : ''}>
+{#snippet AssetSection({
+  title = '',
+  rows,
+  hideLastDivider = false,
+}: {
+  title?: string;
+  rows: ManagedAssetRow[];
+  hideLastDivider?: boolean;
+})}
+  <section>
     {#if title}
-      <h2 class="h-7 text-[13px] leading-7 font-semibold text-foreground">{title}</h2>
+      <h2 class="h-8 text-[13px] leading-8 font-medium text-foreground">{title}</h2>
     {/if}
-    <div class="grid h-5 grid-cols-[minmax(0,1fr)_174px_94px] text-xs text-muted-foreground">
-      <span>{i18n.t('wallet.manageAssets.asset')}</span>
-      <span class="text-right">{i18n.t('wallet.manageAssets.balance')}</span>
-      <span class="text-right">{i18n.t('wallet.manageAssets.inPortfolio')}</span>
-    </div>
-    {#each rows as row (row.key)}
+    {#each rows as row, index (row.key)}
       {@const rowBalance = displayedBalance(row)}
       {@const networks = displayedNetworks(row)}
       <div class="asset-row">
-        <div class="grid min-h-[60px] grid-cols-[minmax(0,1fr)_174px_94px] items-center">
+        <div
+          class={`grid min-h-[72px] grid-cols-[minmax(0,1fr)_190px_84px] items-center px-1 ${hideLastDivider && index === rows.length - 1 ? '' : 'border-b'}`}
+        >
           <div class="flex min-w-0 items-center gap-3 pr-3">
             <div class="flex w-9 shrink-0 justify-center">
               <CoinIcon
@@ -1629,18 +1661,19 @@
                   </button>
                 {/if}
               </div>
-              <p class="truncate text-xs text-muted-foreground">
-                {row.displayTicker} ·
-                {networks.length > 1
-                  ? i18n.t('wallet.manageAssets.networkCount', { count: networks.length })
-                  : networks[0]?.systemDisplayName}
-                {row.includesReadOnly ? ` · ${i18n.t('wallet.manageAssets.readOnly')}` : ''}
-                {row.hidden ? ` · ${i18n.t('wallet.manageAssets.hiddenStatus')}` : ''}
-              </p>
+              {#if networks.length > 1 || row.includesReadOnly || tab !== 'yours' || hasQuery}
+                <p class="truncate text-xs text-muted-foreground">
+                  {row.displayTicker} ·
+                  {networks.length > 1
+                    ? i18n.t('wallet.manageAssets.networkCount', { count: networks.length })
+                    : networks[0]?.systemDisplayName}
+                  {row.includesReadOnly ? ` · ${i18n.t('wallet.manageAssets.readOnly')}` : ''}
+                </p>
+              {/if}
             </div>
           </div>
 
-          <div class="text-right text-sm font-medium text-foreground tabular-nums">
+          <div class="truncate text-right text-sm font-medium text-foreground tabular-nums">
             {#if rowBalance.status === 'loading'}
               <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
             {:else if rowBalance.status === 'unavailable'}
