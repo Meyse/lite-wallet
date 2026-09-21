@@ -35,11 +35,13 @@
   import {
     type AggregatedDiscoveryHolding,
     aggregateDiscoveryHoldings,
+    ASSET_DISCOVERY_TIMEOUT_MS,
     assetKeyForCoin,
     finiteAssetBalance,
     formatAssetBalance,
     type KnownAssetBalance,
     scanKnownNonVrpcAssets,
+    withAssetLookupTimeout,
   } from '$lib/stores/manageAssets.js';
   import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
   import type {
@@ -101,6 +103,7 @@
   let hiddenAssetKeys = $state<string[]>([]);
   let discovery = $state<AssetDiscoveryResult | null>(null);
   let knownBalances = $state<KnownAssetBalance[]>([]);
+  let pendingKnownAssetKeys = $state<string[]>([]);
   let loading = $state(true);
   let refreshing = $state(false);
   let discoveryStale = $state(false);
@@ -183,7 +186,7 @@
   }
 
   function vrpcCoverageStatus(): BalanceStatus {
-    if (!discovery) return discoveryError ? 'unavailable' : 'loading';
+    if (!discovery) return refreshing && !discoveryError ? 'loading' : 'unavailable';
     if (discovery.sources.length === 0) return 'unavailable';
     const statuses = discovery.sources.map((source) => source.status);
     if (statuses.every((status) => status === 'unavailable')) return 'unavailable';
@@ -239,16 +242,11 @@
     const known = knownBalanceForKey(key);
     const fallback = fallbackNetwork(entry);
     const coverageStatus = entry.proto === 'vrsc' ? vrpcCoverageStatus() : null;
-    const balanceStatus: BalanceStatus =
-      refreshing && !discovery && !known
-        ? 'loading'
-        : discovered
-          ? mergeBalanceStatus(discovered.status, coverageStatus ?? 'available')
-          : known
-            ? known.status
-            : coverageStatus
-              ? coverageStatus
-              : 'unavailable';
+    const balanceStatus: BalanceStatus = discovered
+      ? mergeBalanceStatus(discovered.status, coverageStatus ?? 'available')
+      : (known?.status ??
+        coverageStatus ??
+        (pendingKnownAssetKeys.includes(key) ? 'loading' : 'unavailable'));
     const networks = discovered
       ? discovered.networks.map((holding) => ({
           systemId: holding.systemId,
@@ -362,11 +360,19 @@
   }
 
   function compactBalanceLabel(row: ManagedAssetRow, balance: string): string {
+    const displayBalance = displayBalanceAmount(balance);
     const tickerIsLongFallbackIdentifier =
       !row.cataloged &&
       normalize(row.displayTicker) === normalize(row.currencyId) &&
       row.displayTicker.length > 20;
-    return tickerIsLongFallbackIdentifier ? balance : `${balance} ${row.displayTicker}`;
+    return tickerIsLongFallbackIdentifier
+      ? displayBalance
+      : `${displayBalance} ${row.displayTicker}`;
+  }
+
+  function displayBalanceAmount(balance: string | null): string {
+    if (balance === null) return '';
+    return /^-?0+(?:\.0+)?$/.test(balance) ? '0' : balance;
   }
 
   const scopedRows = $derived(
@@ -406,6 +412,9 @@
   );
   const hasPartialDiscoveryCoverage = $derived(
     failedDiscoverySystemIds.length > 0 || discovery?.scopeMetadataComplete === false
+  );
+  const hasUnavailableKnownBalances = $derived(
+    knownBalances.some((balance) => balance.status === 'unavailable')
   );
   const manualResolvedRow = $derived(
     manualResolvedCoin
@@ -509,8 +518,9 @@
       portfolioCoinIds = preferences.portfolioCoinIds;
       hiddenAssetKeys = preferences.hiddenAssetKeys;
       applyPortfolioStores();
-      await refreshDiscovery(generation, preferences.sessionId);
-      if (!isOperationCurrent(generation, preferences.sessionId)) return;
+      // Local rows are ready. Network discovery must not hold the entire list
+      // behind skeletons, even if one provider never responds.
+      void refreshDiscovery(generation, preferences.sessionId);
     } catch (error) {
       if (componentMounted && lifecycleGeneration === generation && isOpen) {
         discoveryError = translateAssetError(error, 'wallet.manageAssets.loadError');
@@ -550,45 +560,71 @@
     discoveryError = '';
     const previousDiscovery = discovery;
     const retryingSources = systemIds.length > 0;
-    const [vrpcResult, knownResult] = await Promise.allSettled([
-      walletService.discoverVrpcAssets(retryingSources ? systemIds : undefined),
+    if (!retryingSources) {
+      pendingKnownAssetKeys = registryCoins
+        .filter((coin) => !coin.compatibleChannels.includes('vrpc'))
+        .map(assetKeyForCoin);
+    }
+
+    async function canPublish(): Promise<boolean> {
+      if (!isOperationCurrent(generation, sessionId)) return false;
+      try {
+        const preferences = await withAssetLookupTimeout(walletService.getAssetPreferences());
+        return isOperationCurrent(generation, sessionId) && preferences.sessionId === sessionId;
+      } catch {
+        // A lock or replacement session invalidates this refresh.
+        return false;
+      }
+    }
+
+    async function refreshVrpc(): Promise<void> {
+      try {
+        const result = await withAssetLookupTimeout(
+          walletService.discoverVrpcAssets(retryingSources ? systemIds : undefined),
+          ASSET_DISCOVERY_TIMEOUT_MS
+        );
+        if (!(await canPublish())) return;
+        discovery = mergeDiscoveryUpdate(previousDiscovery, result, systemIds);
+        discoveryStale = false;
+      } catch {
+        if (!(await canPublish())) return;
+        discoveryStale = Boolean(previousDiscovery);
+        discoveryError = i18n.t('wallet.manageAssets.discoveryPartial');
+      }
+    }
+
+    await Promise.allSettled([
+      refreshVrpc(),
       retryingSources
-        ? Promise.resolve(knownBalances)
+        ? Promise.resolve()
         : scanKnownNonVrpcAssets(
             registryCoins,
             walletService.getCoinScopes,
-            walletService.getBalances
+            walletService.getBalances,
+            async (balance) => {
+              if (!(await canPublish())) return;
+              knownBalances = [
+                ...knownBalances.filter((known) => known.assetKey !== balance.assetKey),
+                balance,
+              ];
+              pendingKnownAssetKeys = pendingKnownAssetKeys.filter(
+                (key) => key !== balance.assetKey
+              );
+            }
           ),
     ]);
-
-    let confirmedSessionId = '';
-    try {
-      confirmedSessionId = (await walletService.getAssetPreferences()).sessionId;
-    } catch {
-      // A lock or replacement session invalidates this refresh without publishing stale data.
+    if (isOperationCurrent(generation, sessionId)) {
+      pendingKnownAssetKeys = [];
+      refreshing = false;
     }
-    if (!isOperationCurrent(generation, sessionId) || confirmedSessionId !== sessionId) {
-      if (componentMounted && lifecycleGeneration === generation) refreshing = false;
-      return;
-    }
-
-    if (vrpcResult.status === 'fulfilled') {
-      discovery = mergeDiscoveryUpdate(previousDiscovery, vrpcResult.value, systemIds);
-      discoveryStale = false;
-    } else if (previousDiscovery) {
-      discoveryStale = true;
-    }
-    if (knownResult.status === 'fulfilled') knownBalances = knownResult.value;
-    if (vrpcResult.status === 'rejected' && knownResult.status === 'rejected') {
-      discoveryError = i18n.t('wallet.manageAssets.discoveryUnavailable');
-    } else if (vrpcResult.status === 'rejected') {
-      discoveryError = i18n.t('wallet.manageAssets.discoveryPartial');
-    }
-    refreshing = false;
   }
 
   function retryIncompleteDiscovery(): void {
-    void refreshDiscovery(lifecycleGeneration, expectedSessionId, failedDiscoverySystemIds);
+    void refreshDiscovery(
+      lifecycleGeneration,
+      expectedSessionId,
+      hasUnavailableKnownBalances ? [] : failedDiscoverySystemIds
+    );
   }
 
   async function ensureRegisteredCoin(
@@ -1058,6 +1094,7 @@
     visitGroupByKey = {};
     discovery = null;
     knownBalances = [];
+    pendingKnownAssetKeys = [];
     refreshing = false;
     void hydrate(generation);
     return () => {
@@ -1189,7 +1226,7 @@
       >
     </div>
 
-    {#if discoveryError || discoveryStale || refreshError || hasPartialDiscoveryCoverage}
+    {#if discoveryError || discoveryStale || refreshError || hasPartialDiscoveryCoverage || hasUnavailableKnownBalances}
       <div class="mt-3 flex min-h-6 shrink-0 items-center justify-between gap-3 text-xs">
         <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
           <InfoIcon class="h-3.5 w-3.5 shrink-0" />
@@ -1203,10 +1240,11 @@
                   : i18n.t('wallet.manageAssets.discoveryPartial'))}
           </span>
         </div>
-        {#if discoveryError || discoveryStale || hasPartialDiscoveryCoverage}
+        {#if discoveryError || discoveryStale || hasPartialDiscoveryCoverage || hasUnavailableKnownBalances}
           <button
             type="button"
-            class="shrink-0 font-medium text-text-action hover:text-text-action hover:underline"
+            class="shrink-0 font-medium text-text-action hover:text-text-action hover:underline disabled:opacity-50"
+            disabled={refreshing}
             onclick={retryIncompleteDiscovery}
           >
             {i18n.t('common.retry')}
@@ -1322,7 +1360,9 @@
                           {:else if balance.status === 'partial' && balance.balance === null}
                             <span>{i18n.t('wallet.manageAssets.partial')}</span>
                           {:else}
-                            <span title={`${balance.balance} ${row.displayTicker}`}>
+                            <span
+                              title={`${displayBalanceAmount(balance.balance)} ${row.displayTicker}`}
+                            >
                               {compactBalanceLabel(row, balance.balance ?? '')}
                             </span>
                             {#if balance.status === 'partial'}
@@ -1548,7 +1588,8 @@
                       <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
                     {:else}
                       <span class="font-medium"
-                        >{manualResolvedBalance.balance} {manualResolvedCoin.displayTicker}</span
+                        >{displayBalanceAmount(manualResolvedBalance.balance)}
+                        {manualResolvedCoin.displayTicker}</span
                       >
                       {#if manualResolvedBalance.status === 'partial'}
                         <span class="block text-[11px] font-normal text-muted-foreground">
@@ -1681,7 +1722,7 @@
             {:else if rowBalance.status === 'partial' && rowBalance.balance === null}
               <span>{i18n.t('wallet.manageAssets.partial')}</span>
             {:else}
-              <span>{rowBalance.balance} {row.displayTicker}</span>
+              <span>{displayBalanceAmount(rowBalance.balance)} {row.displayTicker}</span>
               {#if rowBalance.status === 'partial'}
                 <span class="block text-[11px] font-normal text-muted-foreground">
                   {i18n.t('wallet.manageAssets.partial')}
@@ -1733,7 +1774,7 @@
                 <span class="text-right text-foreground tabular-nums">
                   {holdingNetwork.status === 'unavailable'
                     ? i18n.t('wallet.manageAssets.unavailable')
-                    : `${holdingNetwork.balance} ${row.displayTicker}`}
+                    : `${displayBalanceAmount(holdingNetwork.balance)} ${row.displayTicker}`}
                 </span>
               </div>
             {/each}

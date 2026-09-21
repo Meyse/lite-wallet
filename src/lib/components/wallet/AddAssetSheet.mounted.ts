@@ -3,6 +3,7 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
+import { ASSET_DISCOVERY_TIMEOUT_MS, ASSET_LOOKUP_TIMEOUT_MS } from '$lib/stores/manageAssets';
 import Component from './AddAssetSheet.svelte';
 
 const service = vi.hoisted(() => ({
@@ -140,7 +141,8 @@ let onClose: () => void;
 async function settle(): Promise<void> {
   for (let index = 0; index < 6; index += 1) {
     await tick();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+    else await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -246,6 +248,38 @@ describe('mounted Manage assets', () => {
     expect(row('USD Coin')).toBeDefined();
   });
 
+  it.each(['light', 'dark'])(
+    'shows exact zero balances without padding in %s mode',
+    async (theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      const uni = {
+        ...usdc,
+        id: 'erc20_0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+        currencyId: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+        displayTicker: 'UNI',
+        displayName: 'Uniswap',
+        decimals: 18,
+      };
+      service.getCoinRegistry.mockResolvedValue([vrsc, usdc, uni]);
+      service.getAssetPreferences.mockResolvedValue({
+        network: 'mainnet',
+        sessionId,
+        portfolioCoinIds: ['VRSC', 'USDC', uni.id],
+        hiddenAssetKeys: [],
+      });
+      service.getBalances.mockImplementation(async (_channel: string, coinId: string) => {
+        const total = coinId === 'USDC' ? '0.000000' : '0.000000000000000000';
+        return { total, confirmed: total, pending: '0' };
+      });
+
+      await render();
+      expect(row('USD Coin')?.textContent).toContain('0 USDC');
+      expect(row('Uniswap')?.textContent).toContain('0 UNI');
+      expect(row('USD Coin')?.textContent).not.toContain('0.000000');
+      expect(row('Uniswap')?.textContent).not.toContain('0.000000000000000000');
+    }
+  );
+
   it('shows asset-shaped skeletons until the initial lookup finishes', async () => {
     let finishRegistry: (coins: (typeof vrsc | typeof usdc)[]) => void = () => {};
     service.getCoinRegistry.mockImplementation(
@@ -258,6 +292,122 @@ describe('mounted Manage assets', () => {
     await settle();
     expect(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('false');
     expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+  });
+
+  it.each(['light', 'dark'])(
+    'shows assets and completed balances while UNI is pending in %s mode',
+    async (theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      const uni = {
+        ...usdc,
+        id: 'erc20_0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+        currencyId: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+        displayTicker: 'UNI',
+        displayName: 'Uniswap',
+      };
+      let finishBalance: (result: unknown) => void = () => {};
+      service.getCoinRegistry.mockResolvedValue([vrsc, usdc, uni]);
+      service.getAssetPreferences.mockResolvedValue({
+        network: 'mainnet',
+        sessionId,
+        portfolioCoinIds: ['VRSC', uni.id],
+        hiddenAssetKeys: [],
+      });
+      service.getBalances.mockImplementation(async (_channel: string, coinId: string) =>
+        coinId === uni.id
+          ? new Promise((resolve) => (finishBalance = resolve))
+          : { total: '125', confirmed: '125', pending: '0' }
+      );
+      await render();
+      expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+      expect(row('Verus')?.textContent).toContain('24.5 VRSC');
+      expect(row('USD Coin')?.textContent).toContain('125 USDC');
+      expect(row('Uniswap')?.textContent).toContain('Loading');
+      expect(row('Uniswap')?.textContent).not.toContain('0 UNI');
+      expect(row('Uniswap')?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
+        'true'
+      );
+      finishBalance({ total: '2', confirmed: '2', pending: '0' });
+      await settle();
+      expect(row('Uniswap')?.textContent).toContain('2 UNI');
+    }
+  );
+
+  it('publishes ERC20 balances while Verus discovery is pending', async () => {
+    let finishDiscovery: (result: unknown) => void = () => {};
+    service.discoverVrpcAssets.mockImplementation(
+      () => new Promise((resolve) => (finishDiscovery = resolve))
+    );
+    await render();
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(row('USD Coin')?.textContent).toContain('125 USDC');
+    expect(row('Verus')?.textContent).toContain('Loading');
+    finishDiscovery(initialDiscovery());
+    await settle();
+    expect(row('Verus')?.textContent).toContain('24.5 VRSC');
+  });
+
+  it.each(['balance', 'discovery'])(
+    'recovers from a stalled %s request through Retry without accepting its late result',
+    async (stalledStep) => {
+      vi.useFakeTimers();
+      let finishLate: (value: unknown) => void = () => {};
+      const pending = new Promise((resolve) => (finishLate = resolve));
+      service.getAssetPreferences.mockResolvedValue({
+        network: 'mainnet',
+        sessionId,
+        portfolioCoinIds: ['VRSC', 'USDC'],
+        hiddenAssetKeys: [],
+      });
+      if (stalledStep === 'balance') service.getBalances.mockReturnValueOnce(pending);
+      else service.discoverVrpcAssets.mockReturnValueOnce(pending);
+      await render();
+      expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+      const label = stalledStep === 'balance' ? 'USD Coin' : 'Verus';
+      expect(row(label)?.textContent).toContain('Loading');
+      await vi.advanceTimersByTimeAsync(
+        stalledStep === 'balance' ? ASSET_LOOKUP_TIMEOUT_MS : ASSET_DISCOVERY_TIMEOUT_MS
+      );
+      await settle();
+      expect(row(label)?.textContent).toContain('Unavailable');
+      expect(button('Try again').disabled).toBe(false);
+      finishLate(
+        stalledStep === 'balance'
+          ? { total: '999', confirmed: '999', pending: '0' }
+          : { ...initialDiscovery(), holdings: [holding(vrsc, verusSystemId, 'Verus', '999')] }
+      );
+      await settle();
+      expect(row(label)?.textContent).not.toContain('999');
+      button('Try again').click();
+      await settle();
+      expect(row(label)?.textContent).toContain(
+        stalledStep === 'balance' ? '125 USDC' : '24.5 VRSC'
+      );
+      expect(row(label)?.textContent).not.toContain('Unavailable');
+    }
+  );
+
+  it('ignores balance and discovery results after the wallet session changes', async () => {
+    let finishBalance: (result: unknown) => void = () => {};
+    let finishDiscovery: (result: unknown) => void = () => {};
+    service.getBalances.mockImplementation(
+      () => new Promise((resolve) => (finishBalance = resolve))
+    );
+    service.discoverVrpcAssets.mockImplementation(
+      () => new Promise((resolve) => (finishDiscovery = resolve))
+    );
+    await render();
+    service.getAssetPreferences.mockResolvedValue({
+      network: 'mainnet',
+      sessionId: 'replacement-session',
+      portfolioCoinIds: [],
+      hiddenAssetKeys: [],
+    });
+    finishBalance({ total: '987', confirmed: '987', pending: '0' });
+    finishDiscovery(initialDiscovery());
+    await settle();
+    expect(document.body.textContent).not.toContain('987 USDC');
+    expect(document.body.textContent).not.toContain('24.5 VRSC');
   });
 
   it('keeps the divider between Found and shown assets but omits the last one', async () => {

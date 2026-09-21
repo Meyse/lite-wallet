@@ -26,6 +26,31 @@ export interface AggregatedDiscoveryHolding {
   networks: AssetDiscoveryHolding[];
 }
 
+export const ASSET_LOOKUP_TIMEOUT_MS = 20_000;
+export const ASSET_DISCOVERY_TIMEOUT_MS = 45_000;
+
+// Tauri invocations cannot be cancelled from here. Stop waiting and ignore late
+// results; Ethereum balance reads also have their own backend deadline.
+export async function withAssetLookupTimeout<T>(
+  request: Promise<T>,
+  timeoutMs = ASSET_LOOKUP_TIMEOUT_MS
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new DOMException('Asset lookup timed out', 'TimeoutError')),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function assetKeyForCoin(coin: CoinDefinition): string {
   const identity = coin.currencyId.trim() || coin.id.trim();
   return `${coin.proto}:${identity.toLowerCase()}`;
@@ -93,18 +118,20 @@ export function aggregateDiscoveryHoldings(
 export async function scanKnownNonVrpcAssets(
   coins: CoinDefinition[],
   getScopes: (coinId: string) => Promise<CoinScopesResult>,
-  getBalance: (channelId: string, coinId: string) => Promise<BalanceResult>
+  getBalance: (channelId: string, coinId: string) => Promise<BalanceResult>,
+  onBalance?: (balance: KnownAssetBalance) => void | Promise<void>
 ): Promise<KnownAssetBalance[]> {
   return Promise.all(
     coins
       .filter((coin) => !coin.compatibleChannels.includes('vrpc'))
       .map(async (coin): Promise<KnownAssetBalance> => {
+        let result: KnownAssetBalance;
         try {
-          const scopes = await getScopes(coin.id);
+          const scopes = await withAssetLookupTimeout(getScopes(coin.id));
           const scope = scopes.scopes[0];
           if (!scope) throw new Error('No supported scope');
-          const balance = await getBalance(scope.channelId, coin.id);
-          return {
+          const balance = await withAssetLookupTimeout(getBalance(scope.channelId, coin.id));
+          result = {
             assetKey: assetKeyForCoin(coin),
             coin,
             systemId: scope.systemId,
@@ -114,7 +141,7 @@ export async function scanKnownNonVrpcAssets(
             status: 'available',
           };
         } catch {
-          return {
+          result = {
             assetKey: assetKeyForCoin(coin),
             coin,
             systemId: coin.systemId,
@@ -124,6 +151,8 @@ export async function scanKnownNonVrpcAssets(
             status: 'unavailable',
           };
         }
+        await onBalance?.(result);
+        return result;
       })
   );
 }

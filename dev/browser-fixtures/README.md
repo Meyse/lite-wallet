@@ -30,6 +30,12 @@ Open either page on `http://127.0.0.1:1428`:
   and retained Send/Convert drafts, including profile-to-Contacts navigation.
   See the
   [transfer verification notes](../../docs/references/transfer-navigation-verification.md).
+- `/dev/browser-fixtures/manage-assets.html`: asset management at 920×620 with a
+  custom UNI registration that overlaps the catalog. `?stall=uni` holds one
+  token balance; `?stall=discovery` holds Verus discovery. Other rows remain
+  usable. The normal deadlines lead to Unavailable and Retry; Retry succeeds.
+  Both themes and locales are supported. All responses are synthetic and no
+  wallet is accessed.
 
 Both accept `?theme=dark&locale=nl`; the default is English and light mode.
 Outside the profile publication fixture, signing is rejected by default.
