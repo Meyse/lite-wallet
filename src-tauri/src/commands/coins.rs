@@ -24,25 +24,25 @@ use crate::types::WalletError;
 
 const ERC20_METADATA_ABI: &str = r#"[
   {
-    \"constant\": true,
-    \"inputs\": [],
-    \"name\": \"symbol\",
-    \"outputs\": [{\"name\": \"\", \"type\": \"string\"}],
-    \"type\": \"function\"
+    "constant": true,
+    "inputs": [],
+    "name": "symbol",
+    "outputs": [{"name": "", "type": "string"}],
+    "type": "function"
   },
   {
-    \"constant\": true,
-    \"inputs\": [],
-    \"name\": \"name\",
-    \"outputs\": [{\"name\": \"\", \"type\": \"string\"}],
-    \"type\": \"function\"
+    "constant": true,
+    "inputs": [],
+    "name": "name",
+    "outputs": [{"name": "", "type": "string"}],
+    "type": "function"
   },
   {
-    \"constant\": true,
-    \"inputs\": [],
-    \"name\": \"decimals\",
-    \"outputs\": [{\"name\": \"\", \"type\": \"uint8\"}],
-    \"type\": \"function\"
+    "constant": true,
+    "inputs": [],
+    "name": "decimals",
+    "outputs": [{"name": "", "type": "uint8"}],
+    "type": "function"
   }
 ]"#;
 
@@ -510,6 +510,14 @@ pub async fn resolve_erc20_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn erc20_metadata_abi_parses_with_expected_methods() {
+        let abi: Abi = serde_json::from_str(ERC20_METADATA_ABI).expect("valid ERC20 metadata ABI");
+        for method in ["symbol", "name", "decimals"] {
+            assert!(abi.function(method).is_ok(), "missing {method} method");
+        }
+    }
 
     #[test]
     fn parse_contract_address_rejects_invalid_input() {
