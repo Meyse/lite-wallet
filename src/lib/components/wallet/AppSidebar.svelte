@@ -127,7 +127,7 @@
 <Sidebar.Root
   collapsible="none"
   data-sidebar="sidebar"
-  class="shrink-0 border-r border-sidebar-border [--sidebar:var(--sidebar-surface)]"
+  class="shrink-0 border-r border-[#dedede] [--sidebar:var(--sidebar-surface)] dark:border-sidebar-border"
 >
   <Sidebar.Header class="px-3 pt-11 pb-1">
     <div class="flex items-center gap-2 px-2 py-1.5">
