@@ -35,7 +35,7 @@
   </div>
   <div class="relative mt-3.5 flex min-h-[34px] items-center gap-2 pl-[120px]">
     <div
-      class="absolute bottom-1 left-5 rounded-full border-4 border-background bg-background dark:border-app-canvas dark:bg-app-canvas"
+      class="absolute bottom-1 left-5 rounded-full border-4 border-background bg-background dark:border-app-canvas dark:bg-app-canvas [&>div]:text-[30px] [&>div]:font-medium"
     >
       <IdentityAvatar
         seed={identityAddress}

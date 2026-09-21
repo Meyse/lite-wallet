@@ -38,7 +38,7 @@
   />
 {:else}
   <div
-    class={`inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide text-white ${className}`}
+    class={`inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide text-white select-none ${className}`}
     style={`background-image: linear-gradient(135deg, ${gradient[0]}, ${gradient[1]});`}
     aria-hidden="true"
   >
