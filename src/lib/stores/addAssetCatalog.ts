@@ -191,7 +191,9 @@ export function buildAddAssetCatalogView({
     if (!isWalletSupportedAsset(runtimeCoin, network)) continue;
 
     const presentation = resolveCoinPresentation(runtimeCoin);
-    const key = entryKey(runtimeCoin.id, runtimeCoin.proto);
+    // Custom ERC20 registrations use erc20_<contract> IDs, while the bundled
+    // catalog uses tickers. Merge by asset identity, as the rendered rows do.
+    const key = entryKey(runtimeCoin.currencyId.trim() || runtimeCoin.id, runtimeCoin.proto);
 
     entries.set(key, {
       key,
@@ -215,7 +217,7 @@ export function buildAddAssetCatalogView({
       continue;
     }
 
-    const key = entryKey(catalogCoin.id, catalogCoin.proto);
+    const key = entryKey(catalogCoin.currencyId.trim() || catalogCoin.id, catalogCoin.proto);
     const existing = entries.get(key);
 
     if (existing) {

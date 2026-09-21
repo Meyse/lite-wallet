@@ -44,3 +44,49 @@ describe('Sepolia compatibility presentation', () => {
     expect(presentation.displayName).toBe('Sepolia ETH');
   });
 });
+
+describe('ERC-20 presentation', () => {
+  const uniContract = '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984';
+  const uniRuntimeId = `erc20_${uniContract}`;
+
+  it('uses the catalog token logo for a resolved contract runtime ID', () => {
+    const presentation = resolveCoinPresentationById(uniRuntimeId, 'erc20');
+
+    expect(presentation?.icon).toMatchObject({
+      kind: 'asset',
+      dark: '/images/coin-logos/web3/uni_dark.svg',
+    });
+  });
+
+  it('uses catalog metadata for a mainnet runtime coin while preserving its ID', () => {
+    const coin = {
+      ...fallbackSepoliaCoin(),
+      id: uniRuntimeId,
+      currencyId: uniContract,
+      systemId: uniContract,
+      displayTicker: 'UNI',
+      displayName: 'Uniswap',
+      proto: 'erc20' as const,
+      compatibleChannels: ['erc20'] as CoinDefinition['compatibleChannels'],
+      isTestnet: false,
+    };
+    const presentation = resolveCoinPresentation(coin);
+
+    expect(presentation.id).toBe(uniRuntimeId);
+    expect(presentation.icon).toMatchObject({
+      kind: 'asset',
+      dark: '/images/coin-logos/web3/uni_dark.svg',
+    });
+
+    expect(resolveCoinPresentation({ ...coin, isTestnet: true }).icon.kind).toBe('generated');
+  });
+
+  it('does not present an unknown ERC-20 as ETH', () => {
+    const presentation = resolveCoinPresentationById(
+      'erc20_0x1111111111111111111111111111111111111111',
+      'erc20'
+    );
+
+    expect(presentation?.icon.kind).toBe('generated');
+  });
+});

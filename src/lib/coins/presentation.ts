@@ -145,7 +145,7 @@ function fallbackIconForProto(coinId: string, proto?: string): CoinIcon {
     }
   }
 
-  if (proto === 'erc20' || proto === 'eth') {
+  if (proto === 'eth') {
     const eth = catalogById.get('ETH');
     if (eth?.icon.kind === 'asset') {
       return {
@@ -168,6 +168,22 @@ function fallbackIconForProto(coinId: string, proto?: string): CoinIcon {
   }
 
   return buildGeneratedIcon(coinId, false);
+}
+
+function catalogErc20ForContract(contract: string, isTestnet?: boolean): CatalogCoin | null {
+  const catalogCoin = catalogByCurrencyId.get(contract.toLowerCase());
+  if (
+    catalogCoin?.proto !== 'erc20' ||
+    (isTestnet !== undefined && catalogCoin.isTestnet !== isTestnet)
+  ) {
+    return null;
+  }
+  return catalogCoin;
+}
+
+function catalogErc20ForRuntimeId(coinId: string): CatalogCoin | null {
+  const contract = /^erc20_(0x[a-f0-9]{40})$/i.exec(coinId)?.[1];
+  return contract ? catalogErc20ForContract(contract) : null;
 }
 
 function fromCatalog(coin: CatalogCoin): CoinPresentation {
@@ -215,7 +231,9 @@ export function resolveCoinPresentationById(
 ): CoinPresentation | null {
   const normalizedCoinId = coinId.trim();
   const fromCatalogCoin =
-    catalogById.get(normalizedCoinId) ?? catalogByCurrencyId.get(normalizedCoinId.toLowerCase());
+    catalogById.get(normalizedCoinId) ??
+    catalogByCurrencyId.get(normalizedCoinId.toLowerCase()) ??
+    (proto === 'erc20' ? catalogErc20ForRuntimeId(normalizedCoinId) : null);
   if (fromCatalogCoin) {
     return fromCatalog(fromCatalogCoin);
   }
@@ -235,11 +253,16 @@ export function resolveCoinPresentationById(
 }
 
 export function resolveCoinPresentation(coin: CoinDefinition): CoinPresentation {
-  const fromCatalogCoin = catalogById.get(coin.id);
+  const fromCatalogCoin =
+    catalogById.get(coin.id) ??
+    (coin.proto === 'erc20' ? catalogErc20ForContract(coin.currencyId, coin.isTestnet) : null);
   if (fromCatalogCoin) {
     const presentation = fromCatalog(fromCatalogCoin);
 
     // Keep runtime network/mapping authoritative if it differs.
+    presentation.id = coin.id;
+    presentation.currencyId = coin.currencyId;
+    presentation.systemId = coin.systemId;
     presentation.proto = coin.proto;
     presentation.mappedTo = coin.mappedTo ?? presentation.mappedTo;
     presentation.isTestnet = coin.isTestnet;

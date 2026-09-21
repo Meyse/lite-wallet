@@ -235,7 +235,9 @@ describe('mounted Manage assets', () => {
     if (component) await unmount(component);
     component = null;
     await settle();
+    vi.useRealTimers();
     document.body.replaceChildren();
+    document.documentElement.classList.remove('dark');
   });
 
   it('shows a positive inactive ERC20 holding in Found in your wallet', async () => {
@@ -505,6 +507,40 @@ describe('mounted Manage assets', () => {
     await settle();
     expect(document.querySelector('dl')).toBeNull();
     expect(document.body.textContent).not.toContain('Show in portfolio');
+  });
+
+  it('shows the resolved UNI logo in the custom asset result in both themes', async () => {
+    const contract = '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984';
+    service.resolveErc20Contract.mockResolvedValue({
+      status: 'resolved',
+      coin: {
+        ...usdc,
+        id: `erc20_${contract}`,
+        currencyId: contract,
+        systemId: contract,
+        displayTicker: 'UNI',
+        displayName: 'Uniswap',
+      },
+    });
+
+    for (const theme of ['light', 'dark']) {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      await render();
+      button('Add custom asset').click();
+      await settle();
+      const input = requiredElement<HTMLInputElement>('#custom-asset-input');
+      input.value = contract;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+      button('Find asset').click();
+      await settle();
+
+      expect(
+        requiredElement<HTMLImageElement>('section img.coin-icon-surface').getAttribute('src')
+      ).toBe('/images/coin-logos/web3/uni_dark.svg');
+      await unmountRenderedComponent();
+      document.body.replaceChildren();
+    }
   });
 
   it('keeps the acted-on row connected while changing its portfolio state', async () => {
