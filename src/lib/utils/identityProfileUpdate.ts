@@ -8,6 +8,10 @@ function hasAvatar(snapshot: IdentityProfileSnapshot): boolean {
   return Boolean(snapshot.avatarDigest || snapshot.avatarBase64);
 }
 
+function hasHeader(snapshot: IdentityProfileSnapshot): boolean {
+  return Boolean(snapshot.headerDigest || snapshot.headerBase64);
+}
+
 function hasDescription(snapshot: IdentityProfileSnapshot): boolean {
   return Boolean(snapshot.descriptionDigest || snapshot.description?.trim());
 }
@@ -22,8 +26,9 @@ export function isCompleteProfileRemoval(
   proposed: IdentityProfileSnapshot
 ): boolean {
   return (
-    (hasAvatar(current) || hasDescription(current)) &&
+    (hasAvatar(current) || hasHeader(current) || hasDescription(current)) &&
     !hasAvatar(proposed) &&
+    !hasHeader(proposed) &&
     !hasDescription(proposed)
   );
 }
@@ -34,6 +39,7 @@ export function profileUpdateRemovesData(
 ): boolean {
   return (
     (hasAvatar(current) && !hasAvatar(proposed)) ||
+    (hasHeader(current) && !hasHeader(proposed)) ||
     (hasDescription(current) && !hasDescription(proposed))
   );
 }
@@ -53,7 +59,7 @@ export function profileMatchesSnapshot(
   snapshot: IdentityProfileSnapshot,
   profile: IdentityProfileLoadResult
 ): boolean {
-  const hasResolvedProfileData = Boolean(profile.avatar || profile.description);
+  const hasResolvedProfileData = Boolean(profile.avatar || profile.header || profile.description);
   if (
     profile.state === 'unavailable' ||
     (profile.state === 'empty' && hasResolvedProfileData) ||
@@ -80,6 +86,11 @@ export function profileMatchesSnapshot(
   const descriptionAbsenceMatches = hasDescription(snapshot) || !profile.description;
 
   return (
+    (!snapshot.avatarMimeType || profile.avatar?.value.mimeType === snapshot.avatarMimeType) &&
+    (!snapshot.headerMimeType || profile.header?.value.mimeType === snapshot.headerMimeType) &&
+    (!snapshot.headerDigest || profile.header?.source.digest === snapshot.headerDigest) &&
+    (!snapshot.headerBase64 || profile.header?.value.base64 === snapshot.headerBase64) &&
+    (hasHeader(snapshot) || !profile.header) &&
     avatarDigestMatches &&
     avatarValueMatches &&
     avatarAbsenceMatches &&

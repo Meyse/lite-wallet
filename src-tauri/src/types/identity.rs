@@ -199,17 +199,23 @@ pub struct IdentityProfileIssue {
 pub struct IdentityProfileLoadResult {
     pub state: IdentityProfileState,
     pub avatar: Option<IdentityProfileField<IdentityProfileAvatar>>,
+    pub header: Option<IdentityProfileField<IdentityProfileAvatar>>,
     pub description: Option<IdentityProfileField<String>>,
     pub issues: Vec<IdentityProfileIssue>,
     pub read_height: Option<u32>,
     pub revision_txid: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "action", content = "value", rename_all = "snake_case")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "action", rename_all = "snake_case")]
 pub enum IdentityProfileAvatarChange {
+    #[default]
     Keep,
-    Set(String),
+    Set {
+        value: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
     Remove,
 }
 
@@ -228,14 +234,26 @@ pub struct IdentityProfilePreflightRequest {
     pub channel_id: String,
     pub identity_address: String,
     pub avatar: IdentityProfileAvatarChange,
+    #[serde(default)]
+    pub header: IdentityProfileAvatarChange,
     pub description: IdentityProfileDescriptionChange,
+    #[serde(default)]
+    pub smaller_avatar: Option<IdentityProfileAvatarChange>,
+    #[serde(default)]
+    pub smaller_header: Option<IdentityProfileAvatarChange>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityProfileSnapshot {
+    #[serde(default)]
+    pub avatar_mime_type: Option<String>,
+    #[serde(default)]
+    pub header_mime_type: Option<String>,
     pub avatar_base64: Option<String>,
     pub avatar_digest: Option<String>,
+    pub header_base64: Option<String>,
+    pub header_digest: Option<String>,
     pub description: Option<String>,
     pub description_digest: Option<String>,
 }
@@ -252,6 +270,7 @@ pub struct IdentityProfilePreflightResult {
     pub funding_summary: String,
     pub evidence_bytes: usize,
     pub changed_fields: Vec<String>,
+    pub publication: ProfilePublicationReview,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -262,4 +281,68 @@ pub struct PendingIdentityProfileUpdate {
     pub submitted_at: u64,
     pub previous_profile: IdentityProfileSnapshot,
     pub proposed_profile: IdentityProfileSnapshot,
+}
+
+// Public review data never authorizes a later step. Only the current review has a
+// session-bound preflight; future steps contain quote metadata only.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePublicationReview {
+    pub plan_id: Option<String>,
+    pub step: u8,
+    pub total_steps: u8,
+    pub next_fee_sats: Option<String>,
+    pub estimated_total_fee_sats: String,
+    pub earlier_fee_sats: Option<String>,
+    pub quote_height: u32,
+    pub quote_time: u64,
+    pub available_sats: String,
+    pub proposed_profile: IdentityProfileSnapshot,
+    pub changed_fields: Vec<String>,
+    pub evidence_groups: Vec<ProfileEvidenceGroup>,
+    pub optimization: Option<ProfileImageOptimization>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileEvidenceGroup {
+    pub field: String,
+    pub first_output: usize,
+    pub parts: usize,
+    pub encoded_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileImageOptimization {
+    pub field: String,
+    pub image: IdentityProfileAvatarChange,
+    pub original_bytes: usize,
+    pub smaller_bytes: usize,
+    pub total_steps: u8,
+    pub estimated_total_fee_sats: String,
+    pub saving_sats: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfilePublicationStatus {
+    Ready,
+    Waiting,
+    Stale,
+    Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePublicationState {
+    pub plan_id: String,
+    pub identity_address: String,
+    pub status: ProfilePublicationStatus,
+    pub step: u8,
+    pub total_steps: u8,
+    pub request: IdentityProfilePreflightRequest,
+    pub pending: Option<PendingIdentityProfileUpdate>,
+    pub settled_txids: Vec<String>,
+    pub first_receipt: Option<PendingIdentityProfileUpdate>,
 }

@@ -898,6 +898,20 @@ impl VrpcProvider {
         self.call("getidentity", params, TTL_GETIDENTITY).await
     }
 
+    /// Publication anchors must not use a cached or stale identity revision.
+    pub async fn getidentity_for_profile(&self, identity: &str) -> Result<Value, WalletError> {
+        if identity.trim().is_empty() {
+            return Err(WalletError::InvalidAddress);
+        }
+        self.call_uncached_bounded_with_mode(
+            "getidentity",
+            serde_json::json!([identity]),
+            PROFILE_RPC_MAX_BYTES,
+            RpcErrorMode::Identity,
+        )
+        .await
+    }
+
     /// getidentitycontent: resolve identity content and history by i-address or name.
     pub async fn getidentitycontent(&self, identity: &str) -> Result<Value, WalletError> {
         if identity.trim().is_empty() {

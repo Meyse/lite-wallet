@@ -3,7 +3,18 @@ import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
-  plugins: [svelte({ configFile: false, preprocess: vitePreprocess() }), tailwindcss()],
+  plugins: [
+    {
+      name: 'fixture-wallet-commands',
+      enforce: 'pre',
+      resolveId(source) {
+        if (/(^|\/)invokeWalletCommand(\.[jt]s)?$/.test(source))
+          return fileURLToPath(new URL('./invoke-fixture.ts', import.meta.url));
+      },
+    },
+    svelte({ configFile: false, preprocess: vitePreprocess() }),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       '$app/navigation': fileURLToPath(new URL('./navigation.js', import.meta.url)),
@@ -12,5 +23,10 @@ export default defineConfig({
   },
   publicDir: 'static',
   define: { global: 'globalThis' },
-  server: { host: '127.0.0.1', port: 1428, strictPort: true },
+  server: {
+    host: '127.0.0.1',
+    port: 1428,
+    strictPort: true,
+    watch: { ignored: ['**/src-tauri/**', '**/output/**'] },
+  },
 });

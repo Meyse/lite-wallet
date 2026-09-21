@@ -1060,10 +1060,22 @@ pub async fn clear_pending_identity_profile_update(
     Ok(true)
 }
 
+/// Encode bounded crop pixels locally. No network, persistence or signing access.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn encode_identity_profile_image(
+    kind: String,
+    png_base64: String,
+) -> Result<vrpc_identity::profile::images::ProfileImageCandidates, WalletError> {
+    tokio::task::spawn_blocking(move || vrpc_identity::profile::images::encode(&kind, &png_base64))
+        .await
+        .map_err(|_| WalletError::OperationFailed)?
+}
+
 /// Review a profile update. The backend owns all profile serialization,
 /// transaction construction, fee calculation, and signing boundaries.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn preflight_identity_profile_update(
+    expected_session_id: Option<String>,
     request: IdentityProfilePreflightRequest,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
@@ -1073,6 +1085,12 @@ pub async fn preflight_identity_profile_update(
 ) -> Result<IdentityProfilePreflightResult, WalletError> {
     let context =
         identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
+    if expected_session_id
+        .as_deref()
+        .is_some_and(|expected| expected != context.session_id)
+    {
+        return Err(WalletError::WalletLocked);
+    }
     if !matches!(context.network, WalletNetwork::Testnet) {
         return Err(WalletError::IdentityProfileWriteUnsupported);
     }
@@ -1088,17 +1106,120 @@ pub async fn preflight_identity_profile_update(
         return Err(WalletError::UnsupportedChannel);
     }
     let private_key = load_primary_private_scalar_for_context(&context.access).await?;
-    vrpc_identity::profile::preflight(
+    let mut request = request;
+    request.channel_id = resolved.canonical_channel_id();
+    vrpc_identity::profile::publication::prepare(
         request,
+        None,
+        None,
+        &context.access,
         &preflight_store,
-        &context.account_id,
-        &context.session_id,
-        &context.primary_address,
-        &resolved.canonical_channel_id(),
         &private_key,
         vrpc_provider_pool.for_network(context.network),
     )
     .await
+}
+
+/// Return the durable continuation after checking canonical confirmations.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_identity_profile_publication(
+    identity_address: String,
+    expected_session_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<Option<crate::types::ProfilePublicationState>, WalletError> {
+    let access = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if access.session_id != expected_session_id {
+        return Err(WalletError::WalletLocked);
+    }
+    if access.wallet_network != WalletNetwork::Testnet {
+        return Ok(None);
+    }
+    let result = vrpc_identity::profile::publication::reconcile(
+        &access,
+        &identity_address,
+        vrpc_provider_pool.for_network(access.wallet_network),
+    )
+    .await?;
+    crate::core::auth::ensure_active_wallet_session(session_manager.inner(), &access.session_id)
+        .await?;
+    Ok(result)
+}
+
+/// Confirm a known submitted revision without depending on a retained publication plan.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn confirm_identity_profile_update(
+    identity_address: String,
+    txid: String,
+    expected_session_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<Option<crate::types::IdentityProfileLoadResult>, WalletError> {
+    let access = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if access.session_id != expected_session_id {
+        return Err(WalletError::WalletLocked);
+    }
+    if access.wallet_network != WalletNetwork::Testnet {
+        return Err(WalletError::IdentityProfileWriteUnsupported);
+    }
+    let result = vrpc_identity::profile::publication::confirm_profile_revision(
+        vrpc_provider_pool.for_network(access.wallet_network),
+        &identity_address,
+        &txid,
+    )
+    .await?;
+    crate::core::auth::ensure_active_wallet_session(session_manager.inner(), &access.session_id)
+        .await?;
+    Ok(result)
+}
+
+/// Explicit fresh review, never automatic submission. No persisted preflight is restored.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_identity_profile_publication(
+    identity_address: String,
+    smaller_field: Option<String>,
+    plan_id: String,
+    expected_session_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+) -> Result<IdentityProfilePreflightResult, WalletError> {
+    let access = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if access.session_id != expected_session_id {
+        return Err(WalletError::WalletLocked);
+    }
+    if access.wallet_network != WalletNetwork::Testnet {
+        return Err(WalletError::IdentityProfileWriteUnsupported);
+    }
+    let provider = vrpc_provider_pool.for_network(access.wallet_network);
+    let plan = vrpc_identity::profile::publication::reconcile(&access, &identity_address, provider)
+        .await?
+        .filter(|plan| plan.plan_id == plan_id)
+        .ok_or(WalletError::InvalidPreflight)?;
+    let private_key = load_primary_private_scalar_for_context(&access).await?;
+    vrpc_identity::profile::publication::prepare(
+        plan.request,
+        Some(&plan_id),
+        smaller_field.as_deref(),
+        &access,
+        &preflight_store,
+        &private_key,
+        provider,
+    )
+    .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn discard_identity_profile_publication(
+    plan_id: String,
+    expected_session_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+) -> Result<(), WalletError> {
+    let access = capture_active_wallet_access_context(session_manager.inner()).await?;
+    if access.session_id != expected_session_id {
+        return Err(WalletError::WalletLocked);
+    }
+    vrpc_identity::profile::publication::discard(&access, plan_id).await
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ import { loadIdentityProfile } from '$lib/contacts/profiles';
  * Thin invoke wrappers for identity discovery/link/detail commands.
  */
 
-import { invokeWalletCommand } from './invokeWalletCommand.js';
+import { invokeSessionBoundWalletCommand, invokeWalletCommand } from './invokeWalletCommand.js';
 import {
   invalidateWalletDisplayHistory,
   invalidateWalletDisplayScopes,
@@ -20,6 +20,7 @@ import type {
   LinkedIdentity,
   LinkIdentityRequest,
   PendingIdentityProfileUpdate,
+  ProfilePublicationState,
   SetLinkedIdentityFavoriteRequest,
   UnlinkIdentityRequest,
 } from '$lib/types/wallet.js';
@@ -85,15 +86,22 @@ export async function getIdentityProfile(
 export async function preflightIdentityProfileUpdate(
   request: IdentityProfilePreflightRequest
 ): Promise<IdentityProfilePreflightResult> {
-  return invokeWalletCommand<IdentityProfilePreflightResult>('preflight_identity_profile_update', {
-    request: {
-      coinId: request.coinId,
-      channelId: request.channelId,
-      identityAddress: request.identityAddress,
-      avatar: request.avatar,
-      description: request.description,
-    },
-  });
+  return invokeSessionBoundWalletCommand<IdentityProfilePreflightResult>(
+    'preflight_identity_profile_update',
+    {
+      expected_session_id: get(contactSession)?.sessionId ?? null,
+      request: {
+        coinId: request.coinId,
+        channelId: request.channelId,
+        identityAddress: request.identityAddress,
+        avatar: request.avatar,
+        header: request.header ?? { action: 'keep' },
+        smallerAvatar: request.smallerAvatar,
+        smallerHeader: request.smallerHeader,
+        description: request.description,
+      },
+    }
+  );
 }
 
 export async function getPendingIdentityProfileUpdates(): Promise<PendingIdentityProfileUpdate[]> {
@@ -123,4 +131,43 @@ export async function setLinkedIdentityFavorite(
   });
   invalidateWalletDisplayScopes();
   return result;
+}
+
+export async function getIdentityProfilePublication(
+  identityAddress: string
+): Promise<ProfilePublicationState | null> {
+  return invokeSessionBoundWalletCommand('get_identity_profile_publication', {
+    expected_session_id: get(contactSession)?.sessionId ?? '',
+    identity_address: identityAddress,
+  });
+}
+export async function reviewIdentityProfilePublication(
+  identityAddress: string,
+  planId: string,
+  smallerField?: 'avatar' | 'header'
+): Promise<IdentityProfilePreflightResult> {
+  return invokeSessionBoundWalletCommand('review_identity_profile_publication', {
+    expected_session_id: get(contactSession)?.sessionId ?? '',
+    identity_address: identityAddress,
+    plan_id: planId,
+    smaller_field: smallerField ?? null,
+  });
+}
+export async function discardIdentityProfilePublication(planId: string): Promise<void> {
+  return invokeSessionBoundWalletCommand('discard_identity_profile_publication', {
+    expected_session_id: get(contactSession)?.sessionId ?? '',
+    plan_id: planId,
+  });
+}
+
+/** Canonical revision + transaction/block confirmation, including all-field removals. */
+export async function confirmIdentityProfileUpdate(
+  identityAddress: string,
+  txid: string
+): Promise<IdentityProfileLoadResult | null> {
+  return invokeSessionBoundWalletCommand('confirm_identity_profile_update', {
+    expected_session_id: get(contactSession)?.sessionId ?? '',
+    identity_address: identityAddress,
+    txid,
+  });
 }

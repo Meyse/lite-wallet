@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { profileMediaUrl } from '$lib/identity/profileImages';
+  import { onDestroy, onMount, type Snippet, tick } from 'svelte';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -11,9 +12,11 @@
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
   import WalletIcon from '@lucide/svelte/icons/wallet';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
+  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
+  import * as Dialog from '$lib/components/ui/dialog';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs';
   import { identityKey, matchingContacts } from '$lib/contacts/identity';
@@ -25,7 +28,11 @@
   import { getIdentityDetails } from '$lib/services/identityLinkService';
   import { addressBookStore } from '$lib/stores/addressBook';
   import type { ResolvedContactIdentity } from '$lib/types/addressBook';
-  import type { IdentityDetails } from '$lib/types/wallet';
+  import type {
+    IdentityDetails,
+    IdentityProfileLoadResult,
+    PendingIdentityProfileUpdate,
+  } from '$lib/types/wallet';
   import { TimedValueState, writeClipboardText } from '$lib/utils/clipboard-feedback.svelte';
   import { openTrustedExternalUrl } from '$lib/utils/externalLinks';
   import IdentityAvatar from './IdentityAvatar.svelte';
@@ -38,6 +45,9 @@
 
   let {
     identity,
+    owner,
+    ownerNotice,
+    ownerSafety,
     linked = false,
     linkedUnavailable = false,
     onRetryLinked = () => {},
@@ -47,6 +57,18 @@
     onSend = (_identity: ResolvedContactIdentity) => {},
   }: {
     identity: ResolvedContactIdentity;
+    owner?: {
+      details: IdentityDetails | null;
+      loading?: boolean;
+      profile: IdentityProfileLoadResult | null;
+      profileLoading: boolean;
+      pending: PendingIdentityProfileUpdate | null;
+      unlinking: boolean;
+      onEdit: () => void;
+      onUnlink: () => void;
+    };
+    ownerNotice?: Snippet;
+    ownerSafety?: Snippet;
     linked?: boolean | null;
     linkedUnavailable?: boolean;
     onRetryLinked?: () => void;
@@ -65,15 +87,29 @@
   let contactButton = $state<HTMLButtonElement | null>(null);
   let panelViewport = $state<HTMLDivElement | null>(null);
   let canScrollDown = $state(false);
+  let unlinkDialogOpen = $state(false);
   const copied = new TimedValueState<string>();
 
   const openContact = getContactNavigation();
   const i18n = $derived($i18nStore);
   const profileEntry = $derived($identityProfiles[identityKey(identity)]);
-  const profile = $derived(profileEntry?.profile ?? null);
-  const description = $derived(profile?.description?.value?.trim() ?? '');
-  const avatarUrl = $derived(profileImage(profile));
-  const headerUrl = $derived(profileHeaderImage(content.header));
+  const profile = $derived(owner ? owner.profile : (profileEntry?.profile ?? null));
+  const previous = $derived(
+    owner?.pending && (!profile || profile.state === 'unavailable')
+      ? owner.pending.previousProfile
+      : null
+  );
+  const description = $derived(previous?.description ?? profile?.description?.value?.trim() ?? '');
+  const avatarUrl = $derived(
+    previous?.avatarBase64
+      ? profileMediaUrl(previous.avatarBase64, previous.avatarMimeType)
+      : profileImage(profile)
+  );
+  const headerUrl = $derived(
+    previous?.headerBase64
+      ? profileMediaUrl(previous.headerBase64, previous.headerMimeType)
+      : profileHeaderImage(profile?.header?.value ?? content.header)
+  );
   let failedHeader = $state<string | null>(null);
   const websites = $derived(
     (content.websites ?? []).flatMap((site) => {
@@ -160,6 +196,11 @@
   ]);
 
   $effect(() => {
+    if (owner) {
+      details = owner.details;
+      detailsState = owner.loading ? 'loading' : 'ready';
+      return undefined;
+    }
     const currentIdentity = identity;
     const session = $contactSession;
     detailsRefresh;
@@ -237,6 +278,7 @@
     }
   }
   onMount(() => {
+    if (owner) return;
     void loadIdentityProfile(identity, false, true).catch(() => {});
     void loadContacts().catch(() => {});
   });
@@ -245,12 +287,32 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 w-full min-w-0 flex-col px-5 pt-5 pb-5">
-  <div class="flex h-9 shrink-0 items-center">
+<div
+  class="flex h-full min-h-0 w-full min-w-0 flex-col px-5 pt-5 pb-5"
+  aria-busy={owner?.loading ? 'true' : undefined}
+  data-verusid-profile-page
+  data-owner-profile-state={owner?.loading ? 'loading' : owner ? 'ready' : 'public'}
+>
+  {#if owner?.loading}
+    <p class="sr-only" role="status">{i18n.t('wallet.identity.detail.loading')}</p>
+  {/if}
+  <div class="flex h-9 shrink-0 items-center justify-between">
     <NavigationBackButton
-      label={i18n.t('wallet.identity.publicProfile.backToSearch')}
+      label={i18n.t(
+        owner ? 'wallet.identity.detail.back' : 'wallet.identity.publicProfile.backToSearch'
+      )}
       onclick={onBack}
     />
+    {#if owner}<InlineTextActionButton
+        tone="destructive"
+        class="h-8 px-1 text-[13px]"
+        disabled={owner.unlinking}
+        onclick={() => (unlinkDialogOpen = true)}
+        data-unlink-identity-action
+        >{i18n.t(
+          owner.unlinking ? 'wallet.identity.detail.unlinking' : 'wallet.identity.detail.unlink'
+        )}</InlineTextActionButton
+      >{/if}
   </div>
   <div class="mx-auto mt-4 flex min-h-0 w-full max-w-[800px] flex-1 flex-col">
     <div class="flex shrink-0 flex-col pb-7 {socials.length ? 'min-h-[302px]' : ''}">
@@ -277,6 +339,17 @@
             class="size-20 text-2xl"
           />
         </div>
+        {#if owner}<Button
+            class="h-[34px]"
+            onclick={owner.onEdit}
+            disabled={owner.loading ||
+              !owner.details?.profileEditable ||
+              owner.profileLoading ||
+              !profile ||
+              profile.state === 'unavailable' ||
+              Boolean(profile.issues.length) ||
+              Boolean(owner.pending)}>{i18n.t('wallet.identity.profile.edit')}</Button
+          >{/if}
         {#if linked}
           <span
             class="inline-flex min-h-[34px] items-center gap-[7px] rounded-md bg-contact-saved px-3 text-sm font-medium text-contact-saved-foreground select-none"
@@ -366,7 +439,15 @@
       <span class="sr-only" aria-live="polite"
         >{saveState === 'saving' || saveState === 'saved' ? contactActionLabel : ''}</span
       >
-      {#if profileEntry?.unavailable}
+      {#if owner?.details && !owner.details.profileEditable}<p
+          class="mx-5 mt-3 text-[13px] text-muted-foreground"
+        >
+          {i18n.t(
+            `wallet.identity.profile.readOnly.${owner.details.profileEditabilityReason ?? 'unsupported_control'}`
+          )}
+        </p>{/if}
+      {#if ownerNotice}{@render ownerNotice()}{/if}
+      {#if !owner && profileEntry?.unavailable}
         <div
           class="mx-5 mt-3 flex items-center gap-3 text-[13px] text-muted-foreground"
           role="status"
@@ -493,6 +574,7 @@
                   </div>
                 {/each}
               </dl>
+              {#if ownerSafety}{@render ownerSafety()}{/if}
               {#if detailsState === 'loading'}<p
                   class="flex items-center gap-2 py-3 text-[13px] text-muted-foreground"
                   role="status"
@@ -527,3 +609,44 @@
     </Tabs.Root>
   </div>
 </div>
+
+{#if owner}
+  <Dialog.Root
+    open={unlinkDialogOpen}
+    onOpenChange={(open) => {
+      if (!open && !owner.unlinking) unlinkDialogOpen = false;
+    }}
+  >
+    <Dialog.Content class="max-w-md" showCloseButton={!owner.unlinking}>
+      <Dialog.Header>
+        <Dialog.Title
+          >{i18n.t('wallet.identity.detail.unlinkConfirmTitle', {
+            identity: identity.fullyQualifiedName,
+          })}</Dialog.Title
+        >
+        <Dialog.Description
+          >{i18n.t('wallet.identity.detail.unlinkConfirmDescription')}</Dialog.Description
+        >
+      </Dialog.Header>
+      <Dialog.Footer class="flex justify-end gap-3">
+        <Button
+          variant="secondary"
+          disabled={owner.unlinking}
+          onclick={() => (unlinkDialogOpen = false)}
+        >
+          {i18n.t('common.cancel')}
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={owner.unlinking}
+          onclick={owner.onUnlink}
+          data-unlink-identity-confirm
+        >
+          {i18n.t(
+            owner.unlinking ? 'wallet.identity.detail.unlinking' : 'wallet.identity.detail.unlink'
+          )}
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+{/if}

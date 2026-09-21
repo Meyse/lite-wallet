@@ -1,79 +1,59 @@
 <script lang="ts">
-  import IdentifierText from '$lib/components/common/IdentifierText.svelte';
-  import { i18nStore } from '$lib/i18n';
-  import type { LinkedIdentity } from '$lib/types/wallet.js';
+  import { contactChainId } from '$lib/contacts/identity';
+  import { contactSession } from '$lib/contacts/session';
+  import type {
+    IdentityProfileLoadResult,
+    LinkedIdentity,
+    PendingIdentityProfileUpdate,
+    WalletNetwork,
+  } from '$lib/types/wallet.js';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
+  import VerusIdProfilePage from './VerusIdProfilePage.svelte';
 
-  let { identity }: { identity: LinkedIdentity | null } = $props();
-  const i18n = $derived($i18nStore);
+  let {
+    identity,
+    profile = null,
+    profileLoading = false,
+    pendingProfile = null,
+    network,
+    unlinking = false,
+    onBack = () => {},
+    onUnlink = () => {},
+  }: {
+    identity: LinkedIdentity | null;
+    profile?: IdentityProfileLoadResult | null;
+    profileLoading?: boolean;
+    pendingProfile?: PendingIdentityProfileUpdate | null;
+    network?: WalletNetwork;
+    unlinking?: boolean;
+    onBack?: () => void;
+    onUnlink?: () => void;
+  } = $props();
+
+  const activeNetwork = $derived(network ?? $contactSession?.network ?? 'mainnet');
   const displayName = $derived(identity ? formatIdentityDisplayName(identity) : '');
-  const displayNameIsAddress = $derived(!!identity && displayName === identity.identityAddress);
 </script>
 
-<!-- Match the detail view's header, card, and row geometry before data arrives. -->
-<div class="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-5 pt-5 pb-6" aria-busy="true">
-  <p class="sr-only" role="status">{i18n.t('wallet.identity.detail.loading')}</p>
-  <div class="flex h-8 items-center justify-between gap-3" aria-hidden="true">
-    <div class="placeholder h-4 w-32 rounded bg-muted/50"></div>
-    <div class="placeholder h-8 w-24 rounded-md bg-muted/50"></div>
-  </div>
-
-  <div class="rounded-xl bg-muted/20 p-4">
-    {#if identity && displayNameIsAddress}
-      <IdentifierText
-        value={identity.identityAddress}
-        mode="full"
-        class="block text-sm font-semibold text-foreground"
-      />
-    {:else}
-      <p class="text-sm font-semibold text-foreground">{displayName || '\u00a0'}</p>
-      {#if identity}
-        <IdentifierText
-          value={identity.identityAddress}
-          mode="full"
-          class="mt-1 block text-xs text-muted-foreground"
-        />
-      {:else}
-        <p class="mt-1 text-xs text-muted-foreground">\u00a0</p>
-      {/if}
-    {/if}
-  </div>
-
-  {#each [{ title: 'wallet.identity.detail.sections.base', fields: ['name', 'iAddress', 'status', 'system'] }, { title: 'wallet.identity.detail.sections.authorities', fields: ['revocationAuthority', 'recoveryAuthority'] }] as section}
-    <section class="space-y-2 rounded-xl bg-muted/20 p-4" aria-hidden="true">
-      <h3 class="text-sm font-semibold text-foreground">{i18n.t(section.title)}</h3>
-      <div class="space-y-2 text-sm">
-        {#each section.fields as field}
-          <div
-            class="flex items-center justify-between gap-3 rounded-md bg-background/55 px-3 py-2 dark:bg-background/40"
-          >
-            <div class="min-w-0">
-              <p class="text-xs text-muted-foreground">
-                {i18n.t(`wallet.identity.detail.fields.${field}`)}
-              </p>
-              <div class="flex h-5 items-center">
-                <div class="placeholder h-3 w-32 rounded bg-muted/50"></div>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </section>
-  {/each}
-</div>
-
-<style>
-  /* Keep quick loads quiet without a shimmer or a flashing loading sentence. */
-  .placeholder {
-    animation: reveal-placeholder 0s 240ms both;
-  }
-
-  @keyframes reveal-placeholder {
-    from {
-      visibility: hidden;
-    }
-    to {
-      visibility: visible;
-    }
-  }
-</style>
+{#if identity}
+  <VerusIdProfilePage
+    identity={{
+      identityAddress: identity.identityAddress,
+      fullyQualifiedName: displayName,
+      network: activeNetwork,
+      chainId: identity.systemId || contactChainId(activeNetwork),
+      status: identity.status,
+    }}
+    linked={true}
+    owner={{
+      details: null,
+      loading: true,
+      profile,
+      profileLoading,
+      pending: pendingProfile,
+      unlinking,
+      onEdit: () => {},
+      onUnlink,
+    }}
+    {onBack}
+  />
+{/if}

@@ -189,6 +189,9 @@ pub enum WalletError {
     #[error("The profile image is invalid or exceeds the supported limits")]
     IdentityProfileInvalidAvatar,
 
+    #[error("Invalid profile header image")]
+    IdentityProfileInvalidHeader,
+
     #[error("The profile description exceeds the supported limits")]
     IdentityProfileInvalidDescription,
 
@@ -197,6 +200,11 @@ pub enum WalletError {
 
     #[error("The VerusID profile format is unavailable from this provider")]
     IdentityProfileUnavailable,
+
+    #[error("A profile update is waiting for confirmation")]
+    IdentityProfilePublicationPending,
+    #[error("Continue or discard the saved profile update first")]
+    IdentityProfilePublicationExists,
 
     #[error("Generic request envelope is invalid")]
     GenericRequestInvalidEnvelope,

@@ -2,7 +2,6 @@
 // Identity send flow: sign all signable inputs from preflight payload and broadcast.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use tokio::sync::Mutex;
@@ -135,7 +134,7 @@ pub async fn send_with_private_key_material(
     let provider = provider_pool.for_network(wallet_network);
     if let Some(profile_intent) = payload.profile_intent.as_ref() {
         let current = provider
-            .getidentity(&payload.target_identity)
+            .getidentity_for_profile(&payload.target_identity)
             .await
             .map_err(|_| WalletError::InvalidPreflight)?;
         let current_txid = current.get("txid").and_then(serde_json::Value::as_str);
@@ -154,22 +153,55 @@ pub async fn send_with_private_key_material(
     if let Some(session_manager) = session_manager {
         ensure_active_wallet_session(session_manager, expected_session_id).await?;
     }
-    let txid_raw = provider.sendrawtransaction(&signed_hex).await?;
-    let txid = parse_txid_from_result(&txid_raw).ok_or(WalletError::IdentityBuildFailed)?;
+    let expected_txid = super::profile::publication::signed_txid(&signed_hex)?;
     let profile_update =
         payload
             .profile_intent
             .as_ref()
             .map(|intent| PendingIdentityProfileUpdate {
                 identity_address: payload.target_identity.clone(),
-                txid: txid.clone(),
-                submitted_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|duration| duration.as_secs())
-                    .unwrap_or_default(),
+                txid: expected_txid.clone(),
+                submitted_at: super::profile::publication::now(),
                 previous_profile: intent.previous_profile.clone(),
                 proposed_profile: intent.proposed_profile.clone(),
             });
+    let access = if let Some(manager) = session_manager {
+        let access = capture_active_wallet_access_context(manager).await?;
+        if access.session_id != expected_session_id || access.account_id != expected_account_id {
+            return Err(WalletError::WalletLocked);
+        }
+        Some(access)
+    } else {
+        None
+    };
+    if let Some(intent) = payload.profile_intent.as_ref() {
+        let binding = intent
+            .publication
+            .as_ref()
+            .ok_or(WalletError::InvalidPreflight)?;
+        let access = access.as_ref().ok_or(WalletError::InvalidPreflight)?;
+        super::profile::publication::admit_submission(
+            access,
+            binding,
+            profile_update
+                .clone()
+                .ok_or(WalletError::InvalidPreflight)?,
+            decode_verus_tx(&signed_hex)?.expiry_height,
+        )
+        .await?;
+    }
+    let txid_raw = if let Some(access) = access.as_ref() {
+        access
+            .session_submission_guard()
+            .run(provider.sendrawtransaction(&signed_hex))
+            .await?
+    } else {
+        provider.sendrawtransaction(&signed_hex).await?
+    };
+    let txid = parse_txid_from_result(&txid_raw).ok_or(WalletError::IdentityBuildFailed)?;
+    if txid != expected_txid {
+        return Err(WalletError::IdentityBuildFailed);
+    }
 
     Ok(IdentitySendResult {
         txid,

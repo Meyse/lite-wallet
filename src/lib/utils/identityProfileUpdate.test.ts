@@ -36,6 +36,52 @@ function profile(overrides: Partial<IdentityProfileLoadResult> = {}): IdentityPr
 }
 
 describe('pendingProfileMatches', () => {
+  it('requires the confirmed header bytes and digest and checks header removal', () => {
+    const header = {
+      value: {
+        base64: 'header-jpeg',
+        mimeType: 'image/jpeg',
+        width: 960,
+        height: 160,
+        byteLength: 8,
+      },
+      source: {
+        systemId: 'i-system',
+        txid: TXID,
+        vout: 0,
+        height: 10,
+        blockhash: 'block',
+        digest: 'header-digest',
+      },
+    };
+    const proposed = { headerBase64: 'header-jpeg', headerDigest: 'header-digest' };
+    expect(pendingProfileMatches(pending(proposed), profile({ state: 'ready', header }))).toBe(
+      true
+    );
+    expect(pendingProfileMatches(pending(proposed), profile())).toBe(false);
+    expect(
+      pendingProfileMatches(
+        pending(proposed),
+        profile({
+          state: 'ready',
+          header: { ...header, value: { ...header.value, base64: 'other' } },
+        })
+      )
+    ).toBe(false);
+    expect(
+      pendingProfileMatches(
+        pending(proposed),
+        profile({
+          state: 'ready',
+          header: { ...header, source: { ...header.source, digest: 'other' } },
+        })
+      )
+    ).toBe(false);
+    expect(pendingProfileMatches(pending({}), profile({ state: 'ready', header }))).toBe(false);
+    expect(isCompleteProfileRemoval(proposed, {})).toBe(true);
+    expect(profileUpdateRemovesData(proposed, {})).toBe(true);
+  });
+
   it('accepts a confirmed empty profile at the submitted revision', () => {
     expect(pendingProfileMatches(pending({}), profile())).toBe(true);
   });

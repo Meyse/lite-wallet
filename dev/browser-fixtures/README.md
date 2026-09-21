@@ -15,7 +15,14 @@ Open either page on `http://127.0.0.1:1428`:
   production components and synthetic public data. Add `?rich&header`, `&saved`,
   `&linked`, `&long`, `&detailsError`, `&unavailable`, or `&failOnce` for the
   corresponding states. Rich content is a UI contract fixture, not evidence of
-  working claim readers.
+  working claim readers. `?editor` opens the profile draft overview with empty
+  synthetic profile data. Staged changes can reach a synthetic review with a
+  fixed fixture fee; `?editor&split` shows the two-update quote. Publish returns
+  a synthetic receipt without signing or network submission. A development-only
+  command adapter also allows this page in an isolated native Tauri fixture:
+  profile/fee commands stay synthetic while image encoding uses the real Rust
+  encoder. Do not treat fixture costs or partitioning as daemon evidence.
+  `?owner` opens the linked-owner profile with Edit profile and unlink controls.
 - `/dev/browser-fixtures/contacts.html`: isolated Contacts and Send states,
   profile loading, long content, saving, and retry. See the
   [Contacts verification notes](../../docs/references/contacts-implementation.md).
@@ -25,9 +32,27 @@ Open either page on `http://127.0.0.1:1428`:
   [transfer verification notes](../../docs/references/transfer-navigation-verification.md).
 
 Both accept `?theme=dark&locale=nl`; the default is English and light mode.
-Signing is rejected by default. `simulateReceipt=1` enables a synthetic receipt
-without signing or network submission.
+Outside the profile publication fixture, signing is rejected by default.
+`simulateReceipt=1` enables a synthetic receipt without signing or network
+submission.
 
 Save screenshots, generated assets, and run reports under the ignored `output/`
 directory. Keep reusable fixture code here and durable findings in `docs/`.
 Documentation must not require local output files to exist.
+
+## Profile publication corrections
+
+`profile.html?editor` renders the real detail/editor composition against
+synthetic publication services. Add `draft` for all three staged fields, `split`
+for two updates and a beneficial comparison, or `published&removal` for
+removals. The page supports `theme=dark` and `locale=nl`.
+
+Progress fixtures use `state=single-pending`, `state=first-pending`,
+`state=header-ready`, `state=header-pending` or `state=recovery`. Add
+`feeChanged`, `expired`, `insufficient`, `refreshFail`, `replanFail`,
+`ambiguous` or `confirmed` to exercise their respective transitions. These
+profile fixtures return synthetic receipts after Publish; they cannot sign or
+broadcast. Other fixture signing policies above are unchanged. Browser
+file-input attachment does not exercise the native OS chooser. Fee grouping,
+image quality and real confirmation still require the native VRSCTEST acceptance
+run.

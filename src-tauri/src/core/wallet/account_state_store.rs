@@ -465,6 +465,10 @@ mod tests {
     fn pending_identity_profiles_are_network_scoped_and_replace_by_identity() {
         let store = temp_store();
         let snapshot = IdentityProfileSnapshot {
+            avatar_mime_type: None,
+            header_mime_type: None,
+            header_base64: None,
+            header_digest: None,
             avatar_base64: None,
             avatar_digest: None,
             description: Some("Profile".to_string()),
@@ -475,6 +479,10 @@ mod tests {
             txid: txid.to_string(),
             submitted_at,
             previous_profile: IdentityProfileSnapshot {
+                avatar_mime_type: None,
+                header_mime_type: None,
+                header_base64: None,
+                header_digest: None,
                 avatar_base64: None,
                 avatar_digest: None,
                 description: None,

@@ -1105,6 +1105,101 @@ impl StrongholdStore {
         .map_err(|_| WalletError::OperationFailed)?
     }
 
+    /// Atomic encrypted profile-plan read/modify/commit. This separate snapshot
+    /// never stores preflights, signed transactions or session authorization.
+    pub(crate) async fn update_profile_publications<T: Send + 'static>(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        guard: Option<crate::core::auth::session::SessionSubmissionGuard>,
+        update: impl FnOnce(&mut crate::core::channels::vrpc::identity::profile::publication::PublicationSnapshot) -> Result<T, WalletError>
+            + Send
+            + 'static,
+    ) -> Result<T, WalletError> {
+        static GATE: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
+            std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Mutex::new(())));
+        let permit = GATE.clone().lock_owned().await;
+        let path =
+            self.isolated_snapshot_path(account_id, "profile_publications.snapshot.stronghold");
+        let account_id = account_id.to_string();
+        let password_hash = Zeroizing::new(password_hash.to_vec());
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let exists = path
+                .try_exists()
+                .map_err(|_| WalletError::OperationFailed)?;
+            let keyprovider = Self::keyprovider_from_hash(&password_hash)?;
+            let stronghold = Stronghold::default();
+            let client = Self::get_or_create_client(
+                &stronghold,
+                &SnapshotPath::from_path(&path),
+                &account_id,
+                &keyprovider,
+                exists,
+            )?;
+            let original = client
+                .store()
+                .get(b"profile_publications_v1")
+                .map_err(|_| WalletError::OperationFailed)?
+                .map(Zeroizing::new);
+            let mut snapshot = match original.as_ref() {
+                Some(raw) => serde_json::from_slice::<crate::core::channels::vrpc::identity::profile::publication::PublicationSnapshot>(raw)
+                    .map_err(|_| WalletError::OperationFailed)?,
+                None if !exists => crate::core::channels::vrpc::identity::profile::publication::PublicationSnapshot::default(),
+                None => return Err(WalletError::OperationFailed),
+            };
+            if snapshot.schema_version != 1 || snapshot.plans.len() > 100 {
+                return Err(WalletError::OperationFailed);
+            }
+            let result = update(&mut snapshot)?;
+            let payload = Zeroizing::new(
+                serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?,
+            );
+            if original.as_ref() == Some(&payload) || (!exists && snapshot.plans.is_empty()) {
+                return Ok(result);
+            }
+            client
+                .store()
+                .insert(b"profile_publications_v1".to_vec(), payload.to_vec(), None)
+                .map_err(|_| WalletError::OperationFailed)?;
+            // Never expose an incomplete replacement. An uncertain post-rename failure
+            // is reconciled by the next read and canonical deduplication, never replayed blindly.
+            let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+            let commit = (|| {
+                stronghold
+                    .commit_with_keyprovider(&SnapshotPath::from_path(&temp), &keyprovider)
+                    .map_err(|_| WalletError::OperationFailed)?;
+                std::fs::File::open(&temp)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|_| WalletError::OperationFailed)?;
+                let publish = || {
+                    std::fs::rename(&temp, &path).map_err(|_| WalletError::OperationFailed)?;
+                    #[cfg(unix)]
+                    if let Some(parent) = path.parent() {
+                        std::fs::File::open(parent)
+                            .and_then(|file| file.sync_all())
+                            .map_err(|_| WalletError::OperationFailed)?;
+                    }
+                    Ok(result)
+                };
+                if let Some(guard) = guard {
+                    match guard.poll_admitted(|| std::task::Poll::Ready(publish())) {
+                        std::task::Poll::Ready(result) => result,
+                        std::task::Poll::Pending => unreachable!("synchronous publication"),
+                    }
+                } else {
+                    publish()
+                }
+            })();
+            if temp.exists() {
+                let _ = std::fs::remove_file(temp);
+            }
+            commit
+        })
+        .await
+        .map_err(|_| WalletError::OperationFailed)?
+    }
+
     /// Store address book snapshot for an account in an isolated Stronghold snapshot.
     pub async fn store_address_book(
         &self,

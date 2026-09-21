@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-identity-profile-publication"
+description = "Enables the get_identity_profile_publication command without any pre-configured scope."
+commands.allow = ["get_identity_profile_publication"]
+
+[[permission]]
+identifier = "deny-get-identity-profile-publication"
+description = "Denies the get_identity_profile_publication command without any pre-configured scope."
+commands.deny = ["get_identity_profile_publication"]

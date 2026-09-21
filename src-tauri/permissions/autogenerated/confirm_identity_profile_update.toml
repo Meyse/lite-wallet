@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-confirm-identity-profile-update"
+description = "Enables the confirm_identity_profile_update command without any pre-configured scope."
+commands.allow = ["confirm_identity_profile_update"]
+
+[[permission]]
+identifier = "deny-confirm-identity-profile-update"
+description = "Denies the confirm_identity_profile_update command without any pre-configured scope."
+commands.deny = ["confirm_identity_profile_update"]

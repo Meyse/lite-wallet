@@ -7,11 +7,14 @@ use crate::types::{IdentityProfileSnapshot, WalletError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct ProfileTransactionIntent {
+    #[serde(default)]
+    pub publication: Option<super::publication::PublicationBinding>,
     pub identity_txid: String,
     pub identity_vout: u32,
     pub output_scripts: Vec<String>,
     pub output_values: Vec<u64>,
     pub avatar_digest: Option<String>,
+    pub header_digest: Option<String>,
     pub description_digest: Option<String>,
     pub previous_profile: IdentityProfileSnapshot,
     pub proposed_profile: IdentityProfileSnapshot,
@@ -96,6 +99,10 @@ mod tests {
 
     fn empty_snapshot() -> IdentityProfileSnapshot {
         IdentityProfileSnapshot {
+            avatar_mime_type: None,
+            header_mime_type: None,
+            header_base64: None,
+            header_digest: None,
             avatar_base64: None,
             avatar_digest: None,
             description: None,
@@ -137,10 +144,12 @@ mod tests {
             value_balance: 0,
         };
         let intent = ProfileTransactionIntent {
+            publication: None,
             identity_txid,
             identity_vout: 3,
             output_scripts: vec![hex::encode(identity_script), hex::encode(evidence_script)],
             output_values: vec![0, 0],
+            header_digest: None,
             avatar_digest: Some("aa".repeat(32)),
             description_digest: None,
             previous_profile: empty_snapshot(),

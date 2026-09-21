@@ -49,7 +49,9 @@ pub use identity::{
     IdentityProfilePreflightResult, IdentityProfileSnapshot, IdentityProfileSource,
     IdentityProfileState, IdentitySendRequest, IdentitySendResult, IdentityWarning,
     LinkIdentityRequest, LinkableIdentity, LinkedIdentity, PendingIdentityProfileUpdate,
-    SetLinkedIdentityFavoriteRequest, UnlinkIdentityRequest,
+    ProfileEvidenceGroup, ProfileImageOptimization, ProfilePublicationReview,
+    ProfilePublicationState, ProfilePublicationStatus, SetLinkedIdentityFavoriteRequest,
+    UnlinkIdentityRequest,
 };
 pub use transaction::{
     BalanceResult, DirectSendFeeMode, PreflightParams, PreflightResult, PreflightWarning,

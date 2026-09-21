@@ -102,6 +102,42 @@ describe('identity profile pending notice', () => {
     }
   );
 
+  it.each(['light', 'dark'])('confirms the inline unlink action in %s mode', async (theme) => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    const target = document.createElement('div');
+    document.body.append(target);
+    const onUnlink = vi.fn();
+    const component = mount(IdentityDetailView, {
+      target,
+      props: { details, profile, onUnlink },
+    });
+    try {
+      flushSync();
+      const unlinkAction = target.querySelector<HTMLButtonElement>('[data-unlink-identity-action]');
+      expect(unlinkAction?.textContent?.trim()).toBe('Unlink');
+      expect(unlinkAction?.querySelector('svg')).toBeNull();
+      expect(unlinkAction?.classList.contains('text-destructive')).toBe(true);
+      expect(unlinkAction?.classList.contains('hover:underline')).toBe(true);
+
+      unlinkAction?.click();
+      flushSync();
+
+      const dialog = document.body.querySelector('[data-slot="dialog-content"]');
+      expect(dialog?.textContent).toContain('Unlink profile.test@?');
+      expect(dialog?.textContent).toContain(
+        'This removes the VerusID from this wallet. It does not change the VerusID or its public profile.'
+      );
+      expect(onUnlink).not.toHaveBeenCalled();
+
+      dialog?.querySelector<HTMLButtonElement>('[data-unlink-identity-confirm]')?.click();
+      flushSync();
+      expect(onUnlink).toHaveBeenCalledOnce();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
   it('keeps the prepared previous profile visible when the latest read is unavailable', async () => {
     const target = document.createElement('div');
     document.body.append(target);

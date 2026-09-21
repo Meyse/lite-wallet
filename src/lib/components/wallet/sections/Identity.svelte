@@ -344,35 +344,22 @@
   });
 
   async function loadPendingProfiles(): Promise<void> {
+    const session = $contactSession;
+    const generations = new Map(profileReadGeneration);
     try {
       const records = await identityLinkService.getPendingIdentityProfileUpdates();
-      const activeRecords: Array<[string, PendingIdentityProfileUpdate]> = [];
-      const confirmedRecords: PendingIdentityProfileUpdate[] = [];
+      if (!alive || (session && !isContactSessionCurrent(session))) return;
       for (const record of records) {
         const key = record.identityAddress;
-        const profile = profilesByAddress[key];
-        if (profile && pendingProfileMatches(record, profile)) {
-          showProfileConfirmation(record);
-          confirmedRecords.push(record);
-        } else {
-          activeRecords.push([key, record]);
-        }
-      }
-      pendingProfilesByAddress = Object.fromEntries(
-        activeRecords.filter(
-          ([, record]) => !announcedProfileConfirmations.has(profileConfirmationKey(record))
+        if (
+          (generations.get(key) ?? 0) !== (profileReadGeneration.get(key) ?? 0) ||
+          announcedProfileConfirmations.has(profileConfirmationKey(record))
         )
-      );
-      for (const record of confirmedRecords) {
-        try {
-          await identityLinkService.clearPendingIdentityProfileUpdate(
-            record.identityAddress,
-            record.txid
-          );
-        } catch {
-          // The confirmed profile remains authoritative. A later session can
-          // retry cleanup of this non-secret local pending marker.
-        }
+          continue;
+        // Hydrate receipts without treating a matching cached profile as confirmation.
+        // The normal refresh below verifies the exact revision and canonical block.
+        pendingProfilesByAddress = { ...pendingProfilesByAddress, [key]: record };
+        void loadIdentityProfile(key, true);
       }
     } catch {
       // Pending metadata is a progressive enhancement. Profile and identity
@@ -466,13 +453,22 @@
     }
   });
 
+  const profileReadGeneration = new Map<string, number>();
+  function invalidateProfileRead(address: string) {
+    profileReadGeneration.set(address, (profileReadGeneration.get(address) ?? 0) + 1);
+  }
+
   async function loadIdentityProfile(
     identityAddress: string,
     preserveOnFailure = false
   ): Promise<void> {
     const key = identityAddress;
     const session = $contactSession;
-    const current = () => alive && (!session || isContactSessionCurrent(session));
+    const generation = profileReadGeneration.get(key) ?? 0;
+    const current = () =>
+      alive &&
+      (!session || isContactSessionCurrent(session)) &&
+      generation === (profileReadGeneration.get(key) ?? 0);
     if (profileLoadingByAddress[key]) return;
     profileLoadingByAddress = { ...profileLoadingByAddress, [key]: true };
     try {
@@ -484,8 +480,10 @@
       if (!current()) return;
       const pending = pendingProfilesByAddress[key];
       if (pending && pendingProfileMatches(pending, profile)) {
-        profilesByAddress = { ...profilesByAddress, [key]: profile };
-        showProfileConfirmation(pending);
+        const confirmed = await identityLinkService.confirmIdentityProfileUpdate(key, pending.txid);
+        if (!current() || !confirmed || !pendingProfileMatches(pending, confirmed)) return;
+        profilesByAddress = { ...profilesByAddress, [key]: confirmed };
+        if (selectedIdentityAddress !== key) showProfileConfirmation(pending);
         const { [key]: _confirmed, ...remaining } = pendingProfilesByAddress;
         pendingProfilesByAddress = remaining;
         try {
@@ -516,7 +514,7 @@
         },
       };
     } finally {
-      if (current()) {
+      if (alive && (!session || isContactSessionCurrent(session))) {
         const { [key]: _finished, ...remaining } = profileLoadingByAddress;
         profileLoadingByAddress = remaining;
       }
@@ -602,6 +600,7 @@
   function handleProfileSubmitted(update: PendingIdentityProfileUpdate): void {
     if (!selectedIdentityAddress) return;
     const key = selectedIdentityAddress;
+    invalidateProfileRead(key);
     pendingProfilesByAddress = {
       ...pendingProfilesByAddress,
       [key]: update,
@@ -786,7 +785,16 @@
   {/key}
 {:else if showingDetail}
   {#if detailsLoading}
-    <IdentityDetailSkeleton identity={selectedLinkedIdentity} />
+    <IdentityDetailSkeleton
+      identity={selectedLinkedIdentity}
+      profile={selectedProfile}
+      profileLoading={selectedProfileLoading}
+      pendingProfile={selectedPendingProfile}
+      network={walletNetwork}
+      {unlinking}
+      onBack={closeDetailView}
+      onUnlink={unlinkSelectedIdentity}
+    />
   {:else if detailsError}
     <div class="mx-auto flex h-full w-full max-w-6xl min-w-0 flex-col gap-3 px-5 pt-5 pb-6">
       <NavigationBackButton
@@ -808,6 +816,7 @@
     </div>
   {:else if details}
     <IdentityDetailView
+      network={walletNetwork}
       {details}
       profile={selectedProfile}
       profileLoading={selectedProfileLoading}
@@ -816,6 +825,24 @@
       onBack={closeDetailView}
       onUnlink={unlinkSelectedIdentity}
       onProfileSubmitted={handleProfileSubmitted}
+      onProfileConfirmed={(receipt, canonical) => {
+        invalidateProfileRead(receipt.identityAddress);
+        profilesByAddress = { ...profilesByAddress, [receipt.identityAddress]: canonical };
+      }}
+      onProfileSettled={(txids) => {
+        if (!details) return;
+        const pending = pendingProfilesByAddress[details.identityAddress];
+        if (pending && txids.includes(pending.txid)) {
+          invalidateProfileRead(details.identityAddress);
+          const next = { ...pendingProfilesByAddress };
+          delete next[details.identityAddress];
+          pendingProfilesByAddress = next;
+          void identityLinkService
+            .clearPendingIdentityProfileUpdate(details.identityAddress, pending.txid)
+            .catch(() => {});
+          void loadIdentityProfile(details.identityAddress, true);
+        }
+      }}
     />
   {/if}
 {:else}
@@ -826,33 +853,35 @@
   >
     <h2 class="sr-only">{i18n.t('wallet.sidebar.identities')}</h2>
 
-    {#if activeTab === 'linked' && linkedIdentities.length > 0}
-      <div class="absolute top-5 right-5 z-10 shrink-0" data-identity-link-action>
-        <Button size="sm" onclick={() => (linkSheetOpen = true)}>
-          <PlusIcon class="size-3.5" aria-hidden="true" />
-          {i18n.t('wallet.identity.list.linkButton')}
-        </Button>
-      </div>
-    {/if}
-
     <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
-      <Tabs.List
-        class="h-9 w-full shrink-0 justify-start gap-5 rounded-none border-b bg-transparent p-0"
-        aria-label={i18n.t('wallet.sidebar.identities')}
-      >
-        <Tabs.Trigger
-          value="linked"
-          class="h-9 rounded-none border-b-2 border-transparent px-0 text-[13px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+      <div class="flex h-9 shrink-0 items-start gap-3" data-identity-tabs-toolbar>
+        <Tabs.List
+          class="h-9 min-w-0 flex-1 shrink-0 justify-start gap-5 rounded-none border-b bg-transparent p-0"
+          aria-label={i18n.t('wallet.sidebar.identities')}
         >
-          {i18n.t('wallet.identity.tabs.linked')}
-        </Tabs.Trigger>
-        <Tabs.Trigger
-          value="lookup"
-          class="h-9 rounded-none border-b-2 border-transparent px-0 text-[13px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
-        >
-          {i18n.t('wallet.identity.tabs.lookup')}
-        </Tabs.Trigger>
-      </Tabs.List>
+          <Tabs.Trigger
+            value="linked"
+            class="h-9 rounded-none border-b-2 border-transparent px-0 text-[13px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+          >
+            {i18n.t('wallet.identity.tabs.linked')}
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="lookup"
+            class="h-9 rounded-none border-b-2 border-transparent px-0 text-[13px] font-normal shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none"
+          >
+            {i18n.t('wallet.identity.tabs.lookup')}
+          </Tabs.Trigger>
+        </Tabs.List>
+
+        {#if activeTab === 'linked' && linkedIdentities.length > 0}
+          <div class="shrink-0" data-identity-link-action>
+            <Button size="sm" onclick={() => (linkSheetOpen = true)}>
+              <PlusIcon class="size-3.5" aria-hidden="true" />
+              {i18n.t('wallet.identity.list.linkButton')}
+            </Button>
+          </div>
+        {/if}
+      </div>
 
       <Tabs.Content value="linked" class="flex min-h-0 flex-1 flex-col pt-6">
         {#if loading}

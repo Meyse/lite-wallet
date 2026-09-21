@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-20
+last_reviewed: 2026-09-21
 ---
 
 # Plans index
@@ -24,6 +24,9 @@ Plans are first-class artifacts for multi-step work.
   [`./active/verus-dependency-upgrade.md`](./active/verus-dependency-upgrade.md)
 - VerusID avatar and description (proposed; storage feasibility first):
   [`./active/verusid-profile-avatar-description.md`](./active/verusid-profile-avatar-description.md)
+- VerusID WebP and sequenced profile publishing (native macOS publication and UX
+  accepted; remaining platform/failure evidence limits recorded):
+  [`./active/verusid-profile-webp-sequenced-publishing.md`](./active/verusid-profile-webp-sequenced-publishing.md)
 - Direct-send Economy and Standard network fees:
   [`./active/direct-send-network-fees.md`](./active/direct-send-network-fees.md)
 - ETH/ERC20 desktop core parity:
@@ -40,6 +43,9 @@ Plans are first-class artifacts for multi-step work.
 
 ## Recent completed plans
 
+- VerusID profile publishing UX corrections (all six audit findings accepted;
+  local tests and native macOS one/two-update retest passed):
+  [`./done/verusid-profile-publishing-ux.md`](./done/verusid-profile-publishing-ux.md)
 - VerusID lookup and public profile:
   [`./done/verusid-lookup-and-profile.md`](./done/verusid-lookup-and-profile.md)
 - VerusID guard signed-out entry and flows:

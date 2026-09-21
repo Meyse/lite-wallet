@@ -3,6 +3,7 @@
 import { mount, tick, unmount } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  IdentityDetails,
   IdentityProfileLoadResult,
   LinkedIdentity,
   PendingIdentityProfileUpdate,
@@ -19,7 +20,9 @@ vi.stubGlobal('ResizeObserver', ResizeObserverStub);
 
 const mocks = vi.hoisted(() => ({
   getLinkedIdentities: vi.fn(),
+  getIdentityDetails: vi.fn(),
   getIdentityProfile: vi.fn(),
+  confirmIdentityProfileUpdate: vi.fn(),
   getPendingIdentityProfileUpdates: vi.fn(),
   clearPendingIdentityProfileUpdate: vi.fn(),
   setLinkedIdentityFavorite: vi.fn(),
@@ -30,8 +33,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('$lib/services/identityLinkService.js', () => ({
   getLinkedIdentities: mocks.getLinkedIdentities,
-  getIdentityDetails: vi.fn(),
+  getIdentityDetails: mocks.getIdentityDetails,
   getIdentityProfile: mocks.getIdentityProfile,
+  confirmIdentityProfileUpdate: mocks.confirmIdentityProfileUpdate,
   getPendingIdentityProfileUpdates: mocks.getPendingIdentityProfileUpdates,
   clearPendingIdentityProfileUpdate: mocks.clearPendingIdentityProfileUpdate,
   setLinkedIdentityFavorite: mocks.setLinkedIdentityFavorite,
@@ -153,6 +157,7 @@ beforeEach(() => {
   document.documentElement.classList.remove('dark');
   localeStore.set('en');
   mocks.getLinkedIdentities.mockReset().mockResolvedValue([favoriteIdentity, otherIdentity]);
+  mocks.getIdentityDetails.mockReset();
   mocks.getIdentityProfile.mockReset().mockResolvedValue({
     state: 'empty',
     avatar: null,
@@ -162,6 +167,7 @@ beforeEach(() => {
     revisionTxid: null,
   });
   mocks.getPendingIdentityProfileUpdates.mockReset().mockResolvedValue([]);
+  mocks.confirmIdentityProfileUpdate.mockReset().mockResolvedValue(null);
   mocks.clearPendingIdentityProfileUpdate.mockReset().mockResolvedValue(true);
   mocks.setLinkedIdentityFavorite.mockReset();
   mocks.listIdentityProvisioningJobs.mockReset().mockResolvedValue([]);
@@ -219,6 +225,84 @@ describe('mounted identity empty state', () => {
 });
 
 describe('mounted identity favorite toggle', () => {
+  it.each(['light', 'dark'] as const)(
+    'keeps the linked profile shell stable while details load in %s mode',
+    async (theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      const detailsRequest = deferred<IdentityDetails>();
+      mocks.getIdentityDetails.mockReturnValue(detailsRequest.promise);
+      const target = document.createElement('div');
+      document.body.append(target);
+      const component = mount(Identity, {
+        target,
+        props: { sessionState: initialSessionState() },
+      });
+
+      try {
+        await settle();
+        const linkedIdentityButton = Array.from(
+          target.querySelectorAll<HTMLButtonElement>('[data-linked-identity-row] > button')
+        ).find((candidate) => candidate.textContent?.includes('favorite@'));
+        if (!linkedIdentityButton) throw new Error('Missing linked identity button');
+
+        linkedIdentityButton.click();
+        await settle();
+
+        const loadingShell = target.querySelector('[data-verusid-profile-page]');
+        expect(loadingShell?.getAttribute('data-owner-profile-state')).toBe('loading');
+        expect(loadingShell?.getAttribute('aria-busy')).toBe('true');
+        expect(target.textContent).toContain('Back to identities');
+        expect(target.textContent).toContain('favorite@');
+        expect(target.textContent).toContain('Linked to this wallet');
+        expect(target.textContent).toContain('Websites');
+        expect(target.textContent).not.toContain('Base');
+        expect(target.textContent).not.toContain('Authorities');
+        expect(
+          Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find(
+            (candidate) => candidate.textContent?.trim() === 'Back to identities'
+          )?.disabled
+        ).toBe(false);
+        expect(
+          Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find(
+            (candidate) => candidate.textContent?.trim() === 'Edit profile'
+          )?.disabled
+        ).toBe(true);
+        expect(
+          target.querySelector<HTMLButtonElement>('[data-unlink-identity-action]')?.disabled
+        ).toBe(false);
+
+        detailsRequest.resolve({
+          identityAddress: favoriteIdentity.identityAddress,
+          name: favoriteIdentity.name,
+          fullyQualifiedName: favoriteIdentity.fullyQualifiedName,
+          status: favoriteIdentity.status,
+          systemDisplayName: 'Verus',
+          primaryAddresses: ['RTest'],
+          ownedByPrimaryAddress: true,
+          minimumSignatures: 1,
+          tokenizedControl: false,
+          revocationAuthority: favoriteIdentity.identityAddress,
+          recoveryAuthority: favoriteIdentity.identityAddress,
+          profileEditable: true,
+          warnings: [],
+        });
+        await settle();
+
+        const readyShell = target.querySelector('[data-verusid-profile-page]');
+        expect(readyShell?.getAttribute('data-owner-profile-state')).toBe('ready');
+        expect(target.textContent).toContain('Back to identities');
+        expect(target.textContent).toContain('favorite@');
+        expect(target.textContent).toContain('Linked to this wallet');
+        expect(target.textContent).toContain('Websites');
+        expect(target.textContent).not.toContain('Base');
+        expect(target.textContent).not.toContain('Authorities');
+      } finally {
+        await unmount(component);
+        target.remove();
+      }
+    }
+  );
+
   it('keeps provisioning jobs and linked rows in one scroll region below the fixed toolbar', async () => {
     const target = document.createElement('div');
     document.body.append(target);
@@ -303,11 +387,15 @@ describe('mounted identity favorite toggle', () => {
         (button) => button.textContent?.trim() === 'Link VerusID'
       );
       const linkAction = target.querySelector('[data-identity-link-action]');
+      const tabsToolbar = target.querySelector('[data-identity-tabs-toolbar]');
+      const tabsList = target.querySelector('[role="tablist"]');
       expect(linkedInput?.classList.contains('h-9')).toBe(true);
       expect(linkedInput?.classList.contains('focus-visible:ring-[3px]')).toBe(true);
-      expect(linkAction?.classList.contains('absolute')).toBe(true);
-      expect(linkAction?.classList.contains('top-5')).toBe(true);
-      expect(linkAction?.classList.contains('right-5')).toBe(true);
+      expect(tabsToolbar?.classList.contains('flex')).toBe(true);
+      expect(tabsToolbar?.classList.contains('gap-3')).toBe(true);
+      expect(tabsList?.classList.contains('flex-1')).toBe(true);
+      expect(tabsList?.classList.contains('border-b')).toBe(true);
+      expect(tabsToolbar?.lastElementChild).toBe(linkAction);
       expect(linkAction?.contains(linkButton ?? null)).toBe(true);
       expect(linkButton?.classList.contains('bg-primary')).toBe(true);
       expect(
@@ -523,6 +611,7 @@ describe('mounted profile confirmation reconciliation', () => {
     };
     mocks.getPendingIdentityProfileUpdates.mockResolvedValue([pendingRemoval]);
     mocks.getIdentityProfile.mockResolvedValue(confirmedEmpty);
+    mocks.confirmIdentityProfileUpdate.mockResolvedValue(confirmedEmpty);
     const target = document.createElement('div');
     document.body.append(target);
     const component = mount(Identity, {
@@ -544,6 +633,10 @@ describe('mounted profile confirmation reconciliation', () => {
   });
 
   it.each([
+    [
+      'matching cached content without backend confirmation',
+      { state: 'empty', issues: [], revisionTxid: TXID } satisfies IdentityProfileLoadResult,
+    ],
     [
       'an unavailable read',
       {

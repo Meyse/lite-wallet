@@ -373,14 +373,18 @@ export interface IdentityProfileIssue {
 export interface IdentityProfileLoadResult {
   state: IdentityProfileState;
   avatar?: IdentityProfileField<IdentityProfileAvatar> | null;
+  header?: IdentityProfileField<IdentityProfileAvatar> | null;
   description?: IdentityProfileField<string> | null;
   issues: IdentityProfileIssue[];
   readHeight?: number | null;
   revisionTxid: string | null;
 }
 
+export type ProfileImageMime = 'image/jpeg' | 'image/webp';
 export type IdentityProfileAvatarChange =
-  { action: 'keep' } | { action: 'set'; value: string } | { action: 'remove' };
+  | { action: 'keep' }
+  | { action: 'set'; value: string; mimeType: 'image/webp' }
+  | { action: 'remove' };
 
 export type IdentityProfileDescriptionChange =
   { action: 'keep' } | { action: 'set'; value: string } | { action: 'remove' };
@@ -390,12 +394,19 @@ export interface IdentityProfilePreflightRequest {
   channelId: string;
   identityAddress: string;
   avatar: IdentityProfileAvatarChange;
+  header?: IdentityProfileAvatarChange;
+  smallerAvatar?: IdentityProfileAvatarChange | null;
+  smallerHeader?: IdentityProfileAvatarChange | null;
   description: IdentityProfileDescriptionChange;
 }
 
 export interface IdentityProfileSnapshot {
+  avatarMimeType?: ProfileImageMime | null;
+  headerMimeType?: ProfileImageMime | null;
   avatarBase64?: string | null;
   avatarDigest?: string | null;
+  headerBase64?: string | null;
+  headerDigest?: string | null;
   description?: string | null;
   descriptionDigest?: string | null;
 }
@@ -410,6 +421,7 @@ export interface IdentityProfilePreflightResult {
   fundingSummary: string;
   evidenceBytes: number;
   changedFields: Array<'avatar' | 'description' | string>;
+  publication: ProfilePublicationReview;
 }
 
 export interface PendingIdentityProfileUpdate {
@@ -850,4 +862,44 @@ export interface SetupDlightSeedResult {
   configured: boolean;
   generatedSeedPhrase?: string | null;
   requiresRelogin: boolean;
+}
+
+export interface ProfilePublicationReview {
+  planId: string;
+  step: 1 | 2;
+  totalSteps: 1 | 2;
+  nextFeeSats: string | null;
+  estimatedTotalFeeSats: string;
+  earlierFeeSats: string | null;
+  quoteHeight: number;
+  quoteTime: number;
+  availableSats: string;
+  proposedProfile: IdentityProfileSnapshot;
+  changedFields: string[];
+  evidenceGroups: Array<{
+    field: string;
+    firstOutput: number;
+    parts: number;
+    encodedBytes: number;
+  }>;
+  optimization: {
+    field: 'avatar' | 'header';
+    image: Extract<IdentityProfileAvatarChange, { action: 'set' }>;
+    originalBytes: number;
+    smallerBytes: number;
+    totalSteps: 1 | 2;
+    estimatedTotalFeeSats: string;
+    savingSats: string;
+  } | null;
+}
+export interface ProfilePublicationState {
+  planId: string;
+  identityAddress: string;
+  status: 'ready' | 'waiting' | 'stale' | 'complete';
+  step: 1 | 2;
+  totalSteps: 1 | 2;
+  request: IdentityProfilePreflightRequest;
+  pending: PendingIdentityProfileUpdate | null;
+  settledTxids: string[];
+  firstReceipt?: PendingIdentityProfileUpdate | null;
 }

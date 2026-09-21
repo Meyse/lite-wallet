@@ -3,8 +3,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::core::channels::vrpc::identity::profile::codec::{
     avatar_base64, descriptor_from_json, resolve_profile_payload, validate_avatar_bytes,
-    DataDescriptor, AVATAR_MIME, AVATAR_VDXF_KEY, DESCRIPTION_MIME, DESCRIPTION_VDXF_KEY,
-    MAX_DESCRIPTION_BYTES,
+    validate_header_bytes, DataDescriptor, AVATAR_MIME, AVATAR_VDXF_KEY, DESCRIPTION_MIME,
+    DESCRIPTION_VDXF_KEY, HEADER_VDXF_KEY, MAX_DESCRIPTION_BYTES,
 };
 use crate::core::channels::vrpc::provider::VrpcProvider;
 use crate::core::crypto::wif_encoding::Network;
@@ -56,13 +56,18 @@ fn valid_txid(value: Option<&Value>) -> Option<String> {
         .then(|| value.to_ascii_lowercase())
 }
 
-fn matching_revision_txid(avatar_content: &Value, description_content: &Value) -> Option<String> {
-    // Both independently filtered reads must identify the same canonical
+fn matching_revision_txid(
+    avatar_content: &Value,
+    description_content: &Value,
+    header_content: &Value,
+) -> Option<String> {
+    // All independently filtered reads must identify the same canonical
     // identity revision. One missing or conflicting claim cannot confirm a
     // pending profile update.
     let avatar_txid = valid_txid(avatar_content.get("txid"))?;
     let description_txid = valid_txid(description_content.get("txid"))?;
-    (avatar_txid == description_txid).then_some(avatar_txid)
+    let header_txid = valid_txid(header_content.get("txid"))?;
+    (avatar_txid == description_txid && avatar_txid == header_txid).then_some(avatar_txid)
 }
 
 fn content_values<'a>(payload: &'a Value, key: &str) -> Vec<&'a Value> {
@@ -80,12 +85,16 @@ pub(crate) async fn active_values(
     provider: &VrpcProvider,
     identity_address: &str,
     key: &str,
+    expected_revision: &str,
 ) -> Result<Vec<Value>, WalletError> {
     let content = bounded(
         provider
             .getidentitycontent_for_key(identity_address, 0, 0, false, key)
             .await?,
     )?;
+    if valid_txid(content.get("txid")).as_deref() != Some(expected_revision) {
+        return Err(WalletError::InvalidPreflight);
+    }
     Ok(content_values(&content, key).into_iter().cloned().collect())
 }
 
@@ -177,14 +186,15 @@ fn source(origin: &Origin, digest: [u8; 32]) -> IdentityProfileSource {
     }
 }
 
-async fn resolve_avatar(
+async fn resolve_image(
     provider: &VrpcProvider,
     history: &Value,
     selected: &Value,
     network: Network,
+    key: &str,
 ) -> Result<IdentityProfileField<IdentityProfileAvatar>, WalletError> {
-    let origin = origin_for_value(history, AVATAR_VDXF_KEY, selected)
-        .ok_or(WalletError::IdentityProfileUnavailable)?;
+    let origin =
+        origin_for_value(history, key, selected).ok_or(WalletError::IdentityProfileUnavailable)?;
     confirm_origin(provider, &origin).await?;
     let tx = bounded(
         provider
@@ -194,19 +204,25 @@ async fn resolve_avatar(
     let payload = resolve_profile_payload(
         &descriptor_group(selected)?,
         &tx,
-        AVATAR_MIME,
+        &[AVATAR_MIME, super::codec::LEGACY_IMAGE_MIME],
         &origin.system_id,
         &origin.identity_id,
         &origin.primary_addresses,
         network,
     )?;
-    validate_avatar_bytes(&payload.bytes)?;
+    let (width, height) = if key == HEADER_VDXF_KEY {
+        validate_header_bytes(&payload.bytes, &payload.mime_type)?;
+        (960, 160)
+    } else {
+        validate_avatar_bytes(&payload.bytes, &payload.mime_type)?;
+        (256, 256)
+    };
     Ok(IdentityProfileField {
         value: IdentityProfileAvatar {
             base64: avatar_base64(&payload.bytes),
             mime_type: payload.mime_type,
-            width: 256,
-            height: 256,
+            width,
+            height,
             byte_length: payload.bytes.len(),
         },
         source: source(&origin, payload.digest),
@@ -230,7 +246,7 @@ async fn resolve_description(
     let payload = resolve_profile_payload(
         &descriptor_group(selected)?,
         &tx,
-        DESCRIPTION_MIME,
+        &[DESCRIPTION_MIME],
         &origin.system_id,
         &origin.identity_id,
         &origin.primary_addresses,
@@ -263,18 +279,26 @@ pub(crate) async fn load(
         .getidentitycontent_for_key(identity_address, 0, 0, false, DESCRIPTION_VDXF_KEY)
         .await?;
     let description_content = bounded(description_content)?;
+    let header_content = bounded(
+        provider
+            .getidentitycontent_for_key(identity_address, 0, 0, false, HEADER_VDXF_KEY)
+            .await?,
+    )?;
+    let header_values = content_values(&header_content, HEADER_VDXF_KEY);
     let avatar_values = content_values(&avatar_content, AVATAR_VDXF_KEY);
     let description_values = content_values(&description_content, DESCRIPTION_VDXF_KEY);
-    let revision_txid = matching_revision_txid(&avatar_content, &description_content);
+    let revision_txid =
+        matching_revision_txid(&avatar_content, &description_content, &header_content);
     let read_height = as_u32(avatar_content.get("blockheight"))
         .or_else(|| as_u32(description_content.get("blockheight")));
 
     // An identity with no active profile values is a valid empty profile. Do
     // not make that state depend on history or raw-transaction availability.
-    if avatar_values.is_empty() && description_values.is_empty() {
+    if avatar_values.is_empty() && header_values.is_empty() && description_values.is_empty() {
         return Ok(IdentityProfileLoadResult {
             state: IdentityProfileState::Empty,
             avatar: None,
+            header: None,
             description: None,
             issues: Vec::new(),
             read_height,
@@ -298,6 +322,12 @@ pub(crate) async fn load(
             code: "multiple_active_values".to_string(),
         });
     }
+    if header_values.len() > 1 {
+        issues.push(IdentityProfileIssue {
+            field: Some("header".to_string()),
+            code: "multiple_active_values".to_string(),
+        });
+    }
     if description_values.len() > 1 {
         issues.push(IdentityProfileIssue {
             field: Some("description".to_string()),
@@ -306,16 +336,33 @@ pub(crate) async fn load(
     }
 
     let avatar = match avatar_values.last() {
-        Some(value) => match resolve_avatar(provider, &history, value, network).await {
-            Ok(value) => Some(value),
-            Err(_) => {
-                issues.push(IdentityProfileIssue {
-                    field: Some("avatar".to_string()),
-                    code: "invalid_or_unavailable".to_string(),
-                });
-                None
+        Some(value) => {
+            match resolve_image(provider, &history, value, network, AVATAR_VDXF_KEY).await {
+                Ok(value) => Some(value),
+                Err(_) => {
+                    issues.push(IdentityProfileIssue {
+                        field: Some("avatar".to_string()),
+                        code: "invalid_or_unavailable".to_string(),
+                    });
+                    None
+                }
             }
-        },
+        }
+        None => None,
+    };
+    let header = match header_values.last() {
+        Some(value) => {
+            match resolve_image(provider, &history, value, network, HEADER_VDXF_KEY).await {
+                Ok(value) => Some(value),
+                Err(_) => {
+                    issues.push(IdentityProfileIssue {
+                        field: Some("header".to_string()),
+                        code: "invalid_or_unavailable".to_string(),
+                    });
+                    None
+                }
+            }
+        }
         None => None,
     };
     let description = match description_values.last() {
@@ -332,7 +379,7 @@ pub(crate) async fn load(
         None => None,
     };
 
-    let state = if avatar.is_some() || description.is_some() {
+    let state = if avatar.is_some() || header.is_some() || description.is_some() {
         IdentityProfileState::Ready
     } else {
         IdentityProfileState::Unavailable
@@ -340,6 +387,7 @@ pub(crate) async fn load(
     Ok(IdentityProfileLoadResult {
         state,
         avatar,
+        header,
         description,
         issues,
         read_height,
@@ -356,12 +404,12 @@ mod tests {
     const TXID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     #[test]
-    fn matching_revision_txid_accepts_the_same_valid_revision_from_both_reads() {
+    fn matching_revision_txid_accepts_the_same_valid_revision_from_all_reads() {
         let avatar = json!({ "txid": TXID.to_ascii_uppercase() });
         let description = json!({ "txid": TXID });
 
         assert_eq!(
-            matching_revision_txid(&avatar, &description),
+            matching_revision_txid(&avatar, &description, &description),
             Some(TXID.to_string())
         );
     }
@@ -370,7 +418,7 @@ mod tests {
     fn matching_revision_txid_rejects_missing_revision_evidence() {
         let avatar = json!({ "txid": TXID });
 
-        assert_eq!(matching_revision_txid(&avatar, &json!({})), None);
+        assert_eq!(matching_revision_txid(&avatar, &json!({}), &avatar), None);
     }
 
     #[test]
@@ -378,7 +426,10 @@ mod tests {
         let avatar = json!({ "txid": "not-a-transaction-id" });
         let description = json!({ "txid": "not-a-transaction-id" });
 
-        assert_eq!(matching_revision_txid(&avatar, &description), None);
+        assert_eq!(
+            matching_revision_txid(&avatar, &description, &description),
+            None
+        );
     }
 
     #[test]
@@ -387,7 +438,22 @@ mod tests {
         let description =
             json!({ "txid": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" });
 
-        assert_eq!(matching_revision_txid(&avatar, &description), None);
+        assert_eq!(
+            matching_revision_txid(&avatar, &description, &description),
+            None
+        );
+    }
+
+    #[test]
+    fn matching_revision_txid_requires_matching_header_revision() {
+        let content = json!({ "txid": TXID });
+        for header in [
+            json!({}),
+            json!({ "txid": "invalid" }),
+            json!({ "txid": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }),
+        ] {
+            assert_eq!(matching_revision_txid(&content, &content, &header), None);
+        }
     }
 
     #[test]
@@ -396,7 +462,7 @@ mod tests {
         let description = json!({ "txid": TXID, "identity": { "contentmultimap": {} } });
 
         assert_eq!(
-            matching_revision_txid(&avatar, &description),
+            matching_revision_txid(&avatar, &description, &description),
             Some(TXID.to_string())
         );
     }

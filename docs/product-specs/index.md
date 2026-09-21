@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-20
+last_reviewed: 2026-09-21
 ---
 
 # Product specs index
@@ -16,6 +16,9 @@ requirements.
   [`./contacts-and-verusid-profiles.md`](./contacts-and-verusid-profiles.md)
 - VerusID profile screen 05 (selected Paper layout and image recommendations):
   [`./verusid-profile-screen.md`](./verusid-profile-screen.md)
+- VerusID profile publishing UX corrections (implemented; local checks and
+  native macOS VRSCTEST retest passed):
+  [`./verusid-profile-publishing-ux.md`](./verusid-profile-publishing-ux.md)
 - VerusID lookup and public profile (implemented; focused linked-list, lookup,
   profile, contact-save, and Send-entry contract):
   [`./verusid-lookup-and-profile.md`](./verusid-lookup-and-profile.md)

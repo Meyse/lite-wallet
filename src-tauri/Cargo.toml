@@ -69,6 +69,7 @@ zip32 = { version = "0.2", default-features = false }
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-webpki-roots"] }
 chacha20poly1305 = "0.10.1" # Authenticated encryption for the private wallet cache
 fs2 = "0.4.3" # One writer per private wallet cache, including across app processes
+webp = { version = "=0.3.1", default-features = false }
 
 [dev-dependencies]
 zcash_note_encryption = "0.4.2"

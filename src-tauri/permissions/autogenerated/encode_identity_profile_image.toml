@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-encode-identity-profile-image"
+description = "Enables the encode_identity_profile_image command without any pre-configured scope."
+commands.allow = ["encode_identity_profile_image"]
+
+[[permission]]
+identifier = "deny-encode-identity-profile-image"
+description = "Denies the encode_identity_profile_image command without any pre-configured scope."
+commands.deny = ["encode_identity_profile_image"]

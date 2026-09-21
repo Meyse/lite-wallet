@@ -19,17 +19,22 @@ use crate::core::crypto::wif_encoding::Network;
 use crate::types::WalletError;
 
 pub const AVATAR_VDXF_KEY: &str = "iMMRVtGBNkr7V2hUNd4LLFiPQyzGrxAhx1";
+pub const HEADER_VDXF_KEY: &str = "iP9hXXzqYXQhnY9EXikYjqraGBCrvaysAe";
 pub const DESCRIPTION_VDXF_KEY: &str = "iAvXhoTu7EtDcGiUsyd1BysHMo1bTNDrTd";
 pub const REMOVE_VDXF_KEY: &str = "i5Zkx5Z7tEfh42xtKfwbJ5LgEWE9rEgpFY";
 const DATA_DESCRIPTOR_VDXF_KEY: &str = "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv";
 const CROSS_CHAIN_REFERENCE_VDXF_KEY: &str = "iP3euVSzNcXUrLNHnQnR9G6q8jeYuGSxgw";
 const SIGNATURE_DATA_VDXF_KEY: &str = "i7PcVF9wwPtQ6p6jDtCVpohX65pTZuP2ah";
 
-pub const AVATAR_MIME: &str = "image/jpeg";
+pub const AVATAR_MIME: &str = "image/webp";
+pub const LEGACY_IMAGE_MIME: &str = "image/jpeg";
 pub const DESCRIPTION_MIME: &str = "text/plain; charset=utf-8";
 pub const MAX_AVATAR_BYTES: usize = 32 * 1024;
+// Application budgets, not protocol maxima.
+pub const MAX_HEADER_BYTES: usize = 32 * 1024;
 pub const MAX_DESCRIPTION_BYTES: usize = 1024;
-pub const MAX_EVIDENCE_PARTS: usize = 8;
+// Two 32 KiB images plus the description and signed descriptor overhead.
+pub const MAX_EVIDENCE_PARTS: usize = 16;
 const MAX_DESCRIPTOR_BYTES: usize = 2 * 1024 * 1024;
 const SAPLING_KDF_PERSONALIZATION: &[u8; 16] = b"Zcash_SaplingKDF";
 
@@ -75,6 +80,8 @@ pub(crate) struct ResolvedProfilePayload {
     pub bytes: Vec<u8>,
     pub mime_type: String,
     pub digest: [u8; 32],
+    pub evidence_vout: usize,
+    pub evidence_parts: usize,
 }
 
 fn invalid_profile() -> WalletError {
@@ -603,10 +610,45 @@ fn resolve_descriptor_object(
     Ok((unwrap_encrypted_descriptor(nested)?, reference))
 }
 
+// Called only after full evidence reconstruction and authentication succeeded.
+fn evidence_part_count(
+    decoded: &Value,
+    reference: &EvidenceReference,
+) -> Result<usize, WalletError> {
+    let outputs = decoded
+        .get("vout")
+        .and_then(Value::as_array)
+        .ok_or_else(invalid_profile)?;
+    let first = outputs
+        .get(reference.vout as usize)
+        .ok_or_else(invalid_profile)?;
+    let hexes = chainobject_hexes(first)?;
+    let part = parse_evidence_data(hexes.first().ok_or_else(invalid_profile)?)?;
+    if part.data_type == 1 {
+        return Ok(1);
+    }
+    let mut length = 0usize;
+    for index in 0..MAX_EVIDENCE_PARTS {
+        let hexes = chainobject_hexes(
+            outputs
+                .get(reference.vout as usize + index)
+                .ok_or_else(invalid_profile)?,
+        )?;
+        let next = parse_evidence_data(hexes.first().ok_or_else(invalid_profile)?)?;
+        length = length
+            .checked_add(next.data.len())
+            .ok_or_else(invalid_profile)?;
+        if length == part.total_length {
+            return Ok(index + 1);
+        }
+    }
+    Err(invalid_profile())
+}
+
 pub(crate) fn resolve_profile_payload(
     descriptors: &[DataDescriptor],
     decoded_tx: &Value,
-    expected_mime: &str,
+    expected_mimes: &[&str],
     expected_system_id: &str,
     expected_identity_id: &str,
     allowed_primary_addresses: &[String],
@@ -625,7 +667,7 @@ pub(crate) fn resolve_profile_payload(
         return Err(invalid_profile());
     }
     if payload_descriptor.flags & 0x01 != 0
-        || payload_descriptor.mime_type.as_deref() != Some(expected_mime)
+        || !expected_mimes.contains(&payload_descriptor.mime_type.as_deref().unwrap_or(""))
     {
         return Err(invalid_profile());
     }
@@ -667,26 +709,54 @@ pub(crate) fn resolve_profile_payload(
     }
     Ok(ResolvedProfilePayload {
         bytes: payload_descriptor.object_data,
-        mime_type: expected_mime.to_string(),
+        mime_type: payload_descriptor.mime_type.ok_or_else(invalid_profile)?,
         digest,
+        evidence_vout: payload_reference.vout as usize,
+        evidence_parts: evidence_part_count(decoded_tx, &payload_reference)?,
     })
 }
 
-pub(crate) fn validate_avatar_bytes(bytes: &[u8]) -> Result<(), WalletError> {
-    if bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES || !bytes.starts_with(&[0xff, 0xd8]) {
-        return Err(WalletError::IdentityProfileInvalidAvatar);
+pub(crate) fn validate_avatar_bytes(bytes: &[u8], mime: &str) -> Result<(), WalletError> {
+    validate_image_bytes(bytes, mime, (256, 256), MAX_AVATAR_BYTES)
+        .map_err(|_| WalletError::IdentityProfileInvalidAvatar)
+}
+
+pub(crate) fn validate_header_bytes(bytes: &[u8], mime: &str) -> Result<(), WalletError> {
+    validate_image_bytes(bytes, mime, (960, 160), MAX_HEADER_BYTES)
+        .map_err(|_| WalletError::IdentityProfileInvalidHeader)
+}
+
+fn validate_image_bytes(
+    bytes: &[u8],
+    mime: &str,
+    dimensions: (u32, u32),
+    maximum: usize,
+) -> Result<(), ()> {
+    if bytes.is_empty() || bytes.len() > maximum {
+        return Err(());
     }
-    let mut reader =
-        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Jpeg);
+    let format = match mime {
+        LEGACY_IMAGE_MIME if bytes.starts_with(&[0xff, 0xd8, 0xff]) => image::ImageFormat::Jpeg,
+        AVATAR_MIME
+            if bytes.len() >= 12
+                && &bytes[..4] == b"RIFF"
+                && &bytes[8..12] == b"WEBP"
+                && u32::from_le_bytes(bytes[4..8].try_into().map_err(|_| ())?) as usize
+                    == bytes.len() - 8 =>
+        {
+            image::ImageFormat::WebP
+        }
+        _ => return Err(()),
+    };
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(256);
-    limits.max_image_height = Some(256);
+    limits.max_alloc = Some(8 * 1024 * 1024);
+    limits.max_image_width = Some(dimensions.0);
+    limits.max_image_height = Some(dimensions.1);
     reader.limits(limits);
-    let image = reader
-        .decode()
-        .map_err(|_| WalletError::IdentityProfileInvalidAvatar)?;
-    if image.dimensions() != (256, 256) {
-        return Err(WalletError::IdentityProfileInvalidAvatar);
+    let image = reader.decode().map_err(|_| ())?;
+    if image.dimensions() != dimensions {
+        return Err(());
     }
     Ok(())
 }
@@ -719,11 +789,61 @@ mod tests {
             bytes
         }
 
-        assert!(validate_avatar_bytes(&jpeg(256, 256)).is_ok());
-        assert!(validate_avatar_bytes(&jpeg(257, 256)).is_err());
-        assert!(validate_avatar_bytes(&jpeg(255, 256)).is_err());
-        assert!(validate_avatar_bytes(&[0xff, 0xd8, 0xff]).is_err());
-        assert!(validate_avatar_bytes(&vec![0; MAX_AVATAR_BYTES + 1]).is_err());
+        assert!(validate_avatar_bytes(&jpeg(256, 256), LEGACY_IMAGE_MIME).is_ok());
+        assert!(validate_avatar_bytes(&jpeg(257, 256), LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_avatar_bytes(&jpeg(255, 256), LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_avatar_bytes(&[0xff, 0xd8, 0xff], LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_avatar_bytes(&vec![0; MAX_AVATAR_BYTES + 1], LEGACY_IMAGE_MIME).is_err());
+    }
+
+    #[test]
+    fn header_validation_accepts_only_bounded_six_to_one_jpegs() {
+        let jpeg = |width, height| {
+            let image = image::RgbImage::new(width, height);
+            let mut bytes = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new(&mut bytes)
+                .encode_image(&image)
+                .unwrap();
+            bytes
+        };
+        assert!(validate_header_bytes(&jpeg(960, 160), LEGACY_IMAGE_MIME).is_ok());
+        assert!(validate_header_bytes(&jpeg(256, 256), LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_header_bytes(&jpeg(960, 161), LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_header_bytes(&jpeg(959, 160), LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_header_bytes(&[0xff, 0xd8, 0xff], LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_header_bytes(&vec![0; MAX_HEADER_BYTES + 1], LEGACY_IMAGE_MIME).is_err());
+    }
+
+    #[test]
+    fn webp_validation_binds_mime_container_decode_dimensions_and_budget() {
+        let webp = |width, height| {
+            let mut bytes = Vec::new();
+            image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+                .encode(
+                    &vec![128; width as usize * height as usize * 3],
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .unwrap();
+            bytes
+        };
+        let avatar = webp(256, 256);
+        assert!(validate_avatar_bytes(&avatar, AVATAR_MIME).is_ok());
+        assert!(validate_avatar_bytes(&avatar, LEGACY_IMAGE_MIME).is_err());
+        assert!(validate_avatar_bytes(&avatar, "image/png").is_err());
+        assert!(validate_header_bytes(&webp(960, 160), AVATAR_MIME).is_ok());
+        assert!(validate_avatar_bytes(&webp(257, 256), AVATAR_MIME).is_err());
+        assert!(validate_header_bytes(&avatar, AVATAR_MIME).is_err());
+        let mut corrupt = avatar.clone();
+        corrupt[12..].fill(255);
+        assert!(validate_avatar_bytes(&corrupt, AVATAR_MIME).is_err());
+        let mut wrong_length = avatar.clone();
+        wrong_length[4] ^= 1;
+        assert!(validate_avatar_bytes(&wrong_length, AVATAR_MIME).is_err());
+        let mut oversized = avatar;
+        oversized.resize(MAX_AVATAR_BYTES + 1, 0);
+        assert!(validate_avatar_bytes(&oversized, AVATAR_MIME).is_err());
     }
 
     fn push_short_bytes(out: &mut Vec<u8>, value: &[u8]) {

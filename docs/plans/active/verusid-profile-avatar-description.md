@@ -5,6 +5,9 @@ last_reviewed: 2026-09-15
 
 # Plan: VerusID avatar and description
 
+Historical research plan. The current editor, header support and implementation
+boundaries are documented in the [profile screen specification](../../product-specs/verusid-profile-screen.md).
+
 - Status: proposed; feasibility work comes before implementation
 - Owner: lite-wallet-team
 - Last updated: 2026-09-15

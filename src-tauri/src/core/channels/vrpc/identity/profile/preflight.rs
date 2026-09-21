@@ -15,12 +15,12 @@ use crate::core::channels::vrpc::common::{authenticate_payload_inputs, VrpcInput
 use crate::core::channels::vrpc::identity::preflight::{
     build_unsigned_identity_tx, fetch_identity_prevout, parse_funding_utxos, parse_target_identity,
     parse_updateidentity_hex, sat_to_decimal_string, total_satoshis, IdentityPreflightPayload,
-    IDENTITY_PREFLIGHT_TTL,
+    TargetIdentityState, IDENTITY_PREFLIGHT_TTL,
 };
 use crate::core::channels::vrpc::identity::profile::codec::{
-    descriptor_from_json, resolve_profile_payload, validate_avatar_bytes, DataDescriptor,
-    AVATAR_MIME, AVATAR_VDXF_KEY, DESCRIPTION_MIME, DESCRIPTION_VDXF_KEY, MAX_DESCRIPTION_BYTES,
-    REMOVE_VDXF_KEY,
+    descriptor_from_json, resolve_profile_payload, validate_avatar_bytes, validate_header_bytes,
+    DataDescriptor, AVATAR_MIME, AVATAR_VDXF_KEY, DESCRIPTION_MIME, DESCRIPTION_VDXF_KEY,
+    HEADER_VDXF_KEY, MAX_AVATAR_BYTES, MAX_DESCRIPTION_BYTES, MAX_HEADER_BYTES, REMOVE_VDXF_KEY,
 };
 use crate::core::channels::vrpc::identity::profile::intent::{
     validate as validate_profile_intent, ProfileTransactionIntent,
@@ -39,7 +39,8 @@ use crate::core::crypto::wif_encoding::Network;
 use crate::types::{
     IdentityOperation, IdentityProfileAvatarChange, IdentityProfileDescriptionChange,
     IdentityProfileLoadResult, IdentityProfilePreflightRequest, IdentityProfilePreflightResult,
-    IdentityProfileSnapshot, IdentityProfileState, WalletError,
+    IdentityProfileSnapshot, IdentityProfileState, ProfileEvidenceGroup, ProfilePublicationReview,
+    WalletError,
 };
 
 const VRSCTEST_SYSTEM_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
@@ -54,8 +55,24 @@ fn non_empty_string(value: Option<&Value>) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-fn current_snapshot(profile: &IdentityProfileLoadResult) -> IdentityProfileSnapshot {
+pub(crate) fn current_snapshot(profile: &IdentityProfileLoadResult) -> IdentityProfileSnapshot {
     IdentityProfileSnapshot {
+        avatar_mime_type: profile
+            .avatar
+            .as_ref()
+            .map(|field| field.value.mime_type.clone()),
+        header_mime_type: profile
+            .header
+            .as_ref()
+            .map(|field| field.value.mime_type.clone()),
+        header_base64: profile
+            .header
+            .as_ref()
+            .map(|field| field.value.base64.clone()),
+        header_digest: profile
+            .header
+            .as_ref()
+            .map(|field| field.source.digest.clone()),
         avatar_base64: profile
             .avatar
             .as_ref()
@@ -378,51 +395,105 @@ fn calculate_fee(
     ))
 }
 
-fn proposed_snapshot(
-    current: &IdentityProfileSnapshot,
-    avatar: &IdentityProfileAvatarChange,
-    avatar_digest: Option<String>,
-    normalized_description: &Option<String>,
-    description_digest: Option<String>,
-) -> IdentityProfileSnapshot {
-    let avatar_base64 = match avatar {
-        IdentityProfileAvatarChange::Keep => current.avatar_base64.clone(),
-        IdentityProfileAvatarChange::Set(value) => Some(value.clone()),
-        IdentityProfileAvatarChange::Remove => None,
+pub(crate) fn decode_image_change(
+    change: &IdentityProfileAvatarChange,
+    header: bool,
+) -> Result<Option<Vec<u8>>, WalletError> {
+    let IdentityProfileAvatarChange::Set { value, mime_type } = change else {
+        return Ok(None);
     };
-    let description = match normalized_description {
-        None => current.description.clone(),
-        Some(value) if value.is_empty() => None,
-        Some(value) => Some(value.clone()),
+    let invalid = || {
+        if header {
+            WalletError::IdentityProfileInvalidHeader
+        } else {
+            WalletError::IdentityProfileInvalidAvatar
+        }
     };
-    IdentityProfileSnapshot {
-        avatar_base64,
-        avatar_digest: avatar_digest.or_else(|| match avatar {
-            IdentityProfileAvatarChange::Keep => current.avatar_digest.clone(),
-            _ => None,
-        }),
-        description,
-        description_digest: description_digest.or_else(|| match normalized_description {
-            None => current.description_digest.clone(),
-            Some(_) => None,
-        }),
+    let maximum = if header {
+        MAX_HEADER_BYTES
+    } else {
+        MAX_AVATAR_BYTES
+    };
+    if value.len() > maximum.div_ceil(3) * 4 {
+        return Err(invalid());
+    }
+    if mime_type != AVATAR_MIME {
+        return Err(invalid());
+    }
+    let bytes = BASE64_STANDARD.decode(value).map_err(|_| invalid())?;
+    if header {
+        validate_header_bytes(&bytes, mime_type)?;
+    } else {
+        validate_avatar_bytes(&bytes, mime_type)?;
+    }
+    Ok(Some(bytes))
+}
+
+fn image_changes(
+    change: &IdentityProfileAvatarChange,
+    bytes: Option<&[u8]>,
+    current: Option<&str>,
+) -> bool {
+    match (change, bytes, current) {
+        (IdentityProfileAvatarChange::Keep, _, _) => false,
+        (IdentityProfileAvatarChange::Remove, _, current) => current.is_some(),
+        (IdentityProfileAvatarChange::Set { .. }, Some(bytes), Some(current)) => BASE64_STANDARD
+            .decode(current)
+            .map(|value| value != bytes)
+            .unwrap_or(true),
+        (IdentityProfileAvatarChange::Set { .. }, Some(_), None) => true,
+        _ => false,
     }
 }
 
-pub(crate) async fn preflight(
-    request: IdentityProfilePreflightRequest,
-    preflight_store: &PreflightStore,
-    account_id: &str,
-    session_id: &str,
+pub(crate) struct PreparationContext {
+    target: TargetIdentityState,
+    current: IdentityProfileSnapshot,
+    avatar_values: Vec<Value>,
+    header_values: Vec<Value>,
+    description_values: Vec<Value>,
+    system_id: String,
+    primary_addresses: Vec<String>,
+    pub height: u32,
+    export_fee_sats: i64,
+}
+impl PreparationContext {
+    pub fn revision(&self) -> &str {
+        &self.target.txid
+    }
+}
+
+pub(crate) struct PreparedTemplate {
+    pub tx: crate::core::channels::vrpc::identity::verus_tx::model::VerusTx,
+    control: crate::core::channels::vrpc::intent::IdentityControlIntent,
+    pub intent: ProfileTransactionIntent,
+    pub fee_sats: i64,
+    pub evidence_bytes: usize,
+    pub groups: Vec<ProfileEvidenceGroup>,
+    pub changed_fields: Vec<String>,
+}
+impl PreparedTemplate {
+    pub fn multipart_images(&self) -> usize {
+        self.groups
+            .iter()
+            .filter(|group| group.parts > 1 && (group.field == "avatar" || group.field == "header"))
+            .count()
+    }
+}
+
+pub(crate) async fn preparation_context(
+    request: &IdentityProfilePreflightRequest,
     from_address: &str,
-    channel_id: &str,
-    private_key: &[u8; 32],
     provider: &VrpcProvider,
-) -> Result<IdentityProfilePreflightResult, WalletError> {
+) -> Result<PreparationContext, WalletError> {
     if request.coin_id != "VRSCTEST" || request.identity_address.trim().is_empty() {
         return Err(WalletError::IdentityProfileWriteUnsupported);
     }
-    let target = parse_target_identity(provider.getidentity(&request.identity_address).await?)?;
+    let target = parse_target_identity(
+        provider
+            .getidentity_for_profile(&request.identity_address)
+            .await?,
+    )?;
     if !target.status.eq_ignore_ascii_case("active") {
         return Err(WalletError::IdentityProfileReadOnly);
     }
@@ -463,78 +534,165 @@ pub(crate) async fn preflight(
     }
 
     let current_profile = load(provider, &request.identity_address, Network::Testnet).await?;
-    if matches!(current_profile.state, IdentityProfileState::Unavailable) {
+    if matches!(current_profile.state, IdentityProfileState::Unavailable)
+        || !current_profile.issues.is_empty()
+    {
         return Err(WalletError::IdentityProfileUnavailable);
     }
     let current = current_snapshot(&current_profile);
-    let avatar_values = active_values(provider, &request.identity_address, AVATAR_VDXF_KEY).await?;
-    let description_values =
-        active_values(provider, &request.identity_address, DESCRIPTION_VDXF_KEY).await?;
-    if avatar_values.len() > 1 || description_values.len() > 1 {
+    let avatar_values = active_values(
+        provider,
+        &request.identity_address,
+        AVATAR_VDXF_KEY,
+        &target.txid,
+    )
+    .await?;
+    let header_values = active_values(
+        provider,
+        &request.identity_address,
+        HEADER_VDXF_KEY,
+        &target.txid,
+    )
+    .await?;
+    let description_values = active_values(
+        provider,
+        &request.identity_address,
+        DESCRIPTION_VDXF_KEY,
+        &target.txid,
+    )
+    .await?;
+    if avatar_values.len() > 1 || header_values.len() > 1 || description_values.len() > 1 {
         return Err(WalletError::IdentityProfileUnavailable);
     }
 
-    let avatar_bytes = match &request.avatar {
-        IdentityProfileAvatarChange::Set(value) => {
-            let bytes = BASE64_STANDARD
-                .decode(value.trim())
-                .map_err(|_| WalletError::IdentityProfileInvalidAvatar)?;
-            validate_avatar_bytes(&bytes)?;
-            Some(bytes)
-        }
-        _ => None,
-    };
+    if current_profile.revision_txid.as_deref() != Some(target.txid.as_str()) {
+        return Err(WalletError::InvalidPreflight);
+    }
+    let height = extract_chain_height(&provider.getinfo().await?)
+        .map_err(|_| WalletError::IdentityBuildFailed)?;
+    let export_fee_sats = transaction_export_fee_sats(&provider.getcurrency(&system_id).await?)?;
+    Ok(PreparationContext {
+        target,
+        current,
+        avatar_values,
+        header_values,
+        description_values,
+        system_id,
+        primary_addresses,
+        height,
+        export_fee_sats,
+    })
+}
+
+pub(crate) async fn prepare_template(
+    request: &IdentityProfilePreflightRequest,
+    context: &PreparationContext,
+    private_key: &[u8; 32],
+    provider: &VrpcProvider,
+) -> Result<PreparedTemplate, WalletError> {
+    let PreparationContext {
+        target,
+        current,
+        avatar_values,
+        header_values,
+        description_values,
+        system_id,
+        primary_addresses,
+        height,
+        export_fee_sats,
+    } = context;
+    let height = *height;
+    let avatar_bytes = decode_image_change(&request.avatar, false)?;
+    let header_bytes = decode_image_change(&request.header, true)?;
     let normalized_description = match &request.description {
         IdentityProfileDescriptionChange::Keep => None,
         IdentityProfileDescriptionChange::Set(value) => Some(normalize_description(value)?),
         IdentityProfileDescriptionChange::Remove => Some(String::new()),
     };
-    let avatar_changes = match (&request.avatar, &avatar_bytes, &current.avatar_base64) {
-        (IdentityProfileAvatarChange::Keep, _, _) => false,
-        (IdentityProfileAvatarChange::Remove, _, current) => current.is_some(),
-        (IdentityProfileAvatarChange::Set(_), Some(bytes), Some(current)) => BASE64_STANDARD
-            .decode(current)
-            .map(|value| value != *bytes)
-            .unwrap_or(true),
-        (IdentityProfileAvatarChange::Set(_), Some(_), None) => true,
-        _ => false,
-    };
+    let avatar_changes = image_changes(
+        &request.avatar,
+        avatar_bytes.as_deref(),
+        current.avatar_base64.as_deref(),
+    );
+    let header_changes = image_changes(
+        &request.header,
+        header_bytes.as_deref(),
+        current.header_base64.as_deref(),
+    );
     let description_changes = match &normalized_description {
         None => false,
         Some(value) if value.is_empty() => current.description.is_some(),
         Some(value) => current.description.as_deref() != Some(value.as_str()),
     };
-    if !avatar_changes && !description_changes {
+    if !avatar_changes && !header_changes && !description_changes {
         return Err(WalletError::IdentityProfileNoChanges);
     }
 
-    let height = extract_chain_height(&provider.getinfo().await?)
-        .map_err(|_| WalletError::IdentityBuildFailed)?;
     let mut content = BTreeMap::<String, Vec<Value>>::new();
     let mut removals = Vec::new();
+    let mut proposed = current.clone();
     let mut avatar_digest = None;
+    let mut header_digest = None;
     let mut description_digest = None;
     let mut changed_fields = Vec::new();
-    if avatar_changes {
-        changed_fields.push("avatar".to_string());
-        if let Some(value) = avatar_values.first() {
-            removals.push(removal_value(AVATAR_VDXF_KEY, value)?);
+    for (changes, key, label, values, bytes, digest_slot, base64_slot, snapshot_digest) in [
+        (
+            avatar_changes,
+            AVATAR_VDXF_KEY,
+            "avatar",
+            &avatar_values,
+            &avatar_bytes,
+            &mut avatar_digest,
+            &mut proposed.avatar_base64,
+            &mut proposed.avatar_digest,
+        ),
+        (
+            header_changes,
+            HEADER_VDXF_KEY,
+            "header",
+            &header_values,
+            &header_bytes,
+            &mut header_digest,
+            &mut proposed.header_base64,
+            &mut proposed.header_digest,
+        ),
+    ] {
+        if !changes {
+            continue;
         }
-        if let Some(bytes) = avatar_bytes.as_ref() {
+        changed_fields.push(label.to_string());
+        if let Some(value) = values.first() {
+            removals.push(removal_value(key, value)?);
+        }
+        *base64_slot = None;
+        *snapshot_digest = None;
+        if let Some(bytes) = bytes.as_ref() {
             let (value, digest) = signed_data_value(
                 &request.identity_address,
                 &system_id,
                 bytes,
                 AVATAR_MIME,
-                "avatar",
+                label,
                 height,
                 private_key,
             )?;
-            content.insert(AVATAR_VDXF_KEY.to_string(), vec![value]);
-            avatar_digest = Some(digest);
+            content.insert(key.to_string(), vec![value]);
+            *base64_slot = Some(BASE64_STANDARD.encode(bytes));
+            *snapshot_digest = Some(digest.clone());
+            *digest_slot = Some(digest);
         }
     }
+    if avatar_changes {
+        proposed.avatar_mime_type = avatar_bytes.as_ref().map(|_| AVATAR_MIME.to_string());
+    }
+    if header_changes {
+        proposed.header_mime_type = header_bytes.as_ref().map(|_| AVATAR_MIME.to_string());
+    }
     if description_changes {
+        proposed.description = normalized_description
+            .clone()
+            .filter(|value| !value.is_empty());
+        proposed.description_digest = None;
         changed_fields.push("description".to_string());
         if let Some(value) = description_values.first() {
             removals.push(removal_value(DESCRIPTION_VDXF_KEY, value)?);
@@ -553,6 +711,7 @@ pub(crate) async fn preflight(
                 private_key,
             )?;
             content.insert(DESCRIPTION_VDXF_KEY.to_string(), vec![data]);
+            proposed.description_digest = Some(digest.clone());
             description_digest = Some(digest);
         }
     }
@@ -562,6 +721,7 @@ pub(crate) async fn preflight(
 
     for (key, digest) in [
         (AVATAR_VDXF_KEY, avatar_digest.as_ref()),
+        (HEADER_VDXF_KEY, header_digest.as_ref()),
         (DESCRIPTION_VDXF_KEY, description_digest.as_ref()),
     ] {
         let Some(digest) = digest else { continue };
@@ -638,64 +798,75 @@ pub(crate) async fn preflight(
             return Err(WalletError::IdentityBuildFailed);
         }
     }
-    if let Some(bytes) = avatar_bytes.as_ref() {
-        let resolved = resolve_profile_payload(
-            &generated_descriptors(actual_map, AVATAR_VDXF_KEY)?,
-            &decoded,
+    let mut groups = Vec::new();
+    for (changed, key, bytes, mime, digest) in [
+        (
+            avatar_changes,
+            AVATAR_VDXF_KEY,
+            avatar_bytes.as_deref(),
             AVATAR_MIME,
-            &system_id,
-            &request.identity_address,
-            &primary_addresses,
-            Network::Testnet,
-        )?;
-        if resolved.bytes != *bytes || Some(hex::encode(resolved.digest)) != avatar_digest {
-            return Err(WalletError::IdentityBuildFailed);
-        }
-    }
-    if let Some(value) = normalized_description
-        .as_ref()
-        .filter(|value| !value.is_empty())
-    {
-        let resolved = resolve_profile_payload(
-            &generated_descriptors(actual_map, DESCRIPTION_VDXF_KEY)?,
-            &decoded,
+            &avatar_digest,
+        ),
+        (
+            header_changes,
+            HEADER_VDXF_KEY,
+            header_bytes.as_deref(),
+            AVATAR_MIME,
+            &header_digest,
+        ),
+        (
+            description_changes,
+            DESCRIPTION_VDXF_KEY,
+            normalized_description
+                .as_ref()
+                .filter(|value| !value.is_empty())
+                .map(|value| value.as_bytes()),
             DESCRIPTION_MIME,
+            &description_digest,
+        ),
+    ] {
+        if !changed {
+            continue;
+        }
+        let Some(bytes) = bytes else {
+            continue;
+        };
+        let resolved = resolve_profile_payload(
+            &generated_descriptors(actual_map, key)?,
+            &decoded,
+            &[mime],
             &system_id,
             &request.identity_address,
             &primary_addresses,
             Network::Testnet,
         )?;
-        if resolved.bytes != value.as_bytes()
-            || Some(hex::encode(resolved.digest)) != description_digest
+        groups.push(ProfileEvidenceGroup {
+            field: if key == AVATAR_VDXF_KEY {
+                "avatar"
+            } else if key == HEADER_VDXF_KEY {
+                "header"
+            } else {
+                "description"
+            }
+            .into(),
+            first_output: resolved.evidence_vout,
+            parts: resolved.evidence_parts,
+            encoded_bytes: bytes.len(),
+        });
+        if resolved.bytes != bytes || Some(hex::encode(resolved.digest)).as_ref() != digest.as_ref()
         {
             return Err(WalletError::IdentityBuildFailed);
         }
     }
 
     let mut template_tx = decode_verus_tx(&template_hex)?;
-    if template_tx.outputs.iter().any(|output| output.value != 0) {
-        return Err(WalletError::IdentityBuildFailed);
-    }
-    let export_fee_sats = transaction_export_fee_sats(&provider.getcurrency(&system_id).await?)?;
+    // Bound ambiguous-broadcast recovery even if a daemon template has no expiry.
+    template_tx.expiry_height = height
+        .checked_add(20)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    validate_template_layout(&template_tx, &decoded, &groups)?;
     let (fee_sats, evidence_bytes) =
-        calculate_fee(&template_tx, &decoded, &actual_control, export_fee_sats)?;
-    let funding_candidates = parse_funding_utxos(
-        &provider
-            .getaddressutxos(&[from_address.to_string()])
-            .await?,
-    );
-    if total_satoshis(&funding_candidates) < fee_sats {
-        return Err(WalletError::InsufficientFunds);
-    }
-    let (identity_script, identity_satoshis) =
-        fetch_identity_prevout(provider, &target.txid, target.vout).await?;
-    let proposed = proposed_snapshot(
-        &current,
-        &request.avatar,
-        avatar_digest.clone(),
-        &normalized_description,
-        description_digest.clone(),
-    );
+        calculate_fee(&template_tx, &decoded, &actual_control, *export_fee_sats)?;
     let profile_intent = ProfileTransactionIntent {
         identity_txid: target.txid.clone(),
         identity_vout: target.vout,
@@ -709,15 +880,123 @@ pub(crate) async fn preflight(
             .iter()
             .map(|output| output.value)
             .collect(),
-        avatar_digest: avatar_digest.clone(),
-        description_digest: description_digest.clone(),
+        avatar_digest,
+        header_digest,
+        description_digest,
         previous_profile: current.clone(),
-        proposed_profile: proposed.clone(),
+        proposed_profile: proposed,
+        publication: None,
     };
+    Ok(PreparedTemplate {
+        tx: template_tx,
+        control: actual_control,
+        intent: profile_intent,
+        fee_sats,
+        evidence_bytes,
+        groups,
+        changed_fields,
+    })
+}
+
+// Reject unknown, overlapping or unaccounted-for evidence; classify authenticated
+// descriptor groups, never encoded image lengths. Bind RPC decoding to raw scripts.
+fn validate_template_layout(
+    tx: &crate::core::channels::vrpc::identity::verus_tx::model::VerusTx,
+    decoded: &Value,
+    groups: &[ProfileEvidenceGroup],
+) -> Result<(), WalletError> {
+    let outputs = decoded
+        .get("vout")
+        .and_then(Value::as_array)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    if outputs.len() != tx.outputs.len() || tx.outputs.iter().any(|output| output.value != 0) {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let mut covered = std::collections::HashSet::new();
+    let mut fields = std::collections::HashSet::new();
+    for group in groups {
+        if !fields.insert(&group.field)
+            || !["avatar", "header", "description"].contains(&group.field.as_str())
+            || (group.field == "description" && group.parts != 1)
+        {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        if group.parts == 0 || group.parts > super::codec::MAX_EVIDENCE_PARTS {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+        for index in group.first_output
+            ..group
+                .first_output
+                .checked_add(group.parts)
+                .ok_or(WalletError::IdentityBuildFailed)?
+        {
+            if !covered.insert(index)
+                || outputs
+                    .get(index)
+                    .and_then(|out| out.pointer("/scriptPubKey/notaryevidence"))
+                    .is_none()
+            {
+                return Err(WalletError::IdentityBuildFailed);
+            }
+        }
+    }
+    for (index, (output, raw)) in outputs.iter().zip(&tx.outputs).enumerate() {
+        if output.pointer("/scriptPubKey/hex").and_then(Value::as_str)
+            != Some(hex::encode(&raw.script_pub_key).as_str())
+            || (output.pointer("/scriptPubKey/notaryevidence").is_some()
+                != covered.contains(&index))
+            || (!covered.contains(&index)
+                && output.pointer("/scriptPubKey/identityprimary").is_none())
+        {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn finish_preflight(
+    mut prepared: PreparedTemplate,
+    request: &IdentityProfilePreflightRequest,
+    publication: ProfilePublicationReview,
+    preflight_store: &PreflightStore,
+    account_id: &str,
+    session_id: &str,
+    from_address: &str,
+    channel_id: &str,
+    provider: &VrpcProvider,
+) -> Result<IdentityProfilePreflightResult, WalletError> {
+    if prepared.multipart_images() > 1 {
+        return Err(WalletError::IdentityBuildFailed);
+    }
+    let current_target = parse_target_identity(
+        provider
+            .getidentity_for_profile(&request.identity_address)
+            .await?,
+    )?;
+    if current_target.txid != prepared.intent.identity_txid
+        || current_target.vout != prepared.intent.identity_vout
+    {
+        return Err(WalletError::InvalidPreflight);
+    }
+    let fee_sats = prepared.fee_sats;
+    let funding_candidates = parse_funding_utxos(
+        &provider
+            .getaddressutxos(&[from_address.to_string()])
+            .await?,
+    );
+    if total_satoshis(&funding_candidates) < fee_sats {
+        return Err(WalletError::InsufficientFunds);
+    }
+    let (identity_script, identity_satoshis) = fetch_identity_prevout(
+        provider,
+        &prepared.intent.identity_txid,
+        prepared.intent.identity_vout,
+    )
+    .await?;
     let (unsigned_hex, signable_inputs, _) = build_unsigned_identity_tx(
-        &mut template_tx,
-        &target.txid,
-        target.vout,
+        &mut prepared.tx,
+        &prepared.intent.identity_txid,
+        prepared.intent.identity_vout,
         &identity_script,
         identity_satoshis,
         &funding_candidates,
@@ -739,7 +1018,7 @@ pub(crate) async fn preflight(
         .ok_or(WalletError::IdentityBuildFailed)?;
     validate_profile_intent(
         &unsigned_hex,
-        &profile_intent,
+        &prepared.intent,
         from_address,
         input_total,
         fee_sats,
@@ -755,8 +1034,8 @@ pub(crate) async fn preflight(
         from_address: from_address.to_string(),
         fee: fee.clone(),
         memo: None,
-        control_intent: actual_control,
-        profile_intent: Some(profile_intent),
+        control_intent: prepared.control,
+        profile_intent: Some(prepared.intent.clone()),
     };
     if !preflight_store.put_with_ttl(
         preflight_id.clone(),
@@ -778,13 +1057,14 @@ pub(crate) async fn preflight(
     Ok(IdentityProfilePreflightResult {
         preflight_id,
         expires_at,
-        current_profile: current,
-        proposed_profile: proposed,
+        current_profile: prepared.intent.previous_profile,
+        proposed_profile: prepared.intent.proposed_profile,
         fee_sats: fee_sats.to_string(),
         fee_display: fee,
         funding_summary: from_address.to_string(),
-        evidence_bytes,
-        changed_fields,
+        evidence_bytes: prepared.evidence_bytes,
+        changed_fields: prepared.changed_fields,
+        publication,
     })
 }
 
@@ -813,6 +1093,131 @@ mod tests {
             system_id: Some(vec![5; 20]),
             unlock_after: None,
         }
+    }
+
+    #[test]
+    fn layout_classifies_real_groups_and_rejects_overlap_or_unbound_outputs() {
+        let make = |avatar_parts: usize, header_parts: usize| {
+            let count = 1 + avatar_parts + header_parts + 1;
+            let tx = VerusTx {
+                version: 4,
+                overwintered: true,
+                version_group_id: SAPLING_VERSION_GROUP_ID,
+                inputs: vec![],
+                outputs: (0..count)
+                    .map(|index| VerusTxOut {
+                        value: 0,
+                        script_pub_key: vec![index as u8],
+                    })
+                    .collect(),
+                lock_time: 0,
+                expiry_height: 0,
+                value_balance: 0,
+            };
+            let decoded = json!({"vout": (0..count).map(|index| if index == 0 { json!({"scriptPubKey":{"hex":"00","identityprimary":{}}}) } else { json!({"scriptPubKey":{"hex":hex::encode([index as u8]),"notaryevidence":{}}}) }).collect::<Vec<_>>()});
+            let groups = vec![
+                ProfileEvidenceGroup {
+                    field: "avatar".into(),
+                    first_output: 1,
+                    parts: avatar_parts,
+                    encoded_bytes: 10_000,
+                },
+                ProfileEvidenceGroup {
+                    field: "header".into(),
+                    first_output: 1 + avatar_parts,
+                    parts: header_parts,
+                    encoded_bytes: 10_000,
+                },
+                ProfileEvidenceGroup {
+                    field: "description".into(),
+                    first_output: count - 1,
+                    parts: 1,
+                    encoded_bytes: 10,
+                },
+            ];
+            (tx, decoded, groups)
+        };
+        for (avatar, header, multipart) in [(1, 1, 0), (2, 1, 1), (1, 6, 1), (2, 3, 2)] {
+            let (tx, decoded, groups) = make(avatar, header);
+            validate_template_layout(&tx, &decoded, &groups).unwrap();
+            assert_eq!(
+                groups.iter().filter(|group| group.parts > 1).count(),
+                multipart
+            );
+        }
+        let (tx, mut decoded, mut groups) = make(2, 2);
+        groups[1].first_output = 2;
+        assert!(validate_template_layout(&tx, &decoded, &groups).is_err());
+        groups[1].first_output = 3;
+        decoded["vout"][1]["scriptPubKey"]["hex"] = json!("ff");
+        assert!(validate_template_layout(&tx, &decoded, &groups).is_err());
+        let (mut tx, decoded, groups) = make(1, 1);
+        tx.outputs[1].value = 1;
+        assert!(validate_template_layout(&tx, &decoded, &groups).is_err());
+    }
+
+    #[test]
+    fn image_changes_distinguish_keep_noop_replace_and_remove() {
+        use IdentityProfileAvatarChange::*;
+        let encoded = BASE64_STANDARD.encode(b"image");
+        assert!(!image_changes(&Keep, None, Some(&encoded)));
+        assert!(!image_changes(
+            &Set {
+                value: encoded.clone(),
+                mime_type: AVATAR_MIME.into()
+            },
+            Some(b"image"),
+            Some(&encoded)
+        ));
+        assert!(image_changes(
+            &Set {
+                value: encoded.clone(),
+                mime_type: AVATAR_MIME.into()
+            },
+            Some(b"new image"),
+            Some(&encoded)
+        ));
+        assert!(image_changes(&Remove, None, Some(&encoded)));
+        assert!(!image_changes(&Remove, None, None));
+    }
+
+    #[test]
+    fn header_set_is_validated_before_signing_and_keep_remove_need_no_image() {
+        assert!(
+            decode_image_change(&IdentityProfileAvatarChange::Keep, true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            decode_image_change(&IdentityProfileAvatarChange::Remove, true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            decode_image_change(
+                &IdentityProfileAvatarChange::Set {
+                    value: "?".into(),
+                    mime_type: AVATAR_MIME.into()
+                },
+                true
+            ),
+            Err(WalletError::IdentityProfileInvalidHeader)
+        ));
+        let mut bytes = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+            .encode(
+                &vec![0; 960 * 160 * 3],
+                960,
+                160,
+                image::ExtendedColorType::Rgb8,
+            )
+            .unwrap();
+        let change = IdentityProfileAvatarChange::Set {
+            value: BASE64_STANDARD.encode(&bytes),
+            mime_type: AVATAR_MIME.into(),
+        };
+        assert_eq!(decode_image_change(&change, true).unwrap(), Some(bytes));
+        assert!(decode_image_change(&change, false).is_err());
     }
 
     #[test]
