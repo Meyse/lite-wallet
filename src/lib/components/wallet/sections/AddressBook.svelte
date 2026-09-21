@@ -33,6 +33,7 @@
   import PublicProfile from '../contacts/PublicProfile.svelte';
   import IdentityLookup from '../contacts/IdentityLookup.svelte';
   import {
+    contactChainId,
     contactName,
     contactProfile,
     endpointIdentity,
@@ -41,6 +42,7 @@
   } from '$lib/contacts/identity';
   import { loadContacts, resolveContactIdentity } from '$lib/contacts/service';
   import { contactSession, contactsLoadState } from '$lib/contacts/session';
+  import type { ContactReturnState } from '$lib/contacts/navigation';
 
   type EndpointDraft = {
     id?: string;
@@ -55,10 +57,18 @@
 
   let {
     requestedIdentity = null,
+    returnState = null,
+    onViewProfile,
+    profileNavigationDisabled = false,
+    restoreProfileFocus = false,
     onReturn,
     returnLabel = '',
   }: {
     requestedIdentity?: ContactIdentity | null;
+    returnState?: ContactReturnState | null;
+    onViewProfile?: (identity: ContactIdentity, returnState: ContactReturnState) => void;
+    profileNavigationDisabled?: boolean;
+    restoreProfileFocus?: boolean;
     onReturn?: () => void;
     returnLabel?: string;
   } = $props();
@@ -68,6 +78,14 @@
 
   let searchTerm = $state('');
   let selectedContactId = $state<string | null>(null);
+  let viewProfileButton = $state<HTMLButtonElement | null>(null);
+  let profileFocusRestored = false;
+
+  $effect(() => {
+    if (!restoreProfileFocus || profileFocusRestored || !viewProfileButton) return;
+    profileFocusRestored = true;
+    viewProfileButton.focus();
+  });
 
   let formMode = $state<FormMode>(null);
   let formContactId = $state<string | null>(null);
@@ -106,14 +124,15 @@
   $effect(() => {
     $contactSession;
     cancelForm();
-    selectedContactId = null;
-    searchTerm = '';
+    const restored = untrack(() => returnState);
+    selectedContactId = restored?.contactId ?? null;
+    searchTerm = restored?.searchTerm ?? '';
     showDeleteDialog = false;
   });
 
   $effect(() => {
     const identity = requestedIdentity;
-    if (!identity) return;
+    if (!identity || returnState) return;
     untrack(() => {
       const matches = matchingContacts(contacts, identity);
       selectedContactId = matches.length === 1 ? matches[0].id : null;
@@ -950,12 +969,32 @@
           <ScrollArea.Viewport>
             <div class="mx-auto w-full max-w-2xl pb-5">
               <ContactDetail contact={selectedContact}>
-                {#snippet actions()}<Button
-                    variant="secondary"
-                    size="sm"
-                    onclick={() => startEditContact(selectedContact)}
-                    >{i18n.t('wallet.addressBook.edit')}</Button
-                  >{/snippet}
+                {#snippet actions()}
+                  <div class="flex items-center gap-2">
+                    {#if onViewProfile}
+                      {@const profileIdentity = contactProfile(selectedContact)}
+                      {#if profileIdentity && profileIdentity.network === $contactSession?.network && profileIdentity.chainId === contactChainId(profileIdentity.network)}
+                        <Button
+                          bind:ref={viewProfileButton}
+                          variant="secondary"
+                          size="sm"
+                          disabled={profileNavigationDisabled}
+                          onclick={() =>
+                            onViewProfile?.(profileIdentity, {
+                              contactId: selectedContact.id,
+                              searchTerm,
+                            })}>{i18n.t('wallet.identity.lookup.viewProfile')}</Button
+                        >
+                      {/if}
+                    {/if}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onclick={() => startEditContact(selectedContact)}
+                      >{i18n.t('wallet.addressBook.edit')}</Button
+                    >
+                  </div>
+                {/snippet}
               </ContactDetail>
             </div>
           </ScrollArea.Viewport>

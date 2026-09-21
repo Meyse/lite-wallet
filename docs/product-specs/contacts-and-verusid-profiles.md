@@ -151,14 +151,14 @@ With several matches, **View in contacts** shows the matching local contacts in
 Contacts for the user to choose. Do not arbitrarily select one or display
 another contact's private notes inside the public profile preview.
 
-Inside **Contacts**, selecting a list row opens the full contact profile
-directly: avatar, VerusID name, description, and manually saved addresses. Show
-the name once in the profile heading, without a separate alias or duplicate ID
-line. Search identity-backed contacts by their VerusID; address-only contacts
-remain searchable by their local names and saved addresses. The profile heading
-copies the human-readable VerusID. Omit its canonical i-address from contact
-details and editing; retain it unchanged in storage. Additional saved addresses
-remain accessible. Add contact is the primary action.
+Inside **Contacts**, selecting a list row opens its local contact detail with
+the avatar, VerusID name, copyable identity identifier, and saved addresses or
+note. Search identity-backed contacts by their VerusID; address-only contacts
+remain searchable by their local names and saved addresses. For an associated
+VerusID on the current network, **View profile** beside **Edit** opens the full
+public profile in VerusID. **Back to contacts** restores the selected contact,
+search filter, and focus on **View profile** when available. Address-only
+contacts have no profile action.
 
 ## Profile preview
 

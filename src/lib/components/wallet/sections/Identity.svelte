@@ -31,6 +31,7 @@
     ProvisioningJobRecord,
   } from '$lib/types/wallet.js';
   import type { ResolvedContactIdentity } from '$lib/types/addressBook';
+  import type { ContactReturnState } from '$lib/contacts/navigation';
   import { formatIdentityDisplayName } from '$lib/utils/identityDisplay';
   import {
     isCompleteProfileRemoval,
@@ -65,12 +66,14 @@
     sessionState = createIdentitySectionSessionState(),
     onSessionStateChange = noop,
     navigationDisabled = false,
+    onReturnToContacts,
     onSend = noopIdentity,
   }: {
     walletNetwork?: 'mainnet' | 'testnet';
     sessionState?: IdentitySectionSessionState;
     onSessionStateChange?: (nextState: IdentitySectionSessionState) => void;
     navigationDisabled?: boolean;
+    onReturnToContacts?: (returnState: ContactReturnState) => void;
     onSend?: (identity: ResolvedContactIdentity) => void;
   } = $props();
 
@@ -621,7 +624,12 @@
   }
 
   function closePublicProfile(): void {
+    const origin = publicProfile?.origin;
     publicProfile = null;
+    if (origin?.kind === 'contacts') {
+      onReturnToContacts?.(origin.returnState);
+      return;
+    }
     activeTab = 'lookup';
     restoreLookupFocus = true;
     void tick();
@@ -779,6 +787,9 @@
       linkedUnavailable={Boolean(error)}
       onRetryLinked={() => void loadLinkedIdentities()}
       {navigationDisabled}
+      backLabel={publicProfile.origin.kind === 'contacts'
+        ? i18n.t('wallet.identity.publicProfile.backToContacts')
+        : undefined}
       onBack={closePublicProfile}
       {onSend}
     />

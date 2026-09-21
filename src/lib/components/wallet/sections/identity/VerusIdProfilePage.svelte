@@ -53,6 +53,7 @@
     onRetryLinked = () => {},
     content = {},
     navigationDisabled = false,
+    backLabel,
     onBack = () => {},
     onSend = (_identity: ResolvedContactIdentity) => {},
   }: {
@@ -74,6 +75,7 @@
     onRetryLinked?: () => void;
     content?: PublicProfileContent;
     navigationDisabled?: boolean;
+    backLabel?: string;
     onBack?: () => void;
     onSend?: (identity: ResolvedContactIdentity) => void;
   } = $props();
@@ -298,9 +300,9 @@
   {/if}
   <div class="flex h-9 shrink-0 items-start justify-between">
     <NavigationBackButton
-      label={i18n.t(
-        owner ? 'wallet.identity.detail.back' : 'wallet.identity.publicProfile.backToSearch'
-      )}
+      label={owner
+        ? i18n.t('wallet.identity.detail.back')
+        : (backLabel ?? i18n.t('wallet.identity.publicProfile.backToSearch'))}
       onclick={onBack}
     />
     {#if owner}<InlineTextActionButton

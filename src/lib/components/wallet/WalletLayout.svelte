@@ -9,6 +9,7 @@
   import { tick } from 'svelte';
   import type { ContactIdentity } from '$lib/types/addressBook';
   import { provideContactNavigation } from '$lib/contacts/navigation';
+  import type { ContactReturnState } from '$lib/contacts/navigation';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Alert from '$lib/components/ui/alert';
@@ -89,6 +90,7 @@
   let transferDraft = $state<TransferDraft | null>(null);
   let nextDraftId = 0;
   let requestedContactIdentity = $state<ContactIdentity | null>(null);
+  let contactReturnState = $state<ContactReturnState | null>(null);
   let pendingTransfer = $state<{
     intent: 'send' | 'convert';
     context: TransferEntryContext | null;
@@ -140,16 +142,26 @@
     if (navigationLocked) return;
     if (currentDraft && isTransferSection) transferFocus = focus;
     requestedContactIdentity = identity;
+    contactReturnState = null;
     activeSection = 'address-book';
     closeGenericRequestFlow();
   });
 
   $effect(() => {
-    if (activeSection !== 'address-book') requestedContactIdentity = null;
+    if (
+      activeSection !== 'address-book' &&
+      !(
+        activeSection === 'identity' &&
+        identitySectionSession.publicProfile?.origin.kind === 'contacts'
+      )
+    ) {
+      requestedContactIdentity = null;
+    }
   });
 
   function navigateToSection(section: SectionId): void {
     if (navigationLocked) return;
+    if (section !== 'address-book') contactReturnState = null;
     if (
       isTransferSection &&
       document.activeElement instanceof HTMLElement &&
@@ -262,6 +274,7 @@
     identitySectionWalletKey = nextWalletKey;
     identitySectionSession = createIdentitySectionSessionState();
     requestedContactIdentity = null;
+    contactReturnState = null;
   });
 
   function resolveGenericRequestErrorMessage(errorValue: unknown): string {
@@ -499,6 +512,11 @@
                 identitySectionSession = nextState;
               }}
               navigationDisabled={navigationLocked}
+              onReturnToContacts={(returnState) => {
+                identitySectionSession = { ...identitySectionSession, publicProfile: null };
+                contactReturnState = returnState;
+                activeSection = 'address-book';
+              }}
               onSend={(identity) => {
                 requestTransfer('send', null, identity);
               }}
@@ -515,6 +533,18 @@
         {:else if activeSection === 'address-book'}
           <AddressBook
             requestedIdentity={requestedContactIdentity}
+            returnState={contactReturnState}
+            profileNavigationDisabled={navigationLocked}
+            restoreProfileFocus={Boolean(contactReturnState)}
+            onViewProfile={(identity, returnState) => {
+              if (navigationLocked) return;
+              contactReturnState = returnState;
+              identitySectionSession = {
+                ...identitySectionSession,
+                publicProfile: { identity, origin: { kind: 'contacts', returnState } },
+              };
+              activeSection = 'identity';
+            }}
             onReturn={requestedContactIdentity && currentDraft ? resumeTransfer : undefined}
             returnLabel={requestedContactIdentity && currentDraft
               ? i18n.t(

@@ -1134,6 +1134,7 @@ export const en: Record<string, string> = {
   'wallet.identity.publicProfile.visitSocial': 'View profile',
   'wallet.identity.publicProfile.visitProof': 'View proof post',
   'wallet.identity.publicProfile.backToSearch': 'Back to search',
+  'wallet.identity.publicProfile.backToContacts': 'Back to contacts',
   'wallet.identity.publicProfile.send': 'Send',
   'wallet.identity.publicProfile.inContacts': 'In contacts',
   'wallet.identity.publicProfile.checkingContacts': 'Checking contacts…',

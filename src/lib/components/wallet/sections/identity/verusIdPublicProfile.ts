@@ -1,4 +1,5 @@
 import type { ResolvedContactIdentity } from '$lib/types/addressBook';
+import type { ContactReturnState } from '$lib/contacts/navigation';
 
 export type IdentitySectionTab = 'linked' | 'lookup';
 
@@ -12,9 +13,8 @@ export type VerusIdLookupState = {
   scrollTop: number;
 };
 
-export type VerusIdProfileOrigin = {
-  kind: 'lookup';
-};
+export type VerusIdProfileOrigin =
+  { kind: 'lookup' } | { kind: 'contacts'; returnState: ContactReturnState };
 
 export type VerusIdProfileDestination = {
   identity: ResolvedContactIdentity;

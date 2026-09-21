@@ -68,6 +68,7 @@ vi.mock('./identity/LinkIdentitySheet.svelte', async () => ({
 }));
 
 import { localeStore } from '$lib/i18n';
+import { contactSession } from '$lib/contacts/session';
 import Identity from './Identity.svelte';
 import { createIdentitySectionSessionState } from './identity/identitySectionSessionState';
 
@@ -173,6 +174,52 @@ beforeEach(() => {
   mocks.listIdentityProvisioningJobs.mockReset().mockResolvedValue([]);
   mocks.toastError.mockReset();
   mocks.toastSuccess.mockReset();
+});
+
+describe('mounted public profile opened from Contacts', () => {
+  it('returns to the same contact instead of the VerusID search', async () => {
+    contactSession.set({ sessionId: 'contact-profile-test', network: 'testnet' });
+    mocks.getIdentityDetails.mockResolvedValue(null);
+    const returnState = { contactId: 'alice', searchTerm: 'alice' };
+    const onReturnToContacts = vi.fn();
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Identity, {
+      target,
+      props: {
+        walletNetwork: 'testnet',
+        sessionState: {
+          ...initialSessionState(),
+          publicProfile: {
+            identity: {
+              identityAddress: 'iContactIdentity',
+              fullyQualifiedName: 'alice.example@',
+              network: 'testnet',
+              chainId: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq',
+            },
+            origin: { kind: 'contacts', returnState },
+          },
+        },
+        onReturnToContacts,
+      },
+    });
+
+    try {
+      await settle();
+      const back = [...target.querySelectorAll<HTMLButtonElement>('button')].find(
+        (candidate) => candidate.textContent?.trim() === 'Back to contacts'
+      );
+      expect(back).toBeDefined();
+      back?.click();
+      await settle();
+      expect(onReturnToContacts).toHaveBeenCalledExactlyOnceWith(returnState);
+      expect(target.textContent).not.toContain('Back to search');
+    } finally {
+      await unmount(component);
+      target.remove();
+      contactSession.set(null);
+    }
+  });
 });
 
 describe('mounted identity empty state', () => {

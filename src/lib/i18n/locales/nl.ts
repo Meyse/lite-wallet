@@ -1159,6 +1159,7 @@ export const nl: Record<string, string> = {
   'wallet.identity.publicProfile.visitSocial': 'Bekijk profiel',
   'wallet.identity.publicProfile.visitProof': 'Bekijk bewijsbericht',
   'wallet.identity.publicProfile.backToSearch': 'Terug naar zoeken',
+  'wallet.identity.publicProfile.backToContacts': 'Terug naar contacten',
   'wallet.identity.publicProfile.send': 'Verzenden',
   'wallet.identity.publicProfile.inContacts': 'In contacten',
   'wallet.identity.publicProfile.checkingContacts': 'Contacten controleren…',

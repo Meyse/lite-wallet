@@ -5,6 +5,8 @@ import { get } from 'svelte/store';
 import { setLocale } from '$lib/i18n';
 import { identityKey } from '$lib/contacts/identity';
 import { identityProfiles } from '$lib/contacts/profiles';
+import { contactSession } from '$lib/contacts/session';
+import type { ContactReturnState } from '$lib/contacts/navigation';
 import { addressBookStore } from '$lib/stores/addressBook';
 import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
 import AddressBook from './AddressBook.svelte';
@@ -76,11 +78,19 @@ async function input(selector: string, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   await settle();
 }
-async function render(contacts = [structuredClone(contact)], requestedIdentity?: ContactIdentity) {
+async function render(
+  contacts = [structuredClone(contact)],
+  requestedIdentity?: ContactIdentity,
+  options: {
+    returnState?: ContactReturnState;
+    onViewProfile?: (identity: ContactIdentity, returnState: ContactReturnState) => void;
+    restoreProfileFocus?: boolean;
+  } = {}
+) {
   addressBookStore.set(contacts);
   const target = document.createElement('div');
   document.body.append(target);
-  component = mount(AddressBook, { target, props: { requestedIdentity } });
+  component = mount(AddressBook, { target, props: { requestedIdentity, ...options } });
   await settle();
 }
 
@@ -96,6 +106,7 @@ afterEach(async () => {
   document.body.replaceChildren();
   addressBookStore.set([]);
   identityProfiles.set({});
+  contactSession.set(null);
 });
 
 describe('address book contact workflows', () => {
@@ -118,6 +129,39 @@ describe('address book contact workflows', () => {
       },
     ],
   };
+
+  it('opens the selected contact VerusID profile and restores the contact view state', async () => {
+    contactSession.set({ sessionId: 'contacts-profile-test', network: 'testnet' });
+    identityProfiles.set({
+      [identityKey(identity)]: {
+        profile: null,
+        loading: false,
+        unavailable: true,
+        checkedAt: Date.now(),
+      },
+    });
+    const onViewProfile = vi.fn();
+    const returnState = { contactId: identityContact.id, searchTerm: 'alice' };
+    await render([contact, identityContact], undefined, {
+      returnState,
+      onViewProfile,
+      restoreProfileFocus: true,
+    });
+
+    expect(document.querySelector<HTMLInputElement>('aside input')?.value).toBe('alice');
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain(
+      identity.fullyQualifiedName
+    );
+    expect(document.activeElement?.textContent?.trim()).toBe('View profile');
+    button('View profile').click();
+    expect(onViewProfile).toHaveBeenCalledWith(identity, returnState);
+
+    await unmount(component);
+    document.body.replaceChildren();
+    await render([contact], undefined, { onViewProfile });
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain('Mum');
+    expect(document.body.textContent).not.toContain('View profile');
+  });
 
   it('shows the VerusID name and identifier without its description and preserves it when editing', async () => {
     const description = 'A published profile description.';
