@@ -754,7 +754,7 @@
                 <li>
                   <button
                     type="button"
-                    class="grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none focus-visible:ring-inset"
+                    class="group/asset-row relative isolate grid w-full grid-cols-[minmax(0,1fr)_11rem_10.25rem_auto] items-center gap-3.5 rounded-md px-3.5 py-3 text-left before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-r before:from-transparent before:via-muted/25 before:to-transparent before:opacity-0 before:transition-opacity hover:before:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none focus-visible:ring-inset dark:before:via-muted/15"
                     onclick={() =>
                       onOpenAssetDetails({
                         walletEntryKind: row.walletEntryKind,
@@ -850,7 +850,7 @@
                     </div>
 
                     <ChevronRightIcon
-                      class="h-[18px] w-[18px] justify-self-end text-muted-foreground/70"
+                      class="h-[18px] w-[18px] justify-self-end text-muted-foreground/70 transition-colors group-hover/asset-row:text-foreground dark:group-hover/asset-row:text-white"
                       aria-hidden="true"
                     />
                   </button>
