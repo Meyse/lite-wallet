@@ -358,7 +358,7 @@
       <ScrollArea.Scrollbar orientation="vertical" />
     </ScrollArea.Root>
   {:else}
-    {#if initialLoading || loadError || records.length > 0}
+    {#if !initialLoading && (loadError || records.length > 0)}
       <header class="flex h-[58px] shrink-0 items-center justify-between gap-4 px-8">
         <h2 class="text-2xl leading-8 font-semibold tracking-tight">
           {i18n.t('wallet.watchlist.title')}
@@ -373,11 +373,17 @@
     {/if}
 
     {#if initialLoading}
-      <div class="flex flex-1 items-center justify-center text-settings-muted-foreground">
-        <LoaderCircleIcon
-          class="size-5 animate-spin motion-reduce:animate-none"
-          aria-hidden="true"
-        />
+      <div
+        class="flex min-h-0 flex-1 flex-col items-center px-8 pt-[114px] pb-10 text-center"
+        data-testid="watchlist-loading"
+        role="status"
+      >
+        <div class="mb-4 flex h-[132px] w-[156px] shrink-0 items-center justify-center">
+          <LoaderCircleIcon
+            class="size-5 animate-spin text-settings-muted-foreground motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        </div>
         <span class="sr-only">{i18n.t('common.loading')}</span>
       </div>
     {:else if loadError && records.length === 0}

@@ -199,6 +199,10 @@ window.__TAURI_INTERNALS__ = {
           }
         : identity;
     if (command === 'list_address_book_contacts') return structuredClone(contacts);
+    if (command === 'get_watchlist_entries') {
+      if (window.fixture.delay) await new Promise((r) => setTimeout(r, window.fixture.delay));
+      return [];
+    }
     if (command === 'save_address_book_contact') {
       await new Promise((r) => setTimeout(r, window.fixture.delay));
       if (window.fixture.fail || (params.has('failOnce') && saveAttempts++ === 0))

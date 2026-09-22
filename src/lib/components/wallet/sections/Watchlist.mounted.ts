@@ -140,6 +140,25 @@ afterEach(async () => {
 });
 
 describe('watchlist workflows', () => {
+  it('does not flash the list header while an empty watchlist loads', async () => {
+    let finishLoad!: (entries: WatchlistEntry[]) => void;
+    service.getWatchlistEntries.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLoad = resolve;
+        })
+    );
+
+    await render();
+    expect(document.querySelector('[data-testid="watchlist-loading"]')).not.toBeNull();
+    expect(document.querySelector('header')).toBeNull();
+
+    finishLoad([]);
+    await settle();
+    expect(document.querySelector('[data-testid="watchlist-empty"]')).not.toBeNull();
+    expect(document.querySelector('header')).toBeNull();
+  });
+
   it('shows a concise encrypted empty state', async () => {
     await render();
 
