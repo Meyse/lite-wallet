@@ -1,7 +1,7 @@
 <script lang="ts">
   import PlusIcon from '@lucide/svelte/icons/plus';
   import MinusIcon from '@lucide/svelte/icons/minus';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import { onDestroy, tick, untrack } from 'svelte';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
@@ -948,10 +948,7 @@
                     aria-live="polite"
                   >
                     {#if saving}
-                      <LoaderCircleIcon
-                        class="absolute left-2.5 size-3.5 animate-spin motion-reduce:animate-none"
-                        aria-hidden="true"
-                      />
+                      <Spinner class="absolute left-2.5 size-3.5" />
                     {/if}
                     <span
                       >{i18n.t(
@@ -1037,10 +1034,7 @@
         disabled={deleting}
         aria-busy={deleting}
       >
-        {#if deleting}<LoaderCircleIcon
-            class="size-3.5 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />{/if}
+        {#if deleting}<Spinner class="size-3.5" />{/if}
         {deleting
           ? i18n.t('wallet.addressBook.deleting')
           : i18n.t('wallet.addressBook.deleteContact')}

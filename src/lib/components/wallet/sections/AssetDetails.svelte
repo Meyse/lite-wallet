@@ -1426,9 +1426,7 @@
                     aria-busy={loadingMoreTransactions}
                     onclick={retryLoadMoreTransactions}
                   >
-                    {#if loadingMoreTransactions}<Spinner
-                        class="size-3.5 motion-reduce:animate-none"
-                      />{/if}
+                    {#if loadingMoreTransactions}<Spinner class="size-3.5" />{/if}
                     {i18n.t(
                       loadingMoreTransactions
                         ? 'wallet.loading.fetchingTransactions'

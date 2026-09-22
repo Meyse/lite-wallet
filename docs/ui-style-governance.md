@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-15
+last_reviewed: 2026-09-22
 ---
 
 # UI style governance
@@ -46,6 +46,24 @@ appearing without first deciding that they are now part of the style.
   equal heights. Avoid arbitrary intermediate heights unless a documented design
   source explicitly requires them. The wallet Overview's approved 34px
   search-and-sort toolbar remains such an exception.
+
+## Loading indicators
+
+Use `Spinner` from `$lib/components/ui/spinner` for generic indeterminate work.
+It uses Lucide's open-circle loader and accepts the existing icon sizing and
+positioning props. Keep rotating refresh arrows on refresh actions and retain
+skeletons for content that is still loading.
+
+The spinner is decorative by default. A parent status region or button owns its
+localized text and busy state, so the icon does not announce a second "Loading"
+message. For a spinner-only status without a labeled parent, pass
+`aria-label={i18n.t('common.loading')}` (or an action-specific translation), or
+reference existing localized text with `aria-labelledby`. Watchlist's loading
+container already supplies a status region and screen-reader-only text.
+
+`src/app.css` stops `animate-spin` under `prefers-reduced-motion: reduce` for
+both spinners and refresh arrows. Keep that policy centralized; callers only
+choose the icon's size, placement, and color.
 
 ## Back navigation
 

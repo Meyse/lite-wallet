@@ -4,7 +4,7 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
@@ -3782,11 +3782,7 @@
             aria-busy={preflighting}
           >
             {#if preflighting}
-              <LoaderCircleIcon
-                data-transfer-preflight-spinner
-                class="size-4 animate-spin"
-                aria-hidden="true"
-              />
+              <Spinner data-transfer-preflight-spinner class="size-4" />
             {/if}
             {primaryLabel}
           </Button>
@@ -3812,11 +3808,7 @@
       <div class="hidden w-full justify-end md:flex">
         <Button onclick={continueFlow} disabled={primaryDisabled} aria-busy={preflighting}>
           {#if preflighting && currentStep === 'details'}
-            <LoaderCircleIcon
-              data-transfer-preflight-spinner
-              class="size-4 animate-spin"
-              aria-hidden="true"
-            />
+            <Spinner data-transfer-preflight-spinner class="size-4" />
           {/if}
           {primaryLabel}
         </Button>

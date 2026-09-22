@@ -1,6 +1,6 @@
 <script lang="ts">
   import ClipboardPasteIcon from '@lucide/svelte/icons/clipboard-paste';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Label } from '$lib/components/ui/label';
@@ -25,7 +25,7 @@
     value = $bindable(''),
     submitting = false,
     errorMessage = '',
-    onSubmit = defaultSubmit
+    onSubmit = defaultSubmit,
   }: GenericRequestImportSheetProps = $props();
 
   const i18n = $derived($i18nStore);
@@ -70,14 +70,14 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 absolute top-2 right-2 z-10 rounded-sm"
+          class="absolute top-2 right-2 z-10 rounded-sm text-muted-foreground hover:text-foreground focus-visible:ring-ring/50"
           aria-label={i18n.t('genericRequest.import.pasteTooltip')}
           title={i18n.t('genericRequest.import.pasteTooltip')}
           disabled={pasteBusy || submitting}
           onclick={() => void handlePaste()}
         >
           {#if pasteBusy}
-            <LoaderCircleIcon class="size-4 animate-spin" />
+            <Spinner class="size-4" />
           {:else}
             <ClipboardPasteIcon class="size-4" />
           {/if}
@@ -104,14 +104,16 @@
       <p class="mt-2 text-xs text-muted-foreground">{i18n.t('genericRequest.import.help')}</p>
 
       {#if errorMessage}
-        <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">{errorMessage}</p>
+        <p class="mt-3 rounded-md bg-destructive/12 px-3 py-2 text-sm text-destructive">
+          {errorMessage}
+        </p>
       {/if}
     </div>
 
     <div class="mt-4 flex items-center justify-end gap-3">
       <Button class="gap-2" disabled={!value.trim() || submitting} onclick={handleSubmit}>
         {#if submitting}
-          <LoaderCircleIcon class="size-4 animate-spin" />
+          <Spinner class="size-4" />
         {/if}
         {i18n.t('genericRequest.import.submit')}
       </Button>

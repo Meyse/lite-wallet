@@ -7,7 +7,7 @@
   import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import GlobeIcon from '@lucide/svelte/icons/globe';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
   import WalletIcon from '@lucide/svelte/icons/wallet';
@@ -366,12 +366,8 @@
             disabled={!linkedUnavailable || navigationDisabled}
             onclick={onRetryLinked}
           >
-            {#if linkedUnavailable}<RotateCwIcon
+            {#if linkedUnavailable}<RotateCwIcon class="size-4" aria-hidden="true" />{:else}<Spinner
                 class="size-4"
-                aria-hidden="true"
-              />{:else}<LoaderCircleIcon
-                class="size-4 animate-spin motion-reduce:animate-none"
-                aria-hidden="true"
               />{/if}
             {i18n.t(linkedUnavailable ? 'common.retry' : 'common.loading')}
           </Button>
@@ -399,9 +395,8 @@
             aria-busy={saveState === 'saving'}
             onclick={() => void activateContactAction()}
           >
-            {#if saveState === 'saving' || $contactsLoadState === 'loading'}<LoaderCircleIcon
-                class="size-4 animate-spin motion-reduce:animate-none"
-                aria-hidden="true"
+            {#if saveState === 'saving' || $contactsLoadState === 'loading'}<Spinner
+                class="size-4"
               />
             {:else if inContacts}<CheckIcon class="size-4" aria-hidden="true" />
             {:else if saveState === 'error' || $contactsLoadState === 'error'}<RotateCwIcon
@@ -581,10 +576,7 @@
                   class="flex items-center gap-2 py-3 text-[13px] text-muted-foreground"
                   role="status"
                 >
-                  <LoaderCircleIcon
-                    class="size-3.5 animate-spin motion-reduce:animate-none"
-                    aria-hidden="true"
-                  />{i18n.t('common.loading')}
+                  <Spinner class="size-3.5" />{i18n.t('common.loading')}
                 </p>
               {:else if detailsState === 'error'}<div
                   class="flex items-center gap-2 py-3 text-[13px] text-muted-foreground"

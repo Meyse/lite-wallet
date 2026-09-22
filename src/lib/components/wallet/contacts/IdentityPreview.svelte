@@ -7,7 +7,7 @@
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import BookUserIcon from '@lucide/svelte/icons/book-user';
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import type { ContactIdentity } from '$lib/types/addressBook';
@@ -267,10 +267,7 @@
           }
         }}
       >
-        {#if saveState === 'saving' || $contactsLoadState === 'loading'}<LoaderCircleIcon
-            class="size-3.5 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />
+        {#if saveState === 'saving' || $contactsLoadState === 'loading'}<Spinner class="size-3.5" />
         {:else if saveState === 'saved'}<span class="saved-check"
             ><CheckIcon class="size-3.5" aria-hidden="true" /></span
           >

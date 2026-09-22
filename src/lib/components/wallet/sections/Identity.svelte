@@ -943,9 +943,7 @@
                         disabled={provisioningRefreshBusy || provisioningBusyJobId !== null}
                       >
                         <RefreshCwIcon
-                          class={provisioningRefreshBusy
-                            ? 'size-4 animate-spin motion-reduce:animate-none'
-                            : 'size-4'}
+                          class={provisioningRefreshBusy ? 'size-4 animate-spin' : 'size-4'}
                           aria-hidden="true"
                         />
                         {i18n.t('wallet.identity.provisioning.refresh')}

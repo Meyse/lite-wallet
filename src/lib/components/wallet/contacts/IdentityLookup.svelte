@@ -1,5 +1,5 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import BookUserIcon from '@lucide/svelte/icons/book-user';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
@@ -149,10 +149,7 @@
         aria-disabled={saving || saveState === 'saved' || $contactsLoadState !== 'ready'}
         onclick={save}
       >
-        {#if saving}<LoaderCircleIcon
-            class="size-3.5 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />
+        {#if saving}<Spinner class="size-3.5" />
         {:else if saveState === 'saved'}<span class="saved-check"
             ><CheckIcon class="size-3.5" aria-hidden="true" /></span
           >

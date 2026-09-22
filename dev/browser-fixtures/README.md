@@ -11,6 +11,14 @@ pnpm exec vite --config dev/browser-fixtures/vite.config.js
 
 Open either page on `http://127.0.0.1:1428`:
 
+- `/dev/browser-fixtures/spinner.html`: compact examples using production
+  Spinner, VerusIdLookup, TransferSourceStatus, and DelayedStatus components,
+  plus the existing refresh-button pattern. Click Find VerusID to hold the
+  request. `?screen=watchlist` holds the production Watchlist's initial read;
+  `?screen=watchlist&refresh` holds its refresh action with a synthetic entry.
+  Supports `theme=dark` and `locale=nl`. Reduced motion follows the browser's
+  preference. These examples cannot access a wallet or sign transactions.
+
 - `/dev/browser-fixtures/profile.html`: selected Paper 05 profile, using
   production components and synthetic public data. Add `?rich&header`, `&saved`,
   `&linked`, `&long`, `&detailsError`, `&unavailable`, or `&failOnce` for the

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import { cn } from '$lib/utils.js';
 
   let {
@@ -31,10 +31,7 @@
   aria-atomic="true"
 >
   {#if active && visible}
-    <LoaderCircleIcon
-      class="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-      aria-hidden="true"
-    />
+    <Spinner class="size-3.5 shrink-0" />
     <span>{label}</span>
   {:else}
     {idleLabel}

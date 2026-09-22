@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import StarIcon from '@lucide/svelte/icons/star';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -141,7 +141,7 @@
     data-favorite-state={favoriteBusy ? 'saving' : identity.favorite ? 'favorite' : 'not-favorite'}
   >
     {#if favoriteBusy}
-      <LoaderCircleIcon class="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      <Spinner class="size-4" />
     {:else}
       <StarIcon class={`size-4 ${identity.favorite ? 'fill-current text-amber-500' : ''}`} />
     {/if}

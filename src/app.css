@@ -68,6 +68,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Shared by indeterminate spinners and rotating refresh actions. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation: none;
+  }
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);

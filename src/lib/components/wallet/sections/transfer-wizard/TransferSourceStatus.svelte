@@ -1,5 +1,5 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import { Button } from '$lib/components/ui/button';
   import { i18nStore } from '$lib/i18n';
 
@@ -24,7 +24,7 @@
     data-transfer-source-status="loading"
     aria-live="polite"
   >
-    <LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+    <Spinner class="size-4 shrink-0" />
     <span>{i18n.t('wallet.transfer.sourceLoading')}</span>
   </div>
 {:else if failed}

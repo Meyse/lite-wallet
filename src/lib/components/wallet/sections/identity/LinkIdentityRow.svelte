@@ -1,6 +1,6 @@
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { i18nStore } from '$lib/i18n';
@@ -78,7 +78,7 @@
           : i18n.t('wallet.identity.sheet.link')}
       >
         {#if busy}
-          <LoaderCircleIcon class="h-4 w-4 animate-spin" absoluteStrokeWidth />
+          <Spinner class="h-4 w-4" absoluteStrokeWidth />
         {:else}
           <PlusIcon class="h-4 w-4" absoluteStrokeWidth />
         {/if}

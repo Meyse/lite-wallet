@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
   import InfoIcon from '@lucide/svelte/icons/info';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import MoreHorizontalIcon from '@lucide/svelte/icons/ellipsis';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -276,9 +276,7 @@
           title={i18n.t(refreshing ? 'wallet.watchlist.refreshing' : 'wallet.watchlist.refresh')}
           onclick={() => void refreshAll()}
         >
-          <RefreshCwIcon
-            class="size-4 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}"
-          />
+          <RefreshCwIcon class="size-4 {refreshing ? 'animate-spin' : ''}" />
         </Button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
@@ -379,10 +377,7 @@
         role="status"
       >
         <div class="mb-4 flex h-[132px] w-[156px] shrink-0 items-center justify-center">
-          <LoaderCircleIcon
-            class="size-5 animate-spin text-settings-muted-foreground motion-reduce:animate-none"
-            aria-hidden="true"
-          />
+          <Spinner class="size-5 text-settings-muted-foreground" />
         </div>
         <span class="sr-only">{i18n.t('common.loading')}</span>
       </div>
@@ -422,9 +417,7 @@
             disabled={refreshing}
             onclick={() => void refreshAll()}
           >
-            <RefreshCwIcon
-              class="size-3.5 {refreshing ? 'animate-spin motion-reduce:animate-none' : ''}"
-            />
+            <RefreshCwIcon class="size-3.5 {refreshing ? 'animate-spin' : ''}" />
             {i18n.t('wallet.watchlist.refresh')}
           </Button>
         </div>
@@ -585,10 +578,7 @@
       </Button>
       <Button type="submit" disabled={resolving || adding || !addQuery.trim()}>
         {#if resolving || adding}
-          <LoaderCircleIcon
-            class="size-3.5 animate-spin motion-reduce:animate-none"
-            aria-hidden="true"
-          />
+          <Spinner class="size-3.5" />
         {/if}
         {i18n.t(
           adding

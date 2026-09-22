@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+  import { Spinner } from '$lib/components/ui/spinner';
   import SearchInput from '$lib/components/common/SearchInput.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -156,10 +156,7 @@
       disabled={!query.trim() || busy}
     >
       {#if busy}
-        <LoaderCircleIcon
-          class="size-3.5 animate-spin motion-reduce:animate-none"
-          aria-hidden="true"
-        />
+        <Spinner class="size-3.5" />
         {i18n.t('wallet.identity.lookup.lookingUp')}
       {:else}
         {i18n.t('wallet.identity.lookup.submit')}
