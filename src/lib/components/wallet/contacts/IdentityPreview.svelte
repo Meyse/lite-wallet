@@ -44,7 +44,7 @@
         : saveState === 'error' || $contactsLoadState === 'error'
           ? i18n.t('wallet.contacts.retry')
           : $contactsLoadState !== 'ready'
-            ? i18n.t('common.loading')
+            ? i18n.t('wallet.identity.publicProfile.checkingContacts')
             : saved
               ? i18n.t(matches.length > 1 ? 'wallet.contacts.viewMany' : 'wallet.contacts.view')
               : i18n.t('wallet.contacts.add')

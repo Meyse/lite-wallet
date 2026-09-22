@@ -34,8 +34,19 @@ Open either page on `http://127.0.0.1:1428`:
   custom UNI registration that overlaps the catalog. `?stall=uni` holds one
   token balance; `?stall=discovery` holds Verus discovery. Other rows remain
   usable. The normal deadlines lead to Unavailable and Retry; Retry succeeds.
+  `?stall=metadata` holds the initial registry read for skeleton-row checks.
   Both themes and locales are supported. All responses are synthetic and no
   wallet is accessed.
+- `/dev/browser-fixtures/wallet-loading.html`: Overview with a known Verus
+  balance and a pending Ethereum balance. `?screen=details&wait=scopes`
+  preserves the detail screen while scopes are pending; `wait=balances` and
+  `wait=transactions` isolate other reads. `failScopes` shows scope retry.
+  `screen=settings` supports `wait=version` and `failVersion`. `screen=contacts`
+  holds deletion after the synthetic contact's confirmation. `cold` leaves
+  initial Overview balances unknown; `screen=details&failBalance` and
+  `failHistory` fail the first read then allow retry. Add `cachedBalance` to
+  verify retained values and stale feedback. All states support `theme=dark` and
+  `locale=nl` at 920×620 and use only synthetic data.
 
 Both accept `?theme=dark&locale=nl`; the default is English and light mode.
 Outside the profile publication fixture, signing is rejected by default.

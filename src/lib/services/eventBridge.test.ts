@@ -17,6 +17,7 @@ import {
   walletErrorsStore,
 } from '$lib/stores/walletErrors.js';
 import {
+  createEmptyTransactionPageState,
   transactionHistoryPagesStore,
   updateTransactionHistoryPage,
 } from '$lib/stores/transactionHistoryPages.js';
@@ -143,8 +144,21 @@ describe('setupWalletEventBridge', () => {
 
   it('invalidates cached history when a transaction update arrives', async () => {
     const key = 'vrpc.R.iSystem::VRSC';
+    const items = [
+      {
+        txid: 'existing',
+        amount: '1',
+        fromAddress: 'RFrom',
+        toAddress: 'RTo',
+        confirmations: 1,
+        pending: false,
+      },
+    ];
     updateTransactionHistoryPage(key, (state) => ({
       ...state,
+      items,
+      nextCursor: 'older',
+      hasMore: true,
       initialLoaded: true,
     }));
     const cleanup = await setupWalletEventBridge();
@@ -157,7 +171,10 @@ describe('setupWalletEventBridge', () => {
       },
     });
 
-    expect(get(transactionHistoryPagesStore)[key]).toBeUndefined();
+    expect(get(transactionHistoryPagesStore)[key]).toEqual({
+      ...createEmptyTransactionPageState(),
+      items,
+    });
     cleanup();
   });
 

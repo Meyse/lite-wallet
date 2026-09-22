@@ -335,7 +335,39 @@ describe('mounted wallet overview controls', () => {
     expect(banner()).toBe(total);
     walletBootstrapStore.set(true);
     await settle();
-    expect(document.querySelector('.balance-banner [aria-label="Loading…"]')).not.toBeNull();
+    await query('');
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(banner()).toBe(total);
+  });
+
+  it('shows missing aggregate balances as pending after bootstrap, then ends in available data', async () => {
+    delete balances[channels.byCoinId.VRSC].VRSC;
+    balanceStore.set(balances);
+    let finishScopes!: (value: unknown) => void;
+    services.getDisplayCoinScopes.mockImplementation((coinId) =>
+      coinId === 'VRSC'
+        ? new Promise((resolve) => {
+            finishScopes = resolve;
+          })
+        : Promise.resolve({
+            coinId,
+            scopes: [{ channelId: channels.byCoinId[coinId], coinId, scopeKind: 'transparent' }],
+          })
+    );
+    await render();
+    const vrscRow = [...document.querySelectorAll('ul li')].find(
+      (row) => row.textContent?.includes('Verus') && !row.textContent.includes('USDC')
+    );
+    expect(vrscRow?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(document.querySelector('.balance-banner [data-slot="skeleton"]')).toBeNull();
+    balances[channels.byCoinId.VRSC].VRSC = balance('10');
+    finishScopes({
+      coinId: 'VRSC',
+      scopes: [{ channelId: channels.byCoinId.VRSC, coinId: 'VRSC', scopeKind: 'transparent' }],
+    });
+    await settle();
+    expect(vrscRow?.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(vrscRow?.textContent).toContain('10.0000 VRSC');
   });
 
   it('offers filter-only recovery when every enabled balance is a loaded zero', async () => {
@@ -355,5 +387,43 @@ describe('mounted wallet overview controls', () => {
     required(recovery).click();
     await settle();
     expect(rowNames()).toHaveLength(4);
+  });
+
+  it('keeps a private balance pending until its background event arrives after the public balance', async () => {
+    delete balances[channels.byCoinId.VRSC].VRSC;
+    balanceStore.set(balances);
+    walletBootstrapStore.set(true);
+    services.getDisplayDlightSeedStatus.mockResolvedValue({ configured: true });
+    services.getDisplayCoinScopes.mockImplementation(async (coinId) => ({
+      coinId,
+      scopes: [
+        { channelId: channels.byCoinId[coinId], coinId, scopeKind: 'transparent' },
+        ...(coinId === 'VRSC'
+          ? [{ channelId: 'private', coinId, systemId: 'verus', scopeKind: 'shielded' }]
+          : []),
+      ],
+    }));
+    const finishReads = new Map<string, (value: BalanceResult) => void>();
+    services.getDisplayBalance.mockImplementation(
+      (channelId) =>
+        new Promise((resolve) => {
+          finishReads.set(channelId, resolve);
+        })
+    );
+    await render();
+    expect(finishReads.size).toBe(1);
+    const privateRow = required(
+      [...document.querySelectorAll('ul li')].find((row) =>
+        row.textContent?.includes('Verus PRIVATE')
+      )
+    );
+    required(finishReads.get(channels.byCoinId.VRSC))(balance('10'));
+    await settle();
+    expect(privateRow.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    balanceStore.update((state) => ({ ...state, private: { VRSC: balance('3') } }));
+    walletBootstrapStore.set(false);
+    await settle();
+    expect(privateRow.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(privateRow.textContent).toContain('3.0000 VRSC');
   });
 });

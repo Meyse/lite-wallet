@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
 import { ASSET_DISCOVERY_TIMEOUT_MS, ASSET_LOOKUP_TIMEOUT_MS } from '$lib/stores/manageAssets';
 import Component from './AddAssetSheet.svelte';
+import { resetManageAssetsDisplay } from '$lib/stores/manageAssetsDisplay';
 
 const service = vi.hoisted(() => ({
   getCoinRegistry: vi.fn(),
@@ -186,6 +187,7 @@ async function unmountRenderedComponent(): Promise<void> {
 describe('mounted Manage assets', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetManageAssetsDisplay();
     setLocale('en');
     onClose = vi.fn();
     service.getCoinRegistry.mockResolvedValue([vrsc, usdc]);
@@ -280,14 +282,16 @@ describe('mounted Manage assets', () => {
     }
   );
 
-  it('shows asset-shaped skeletons until the initial lookup finishes', async () => {
+  it('keeps controls visible with skeleton rows until initial metadata arrives', async () => {
     let finishRegistry: (coins: (typeof vrsc | typeof usdc)[]) => void = () => {};
     service.getCoinRegistry.mockImplementation(
       () => new Promise((resolve) => (finishRegistry = resolve))
     );
     await render();
     expect(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('true');
-    expect(document.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(12);
+    expect(document.querySelector('[data-manage-assets-initial-loading]')).not.toBeNull();
+    expect(button('Back to wallet').disabled).toBe(false);
+    expect(document.body.textContent).not.toContain('No assets');
     finishRegistry([vrsc, usdc]);
     await settle();
     expect(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('false');
@@ -297,6 +301,7 @@ describe('mounted Manage assets', () => {
   it.each(['light', 'dark'])(
     'shows assets and completed balances while UNI is pending in %s mode',
     async (theme) => {
+      vi.useFakeTimers();
       document.documentElement.classList.toggle('dark', theme === 'dark');
       const uni = {
         ...usdc,
@@ -319,10 +324,13 @@ describe('mounted Manage assets', () => {
           : { total: '125', confirmed: '125', pending: '0' }
       );
       await render();
-      expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+      expect(row('Uniswap')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
       expect(row('Verus')?.textContent).toContain('24.5 VRSC');
       expect(row('USD Coin')?.textContent).toContain('125 USDC');
-      expect(row('Uniswap')?.textContent).toContain('Loading');
+      expect(row('Uniswap')?.querySelector('[aria-label="Balance pending"]')).not.toBeNull();
+      expect(document.body.textContent).not.toContain('Updating balances');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(document.body.textContent?.match(/Updating balances/g)).toHaveLength(1);
       expect(row('Uniswap')?.textContent).not.toContain('0 UNI');
       expect(row('Uniswap')?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe(
         'true'
@@ -339,9 +347,9 @@ describe('mounted Manage assets', () => {
       () => new Promise((resolve) => (finishDiscovery = resolve))
     );
     await render();
-    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(row('USD Coin')?.querySelector('[data-slot="skeleton"]')).toBeNull();
     expect(row('USD Coin')?.textContent).toContain('125 USDC');
-    expect(row('Verus')?.textContent).toContain('Loading');
+    expect(row('Verus')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     finishDiscovery(initialDiscovery());
     await settle();
     expect(row('Verus')?.textContent).toContain('24.5 VRSC');
@@ -362,9 +370,9 @@ describe('mounted Manage assets', () => {
       if (stalledStep === 'balance') service.getBalances.mockReturnValueOnce(pending);
       else service.discoverVrpcAssets.mockReturnValueOnce(pending);
       await render();
-      expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+      expect(document.querySelector('[data-manage-assets-initial-loading]')).toBeNull();
       const label = stalledStep === 'balance' ? 'USD Coin' : 'Verus';
-      expect(row(label)?.textContent).toContain('Loading');
+      expect(row(label)?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
       await vi.advanceTimersByTimeAsync(
         stalledStep === 'balance' ? ASSET_LOOKUP_TIMEOUT_MS : ASSET_DISCOVERY_TIMEOUT_MS
       );
@@ -386,6 +394,29 @@ describe('mounted Manage assets', () => {
       expect(row(label)?.textContent).not.toContain('Unavailable');
     }
   );
+
+  it('retains balances across visits while fresh requests are pending, but never across sessions', async () => {
+    await render();
+    expect(row('USD Coin')?.textContent).toContain('125 USDC');
+    await unmountRenderedComponent();
+    service.getBalances.mockReturnValue(new Promise(() => {}));
+    service.discoverVrpcAssets.mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(row('USD Coin')?.textContent).toContain('125 USDC');
+    expect(row('Verus')?.textContent).toContain('24.5 VRSC');
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+    await unmountRenderedComponent();
+    service.getAssetPreferences.mockResolvedValue({
+      network: 'mainnet',
+      sessionId: 'new-session',
+      portfolioCoinIds: ['VRSC', 'USDC'],
+      hiddenAssetKeys: [],
+    });
+    await render();
+    expect(row('USD Coin')?.textContent).not.toContain('125 USDC');
+    expect(row('Verus')?.textContent).not.toContain('24.5 VRSC');
+    expect(row('USD Coin')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+  });
 
   it('ignores balance and discovery results after the wallet session changes', async () => {
     let finishBalance: (result: unknown) => void = () => {};
@@ -467,7 +498,7 @@ describe('mounted Manage assets', () => {
     });
     await render();
     expect(row('Verus')?.textContent).toMatch(/Unavailable|Partial/);
-    expect(document.body.textContent).toContain('Some holding networks could not be checked.');
+    expect(document.body.textContent).toContain('Some balances could not be updated.');
   });
 
   it('retries only incomplete VRPC sources without rescanning healthy chains', async () => {

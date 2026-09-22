@@ -395,8 +395,17 @@ describe('address book contact workflows', () => {
     await settle();
     button('Delete contact').click();
     await settle();
-    service.deleteAddressBookContact.mockResolvedValue(false);
+    let finishDelete!: (value: boolean) => void;
+    service.deleteAddressBookContact.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishDelete = resolve;
+      })
+    );
     button('Delete contact', document.querySelector('[role="dialog"]')).click();
+    await settle();
+    expect(button('Deleting…', document.querySelector('[role="dialog"]')).disabled).toBe(true);
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Loading');
+    finishDelete(false);
     await settle();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       'Could not delete this contact. Try again.'

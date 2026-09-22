@@ -26,6 +26,8 @@
   import ProfileSecuritySettings from '$lib/components/wallet/settings/ProfileSecuritySettings.svelte';
   import RecoveryKeysSettings from '$lib/components/wallet/settings/RecoveryKeysSettings.svelte';
   import AboutSupportSettings from '$lib/components/wallet/settings/AboutSupportSettings.svelte';
+  import { Skeleton } from '$lib/components/ui/skeleton';
+  import { withRequestTimeout } from '$lib/utils/requestTimeout.js';
 
   type SettingsProps = {
     walletNetwork: WalletNetwork;
@@ -63,7 +65,9 @@
   let lastResetSignal = $state(0);
   let privateStatusLoading = $state(true);
   let privateConfigured = $state(false);
+  let privateStatusUnavailable = $state(false);
   let appVersion = $state<string | null>(null);
+  let appVersionPending = $state(true);
 
   const displayLanguageSummary = $derived(
     i18n.t('wallet.settings.home.summary.displayLanguage', {
@@ -74,26 +78,26 @@
   );
   const autoLockMinutes = $derived(normalizeAutoLockMinutes(settings.autoLockMinutes));
   const profileSummary = $derived(i18n.t('wallet.settings.home.summary.profileSecurity'));
-  const privateSummary = $derived(
-    privateStatusLoading
-      ? i18n.t('common.loading')
-      : privateConfigured
-        ? i18n.t('wallet.settings.home.summary.privateConfigured')
-        : i18n.t('wallet.settings.home.summary.privateNotConfigured')
-  );
-  const aboutSummary = $derived(
-    appVersion
-      ? i18n.t('wallet.settings.home.summary.version', { version: appVersion })
-      : i18n.t('common.loading')
-  );
+  const privateSummary = $derived.by(() => {
+    if (privateStatusLoading) return '—';
+    if (privateStatusUnavailable) return i18n.t('wallet.settings.home.summary.privateUnavailable');
+    if (privateConfigured) return i18n.t('wallet.settings.home.summary.privateConfigured');
+    return i18n.t('wallet.settings.home.summary.privateNotConfigured');
+  });
+  const aboutSummary = $derived.by(() => {
+    if (appVersionPending) return '—';
+    if (appVersion) return i18n.t('wallet.settings.home.summary.version', { version: appVersion });
+    return i18n.t('wallet.settings.about.versionUnavailable');
+  });
 
   async function refreshPrivateStatus(): Promise<void> {
     privateStatusLoading = true;
+    privateStatusUnavailable = false;
     try {
-      const status = await walletService.getDlightSeedStatus();
+      const status = await withRequestTimeout(walletService.getDlightSeedStatus());
       privateConfigured = status.configured;
     } catch {
-      privateConfigured = false;
+      privateStatusUnavailable = true;
     } finally {
       privateStatusLoading = false;
     }
@@ -101,10 +105,12 @@
 
   async function loadVersionSummary(): Promise<void> {
     try {
-      const info = await loadRuntimeAppInfo();
+      const info = await withRequestTimeout(loadRuntimeAppInfo());
       appVersion = info.version;
     } catch {
       appVersion = null;
+    } finally {
+      appVersionPending = false;
     }
   }
 
@@ -203,7 +209,15 @@
                 {i18n.t('wallet.settings.home.category.privateVerus')}
               </span>
               <span class="block truncate text-xs leading-4 text-settings-muted-foreground">
-                {privateSummary}
+                {#if privateStatusLoading}
+                  <Skeleton
+                    class="my-0.5 h-3 w-24 rounded-sm bg-settings-muted-foreground/20 motion-reduce:animate-none"
+                    role="img"
+                    aria-label={i18n.t('wallet.loading.checkingSetup')}
+                  />
+                {:else}
+                  {privateSummary}
+                {/if}
               </span>
             </span>
             <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />
@@ -224,7 +238,15 @@
                 {i18n.t('wallet.settings.home.category.aboutSupport')}
               </span>
               <span class="block truncate text-xs leading-4 text-settings-muted-foreground">
-                {aboutSummary}
+                {#if appVersionPending}
+                  <Skeleton
+                    class="my-0.5 h-3 w-24 rounded-sm bg-settings-muted-foreground/20 motion-reduce:animate-none"
+                    role="img"
+                    aria-label={i18n.t('wallet.loading.readingVersion')}
+                  />
+                {:else}
+                  {aboutSummary}
+                {/if}
               </span>
             </span>
             <ChevronRightIcon class="size-4 shrink-0 text-settings-muted-foreground" />

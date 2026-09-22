@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeWalletCommandMock = vi.hoisted(() => vi.fn());
 
@@ -26,9 +26,59 @@ function deferred<T>() {
 }
 
 describe('walletDisplayService', () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     invokeWalletCommandMock.mockReset();
     resetWalletDisplaySession();
+  });
+
+  it.each([
+    {
+      name: 'scopes',
+      read: () => getDisplayCoinScopes('ETH'),
+      timeout: 45_000,
+      value: { coinId: 'ETH', scopes: [] },
+    },
+    {
+      name: 'balance',
+      read: () => getDisplayBalance('eth.ETH', 'ETH'),
+      timeout: 20_000,
+      value: { total: '2', confirmed: '2', pending: '0' },
+    },
+    {
+      name: 'history',
+      read: () => getDisplayTransactionHistoryPage('eth.ETH', 'ETH', undefined, 50),
+      timeout: 45_000,
+      value: { transactions: [], hasMore: false, nextCursor: null },
+    },
+  ])(
+    'releases a stalled $name request for retry and ignores its late result',
+    async ({ read, timeout, value }) => {
+      vi.useFakeTimers();
+      const stale = deferred<unknown>();
+      invokeWalletCommandMock.mockReturnValueOnce(stale.promise).mockResolvedValue(value);
+      const outcome = expect(read()).rejects.toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out',
+      });
+      await vi.advanceTimersByTimeAsync(timeout);
+      await outcome;
+      await expect(read()).resolves.toEqual(value);
+      stale.resolve({ unexpectedLateResult: true });
+      await Promise.resolve();
+      await expect(read()).resolves.toEqual(value);
+    }
+  );
+
+  it('invalidates a timed-out request from an ended session', async () => {
+    vi.useFakeTimers();
+    invokeWalletCommandMock.mockReturnValueOnce(new Promise(() => {}));
+    const outcome = expect(
+      getDisplayTransactionHistoryPage('eth.ETH', 'ETH', undefined, 50)
+    ).rejects.toBeInstanceOf(WalletDisplayRequestInvalidatedError);
+    resetWalletDisplaySession();
+    await vi.advanceTimersByTimeAsync(45_000);
+    await outcome;
   });
 
   it('coalesces and reuses session-scoped coin scopes', async () => {

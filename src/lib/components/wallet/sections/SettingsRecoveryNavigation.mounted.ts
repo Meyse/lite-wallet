@@ -4,6 +4,7 @@ import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/i18n';
 import Settings from './Settings.svelte';
+import { loadRuntimeAppInfo } from '$lib/utils/appInfo.js';
 
 const walletService = vi.hoisted(() => ({
   getDlightSeedStatus: vi.fn(),
@@ -53,6 +54,28 @@ describe('mounted recovery navigation', () => {
 
   afterEach(() => {
     document.body.replaceChildren();
+  });
+
+  it('ends a failed version lookup with an unavailable summary', async () => {
+    let rejectVersion!: (reason: Error) => void;
+    vi.mocked(loadRuntimeAppInfo).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectVersion = reject;
+      })
+    );
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Settings, {
+      target,
+      props: { walletNetwork: 'mainnet', walletName: 'Fixture', walletSessionKey: 'fixture' },
+    });
+    await settle();
+    expect(findButton('About and support')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    rejectVersion(new Error('Version unavailable'));
+    await settle();
+    expect(findButton('About and support')?.textContent).toContain('Version unavailable');
+    expect(target.textContent).not.toContain('Loading');
+    await unmount(component);
   });
 
   it('prompts immediately and returns cancel to the initiating settings section', async () => {

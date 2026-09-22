@@ -65,7 +65,8 @@ describe('mounted about and support settings', () => {
     });
     await settle();
 
-    expect(document.body.textContent).toContain('Loading…');
+    expect(document.body.textContent).toContain('—');
+    expect(document.body.textContent).not.toContain('Loading…');
     resolveInfo?.({ name: 'Verus Wallet', version: '1.2.3' });
     await settle();
     expect(document.body.textContent).toContain('Version 1.2.3');

@@ -1,5 +1,10 @@
 import { invokeWalletCommand } from './invokeWalletCommand.js';
-import { resetTransactionHistoryPages } from '$lib/stores/transactionHistoryPages.js';
+import {
+  invalidateTransactionHistoryPages,
+  resetTransactionHistoryPages,
+} from '$lib/stores/transactionHistoryPages.js';
+import { resetManageAssetsDisplay } from '$lib/stores/manageAssetsDisplay.js';
+import { EXTENDED_REQUEST_TIMEOUT_MS, withRequestTimeout } from '$lib/utils/requestTimeout.js';
 import type {
   BalanceResult,
   CoinScopesResult,
@@ -53,6 +58,7 @@ export function isWalletDisplayRequestInvalidated(
 }
 
 export function resetWalletDisplaySession(): void {
+  resetManageAssetsDisplay();
   sessionGeneration += 1;
   scopeGeneration += 1;
   historyGeneration += 1;
@@ -67,6 +73,7 @@ export function resetWalletDisplaySession(): void {
 }
 
 export function invalidateWalletDisplayScopes(): void {
+  resetManageAssetsDisplay();
   scopeGeneration += 1;
   scopeCache.clear();
   scopeRequests.clear();
@@ -77,7 +84,7 @@ export function invalidateWalletDisplayScopes(): void {
 export function invalidateWalletDisplayHistory(channelId?: string, coinId?: string): void {
   historyGeneration += 1;
   historyRequests.clear();
-  resetTransactionHistoryPages(channelId, coinId);
+  invalidateTransactionHistoryPages(channelId, coinId);
 }
 
 export function primeDisplayBalance(channelId: string, coinId: string, value: BalanceResult): void {
@@ -96,18 +103,30 @@ export async function getDisplayCoinScopes(coinId: string): Promise<CoinScopesRe
 
   const requestSessionGeneration = sessionGeneration;
   const requestScopeGeneration = scopeGeneration;
-  const request = invokeWalletCommand<CoinScopesResult>('get_coin_scopes', {
-    coin_id: coinId,
-  }).then((result) => {
-    if (
-      requestSessionGeneration !== sessionGeneration ||
-      requestScopeGeneration !== scopeGeneration
-    ) {
-      throw new WalletDisplayRequestInvalidatedError();
-    }
-    scopeCache.set(coinId, result);
-    return result;
-  });
+  const request = withRequestTimeout(
+    invokeWalletCommand<CoinScopesResult>('get_coin_scopes', {
+      coin_id: coinId,
+    }),
+    EXTENDED_REQUEST_TIMEOUT_MS
+  )
+    .then((result) => {
+      if (
+        requestSessionGeneration !== sessionGeneration ||
+        requestScopeGeneration !== scopeGeneration
+      ) {
+        throw new WalletDisplayRequestInvalidatedError();
+      }
+      scopeCache.set(coinId, result);
+      return result;
+    })
+    .catch((error) => {
+      if (
+        requestSessionGeneration !== sessionGeneration ||
+        requestScopeGeneration !== scopeGeneration
+      )
+        throw new WalletDisplayRequestInvalidatedError();
+      throw error;
+    });
 
   scopeRequests.set(coinId, request);
   const clearRequest = () => {
@@ -159,16 +178,23 @@ export async function getDisplayBalance(
   if (existing) return existing;
 
   const requestGeneration = sessionGeneration;
-  const request = invokeWalletCommand<BalanceResult>('get_balances', {
-    channel_id: channelId,
-    ...(coinId ? { coin_id: coinId } : {}),
-  }).then((result) => {
-    if (requestGeneration !== sessionGeneration) {
-      throw new WalletDisplayRequestInvalidatedError();
-    }
-    primeDisplayBalance(channelId, coinId ?? '', result);
-    return result;
-  });
+  const request = withRequestTimeout(
+    invokeWalletCommand<BalanceResult>('get_balances', {
+      channel_id: channelId,
+      ...(coinId ? { coin_id: coinId } : {}),
+    })
+  )
+    .then((result) => {
+      if (requestGeneration !== sessionGeneration) {
+        throw new WalletDisplayRequestInvalidatedError();
+      }
+      primeDisplayBalance(channelId, coinId ?? '', result);
+      return result;
+    })
+    .catch((error) => {
+      if (requestGeneration !== sessionGeneration) throw new WalletDisplayRequestInvalidatedError();
+      throw error;
+    });
 
   balanceRequests.set(key, request);
   const clearRequest = () => {
@@ -192,22 +218,34 @@ export async function getDisplayTransactionHistoryPage(
 
   const requestSessionGeneration = sessionGeneration;
   const requestHistoryGeneration = historyGeneration;
-  const request = invokeWalletCommand<TransactionHistoryPage>('get_transaction_history_page', {
-    request: {
-      channelId,
-      ...(coinId ? { coinId } : {}),
-      ...(cursor ? { cursor } : {}),
-      limit,
-    },
-  }).then((result) => {
-    if (
-      requestSessionGeneration !== sessionGeneration ||
-      requestHistoryGeneration !== historyGeneration
-    ) {
-      throw new WalletDisplayRequestInvalidatedError();
-    }
-    return result;
-  });
+  const request = withRequestTimeout(
+    invokeWalletCommand<TransactionHistoryPage>('get_transaction_history_page', {
+      request: {
+        channelId,
+        ...(coinId ? { coinId } : {}),
+        ...(cursor ? { cursor } : {}),
+        limit,
+      },
+    }),
+    EXTENDED_REQUEST_TIMEOUT_MS
+  )
+    .then((result) => {
+      if (
+        requestSessionGeneration !== sessionGeneration ||
+        requestHistoryGeneration !== historyGeneration
+      ) {
+        throw new WalletDisplayRequestInvalidatedError();
+      }
+      return result;
+    })
+    .catch((error) => {
+      if (
+        requestSessionGeneration !== sessionGeneration ||
+        requestHistoryGeneration !== historyGeneration
+      )
+        throw new WalletDisplayRequestInvalidatedError();
+      throw error;
+    });
 
   historyRequests.set(key, request);
   const clearRequest = () => {

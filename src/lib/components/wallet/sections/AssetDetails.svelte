@@ -4,7 +4,7 @@
 -->
 
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftRightIcon from '@lucide/svelte/icons/arrow-left-right';
@@ -17,7 +17,8 @@
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
-  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import DelayedStatus from '$lib/components/common/DelayedStatus.svelte';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { Spinner } from '$lib/components/ui/spinner';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import PrivateVerusWordmark from '$lib/components/wallet/PrivateVerusWordmark.svelte';
@@ -49,6 +50,7 @@
   import * as walletService from '$lib/services/walletService.js';
   import * as walletDisplayService from '$lib/services/walletDisplayService.js';
   import type {
+    BalanceResult,
     CoinScope,
     DlightRuntimeStatusResult,
     ScopeKind,
@@ -60,8 +62,6 @@
   const TRANSACTION_PAGE_SIZE = 50;
   const DLIGHT_STATUS_POLL_MS = 4000;
   const SPEND_RATE_SMOOTHING = 0.25;
-  const initialTransactionSkeletonRows = [0, 1, 2, 3, 4, 5];
-  const loadMoreTransactionSkeletonRows = [0, 1];
 
   type AssetDetailsProps = {
     coinId: string;
@@ -103,7 +103,8 @@
 
   let scopesLoading = $state(false);
   let scopesError = $state('');
-  let loadingSelectedBalance = $state(false);
+  let pendingBalanceKeys = $state<string[]>([]);
+  let balanceFailures = $state.raw<Record<string, BalanceResult | undefined>>({});
   let showScopeSheet = $state(false);
   let addressSearchTerm = $state('');
   const copiedAddressState = new TimedValueState<string>();
@@ -117,9 +118,8 @@
   let canScrollTxDown = $state(false);
 
   let scopeRequestSequence = 0;
-  let selectedBalanceRequestSequence = 0;
   let componentActive = true;
-  const inFlightBalanceChannels = new Set<string>();
+  const inFlightBalanceKeys = new Set<string>();
   const inFlightTransactionScopeKeys = new Set<string>();
 
   onDestroy(() => {
@@ -154,7 +154,9 @@
     ) ?? null
   );
   const selectedScopeDisplayAddress = $derived(
-    selectedScope ? preferredScopeDisplayValue(selectedScope) : selectedAddress
+    // Persisted selection hints may belong to an earlier wallet. Display an
+    // address only after it has matched this session's returned scopes.
+    selectedScope ? preferredScopeDisplayValue(selectedScope) : ''
   );
   const selectedScopeDisplayIsIdentifier = $derived(
     !selectedScope || !selectedScope.addressLabel.trim().endsWith('@')
@@ -167,9 +169,25 @@
   const selectedScopeBalance = $derived(
     selectedScope && coin ? getBalance(selectedScope.channelId, coin.id, balances) : undefined
   );
+  const balancesLoading = $derived(
+    scopesLoading ||
+      allScopes.some((scope) =>
+        pendingBalanceKeys.includes(getScopeCoinKey(scope.channelId, coinId))
+      )
+  );
+  const failedBalanceScopes = $derived(
+    allScopes.filter((scope) => {
+      const key = getScopeCoinKey(scope.channelId, coinId);
+      // A newer successful event supersedes an earlier display-read failure.
+      return (
+        key in balanceFailures &&
+        getBalance(scope.channelId, coinId, balances) === balanceFailures[key]
+      );
+    })
+  );
 
   const selectedScopePageKey = $derived(
-    selectedScope && coin ? getScopePageKey(selectedScope.channelId, coin.id) : ''
+    selectedScope && coin ? getScopeCoinKey(selectedScope.channelId, coin.id) : ''
   );
 
   const selectedScopeTxPage = $derived(
@@ -426,21 +444,7 @@
     const currentCoin = coin;
     if (!activeScope || !currentCoin) return;
 
-    const cachedBalance = getBalance(activeScope.channelId, currentCoin.id, get(balanceStore));
-    const requestKey = `${activeScope.channelId}::${currentCoin.id}`;
-    selectedBalanceRequestSequence += 1;
-    const requestSequence = selectedBalanceRequestSequence;
-    loadingSelectedBalance = !cachedBalance;
-
-    void (async () => {
-      await fetchBalanceForScope(activeScope, currentCoin.id);
-      if (
-        selectedBalanceRequestSequence === requestSequence &&
-        requestKey === `${activeScope.channelId}::${currentCoin.id}`
-      ) {
-        loadingSelectedBalance = false;
-      }
-    })();
+    untrack(() => void fetchBalanceForScope(activeScope, currentCoin.id));
   });
 
   $effect(() => {
@@ -496,13 +500,13 @@
       (scope) => scope.address === address && scope.channelId !== activeScope.channelId
     );
     if (siblingScopes.length === 0) return;
-    void fetchSiblingBalances(siblingScopes, currentCoin.id);
+    untrack(() => void fetchSiblingBalances(siblingScopes, currentCoin.id));
   });
 
   $effect(() => {
     const currentCoin = coin;
     if (!currentCoin || allScopes.length === 0) return;
-    void fetchSiblingBalances(allScopes, currentCoin.id);
+    untrack(() => void fetchSiblingBalances(allScopes, currentCoin.id));
   });
 
   $effect(() => {
@@ -567,12 +571,14 @@
   }
 
   async function fetchBalanceForScope(scope: CoinScope, currentCoinId: string): Promise<void> {
-    if (inFlightBalanceChannels.has(scope.channelId)) return;
-    inFlightBalanceChannels.add(scope.channelId);
-    const loadKey = getScopeBalanceLoadKey(scope.channelId, currentCoinId);
+    const loadKey = getScopeCoinKey(scope.channelId, currentCoinId);
+    if (inFlightBalanceKeys.has(loadKey)) return;
+    inFlightBalanceKeys.add(loadKey);
+    pendingBalanceKeys = [...pendingBalanceKeys, loadKey];
 
     try {
       const balance = await walletDisplayService.getDisplayBalance(scope.channelId, currentCoinId);
+      if (!componentActive) return;
       balanceStore.update((state) => ({
         ...state,
         [scope.channelId]: {
@@ -584,18 +590,32 @@
         ...loadedBalanceByScopeKey,
         [loadKey]: true,
       };
-    } catch {
-      // Balance refresh is best effort for sibling scopes.
+      const nextFailures = { ...balanceFailures };
+      delete nextFailures[loadKey];
+      balanceFailures = nextFailures;
+    } catch (error) {
+      if (!componentActive || walletDisplayService.isWalletDisplayRequestInvalidated(error)) return;
+      balanceFailures = {
+        ...balanceFailures,
+        [loadKey]: getBalance(scope.channelId, currentCoinId, get(balanceStore)),
+      };
     } finally {
-      inFlightBalanceChannels.delete(scope.channelId);
+      inFlightBalanceKeys.delete(loadKey);
+      pendingBalanceKeys = pendingBalanceKeys.filter((key) => key !== loadKey);
     }
+  }
+
+  function retryBalances(): void {
+    const currentCoin = coin;
+    if (!currentCoin) return;
+    for (const scope of failedBalanceScopes) void fetchBalanceForScope(scope, currentCoin.id);
   }
 
   async function fetchSiblingBalances(scopes: CoinScope[], currentCoinId: string): Promise<void> {
     const pendingScopes = scopes.filter(
       (scope) =>
-        !loadedBalanceByScopeKey[getScopeBalanceLoadKey(scope.channelId, currentCoinId)] &&
-        !inFlightBalanceChannels.has(scope.channelId)
+        !loadedBalanceByScopeKey[getScopeCoinKey(scope.channelId, currentCoinId)] &&
+        !inFlightBalanceKeys.has(getScopeCoinKey(scope.channelId, currentCoinId))
     );
     if (pendingScopes.length === 0) return;
 
@@ -615,11 +635,7 @@
     await Promise.all(workers);
   }
 
-  function getScopePageKey(channelId: string, currentCoinId: string): string {
-    return `${channelId}::${currentCoinId}`;
-  }
-
-  function getScopeBalanceLoadKey(channelId: string, currentCoinId: string): string {
+  function getScopeCoinKey(channelId: string, currentCoinId: string): string {
     return `${channelId}::${currentCoinId}`;
   }
 
@@ -644,9 +660,9 @@
     scope: CoinScope,
     currentCoinId: string
   ): Promise<void> {
-    const scopePageKey = getScopePageKey(scope.channelId, currentCoinId);
+    const scopePageKey = getScopeCoinKey(scope.channelId, currentCoinId);
     const existing = txPagesByScopeKey[scopePageKey];
-    if (existing?.initialLoaded || existing?.loadingInitial) return;
+    if (existing?.initialLoaded || existing?.loadingInitial || existing?.error) return;
     if (inFlightTransactionScopeKeys.has(scopePageKey)) return;
 
     inFlightTransactionScopeKeys.add(scopePageKey);
@@ -700,7 +716,7 @@
     scope: CoinScope,
     currentCoinId: string
   ): Promise<void> {
-    const scopePageKey = getScopePageKey(scope.channelId, currentCoinId);
+    const scopePageKey = getScopeCoinKey(scope.channelId, currentCoinId);
     const state = txPagesByScopeKey[scopePageKey];
     if (!state?.initialLoaded) return;
     if (state.loadingInitial || state.loadingMore) return;
@@ -753,8 +769,11 @@
     const activeScope = selectedScope;
     const currentCoin = coin;
     if (!activeScope || !currentCoin) return;
-    const scopePageKey = getScopePageKey(activeScope.channelId, currentCoin.id);
-    updateTransactionHistoryPage(scopePageKey, () => createEmptyTransactionPageState());
+    const scopePageKey = getScopeCoinKey(activeScope.channelId, currentCoin.id);
+    updateTransactionHistoryPage(scopePageKey, (state) => ({
+      ...createEmptyTransactionPageState(),
+      items: state.items,
+    }));
     await ensureInitialTransactionsForScope(activeScope, currentCoin.id);
   }
 
@@ -976,6 +995,9 @@
   }
 
   function mapWalletError(error: unknown): string {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return i18n.t('wallet.loading.requestTimedOut');
+    }
     const errorType = extractWalletErrorType(error);
     const rawMessage = extractWalletErrorMessage(error);
 
@@ -993,23 +1015,7 @@
   <NavigationBackButton label={i18n.t('wallet.assetDetails.back')} class="mb-2" onclick={onBack} />
 
   <section class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    {#if scopesLoading}
-      <div class="space-y-4 pt-3">
-        <Skeleton class="h-12 w-56 rounded-lg" />
-        <Skeleton class="h-9 w-32 rounded-lg" />
-        <Skeleton class="h-10 w-full rounded-lg" />
-        <Skeleton class="h-10 w-full rounded-lg" />
-        <Skeleton class="h-48 w-full rounded-xl" />
-      </div>
-    {:else if scopesError}
-      <div class="mt-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        <p>{i18n.t('wallet.assetDetails.errorLoadScopes')}</p>
-        <p class="mt-1 text-xs">{scopesError}</p>
-        <Button variant="secondary" size="sm" class="mt-3" onclick={loadScopes}>
-          {i18n.t('common.retry')}
-        </Button>
-      </div>
-    {:else if !coin || !selectedScope}
+    {#if !coin}
       <div class="mt-8 rounded-lg bg-muted/45 px-4 py-5 text-sm text-muted-foreground">
         {i18n.t('wallet.assetDetails.scopeUnavailable')}
       </div>
@@ -1070,29 +1076,45 @@
                 <p class="mt-1 text-[11px] text-muted-foreground">
                   {i18n.t('wallet.assetDetails.privateSyncInlineHelper')}
                 </p>
+              {:else if totalAmountValue === null && balancesLoading}
+                <div
+                  class="flex h-8 items-center justify-end"
+                  aria-label={i18n.t('wallet.loading.balancePending')}
+                >
+                  <Skeleton class="h-6 w-24 rounded-sm motion-reduce:animate-none" />
+                </div>
+                <Skeleton
+                  class="mt-1 ml-auto h-4 w-16 rounded-sm motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
               {:else}
                 <p class="text-2xl leading-tight font-semibold tracking-tight text-foreground">
                   {totalCryptoAmountDisplay}
                 </p>
                 <p class="mt-1 text-sm leading-tight text-muted-foreground">{totalFiatDisplay}</p>
               {/if}
-              {#if loadingSelectedBalance}
-                <div
-                  class="pointer-events-none absolute top-full right-0 mt-1 flex items-center justify-end"
-                >
-                  <Skeleton class="h-[11px] w-14 rounded-sm" />
-                  <span class="sr-only">{i18n.t('common.loading')}</span>
-                </div>
-              {/if}
+              <div
+                class="pointer-events-none absolute top-full right-0 mt-1 flex items-center justify-end whitespace-nowrap"
+              >
+                <DelayedStatus
+                  active={balancesLoading}
+                  label={i18n.t('wallet.loading.updatingBalances')}
+                />
+              </div>
             </div>
           </div>
 
-          <div class="mt-8 flex items-center gap-2">
+          <div class="mt-8 flex items-center gap-2" aria-busy={scopesLoading}>
             {#if useStaticAddressRow}
               <div
                 class="flex h-[52px] min-w-0 flex-1 items-center justify-between gap-2 rounded-md bg-muted/55 pr-1.5 pl-3"
               >
-                {#if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
+                {#if scopesLoading && !selectedScopeDisplayAddress}
+                  <Skeleton
+                    class="h-4 w-40 rounded-sm motion-reduce:animate-none"
+                    aria-label={i18n.t('wallet.loading.fetchingAddresses')}
+                  />
+                {:else if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
                   <IdentifierText
                     value={selectedScopeDisplayAddress}
                     mode="compact"
@@ -1105,6 +1127,7 @@
                 {/if}
                 <CopyButton
                   copied={copiedAddressKey === 'selected-static'}
+                  disabled={!selectedScopeDisplayAddress}
                   size="sm"
                   class="-mr-0.5"
                   onclick={() => copyAddress(selectedScopeDisplayAddress, 'selected-static')}
@@ -1121,13 +1144,19 @@
                   class="flex h-full min-w-0 flex-1 items-center justify-between gap-2 rounded-[5px] px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-primary-foreground/60 focus-visible:outline-none"
                   aria-label={i18n.t('wallet.assetDetails.scopePicker')}
                   title={i18n.t('wallet.assetDetails.scopePicker')}
+                  disabled={!selectedScope}
                   aria-haspopup="dialog"
                   aria-expanded={showScopeSheet}
                   onclick={() => (showScopeSheet = true)}
                 >
                   <div class="min-w-0 flex-1 text-left">
                     <div class="flex min-w-0 items-baseline gap-1.5">
-                      {#if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
+                      {#if scopesLoading && !selectedScopeDisplayAddress}
+                        <Skeleton
+                          class="h-4 w-40 rounded-sm bg-primary-foreground/20 motion-reduce:animate-none"
+                          aria-label={i18n.t('wallet.loading.fetchingAddresses')}
+                        />
+                      {:else if selectedScopeDisplayIsIdentifier && selectedScopeDisplayAddress}
                         <IdentifierText
                           value={selectedScopeDisplayAddress}
                           mode="compact"
@@ -1142,16 +1171,24 @@
                         • {selectedNetworkDisplay}
                       </span>
                     </div>
-                    <p class="mt-0.5 truncate text-xs text-primary-foreground/80">
-                      {selectedCryptoAmountDisplay}
-                      <span class="mx-1.5">•</span>
-                      {selectedFiatDisplay}
-                    </p>
+                    {#if selectedAmountValue === null && balancesLoading}
+                      <Skeleton
+                        class="mt-1 h-3 w-24 rounded-sm bg-primary-foreground/20 motion-reduce:animate-none"
+                        aria-label={i18n.t('wallet.loading.balancePending')}
+                      />
+                    {:else}
+                      <p class="mt-0.5 truncate text-xs text-primary-foreground/80">
+                        {selectedCryptoAmountDisplay}
+                        <span class="mx-1.5">•</span>
+                        {selectedFiatDisplay}
+                      </p>
+                    {/if}
                   </div>
                   <ChevronDownIcon class="mr-1 h-4 w-4 shrink-0 text-primary-foreground/85" />
                 </button>
                 <CopyButton
                   copied={copiedAddressKey === 'selected-interactive'}
+                  disabled={!selectedScopeDisplayAddress}
                   variant="inverse"
                   size="sm"
                   class="mr-0.5 ml-1"
@@ -1170,6 +1207,7 @@
                 class="size-[52px] rounded-md"
                 aria-label={i18n.t('wallet.overview.receive')}
                 title={i18n.t('wallet.overview.receive')}
+                disabled={!selectedScope}
                 onclick={onNavigateToReceive}
               >
                 <ArrowDownIcon class="h-[18px] w-[18px]" />
@@ -1222,40 +1260,94 @@
                 <Spinner class="size-3" />
               </span>
             </p>
-          {:else if !canSendOrConvert && !isShieldedSyncBlocked}
+          {:else if selectedScope && !canSendOrConvert && !isShieldedSyncBlocked}
             <p class="mt-2 text-right text-[11px] leading-snug text-muted-foreground">
               {i18n.t('wallet.assetDetails.readOnlyHelper')}
             </p>
           {/if}
         </div>
 
-        <div class="relative flex min-h-0 flex-1 flex-col">
-          <div class="px-0 pt-2 pb-2">
-            <p class="text-sm font-medium">{i18n.t('wallet.assetDetails.transactions')}</p>
+        {#if failedBalanceScopes.length > 0}
+          <div class="mb-3 flex items-center gap-3 text-xs text-muted-foreground" role="status">
+            <span
+              >{i18n.t(
+                totalAmountValue === null
+                  ? 'wallet.loading.balanceUnavailable'
+                  : 'wallet.loading.balanceStale'
+              )}</span
+            >
+            <Button variant="ghost" size="sm" disabled={balancesLoading} onclick={retryBalances}>
+              {i18n.t('common.retry')}
+            </Button>
           </div>
+        {/if}
+
+        {#if scopesError}
+          <div class="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+            <p>{i18n.t('wallet.assetDetails.errorLoadScopes')}</p>
+            <p class="mt-1 text-xs">{scopesError}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              class="mt-3"
+              disabled={scopesLoading}
+              onclick={loadScopes}
+            >
+              {i18n.t('common.retry')}
+            </Button>
+          </div>
+        {:else if !selectedScope && !scopesLoading}
+          <p class="text-sm text-muted-foreground">
+            {i18n.t('wallet.assetDetails.scopeUnavailable')}
+          </p>
+        {/if}
+
+        <div class="relative flex min-h-0 flex-1 flex-col">
+          <div class="flex items-center justify-between gap-3 px-0 pt-2 pb-2">
+            <p class="text-sm font-medium">{i18n.t('wallet.assetDetails.transactions')}</p>
+            <DelayedStatus
+              active={loadingSelectedTransactions || (scopesLoading && !selectedScope)}
+              label={i18n.t('wallet.loading.fetchingTransactions')}
+            />
+          </div>
+
+          {#if selectedScopeTransactionsError && sortedSelectedTransactions.length > 0}
+            <div class="mb-2 flex items-center gap-3 text-xs text-muted-foreground" role="status">
+              <span>{i18n.t('wallet.loading.historyStale')}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loadingSelectedTransactions}
+                onclick={retryTransactions}>{i18n.t('common.retry')}</Button
+              >
+            </div>
+          {/if}
 
           <ScrollArea.Root class="h-full min-h-0 flex-1" type="scroll">
             <ScrollArea.Viewport
               class="asset-tx-scroll h-full overscroll-contain pr-5"
+              aria-busy={scopesLoading || loadingSelectedTransactions || loadingMoreTransactions}
               bind:ref={txScrollElement}
               onscroll={onTxScroll}
             >
-              {#if loadingSelectedTransactions && sortedSelectedTransactions.length === 0}
-                <ul class="space-y-2 py-2 pr-1">
-                  {#each initialTransactionSkeletonRows as skeletonRow (skeletonRow)}
-                    <li class="flex items-center justify-between rounded-md py-2">
-                      <div class="min-w-0 flex-1">
-                        <Skeleton class="h-4 w-40 rounded-sm" />
-                        <Skeleton class="mt-2 h-3 w-28 rounded-sm" />
+              {#if (loadingSelectedTransactions || scopesLoading) && sortedSelectedTransactions.length === 0}
+                <ul class="space-y-1.5 py-2 pr-1" aria-hidden="true" data-transaction-loading>
+                  {#each [0, 1, 2, 3, 4] as index (index)}
+                    <li class="flex items-center justify-between py-2">
+                      <div>
+                        <Skeleton class="h-4 w-40 rounded-sm motion-reduce:animate-none" />
+                        <Skeleton class="mt-2 h-3 w-28 rounded-sm motion-reduce:animate-none" />
                       </div>
-                      <div class="ml-4 min-w-[9rem] text-right">
-                        <Skeleton class="ml-auto h-4 w-24 rounded-sm" />
-                        <Skeleton class="mt-2 ml-auto h-3 w-20 rounded-sm" />
+                      <div>
+                        <Skeleton class="ml-auto h-4 w-24 rounded-sm motion-reduce:animate-none" />
+                        <Skeleton
+                          class="mt-2 ml-auto h-3 w-16 rounded-sm motion-reduce:animate-none"
+                        />
                       </div>
                     </li>
                   {/each}
                 </ul>
-              {:else if selectedScopeTransactionsError}
+              {:else if selectedScopeTransactionsError && sortedSelectedTransactions.length === 0}
                 <div class="py-5">
                   <p class="text-sm text-destructive">
                     {i18n.t('wallet.assetDetails.errorLoadTransactions')}
@@ -1265,7 +1357,7 @@
                     {i18n.t('common.retry')}
                   </Button>
                 </div>
-              {:else if sortedSelectedTransactions.length === 0}
+              {:else if selectedScope && !loadingSelectedTransactions && sortedSelectedTransactions.length === 0}
                 <p class="py-6 text-sm text-muted-foreground">
                   {selectedScopeHasMoreTransactions
                     ? i18n.t('wallet.assetDetails.noTransactionsInRecentRange')
@@ -1310,23 +1402,6 @@
                 </ul>
               {/if}
 
-              {#if loadingMoreTransactions}
-                <ul class="space-y-2 pr-1 pb-2">
-                  {#each loadMoreTransactionSkeletonRows as skeletonRow (skeletonRow)}
-                    <li class="flex items-center justify-between rounded-md py-2">
-                      <div class="min-w-0 flex-1">
-                        <Skeleton class="h-4 w-36 rounded-sm" />
-                        <Skeleton class="mt-2 h-3 w-24 rounded-sm" />
-                      </div>
-                      <div class="ml-4 min-w-[8.5rem] text-right">
-                        <Skeleton class="ml-auto h-4 w-20 rounded-sm" />
-                        <Skeleton class="mt-2 ml-auto h-3 w-16 rounded-sm" />
-                      </div>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-
               {#if selectedScopeLoadMoreError}
                 <div class="pr-1 pb-3">
                   <p class="text-xs text-destructive">
@@ -1342,10 +1417,23 @@
                     {i18n.t('common.retry')}
                   </Button>
                 </div>
-              {:else if selectedScopeHasMoreTransactions && !loadingMoreTransactions}
+              {:else if selectedScopeHasMoreTransactions || loadingMoreTransactions}
                 <div class="pt-1 pr-1 pb-3">
-                  <Button variant="secondary" size="sm" onclick={retryLoadMoreTransactions}>
-                    {i18n.t('wallet.assetDetails.loadOlderTransactions')}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={loadingMoreTransactions}
+                    aria-busy={loadingMoreTransactions}
+                    onclick={retryLoadMoreTransactions}
+                  >
+                    {#if loadingMoreTransactions}<Spinner
+                        class="size-3.5 motion-reduce:animate-none"
+                      />{/if}
+                    {i18n.t(
+                      loadingMoreTransactions
+                        ? 'wallet.loading.fetchingTransactions'
+                        : 'wallet.assetDetails.loadOlderTransactions'
+                    )}
                   </Button>
                 </div>
               {/if}

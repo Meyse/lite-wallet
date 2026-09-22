@@ -6,27 +6,30 @@ export interface RuntimeAppInfo {
   build: string;
 }
 
-const FALLBACK_APP_INFO: RuntimeAppInfo = {
+const FALLBACK_APP_INFO = {
   name: 'Verus Express',
-  version: '0.1.0',
-  build: 'com.maxtheyse.verus-express'
+  build: 'com.maxtheyse.verus-express',
 };
 
 export async function loadRuntimeAppInfo(): Promise<RuntimeAppInfo> {
   const [nameResult, versionResult, identifierResult] = await Promise.allSettled([
     getName(),
     getVersion(),
-    getIdentifier()
+    getIdentifier(),
   ]);
 
   const name =
     nameResult.status === 'fulfilled' && nameResult.value.trim().length > 0
       ? nameResult.value
       : FALLBACK_APP_INFO.name;
-  const version =
-    versionResult.status === 'fulfilled' && versionResult.value.trim().length > 0
-      ? versionResult.value
-      : FALLBACK_APP_INFO.version;
+  if (
+    versionResult.status !== 'fulfilled' ||
+    typeof versionResult.value !== 'string' ||
+    !versionResult.value.trim()
+  ) {
+    throw new Error('App version unavailable');
+  }
+  const version = versionResult.value;
   const build =
     identifierResult.status === 'fulfilled' && identifierResult.value.trim().length > 0
       ? identifierResult.value
@@ -35,6 +38,6 @@ export async function loadRuntimeAppInfo(): Promise<RuntimeAppInfo> {
   return {
     name,
     version,
-    build
+    build,
   };
 }

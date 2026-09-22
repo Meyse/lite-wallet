@@ -15,7 +15,12 @@
   import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import DelayedStatus from '$lib/components/common/DelayedStatus.svelte';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import {
+    readManageAssetsDisplay,
+    writeManageAssetsDisplay,
+  } from '$lib/stores/manageAssetsDisplay.js';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
   import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
@@ -41,8 +46,8 @@
     formatAssetBalance,
     type KnownAssetBalance,
     scanKnownNonVrpcAssets,
-    withAssetLookupTimeout,
   } from '$lib/stores/manageAssets.js';
+  import { withRequestTimeout } from '$lib/utils/requestTimeout.js';
   import { buildWalletChannels, walletChannelsStore } from '$lib/stores/walletChannels.js';
   import type {
     AssetDiscoveryResult,
@@ -98,11 +103,13 @@
   let listScrollElement = $state<HTMLElement | null>(null);
   let canScrollUp = $state(false);
   let canScrollDown = $state(false);
-  let registryCoins = $state<CoinDefinition[]>([]);
+  // These collections are replaced, not mutated; raw values stay cloneable for
+  // the current-session display snapshot.
+  let registryCoins = $state.raw<CoinDefinition[]>([]);
   let portfolioCoinIds = $state<string[]>([]);
   let hiddenAssetKeys = $state<string[]>([]);
-  let discovery = $state<AssetDiscoveryResult | null>(null);
-  let knownBalances = $state<KnownAssetBalance[]>([]);
+  let discovery = $state.raw<AssetDiscoveryResult | null>(null);
+  let knownBalances = $state.raw<KnownAssetBalance[]>([]);
   let pendingKnownAssetKeys = $state<string[]>([]);
   let loading = $state(true);
   let refreshing = $state(false);
@@ -124,6 +131,7 @@
   let closing = $state(false);
   let networkMenuOpen = $state(false);
   let lifecycleGeneration = 0;
+  let displayGeneration = -1;
   let componentMounted = true;
   let activePreferenceSave: Promise<boolean> | null = null;
 
@@ -517,9 +525,15 @@
       registryCoins = allCoins.filter((coin) => isWalletSupportedAsset(coin, network));
       portfolioCoinIds = preferences.portfolioCoinIds;
       hiddenAssetKeys = preferences.hiddenAssetKeys;
+      const display = readManageAssetsDisplay(preferences.sessionId, network);
+      displayGeneration = display.generation;
+      const previous = display.snapshot;
+      discovery = previous?.discovery ?? null;
+      knownBalances = previous?.knownBalances ?? [];
+      discoveryStale = previous?.discoveryStale ?? false;
       applyPortfolioStores();
-      // Local rows are ready. Network discovery must not hold the entire list
-      // behind skeletons, even if one provider never responds.
+      // Local rows are ready. Refresh balances without replacing the list,
+      // even if one provider never responds.
       void refreshDiscovery(generation, preferences.sessionId);
     } catch (error) {
       if (componentMounted && lifecycleGeneration === generation && isOpen) {
@@ -550,6 +564,14 @@
     };
   }
 
+  function rememberDisplay(): void {
+    writeManageAssetsDisplay(expectedSessionId, network, displayGeneration, {
+      discovery,
+      knownBalances,
+      discoveryStale,
+    });
+  }
+
   async function refreshDiscovery(
     generation = lifecycleGeneration,
     sessionId = expectedSessionId,
@@ -569,7 +591,7 @@
     async function canPublish(): Promise<boolean> {
       if (!isOperationCurrent(generation, sessionId)) return false;
       try {
-        const preferences = await withAssetLookupTimeout(walletService.getAssetPreferences());
+        const preferences = await withRequestTimeout(walletService.getAssetPreferences());
         return isOperationCurrent(generation, sessionId) && preferences.sessionId === sessionId;
       } catch {
         // A lock or replacement session invalidates this refresh.
@@ -579,17 +601,19 @@
 
     async function refreshVrpc(): Promise<void> {
       try {
-        const result = await withAssetLookupTimeout(
+        const result = await withRequestTimeout(
           walletService.discoverVrpcAssets(retryingSources ? systemIds : undefined),
           ASSET_DISCOVERY_TIMEOUT_MS
         );
         if (!(await canPublish())) return;
         discovery = mergeDiscoveryUpdate(previousDiscovery, result, systemIds);
         discoveryStale = false;
+        rememberDisplay();
       } catch {
         if (!(await canPublish())) return;
         discoveryStale = Boolean(previousDiscovery);
         discoveryError = i18n.t('wallet.manageAssets.discoveryPartial');
+        rememberDisplay();
       }
     }
 
@@ -610,6 +634,7 @@
               pendingKnownAssetKeys = pendingKnownAssetKeys.filter(
                 (key) => key !== balance.assetKey
               );
+              rememberDisplay();
             }
           ),
     ]);
@@ -1218,9 +1243,12 @@
           </button>
         {/each}
       </div>
-      <span class="text-right text-xs text-muted-foreground"
-        >{i18n.t('wallet.manageAssets.balance')}</span
-      >
+      <DelayedStatus
+        active={loading || refreshing}
+        label={i18n.t('wallet.loading.updatingBalances')}
+        idleLabel={i18n.t('wallet.manageAssets.balance')}
+        class="justify-end text-right"
+      />
       <span class="text-right text-xs text-muted-foreground"
         >{i18n.t('wallet.manageAssets.inPortfolio')}</span
       >
@@ -1258,7 +1286,7 @@
       class="relative mt-3 min-h-0 flex-1"
       role="tabpanel"
       aria-labelledby={`manage-assets-tab-${tab}`}
-      aria-busy={loading}
+      aria-busy={loading || refreshing}
     >
       <ScrollArea.Root class="h-full" type="scroll">
         <ScrollArea.Viewport
@@ -1268,19 +1296,16 @@
         >
           {#if loading}
             <p class="sr-only" role="status">{i18n.t('wallet.manageAssets.checking')}</p>
-            <div aria-hidden="true">
+            <div aria-hidden="true" data-manage-assets-initial-loading>
               {#each [0, 1, 2] as index}
                 <div
                   class={`grid min-h-[72px] grid-cols-[minmax(0,1fr)_190px_84px] items-center px-1 ${index < 2 ? 'border-b' : ''}`}
                 >
                   <div class="flex items-center gap-3">
-                    <div class="flex w-9 shrink-0 justify-center">
-                      <Skeleton class="h-8 w-8 rounded-full" />
-                    </div>
-                    <Skeleton class={`h-4 rounded-sm ${index === 1 ? 'w-28' : 'w-36'}`} />
+                    <Skeleton class="size-8 shrink-0 rounded-full motion-reduce:animate-none" />
+                    <Skeleton class="h-4 w-28 rounded-sm motion-reduce:animate-none" />
                   </div>
-                  <Skeleton class="ml-auto h-4 w-24 rounded-sm" />
-                  <Skeleton class="ml-auto h-5 w-[34px] rounded-full" />
+                  <Skeleton class="ml-auto h-4 w-20 rounded-sm motion-reduce:animate-none" />
                 </div>
               {/each}
             </div>
@@ -1354,7 +1379,11 @@
                           data-manage-assets-balance={row.key}
                         >
                           {#if balance.status === 'loading'}
-                            <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+                            <Skeleton
+                              class="ml-auto h-4 w-20 rounded-sm motion-reduce:animate-none"
+                              role="img"
+                              aria-label={i18n.t('wallet.loading.balancePending')}
+                            />
                           {:else if balance.status === 'unavailable'}
                             <span>{i18n.t('wallet.manageAssets.unavailable')}</span>
                           {:else if balance.status === 'partial' && balance.balance === null}
@@ -1585,7 +1614,11 @@
                         >{i18n.t('wallet.manageAssets.unavailable')}</span
                       >
                     {:else if manualResolvedBalance.status === 'loading'}
-                      <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+                      <Skeleton
+                        class="ml-auto h-4 w-20 rounded-sm motion-reduce:animate-none"
+                        role="img"
+                        aria-label={i18n.t('wallet.loading.balancePending')}
+                      />
                     {:else}
                       <span class="font-medium"
                         >{displayBalanceAmount(manualResolvedBalance.balance)}
@@ -1716,7 +1749,11 @@
 
           <div class="truncate text-right text-sm font-medium text-foreground tabular-nums">
             {#if rowBalance.status === 'loading'}
-              <span class="text-muted-foreground">{i18n.t('common.loading')}</span>
+              <Skeleton
+                class="ml-auto h-4 w-20 rounded-sm motion-reduce:animate-none"
+                role="img"
+                aria-label={i18n.t('wallet.loading.balancePending')}
+              />
             {:else if rowBalance.status === 'unavailable'}
               <span>{i18n.t('wallet.manageAssets.unavailable')}</span>
             {:else if rowBalance.status === 'partial' && rowBalance.balance === null}

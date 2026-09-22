@@ -4,6 +4,11 @@ import type {
   CoinDefinition,
   CoinScopesResult,
 } from '$lib/types/wallet.js';
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  EXTENDED_REQUEST_TIMEOUT_MS,
+  withRequestTimeout,
+} from '$lib/utils/requestTimeout.js';
 
 export interface KnownAssetBalance {
   assetKey: string;
@@ -26,29 +31,13 @@ export interface AggregatedDiscoveryHolding {
   networks: AssetDiscoveryHolding[];
 }
 
-export const ASSET_LOOKUP_TIMEOUT_MS = 20_000;
-export const ASSET_DISCOVERY_TIMEOUT_MS = 45_000;
-
-// Tauri invocations cannot be cancelled from here. Stop waiting and ignore late
-// results; Ethereum balance reads also have their own backend deadline.
-export async function withAssetLookupTimeout<T>(
+export const ASSET_LOOKUP_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS;
+export const ASSET_DISCOVERY_TIMEOUT_MS = EXTENDED_REQUEST_TIMEOUT_MS;
+export function withAssetLookupTimeout<T>(
   request: Promise<T>,
   timeoutMs = ASSET_LOOKUP_TIMEOUT_MS
 ): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      request,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new DOMException('Asset lookup timed out', 'TimeoutError')),
-          timeoutMs
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
+  return withRequestTimeout(request, timeoutMs, 'Asset lookup timed out');
 }
 
 export function assetKeyForCoin(coin: CoinDefinition): string {
@@ -64,13 +53,6 @@ export function finiteAssetBalance(value: string | null): number {
 
 export function formatAssetBalance(value: number): string {
   if (value === 0) return '0';
-  if (Math.abs(value) < 0.0001) {
-    return value.toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 8,
-      useGrouping: false,
-    });
-  }
   return value.toLocaleString('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 8,

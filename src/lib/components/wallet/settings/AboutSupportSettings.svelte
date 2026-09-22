@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import CommunityHangoutButton from '$lib/components/common/CommunityHangoutButton.svelte';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
+  import DelayedStatus from '$lib/components/common/DelayedStatus.svelte';
   import { i18nStore } from '$lib/i18n';
   import { loadRuntimeAppInfo, type RuntimeAppInfo } from '$lib/utils/appInfo.js';
 
@@ -66,7 +67,12 @@
         </p>
         <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
           {#if appInfoState === 'loading'}
-            {i18n.t('common.loading')}
+            <DelayedStatus
+              active
+              label={i18n.t('wallet.loading.readingVersion')}
+              idleLabel="—"
+              class="text-settings-muted-foreground"
+            />
           {:else if appInfoState === 'ready' && appInfo}
             {i18n.t('wallet.settings.about.versionValue', { version: appInfo.version })}
           {:else}

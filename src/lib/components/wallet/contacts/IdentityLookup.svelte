@@ -32,7 +32,7 @@
           : saveState === 'error'
             ? 'wallet.contacts.retry'
             : $contactsLoadState !== 'ready'
-              ? 'common.loading'
+              ? 'wallet.identity.publicProfile.checkingContacts'
               : matches.length > 1
                 ? 'wallet.contacts.viewMany'
                 : matches.length

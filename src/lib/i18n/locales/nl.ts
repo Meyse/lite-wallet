@@ -1,5 +1,18 @@
 export const nl: Record<string, string> = {
   'common.loading': 'Laden…',
+  'wallet.loading.updatingBalances': 'Saldi bijwerken…',
+  'wallet.loading.fetchingAddresses': 'Adressen ophalen…',
+  'wallet.loading.historyStale': 'De transactiegeschiedenis kon niet worden bijgewerkt.',
+  'wallet.loading.balanceUnavailable': 'Sommige saldi zijn niet beschikbaar.',
+  'wallet.loading.balanceStale': 'Sommige saldi zijn mogelijk verouderd.',
+  'wallet.loading.balancePending': 'Saldo wordt opgehaald',
+  'wallet.loading.updatingAsset': 'Munt bijwerken…',
+  'wallet.loading.fetchingTransactions': 'Transacties ophalen…',
+  'wallet.loading.checkingSetup': 'Configuratie controleren…',
+  'wallet.loading.readingVersion': 'Appversie ophalen…',
+  'wallet.loading.requestTimedOut': 'Het verzoek duurde te lang.',
+  'wallet.settings.home.summary.privateUnavailable': 'Configuratiestatus niet beschikbaar',
+  'wallet.addressBook.deleting': 'Verwijderen…',
   'common.cancel': 'Annuleren',
   'common.continue': 'Doorgaan',
   'common.back': 'Terug',
@@ -720,8 +733,7 @@ export const nl: Record<string, string> = {
   'wallet.manageAssets.stale':
     'Eerdere resultaten worden getoond. Vernieuw om opnieuw te controleren.',
   'wallet.manageAssets.discoveryUnavailable': 'Assetdetectie is niet beschikbaar.',
-  'wallet.manageAssets.discoveryPartial':
-    'Sommige holdingnetwerken konden niet worden gecontroleerd.',
+  'wallet.manageAssets.discoveryPartial': 'Sommige saldi konden niet worden bijgewerkt.',
   'wallet.manageAssets.scopeMetadataPartial':
     'Sommige gekoppelde walletscopes konden niet worden gecontroleerd.',
   'wallet.manageAssets.transparentOnly': 'Detectie controleert alleen transparante saldi.',

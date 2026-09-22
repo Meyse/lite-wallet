@@ -6,10 +6,10 @@
 -->
 
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
-  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
@@ -121,6 +121,7 @@
   let loadedTransparentAggregateByChannel = $state<Record<string, true>>({});
   const inFlightTransparentAggregateByChannel = new Set<string>();
   const inFlightTransparentScopeCoins = new Set<string>();
+  let pendingAggregateCoinIds = $state<string[]>([]);
 
   type WalletEntryRow = WalletOverviewRowViewModel & {
     walletEntryKind: WalletEntryKind;
@@ -211,7 +212,7 @@
   $effect(() => {
     const vrpcCoins = coins.filter((coin) => coin.compatibleChannels.includes('vrpc'));
     for (const coin of vrpcCoins) {
-      void loadTransparentAggregateBalances(coin);
+      untrack(() => void loadTransparentAggregateBalances(coin));
     }
   });
 
@@ -369,11 +370,24 @@
       };
     })()
   );
-  const heroValueIsLoading = $derived(isBootstrapping && allRows.some((row) => !row.hasSnapshot));
   const heroTotalIsPartial = $derived(
     heroSummary.value !== OVERVIEW_UNAVAILABLE_DISPLAY &&
       (heroSummary.hasPartialRates || heroSummary.hasPartialBalances)
   );
+  const heroInitiallyLoading = $derived(
+    heroSummary.value === OVERVIEW_UNAVAILABLE_DISPLAY &&
+      allRows.some((row) => !row.hasSnapshot && isBalancePending(row))
+  );
+
+  function isBalancePending(row: WalletEntryRow): boolean {
+    return isBootstrapping || pendingAggregateCoinIds.includes(row.coinId);
+  }
+
+  function finishAggregateRead(coinId: string): void {
+    const index = pendingAggregateCoinIds.indexOf(coinId);
+    if (index < 0) return;
+    pendingAggregateCoinIds = pendingAggregateCoinIds.filter((_, i) => i !== index);
+  }
   const rowIconSize = 34;
   const partialTotalTooltipId = 'wallet-overview-partial-total-description';
 
@@ -382,22 +396,6 @@
     return (
       info?.syncing === true ||
       (info?.percent !== undefined && info.percent >= 0 && info.percent < 100)
-    );
-  }
-
-  function isBalanceValueLoading(row: WalletEntryRow): boolean {
-    return isBootstrapping && !row.hasSnapshot;
-  }
-
-  function isRateValueLoading(row: WalletEntryRow): boolean {
-    return walletNetwork === 'mainnet' && isBootstrapping && row.unitRateDisplay === null;
-  }
-
-  function isFiatValueLoading(row: WalletEntryRow): boolean {
-    return (
-      walletNetwork === 'mainnet' &&
-      isBootstrapping &&
-      (!row.hasSnapshot || row.unitRateDisplay === null)
     );
   }
 
@@ -508,7 +506,10 @@
     }
   }
 
-  async function fetchTransparentAggregateBalance(scope: CoinScope, coinId: string): Promise<void> {
+  async function fetchTransparentAggregateBalance(
+    scope: Pick<CoinScope, 'channelId'>,
+    coinId: string
+  ): Promise<void> {
     const channelKey = `${scope.channelId}::${coinId}`;
     if (inFlightTransparentAggregateByChannel.has(channelKey)) return;
     inFlightTransparentAggregateByChannel.add(channelKey);
@@ -527,7 +528,7 @@
         [channelKey]: true,
       };
     } catch {
-      // Best effort preload for overview totals.
+      // Keep available balances visible if this supplementary read fails.
     } finally {
       inFlightTransparentAggregateByChannel.delete(channelKey);
     }
@@ -537,6 +538,7 @@
     if (!coin.compatibleChannels.includes('vrpc')) return;
     if (inFlightTransparentScopeCoins.has(coin.id)) return;
     inFlightTransparentScopeCoins.add(coin.id);
+    pendingAggregateCoinIds = [...pendingAggregateCoinIds, coin.id];
 
     try {
       const scopeResult = await walletDisplayService.getDisplayCoinScopes(coin.id);
@@ -569,9 +571,10 @@
 
       await Promise.all(workers);
     } catch {
-      // Best effort preload for overview totals.
+      // Keep available balances visible if scope discovery fails.
     } finally {
       inFlightTransparentScopeCoins.delete(coin.id);
+      finishAggregateRead(coin.id);
     }
   }
 
@@ -589,16 +592,19 @@
     class:hidden={showAddAssetSheet}
   >
     <div
-      class={`z-10 shrink-0 bg-background pb-3 dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
+      class={`z-10 shrink-0 bg-background dark:bg-app-canvas ${hasOverviewScroll ? 'overview-scroll-shadow' : ''}`}
     >
       <div
         class="balance-banner flex min-h-[92px] items-center justify-between gap-4 rounded-md py-4 pr-3.5 pl-[22px]"
       >
         <div class="relative z-20 min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            {#if heroValueIsLoading}
-              <div class="flex h-[49px] items-center" aria-label={i18n.t('common.loading')}>
-                <Skeleton class="h-9 w-40 rounded-md bg-white/20 sm:h-10 sm:w-48" />
+            {#if heroInitiallyLoading}
+              <div
+                class="flex h-[49px] items-center"
+                aria-label={i18n.t('wallet.loading.balancePending')}
+              >
+                <Skeleton class="h-10 w-48 rounded-md bg-white/20 motion-reduce:animate-none" />
               </div>
             {:else}
               <div
@@ -617,27 +623,27 @@
                   {heroSummary.value}
                 </p>
               </div>
-              {#if heroTotalIsPartial}
-                <Tooltip.Root>
-                  <Tooltip.Trigger>
-                    {#snippet child({ props })}
-                      <button
-                        {...props}
-                        type="button"
-                        aria-describedby={partialTotalTooltipId}
-                        class="inline-flex h-5 items-center rounded-sm border border-white/30 bg-white/10 px-1.5 text-[11px] leading-none font-medium text-white transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-                      >
-                        {i18n.t('wallet.overview.partialTotalLabel')}
-                      </button>
-                    {/snippet}
-                  </Tooltip.Trigger>
-                  <Tooltip.Content side="bottom" align="start" class="max-w-72 leading-5">
-                    <span id={partialTotalTooltipId} role="tooltip">
-                      {i18n.t('wallet.overview.partialTotalDescription')}
-                    </span>
-                  </Tooltip.Content>
-                </Tooltip.Root>
-              {/if}
+            {/if}
+            {#if heroTotalIsPartial}
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  {#snippet child({ props })}
+                    <button
+                      {...props}
+                      type="button"
+                      aria-describedby={partialTotalTooltipId}
+                      class="inline-flex h-5 items-center rounded-sm border border-white/30 bg-white/10 px-1.5 text-[11px] leading-none font-medium text-white transition-colors hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
+                    >
+                      {i18n.t('wallet.overview.partialTotalLabel')}
+                    </button>
+                  {/snippet}
+                </Tooltip.Trigger>
+                <Tooltip.Content side="bottom" align="start" class="max-w-72 leading-5">
+                  <span id={partialTotalTooltipId} role="tooltip">
+                    {i18n.t('wallet.overview.partialTotalDescription')}
+                  </span>
+                </Tooltip.Content>
+              </Tooltip.Root>
             {/if}
           </div>
         </div>
@@ -788,15 +794,10 @@
                     </div>
 
                     <div class="justify-self-end pr-4 text-right tabular-nums">
-                      {#if isRateValueLoading(row)}
-                        <div class="flex h-4 items-center justify-end">
-                          <Skeleton class="h-3 w-20 rounded-sm" />
-                        </div>
-                      {:else}
-                        <p class="h-4 text-xs font-medium text-foreground/75">
-                          {row.marketPriceDisplay}
-                        </p>
-                      {/if}
+                      <p class="h-4 text-xs font-medium text-foreground/75">
+                        {row.marketPriceDisplay}
+                      </p>
+
                       <div
                         class={`mt-0.5 flex h-4 items-center justify-end text-xs ${
                           row.change24hDirection === 'up'
@@ -806,11 +807,7 @@
                               : 'text-muted-foreground'
                         }`}
                       >
-                        {#if isRateValueLoading(row)}
-                          <Skeleton class="h-3 w-14 rounded-sm" />
-                        {:else}
-                          <span>{row.change24hDisplay}</span>
-                        {/if}
+                        <span>{row.change24hDisplay}</span>
                       </div>
                     </div>
 
@@ -824,9 +821,15 @@
                           {row.syncLabel}
                         </p>
                       {:else}
-                        {#if isFiatValueLoading(row)}
-                          <div class="flex h-6 items-center justify-end">
-                            <Skeleton class="h-4 w-20 rounded-sm" />
+                        {#if !row.hasSnapshot && isBalancePending(row)}
+                          <div
+                            class="flex h-6 items-center justify-end"
+                            aria-label={i18n.t('wallet.loading.balancePending')}
+                          >
+                            <Skeleton class="h-4 w-20 rounded-sm motion-reduce:animate-none" />
+                          </div>
+                          <div class="mt-0.5 flex h-5 items-center justify-end" aria-hidden="true">
+                            <Skeleton class="h-3 w-24 rounded-sm motion-reduce:animate-none" />
                           </div>
                         {:else}
                           <p
@@ -834,16 +837,13 @@
                           >
                             {row.fiatValueDisplay}
                           </p>
-                        {/if}
-                        {#if isBalanceValueLoading(row)}
-                          <div class="mt-0.5 flex h-5 items-center justify-end">
-                            <Skeleton class="h-3 w-24 rounded-sm" />
-                          </div>
-                        {:else}
+
                           <p
                             class={`mt-0.5 h-5 text-[13px] leading-5 text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
                           >
-                            {row.cryptoAmountDisplay}
+                            {row.hasSnapshot
+                              ? row.cryptoAmountDisplay
+                              : i18n.t('wallet.manageAssets.unavailable')}
                           </p>
                         {/if}
                       {/if}

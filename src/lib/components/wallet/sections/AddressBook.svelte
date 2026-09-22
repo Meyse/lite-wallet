@@ -1031,8 +1031,19 @@
       <Button variant="secondary" onclick={() => (showDeleteDialog = false)} disabled={deleting}>
         {i18n.t('common.cancel')}
       </Button>
-      <Button variant="destructive" onclick={confirmDeleteSelected} disabled={deleting}>
-        {deleting ? i18n.t('common.loading') : i18n.t('wallet.addressBook.deleteContact')}
+      <Button
+        variant="destructive"
+        onclick={confirmDeleteSelected}
+        disabled={deleting}
+        aria-busy={deleting}
+      >
+        {#if deleting}<LoaderCircleIcon
+            class="size-3.5 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />{/if}
+        {deleting
+          ? i18n.t('wallet.addressBook.deleting')
+          : i18n.t('wallet.addressBook.deleteContact')}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

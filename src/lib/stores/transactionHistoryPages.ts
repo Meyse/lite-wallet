@@ -84,3 +84,17 @@ export function resetTransactionHistoryPages(channelId?: string, coinId?: string
     return next;
   });
 }
+
+/** Refresh a current-session history page without erasing the rows already shown. */
+export function invalidateTransactionHistoryPages(channelId?: string, coinId?: string): void {
+  transactionHistoryPagesStore.update((pages) =>
+    Object.fromEntries(
+      Object.entries(pages).map(([key, page]) => {
+        const [pageChannelId, pageCoinId] = key.split('::');
+        if ((channelId && pageChannelId !== channelId) || (coinId && pageCoinId !== coinId))
+          return [key, page];
+        return [key, { ...createEmptyTransactionPageState(), items: page.items }];
+      })
+    )
+  );
+}

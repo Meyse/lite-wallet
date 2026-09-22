@@ -36,6 +36,30 @@ balance.
 
 ## Readiness and background updates
 
+- Manage assets, Overview, Asset details and Settings keep known names, values,
+  navigation and controls visible. Initial missing balances, addresses, metadata
+  summaries and structured lists use skeletons with reduced-motion support.
+  Refreshes never replace known values with skeletons. Unavailable values do not
+  become zero, and partial totals remain labelled.
+- Passive reads in Manage assets, Asset details, Settings, and history use a
+  quiet status near the affected content after one second. Overview relies on
+  values and initial skeletons without a separate status line. A status does not
+  claim all market prices or later background polling are complete. User actions
+  keep immediate, action-specific feedback in their button or task surface.
+- Overview's supplementary scope and balance reads are best effort: failed reads
+  leave known values visible, while missing snapshots remain unavailable. Asset
+  details exposes unavailable or stale balance feedback with retry; a newer
+  balance event supersedes a failed display read. Initial history errors wait
+  for explicit retry rather than automatically requesting the same page. History
+  invalidation retains existing rows during refresh and after failure; ending
+  the wallet session still clears them.
+- Manage assets retains discovered holdings in memory for the current unlock
+  session and network while it refreshes on later visits. Preferences are always
+  read afresh. Lock/route teardown and scope invalidation clear this display
+  snapshot; generation checks prevent late responses from restoring it. Failed
+  balance refreshes become unavailable, and failed discovery keeps prior values
+  explicitly marked as stale with a retry.
+
 - The update engine polls only active assets and limits concurrent balance RPCs
   to four. It starts transparent balance work without waiting for dlight public
   metadata. When that metadata arrives, shielded channels join the same
@@ -119,6 +143,10 @@ Render and native latency need separate runtime measurement.
 - display balance reads have a short five-second cache;
 - identical in-flight history, scope, status, and balance requests are joined;
 - generation checks reject results that finish after reset or invalidation;
+- display balance reads stop waiting after 20 seconds; scope/history reads after
+  45 seconds. Deadlines release request sharing for retry and exclude late
+  results from display caches. They do not cancel the underlying Tauri
+  invocation;
 - event updates prime the balance cache and invalidate affected history pages.
 
 Route teardown, lock navigation, account changes, and network changes reset the

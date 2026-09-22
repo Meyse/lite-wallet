@@ -81,7 +81,13 @@ const uniWait = new Promise<void>((resolve) => (resolveUni = resolve));
 const discoveryWait = new Promise<void>((resolve) => (resolveDiscovery = resolve));
 let stalledOnce = false;
 const invoke = async (command: string, args: Record<string, unknown> = {}) => {
-  if (command === 'get_coin_registry') return [vrsc, usdc, uni];
+  if (command === 'get_coin_registry') {
+    if (params.get('stall') === 'metadata' && !stalledOnce) {
+      stalledOnce = true;
+      return new Promise(() => {});
+    }
+    return [vrsc, usdc, uni];
+  }
   if (command === 'get_asset_preferences') return preferences;
   if (command === 'discover_vrpc_assets') {
     if (params.get('stall') === 'discovery' && !stalledOnce) {
