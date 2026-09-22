@@ -20,7 +20,6 @@
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import * as Tabs from '$lib/components/ui/tabs';
   import { identityKey, matchingContacts } from '$lib/contacts/identity';
-  import { getContactNavigation } from '$lib/contacts/navigation';
   import { identityProfiles, loadIdentityProfile, profileImage } from '$lib/contacts/profiles';
   import { addIdentityContact, loadContacts } from '$lib/contacts/service';
   import { contactSession, contactsLoadState } from '$lib/contacts/session';
@@ -86,13 +85,11 @@
   let activeTab = $state('websites');
   let saveState = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
   let alive = true;
-  let contactButton = $state<HTMLButtonElement | null>(null);
   let panelViewport = $state<HTMLDivElement | null>(null);
   let canScrollDown = $state(false);
   let unlinkDialogOpen = $state(false);
   const copied = new TimedValueState<string>();
 
-  const openContact = getContactNavigation();
   const i18n = $derived($i18nStore);
   const profileEntry = $derived($identityProfiles[identityKey(identity)]);
   const profile = $derived(owner ? owner.profile : (profileEntry?.profile ?? null));
@@ -260,11 +257,7 @@
     if (await writeClipboardText(value)) copied.set(key);
   }
   async function activateContactAction(): Promise<void> {
-    if (linked !== false || navigationDisabled || saveState === 'saving') return;
-    if (inContacts) {
-      openContact?.(identity, contactButton);
-      return;
-    }
+    if (linked !== false || navigationDisabled || saveState === 'saving' || inContacts) return;
     if ($contactsLoadState !== 'ready') {
       await loadContacts(true).catch(() => {});
       return;
@@ -382,16 +375,15 @@
             )}</Button
           >
           <Button
-            bind:ref={contactButton}
             variant="secondary"
             class="h-[34px] min-w-[143px] gap-[7px] px-3 text-sm select-none {inContacts
-              ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved'
+              ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved disabled:cursor-default disabled:opacity-100 disabled:hover:bg-contact-saved'
               : ''}"
             disabled={navigationDisabled ||
               saveState === 'saving' ||
               $contactsLoadState === 'loading' ||
               $contactsLoadState === 'idle' ||
-              (inContacts && !openContact)}
+              inContacts}
             aria-busy={saveState === 'saving'}
             onclick={() => void activateContactAction()}
           >
