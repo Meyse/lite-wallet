@@ -795,7 +795,7 @@
                     </div>
 
                     <div class="justify-self-end pr-4 text-right tabular-nums">
-                      <p class="h-4 text-xs font-medium text-foreground/75">
+                      <p class="h-4 text-xs font-medium text-muted-foreground">
                         {row.marketPriceDisplay}
                       </p>
 
@@ -824,23 +824,23 @@
                       {:else}
                         {#if !row.hasSnapshot && isBalancePending(row)}
                           <div
-                            class="flex h-6 items-center justify-end"
+                            class="flex h-4 items-center justify-end"
                             aria-label={i18n.t('wallet.loading.balancePending')}
                           >
-                            <Skeleton class="h-4 w-20 rounded-sm motion-reduce:animate-none" />
+                            <Skeleton class="h-3 w-20 rounded-sm motion-reduce:animate-none" />
                           </div>
-                          <div class="mt-0.5 flex h-5 items-center justify-end" aria-hidden="true">
+                          <div class="mt-0.5 flex h-4 items-center justify-end" aria-hidden="true">
                             <Skeleton class="h-3 w-24 rounded-sm motion-reduce:animate-none" />
                           </div>
                         {:else}
                           <p
-                            class={`h-6 text-base leading-6 font-semibold text-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                            class={`h-4 text-xs leading-4 font-semibold text-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
                           >
                             {row.fiatValueDisplay}
                           </p>
 
                           <p
-                            class={`mt-0.5 h-5 text-[13px] leading-5 text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
+                            class={`mt-0.5 h-4 text-xs leading-4 text-muted-foreground ${hideHoldings ? 'holdings-obscured' : ''}`}
                           >
                             {row.hasSnapshot
                               ? row.cryptoAmountDisplay
