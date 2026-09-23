@@ -9,6 +9,10 @@
     initialWallet: ComponentProps<typeof Overview>['walletData'];
     onOpenAssetDetails?: ComponentProps<typeof Overview>['onOpenAssetDetails'];
   } = $props();
+  let showAddAssetSheet = $state(false);
+  export function openManageAssets(): void {
+    showAddAssetSheet = true;
+  }
   let wallet = $state(untrack(() => initialWallet));
   export function switchWallet(value: typeof wallet): void {
     wallet = value;
@@ -16,5 +20,5 @@
 </script>
 
 <Tooltip.Provider>
-  <Overview walletData={wallet} {onOpenAssetDetails} />
+  <Overview walletData={wallet} {onOpenAssetDetails} bind:showAddAssetSheet />
 </Tooltip.Provider>

@@ -1,0 +1,29 @@
+{
+  "manage-assets": { "label": "Manage assets", "section": "overview" },
+  "send": { "label": "Send", "section": "send" },
+  "receive": { "label": "Receive", "section": "receive" },
+  "convert": { "label": "Convert", "section": "conversions" },
+  "verusid": { "label": "VerusID", "section": "identity" },
+  "contacts": { "label": "Contacts", "section": "address-book" },
+  "watchlist": { "label": "Watchlist", "section": "watchlist" },
+  "private-verus": {
+    "label": "Private Verus",
+    "section": "settings",
+    "settingsView": "private-verus"
+  },
+  "display-language": {
+    "label": "Display and language",
+    "section": "settings",
+    "settingsView": "display-language"
+  },
+  "profile-security": {
+    "label": "Profile and security",
+    "section": "settings",
+    "settingsView": "profile-security"
+  },
+  "about-support": {
+    "label": "About and support",
+    "section": "settings",
+    "settingsView": "about-support"
+  }
+}

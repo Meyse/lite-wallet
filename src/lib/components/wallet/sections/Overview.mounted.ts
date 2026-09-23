@@ -21,6 +21,19 @@ const services = vi.hoisted(() => ({
   getDisplayBalance: vi.fn(),
 }));
 vi.mock('$lib/services/walletDisplayService.js', () => services);
+vi.mock('$lib/services/coinsService.js', () => ({
+  getCoinRegistry: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('$lib/services/walletService.js', () => ({
+  getAssetPreferences: vi.fn().mockResolvedValue({
+    sessionId: 'overview-assets-fixture',
+    portfolioCoinIds: ['VRSC', 'ETH', 'BTC', 'usdc'],
+    hiddenAssetKeys: [],
+  }),
+  discoverVrpcAssets: vi.fn().mockResolvedValue({ sources: [], holdings: [] }),
+  getCoinScopes: vi.fn().mockResolvedValue({ scopes: [] }),
+  getBalances: vi.fn().mockResolvedValue([]),
+}));
 vi.mock('$lib/services/walletLockCoordinator.js', () => ({ isForcedWalletLockError: () => false }));
 class ResizeObserverStub {
   observe() {}
@@ -172,6 +185,24 @@ describe('mounted wallet overview controls', () => {
     component = undefined;
     document.body.replaceChildren();
     vi.clearAllMocks();
+  });
+
+  it('opens the real Manage assets view through the explicit navigation target and returns to Wallet', async () => {
+    await render();
+    required(component).openManageAssets();
+    await settle();
+    expect(
+      document.querySelector('#manage-assets-title')?.textContent ??
+        document.querySelector('h1')?.textContent
+    ).toContain('Manage assets');
+    const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === 'Back to wallet'
+    );
+    expect(back).toBeDefined();
+    required(back).click();
+    await settle();
+    expect(document.body.textContent).not.toContain('Manage assets');
+    expect(document.querySelector('.balance-banner')).not.toBeNull();
   });
 
   it('always exposes controls for four currencies, searches networks, clears and preserves row destinations and holdings', async () => {

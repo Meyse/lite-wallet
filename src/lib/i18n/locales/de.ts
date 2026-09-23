@@ -2,6 +2,7 @@ import { en } from './en';
 
 export const de: Record<string, string> = {
   ...en,
+  'helpCenter.unlockRequired': 'Entsperre deine Wallet, um diesen Bildschirm zu öffnen.',
   'common.loading': 'Wird geladen…',
   'common.cancel': 'Abbrechen',
   'common.continue': 'Weiter',

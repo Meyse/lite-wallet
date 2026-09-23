@@ -19,7 +19,7 @@
   import { Spinner } from '$lib/components/ui/spinner';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { i18nStore, networkLocaleKey } from '$lib/i18n';
-  import HelpDrawerLink from '$lib/components/common/HelpDrawerLink.svelte';
+  import HelpCenterLink from '$lib/components/common/HelpCenterLink.svelte';
   import WalletCreation from '$lib/components/flows/WalletCreation/WalletCreation.svelte';
   import WalletImport from '$lib/components/flows/WalletImport/WalletImport.svelte';
   import ImportMethodList from '$lib/components/flows/WalletImport/ImportMethodList.svelte';
@@ -27,7 +27,6 @@
   import WalletHeroBackground from '$lib/components/wallet/WalletHeroBackground.svelte';
   import type { ImportMethod } from '$lib/components/flows/WalletImport/types';
   import { getWalletColorHex } from '$lib/constants/walletColors';
-  import { buildNeedHelpContent } from '$lib/utils/helpContent';
   import { cn } from '$lib/utils.js';
   import * as walletService from '$lib/services/walletService.js';
 
@@ -109,8 +108,6 @@
     createDrawerView = 'root';
     showWalletImport = true;
   }
-
-  const unlockHelpContent = $derived(buildNeedHelpContent(i18n.t, { includeLostAccess: true }));
 
   function extractWalletErrorType(error: unknown): string | null {
     if (typeof error === 'string') {
@@ -315,10 +312,9 @@
           </div>
 
           <div class="pt-2 text-xs text-muted-foreground">
-            <HelpDrawerLink
+            <HelpCenterLink
               linkText={i18n.t('help.link.needHelp')}
-              title={i18n.t('help.sheet.title')}
-              content={unlockHelpContent}
+              backLabel={i18n.t('helpCenter.backUnlock')}
             />
           </div>
         </div>

@@ -4,6 +4,7 @@
 -->
 
 <script lang="ts">
+  import type { HelpSettingsView } from '$lib/help/links';
   import { onMount } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import GlobeIcon from '@lucide/svelte/icons/globe';
@@ -34,6 +35,7 @@
     walletName: string;
     walletSessionKey: string;
     resetSignal?: number;
+    requestedView?: HelpSettingsView | 'home';
   };
 
   type RecoveryOrigin = 'profile-security' | 'private-verus';
@@ -46,7 +48,13 @@
     | 'recovery-keys'
     | 'about-support';
 
-  const { walletNetwork, walletName, walletSessionKey, resetSignal = 0 }: SettingsProps = $props();
+  const {
+    walletNetwork,
+    walletName,
+    walletSessionKey,
+    resetSignal = 0,
+    requestedView = 'home',
+  }: SettingsProps = $props();
 
   const i18n = $derived($i18nStore);
   const settings = $derived($settingsStore);
@@ -60,7 +68,8 @@
     i18n.t(`wallet.settings.display.appearance.${settings.theme}`)
   );
 
-  let activeView = $state<SettingsView>('home');
+  // svelte-ignore state_referenced_locally
+  let activeView = $state<SettingsView>(requestedView);
   let recoveryOrigin = $state<RecoveryOrigin>('profile-security');
   let lastResetSignal = $state(0);
   let privateStatusLoading = $state(true);
@@ -129,7 +138,7 @@
   $effect(() => {
     if (resetSignal === lastResetSignal) return;
     lastResetSignal = resetSignal;
-    activeView = 'home';
+    activeView = requestedView;
     recoveryOrigin = 'profile-security';
   });
 

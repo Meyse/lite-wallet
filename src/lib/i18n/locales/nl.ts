@@ -1,4 +1,7 @@
+import { helpNl } from './help/nl';
+
 export const nl: Record<string, string> = {
+  ...helpNl,
   'common.loading': 'Laden…',
   'wallet.loading.updatingBalances': 'Saldi bijwerken…',
   'wallet.loading.fetchingAddresses': 'Adressen ophalen…',
@@ -1789,58 +1792,6 @@ export const nl: Record<string, string> = {
   'shared.homeConfirm': 'Weet je zeker dat je terug wilt gaan? Je voortgang gaat verloren.',
 
   'help.link.needHelp': 'Hulp krijgen',
-  'help.sheet.title': 'Hulp krijgen',
-  'help.topic.walletDifferent': 'Hoe verschilt deze wallet?',
-  'help.topic.keepSafe': 'Wat moet ik veilig bewaren?',
-  'help.topic.verusIdGuard': 'Wat is VerusID Guard?',
-  'help.topic.lostAccess': 'Toegang kwijt?',
-  'help.walletDifferent.accountsQuestion': 'Hoe verschilt dit van gewone app-accounts?',
-  'help.walletDifferent.accountsAnswer':
-    'Met Verus sturen jouw sleutels je identiteit, data en geld aan. Je bent niet afhankelijk van een account dat een bedrijf kan blokkeren of sluiten.',
-  'help.walletDifferent.identityQuestion': 'Wie beheert mijn identiteit?',
-  'help.walletDifferent.identityAnswer':
-    'Jij. Je VerusID is een naam die je bezit en die met je meebeweegt tussen apps.',
-  'help.walletDifferent.paymentsQuestion': 'Hoe werken betalingen en conversies?',
-  'help.walletDifferent.paymentsAnswer':
-    'Je verstuurt waarde direct zonder tussenpartij. Conversies kunnen tijdens de betaling gebeuren met protocolprijzen en lage kosten.',
-  'help.walletDifferent.trustQuestion': 'Waarom zou ik dit model vertrouwen?',
-  'help.walletDifferent.trustAnswer':
-    'Je hoeft niet te vertrouwen op een bedrijfsbelofte. Je sleutels blijven in je wallet, data wordt voor opslag versleuteld en alles is verifieerbaar.',
-  'help.keepSafe.itemsQuestion': 'Wat moet ik precies veilig bewaren?',
-  'help.keepSafe.itemsAnswer':
-    'Bewaar je geheime herstelzin en private keys veilig en privé. Iedereen die ze heeft, kan je wallet beheren.',
-  'help.keepSafe.phoneQuestion':
-    'Wat gebeurt er als ik van apparaat wissel of mijn apparaat verlies?',
-  'help.keepSafe.phoneAnswer':
-    'Herstel je wallet met dezelfde geheime herstelzin en je data komt terug. Je hebt geen herstelmail of back-upcode nodig.',
-  'help.keepSafe.compromisedQuestion': 'Wat als mijn sleutels gecompromitteerd zijn?',
-  'help.keepSafe.compromisedAnswer':
-    'Gebruik zo snel mogelijk de intrek- en herstelstroom. Stap daarna over op nieuwe sleutels en bewaar de nieuwe geheime herstelzin offline.',
-  'help.verusIdGuard.overviewQuestion': 'Wat is VerusID Guard?',
-  'help.verusIdGuard.overviewAnswer':
-    'VerusID Guard is je ingebouwde veiligheidsnet. Elke VerusID heeft twee beschermende autoriteiten die je zelf instelt: één om te intrekken (bevriezen) en één om te herstellen (terugkrijgen). Samen laten ze je je identiteit, tegoeden en gegevens beschermen en weer onder controle krijgen, zonder afhankelijk te zijn van een bedrijf of derde partij.',
-  'help.verusIdGuard.revokeQuestion': 'Wat doet intrekken?',
-  'help.verusIdGuard.revokeAnswer':
-    'Het zet je VerusID meteen op slot. Niemand kan er vanaf die tijd geld mee uitgeven tot het wordt hersteld. Je tegoeden blijven op de identiteit, veilig. Als een bevroren creditcard, maar zonder bank.',
-  'help.verusIdGuard.fundsQuestion': 'Verlies ik mijn tegoeden?',
-  'help.verusIdGuard.fundsAnswer':
-    'Nee. Intrekken verplaatst of verwijdert niets. Je tegoeden, naam en data blijven op de identiteit. Na herstel krijg je weer volledige toegang.',
-  'help.verusIdGuard.recoverQuestion': 'Wat doet herstel?',
-  'help.verusIdGuard.recoverAnswer':
-    'Het herstelt volledige controle over een ingetrokken VerusID. Je kunt tijdens herstel nieuwe primaire sleutels toewijzen, zodat iemand met oude sleutels is uitgesloten.',
-  'help.verusIdGuard.authorityQuestion': 'Wie kan mijn VerusID intrekken of herstellen?',
-  'help.verusIdGuard.authorityAnswer':
-    'Alleen de VerusIDs die je hebt ingesteld als intrekkings- en herstelautoriteit. Geen bedrijf of derde partij kan dit doen zonder jouw expliciete toestemming.',
-  'help.lostAccess.passwordQuestion': 'Kan ik een vergeten wachtwoord herstellen?',
-  'help.lostAccess.passwordAnswer':
-    'Je kunt vergeten wachtwoorden niet herstellen bij een self-custody wallet.',
-  'help.lostAccess.regainQuestion': 'Hoe krijg ik weer toegang?',
-  'help.lostAccess.regainAnswer':
-    'Importeer je wallet opnieuw met je geheime herstelzin en stel daarna een nieuw lokaal wachtwoord in op dit apparaat.',
-  'help.lostAccess.needQuestion': 'Wat heb ik nodig?',
-  'help.lostAccess.needAnswer':
-    'Gebruik exact dezelfde 24 woorden in dezelfde volgorde. Zonder de geheime herstelzin is herstel niet mogelijk.',
-  'help.backToTopics': 'Terug naar helponderwerpen',
   'help.communityHangout': 'Communitykanaal',
   'wallet.contacts.profileUnavailable': 'Profiel niet beschikbaar',
   'wallet.contacts.saved': 'Opgeslagen',

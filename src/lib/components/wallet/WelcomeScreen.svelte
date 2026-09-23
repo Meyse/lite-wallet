@@ -6,7 +6,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
-  import HelpDrawerLink from '$lib/components/common/HelpDrawerLink.svelte';
+  import HelpCenterLink from '$lib/components/common/HelpCenterLink.svelte';
   import WalletCreation from '$lib/components/flows/WalletCreation/WalletCreation.svelte';
   import WalletImport from '$lib/components/flows/WalletImport/WalletImport.svelte';
   import ImportMethodList from '$lib/components/flows/WalletImport/ImportMethodList.svelte';
@@ -14,7 +14,6 @@
   import WalletHeroBackground from '$lib/components/wallet/WalletHeroBackground.svelte';
   import { i18nStore } from '$lib/i18n';
   import type { ImportMethod } from '$lib/components/flows/WalletImport/types';
-  import { buildNeedHelpContent } from '$lib/utils/helpContent';
 
   const i18n = $derived($i18nStore);
 
@@ -37,13 +36,15 @@
   let showWalletImport = $state(false);
   let showImportOptionsDrawer = $state(false);
   let selectedImportMethod = $state<ImportMethod>('seed24');
-
-  const walletHelpContent = $derived(buildNeedHelpContent(i18n.t));
 </script>
 
-<main class="bg-background relative flex min-h-screen overflow-hidden">
-  <div class="bg-app-canvas absolute inset-0"></div>
-  <div class="absolute top-0 right-0 left-0 z-20 h-11" data-tauri-drag-region aria-hidden="true"></div>
+<main class="relative flex min-h-screen overflow-hidden bg-background">
+  <div class="absolute inset-0 bg-app-canvas"></div>
+  <div
+    class="absolute top-0 right-0 left-0 z-20 h-11"
+    data-tauri-drag-region
+    aria-hidden="true"
+  ></div>
 
   <div class="relative z-10 flex min-h-screen w-full">
     <section class="relative hidden w-[clamp(320px,38vw,500px)] shrink-0 overflow-hidden md:block">
@@ -53,7 +54,7 @@
     <section class="flex min-w-0 flex-1 items-center justify-center px-6 py-10 sm:px-8">
       <div class="w-full max-w-[420px] space-y-8">
         <div>
-          <h1 class="text-foreground text-4xl leading-tight tracking-tight font-bold">
+          <h1 class="text-4xl leading-tight font-bold tracking-tight text-foreground">
             {i18n.t('welcome.titleLine1')} <br />{i18n.t('welcome.titleLine2')}
           </h1>
         </div>
@@ -68,11 +69,10 @@
           </Button>
         </div>
 
-        <div class="pt-2 text-muted-foreground text-xs">
-          <HelpDrawerLink
+        <div class="pt-2 text-xs text-muted-foreground">
+          <HelpCenterLink
             linkText={i18n.t('help.link.needHelp')}
-            title={i18n.t('help.sheet.title')}
-            content={walletHelpContent}
+            backLabel={i18n.t('helpCenter.backWelcome')}
           />
         </div>
       </div>
@@ -104,7 +104,10 @@
   </div>
 {/if}
 
-<StandardRightSheet bind:isOpen={showImportOptionsDrawer} title={i18n.t('unlock.importMethods.title')}>
+<StandardRightSheet
+  bind:isOpen={showImportOptionsDrawer}
+  title={i18n.t('unlock.importMethods.title')}
+>
   <ImportMethodList
     showHeader={false}
     onSelect={(method) => {

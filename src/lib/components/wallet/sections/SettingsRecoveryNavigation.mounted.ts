@@ -56,6 +56,39 @@ describe('mounted recovery navigation', () => {
     document.body.replaceChildren();
   });
 
+  it.each(['display-language', 'profile-security', 'private-verus', 'about-support'] as const)(
+    'opens the requested %s page without revealing recovery material',
+    async (requestedView) => {
+      const target = document.createElement('div');
+      document.body.append(target);
+      const component = mount(Settings, {
+        target,
+        props: {
+          walletNetwork: 'testnet',
+          walletName: 'Fixture',
+          walletSessionKey: 'fixture',
+          requestedView,
+          resetSignal: 1,
+        },
+      });
+      await settle();
+      expect(findButton('Back to settings')).toBeDefined();
+      const titles = {
+        'display-language': 'Display and language',
+        'profile-security': 'Profile and security',
+        'private-verus': 'Private Verus',
+        'about-support': 'About and support',
+      };
+      expect(target.querySelector('h2')?.textContent).toContain(titles[requestedView]);
+      expect(document.querySelector('input[type="password"]')).toBeNull();
+      expect(walletService.getWalletRecoverySecrets).not.toHaveBeenCalled();
+      findButton('Back to settings')?.click();
+      await settle();
+      expect(findButton('Display and language')).toBeDefined();
+      await unmount(component);
+    }
+  );
+
   it('ends a failed version lookup with an unavailable summary', async () => {
     let rejectVersion!: (reason: Error) => void;
     vi.mocked(loadRuntimeAppInfo).mockReturnValueOnce(

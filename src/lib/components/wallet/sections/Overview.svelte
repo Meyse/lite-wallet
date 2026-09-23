@@ -67,14 +67,16 @@
     network?: 'mainnet' | 'testnet';
   }
 
-  const {
+  let {
     walletData,
+    showAddAssetSheet = $bindable(false),
     onOpenAssetDetails = () => {},
     onNavigateToSend = () => {},
     onNavigateToReceive = () => {},
     onNavigateToConvert = () => {},
   }: {
     walletData: WalletData;
+    showAddAssetSheet?: boolean;
 
     onOpenAssetDetails?: (_entry: WalletEntrySelection) => void;
     onNavigateToSend?: () => void;
@@ -92,7 +94,6 @@
   const settings = $derived($settingsStore);
   const displayCurrency = $derived(settings.displayCurrency);
   const isBootstrapping = $derived($walletBootstrapStore);
-  let showAddAssetSheet = $state(false);
   let assetsButtonElement = $state<HTMLButtonElement | null>(null);
   let listScrollElement = $state<HTMLElement | null>(null);
   let hasOverviewScroll = $state(false);

@@ -1,4 +1,7 @@
+import { helpEn } from './help/en';
+
 export const en: Record<string, string> = {
+  ...helpEn,
   'common.loading': 'Loading…',
   'wallet.loading.updatingBalances': 'Updating balances…',
   'wallet.loading.fetchingAddresses': 'Fetching addresses…',
@@ -1750,57 +1753,6 @@ export const en: Record<string, string> = {
   'shared.homeConfirm': 'Are you sure you want to go back? Your progress will be lost.',
 
   'help.link.needHelp': 'Get help',
-  'help.sheet.title': 'Get help',
-  'help.topic.walletDifferent': 'How is this wallet different?',
-  'help.topic.keepSafe': 'What do I need to keep safe?',
-  'help.topic.verusIdGuard': 'What is VerusID Guard?',
-  'help.topic.lostAccess': 'Lost access?',
-  'help.walletDifferent.accountsQuestion': 'How is this different from regular app accounts?',
-  'help.walletDifferent.accountsAnswer':
-    'With Verus, your keys control your identity, data, and money. You are not relying on an account a company can suspend or lock.',
-  'help.walletDifferent.identityQuestion': 'Who controls my identity?',
-  'help.walletDifferent.identityAnswer':
-    'You do. Your VerusID is a name you own, and it moves with you across apps.',
-  'help.walletDifferent.paymentsQuestion': 'How do payments and conversions work?',
-  'help.walletDifferent.paymentsAnswer':
-    'You can send value directly without a middleman. Conversions can happen during payment with protocol-level pricing and low fees.',
-  'help.walletDifferent.trustQuestion': 'Why should I trust this model?',
-  'help.walletDifferent.trustAnswer':
-    "You don't need to trust a company promise. Your keys stay in your wallet, data is encrypted before storage, and behavior is verifiable.",
-  'help.keepSafe.itemsQuestion': 'What exactly must I keep safe?',
-  'help.keepSafe.itemsAnswer':
-    'Keep your Secret Recovery Phrase (or private keys) safe and private. Whoever has them can control your wallet.',
-  'help.keepSafe.phoneQuestion': 'What happens if I switch or lose my device?',
-  'help.keepSafe.phoneAnswer':
-    'Restore your wallet with the same Secret Recovery Phrase and your data comes back. No recovery email or backup code is required.',
-  'help.keepSafe.compromisedQuestion': 'What if my keys are compromised?',
-  'help.keepSafe.compromisedAnswer':
-    'Use the revoke and recover flow as soon as possible. Then move to fresh keys and keep the new Secret Recovery Phrase offline.',
-  'help.verusIdGuard.overviewQuestion': 'What is VerusID Guard?',
-  'help.verusIdGuard.overviewAnswer':
-    'VerusID Guard is your built-in safety net. Every VerusID comes with two protective authorities you set yourself: one to revoke (freeze) and one to recover (restore). Together they let you protect and regain control of your identity, funds and data without relying on any company or third party.',
-  'help.verusIdGuard.revokeQuestion': 'What does revoking do?',
-  'help.verusIdGuard.revokeAnswer':
-    "It immediately freezes your VerusID. No one can spend funds from it until it's recovered. Your funds stay on the identity, safe. Like freezing a credit card, but without a bank.",
-  'help.verusIdGuard.fundsQuestion': 'Will I lose my funds?',
-  'help.verusIdGuard.fundsAnswer':
-    "No. Revoking doesn't move or delete anything. Your funds, name, and data all stay on the identity. Once you recover, you regain full access.",
-  'help.verusIdGuard.recoverQuestion': 'What does recovering do?',
-  'help.verusIdGuard.recoverAnswer':
-    'It restores full control of a revoked VerusID. You can assign new primary keys during recovery, so even if someone had your old keys, they are locked out.',
-  'help.verusIdGuard.authorityQuestion': 'Who can revoke or recover my VerusID?',
-  'help.verusIdGuard.authorityAnswer':
-    'Only the VerusIDs you assigned as your revocation and recovery authorities. No company or third party can do this unless you explicitly gave them that authority.',
-  'help.lostAccess.passwordQuestion': 'Can I recover a forgotten password?',
-  'help.lostAccess.passwordAnswer':
-    "You can't recover forgotten passwords in a self-custody wallet.",
-  'help.lostAccess.regainQuestion': 'How do I regain access?',
-  'help.lostAccess.regainAnswer':
-    'Import your wallet again with your Secret Recovery Phrase, then set a new local password on this device.',
-  'help.lostAccess.needQuestion': 'What do I need?',
-  'help.lostAccess.needAnswer':
-    'Use the exact 24 words in the same order. Without the Secret Recovery Phrase, wallet recovery is not possible.',
-  'help.backToTopics': 'Back to help topics',
   'help.communityHangout': 'Community hangout',
   'wallet.contacts.profileUnavailable': 'Profile unavailable',
   'wallet.contacts.saved': 'Saved',

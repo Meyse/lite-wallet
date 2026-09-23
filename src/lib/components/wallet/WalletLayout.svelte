@@ -29,6 +29,13 @@
   import Watchlist from './sections/Watchlist.svelte';
   import Settings from './sections/Settings.svelte';
   import {
+    type HelpDestination,
+    helpDestinations,
+    type HelpSettingsView,
+    isHelpDestination,
+  } from '$lib/help/links';
+  import HelpCenterDialog from '$lib/components/common/help/HelpCenterDialog.svelte';
+  import {
     createIdentitySectionSessionState,
     type IdentitySectionSessionState,
   } from './sections/identity/identitySectionSessionState.js';
@@ -78,6 +85,9 @@
 
   const { walletData }: { walletData: WalletData } = $props();
   let activeSection = $state<SectionId>('overview');
+  let helpOpen = $state(false);
+  let assetsOpen = $state(false);
+  let settingsTarget = $state<HelpSettingsView | 'home'>('home');
   let settingsResetSignal = $state(0);
   let activeAssetDetailsEntry = $state<WalletEntrySelection | null>(null);
   type TransferDraft = {
@@ -169,9 +179,28 @@
     ) {
       transferFocus = document.activeElement;
     }
-    if (section === 'overview') activeAssetDetailsEntry = null;
-    if (section === 'settings') settingsResetSignal += 1;
+    if (section === 'overview') {
+      activeAssetDetailsEntry = null;
+      assetsOpen = false;
+    }
+    if (section === 'settings') {
+      settingsTarget = 'home';
+      settingsResetSignal += 1;
+    }
     activeSection = section;
+  }
+
+  function navigateFromHelp(destination: HelpDestination): void {
+    if (navigationLocked || !isHelpDestination(destination)) return;
+    const target = helpDestinations[destination];
+    if (destination === 'send' || destination === 'convert') {
+      openOverviewTransfer(destination);
+    } else {
+      navigateToSection(target.section as SectionId);
+      if (destination === 'manage-assets') assetsOpen = true;
+      if ('settingsView' in target) settingsTarget = target.settingsView as HelpSettingsView;
+    }
+    helpOpen = false;
   }
 
   function startTransfer(
@@ -251,6 +280,7 @@
   $effect(() => {
     if (
       !queuedGenericRequest ||
+      helpOpen ||
       genericRequestImportBusy ||
       genericRequestFlowOpen ||
       navigationLocked
@@ -272,6 +302,7 @@
     if (identitySectionWalletKey === nextWalletKey) return;
 
     identitySectionWalletKey = nextWalletKey;
+    helpOpen = false;
     identitySectionSession = createIdentitySectionSessionState();
     requestedContactIdentity = null;
     contactReturnState = null;
@@ -388,6 +419,9 @@
       {activeSection}
       {walletData}
       navigationDisabled={navigationLocked}
+      onOpenHelp={() => {
+        if (!navigationLocked) helpOpen = true;
+      }}
       onNavigate={navigateToSection}
       onOpenRequest={() => {
         if (navigationLocked) return;
@@ -450,7 +484,10 @@
               inert={!isTransferSection}
             >
               <TransferWizard
-                active={isTransferSection && !genericRequestFlowOpen && !genericRequestImportOpen}
+                active={isTransferSection &&
+                  !helpOpen &&
+                  !genericRequestFlowOpen &&
+                  !genericRequestImportOpen}
                 entryIntent={currentDraft.intent}
                 entryContext={currentDraft.context}
                 recipientIntent={currentDraft.recipientIntent}
@@ -487,6 +524,7 @@
           {:else}
             <Overview
               {walletData}
+              bind:showAddAssetSheet={assetsOpen}
               onOpenAssetDetails={(entry) => {
                 activeAssetDetailsEntry = entry;
               }}
@@ -563,12 +601,21 @@
               walletName={walletData.name}
               walletSessionKey={transferWalletKey}
               resetSignal={settingsResetSignal}
+              requestedView={settingsTarget}
             />
           {/key}
         {/if}
       </main>
     </Sidebar.Inset>
   </Sidebar.Provider>
+
+  {#key transferWalletKey}
+    <HelpCenterDialog
+      bind:open={helpOpen}
+      backLabel={i18n.t('helpCenter.backWallet')}
+      onNavigate={navigateFromHelp}
+    />
+  {/key}
 
   <Dialog.Root
     open={pendingTransfer !== null}

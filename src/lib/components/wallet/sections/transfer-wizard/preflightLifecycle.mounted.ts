@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { mount, tick, unmount } from 'svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CoinDefinition, CoinScope, PreflightResult, SendResult } from '$lib/types/wallet';
 
 const mocks = vi.hoisted(() => ({
@@ -80,7 +80,7 @@ vi.mock('$lib/components/wallet/sections/Activity.svelte', async () => ({
   default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
 }));
 vi.mock('$lib/components/wallet/sections/Settings.svelte', async () => ({
-  default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
+  default: (await import('./test-fixtures/SettingsNavigateStub.svelte')).default,
 }));
 vi.mock('$lib/components/flows/GenericRequest/GenericRequestImportSheet.svelte', async () => ({
   default: (await import('./test-fixtures/EmptyWalletChild.svelte')).default,
@@ -876,6 +876,118 @@ async function mountNavigationDraft() {
 }
 
 describe('sidebar transfer navigation', () => {
+  it('keeps the draft through Help and requires a fresh review on return', async () => {
+    mocks.preflightSend.mockResolvedValueOnce(preflightResult('before-help', '0.0001'));
+    const { target, component } = await mountNavigationDraft();
+    try {
+      await fillAndStartPreflight(target);
+      const help = buttonNamed('Help', target);
+      help.focus();
+      help.click();
+      await settle();
+      expect(document.querySelector('[data-help-center]')).not.toBeNull();
+      buttonNamed('Back to wallet').click();
+      await settle();
+      expect(document.querySelector('[data-help-center]')).toBeNull();
+      expect(target.querySelector('[data-transfer-review-amount]')).not.toBeNull();
+      expect(target.textContent).toContain('Refresh the review before sending.');
+      expect(mocks.sendTransaction).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(help);
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('opens Manage assets from Help, then resumes the same Send draft and guards a conflicting Convert link', async () => {
+    const { target, component } = await mountNavigationDraft();
+    async function helpArticle(title: string, category: string, previousBackLabel?: string) {
+      buttonNamed('Help', target).click();
+      await settle();
+      if (previousBackLabel) {
+        buttonNamed(previousBackLabel).click();
+        await settle();
+        buttonNamed('Back to Help').click();
+        await settle();
+      }
+      buttonNamed(category).click();
+      await settle();
+      buttonNamed(title).click();
+      await settle();
+    }
+    async function destination(id: string) {
+      required(
+        document.querySelector<HTMLButtonElement>(`[data-help-destination="${id}"]`)
+      ).click();
+      await settle();
+      expect(document.querySelector('[data-help-center]')).toBeNull();
+    }
+    try {
+      enter(target, '#transfer-amount', '0.125');
+      await settle();
+      const input = required(target.querySelector<HTMLInputElement>('#transfer-amount'));
+      await helpArticle('Adding or hiding an asset', 'Getting started');
+      await destination('manage-assets');
+      expect(target.querySelector('[data-manage-assets]')).not.toBeNull();
+      expect(input.isConnected).toBe(true);
+      await helpArticle('Sending a payment', 'Sending and receiving', 'Back to getting started');
+      await destination('send');
+      expect(target.querySelector('#transfer-amount')).toBe(input);
+      expect(input.value).toBe('0.125');
+      expect(document.body.textContent).not.toContain('Resume your transfer?');
+      await helpArticle(
+        'How conversions work',
+        'Conversions and cross-chain',
+        'Back to sending and receiving'
+      );
+      await destination('convert');
+      expect(document.body.textContent).toContain('Resume your transfer?');
+      buttonNamed('Resume transfer').click();
+      await settle();
+      expect(target.querySelector('#transfer-amount')).toBe(input);
+      expect(input.value).toBe('0.125');
+      expect(mocks.sendTransaction).not.toHaveBeenCalled();
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it.each(['display-language', 'profile-security', 'private-verus', 'about-support'])(
+    'routes Help directly to Settings %s',
+    async (destination) => {
+      const target = document.createElement('div');
+      document.body.append(target);
+      const component = mount(WalletLayoutLifecycleHarness, { target });
+      try {
+        await settle();
+        buttonNamed('Help', target).click();
+        await settle();
+        buttonNamed('Wallet data and settings').click();
+        await settle();
+        buttonNamed('Display, language and wallet locking').click();
+        await settle();
+        required(
+          document.querySelector<HTMLButtonElement>(`[data-help-destination="${destination}"]`)
+        ).click();
+        await settle();
+        expect(document.querySelector('[data-help-center]')).toBeNull();
+        expect(
+          target.querySelector('[data-settings-view]')?.getAttribute('data-settings-view')
+        ).toBe(destination);
+        buttonNamed('Settings', target).click();
+        await settle();
+        expect(
+          target.querySelector('[data-settings-view]')?.getAttribute('data-settings-view')
+        ).toBe('home');
+        expect(mocks.sendTransaction).not.toHaveBeenCalled();
+      } finally {
+        await unmount(component);
+        target.remove();
+      }
+    }
+  );
+
   it('overlays the Settings drag region instead of reserving a top strip', async () => {
     const target = document.createElement('div');
     document.body.append(target);
@@ -1052,6 +1164,10 @@ describe('sidebar transfer navigation', () => {
       await settle();
       expect(target.querySelector('[data-transfer-review-amount]')?.closest('[hidden]')).toBeNull();
       expect(buttonNamed('Lock', target).disabled).toBe(false);
+      expect(buttonNamed('Help', target).getAttribute('aria-disabled')).toBe('true');
+      buttonNamed('Help', target).click();
+      await settle();
+      expect(document.querySelector('[data-help-center]')).toBeNull();
       submission.resolve({
         txid: 'f'.repeat(64),
         fromAddress: sourceAddress,
@@ -1107,4 +1223,14 @@ describe('sidebar transfer navigation', () => {
       target.remove();
     }
   });
+});
+
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error('Expected test element or value');
+  return value;
+}
+
+// Let Bits UI finish its deferred body-scroll cleanup before jsdom is disposed.
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 50));
 });

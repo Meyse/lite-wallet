@@ -2,6 +2,7 @@ import { en } from './en';
 
 export const es: Record<string, string> = {
   ...en,
+  'helpCenter.unlockRequired': 'Desbloquea tu cartera para abrir esta pantalla.',
   'common.loading': 'Cargando…',
   'common.cancel': 'Cancelar',
   'common.continue': 'Continuar',

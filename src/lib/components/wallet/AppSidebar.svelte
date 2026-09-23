@@ -14,6 +14,7 @@
   import EyeIcon from '@lucide/svelte/icons/eye';
   import Link2Icon from '@lucide/svelte/icons/link-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
+  import CircleHelpIcon from '@lucide/svelte/icons/circle-help';
   import LockIcon from '@lucide/svelte/icons/lock';
   import VerusIdAtIcon from '$lib/components/icons/VerusIdAtIcon.svelte';
   import { i18nStore } from '$lib/i18n';
@@ -52,6 +53,7 @@
     onSelectOverview = () => {},
     onSelectSettings = () => {},
     onOpenRequest = () => {},
+    onOpenHelp = () => {},
     onNavigate,
     navigationDisabled = false,
   }: {
@@ -60,6 +62,7 @@
     onSelectOverview?: () => void;
     onSelectSettings?: () => void;
     onOpenRequest?: () => void;
+    onOpenHelp?: () => void;
     onNavigate?: (section: SectionId) => void;
     navigationDisabled?: boolean;
   } = $props();
@@ -182,6 +185,20 @@
               <Link2Icon class="size-4" />
               <span>{i18n.t('wallet.sidebar.openRequest')}</span>
             </button>
+          </Sidebar.MenuItem>
+          <Sidebar.MenuItem>
+            <Sidebar.MenuButton
+              size="sm"
+              class={menuButtonClass}
+              onclick={() => {
+                if (!navigationDisabled) onOpenHelp();
+              }}
+              aria-disabled={navigationDisabled}
+              tooltipContent={i18n.t('helpCenter.title')}
+            >
+              <CircleHelpIcon class="size-3.5" />
+              <span>{i18n.t('helpCenter.title')}</span>
+            </Sidebar.MenuButton>
           </Sidebar.MenuItem>
           <Sidebar.MenuItem>
             <Sidebar.MenuButton
