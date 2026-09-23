@@ -736,7 +736,12 @@ export const en: Record<string, string> = {
   'wallet.manageAssets.hiddenHelp':
     'Hidden assets stay in your wallet and are excluded from the portfolio total.',
   'wallet.manageAssets.hiddenStatus': 'Hidden',
-  'wallet.manageAssets.found': 'Found in your wallet',
+  'wallet.manageAssets.foundCount.one': '{count} asset found in your wallet',
+  'wallet.manageAssets.foundCount.other': '{count} assets found in your wallet',
+  'wallet.manageAssets.foundOutsidePortfolioCount.one':
+    '{count} asset found outside your portfolio',
+  'wallet.manageAssets.foundOutsidePortfolioCount.other':
+    '{count} assets found outside your portfolio',
   'wallet.manageAssets.shown': 'Shown in portfolio',
   'wallet.manageAssets.otherFound': 'Other assets found',
   'wallet.manageAssets.notCataloged':

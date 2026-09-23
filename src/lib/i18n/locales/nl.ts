@@ -748,7 +748,12 @@ export const nl: Record<string, string> = {
   'wallet.manageAssets.hiddenHelp':
     'Verborgen assets blijven in je wallet en tellen niet mee in het portfoliototaal.',
   'wallet.manageAssets.hiddenStatus': 'Verborgen',
-  'wallet.manageAssets.found': 'Gevonden in je wallet',
+  'wallet.manageAssets.foundCount.one': '{count} asset gevonden in je wallet',
+  'wallet.manageAssets.foundCount.other': '{count} assets gevonden in je wallet',
+  'wallet.manageAssets.foundOutsidePortfolioCount.one':
+    '{count} asset buiten je portfolio gevonden',
+  'wallet.manageAssets.foundOutsidePortfolioCount.other':
+    '{count} assets buiten je portfolio gevonden',
   'wallet.manageAssets.shown': 'Getoond in portfolio',
   'wallet.manageAssets.otherFound': 'Andere gevonden assets',
   'wallet.manageAssets.notCataloged':

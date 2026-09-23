@@ -43,7 +43,7 @@ const uni: CoinDefinition = {
 let preferences: AssetPreferencesState = {
   network: 'mainnet',
   sessionId: 'manage-assets-fixture',
-  portfolioCoinIds: [vrsc.id, usdc.id, uni.id],
+  portfolioCoinIds: params.has('found') ? [vrsc.id, usdc.id] : [vrsc.id, usdc.id, uni.id],
   hiddenAssetKeys: [],
 };
 const discovery = {

@@ -42,9 +42,10 @@ Open either page on `http://127.0.0.1:1428`:
   custom UNI registration that overlaps the catalog. `?stall=uni` holds one
   token balance; `?stall=discovery` holds Verus discovery. Other rows remain
   usable. The normal deadlines lead to Unavailable and Retry; Retry succeeds.
-  `?stall=metadata` holds the initial registry read for skeleton-row checks.
-  Both themes and locales are supported. All responses are synthetic and no
-  wallet is accessed.
+  `?found` starts with UNI outside the portfolio to show the collapsed discovery
+  row. `?stall=metadata` holds the initial registry read for skeleton-row
+  checks. Both themes and locales are supported. All responses are synthetic and
+  no wallet is accessed.
 - `/dev/browser-fixtures/wallet-loading.html`: Overview with a known Verus
   balance and a pending Ethereum balance. `?screen=details&wait=scopes`
   preserves the detail screen while scopes are pending; `wait=balances` and

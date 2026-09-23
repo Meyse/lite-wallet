@@ -172,6 +172,10 @@ function row(label: string): HTMLElement | undefined {
   );
 }
 
+function foundDisclosure(): HTMLButtonElement {
+  return requiredElement<HTMLButtonElement>('button[aria-controls="manage-assets-found-rows"]');
+}
+
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element ${selector}`);
@@ -244,9 +248,36 @@ describe('mounted Manage assets', () => {
     document.documentElement.classList.remove('dark');
   });
 
-  it('shows a positive inactive ERC20 holding in Found in your wallet', async () => {
+  it.each(['light', 'dark'])(
+    'collapses a discovered asset by default and reveals its controls in %s mode',
+    async (theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      await render();
+      expect(service.getBalances).toHaveBeenCalled();
+      expect(foundDisclosure().textContent).toContain('1 asset found outside your portfolio');
+      expect(foundDisclosure().getAttribute('aria-expanded')).toBe('false');
+      expect(row('USD Coin')).toBeUndefined();
+      expect(row('Verus')).toBeDefined();
+
+      foundDisclosure().click();
+      await settle();
+      expect(foundDisclosure().getAttribute('aria-expanded')).toBe('true');
+      expect(row('USD Coin')?.textContent).toContain('125 USDC');
+      expect(row('USD Coin')?.querySelector('[role="switch"]')).not.toBeNull();
+
+      foundDisclosure().click();
+      await settle();
+      expect(row('USD Coin')).toBeUndefined();
+    }
+  );
+
+  it('shows matching found assets directly while searching', async () => {
     await render();
-    expect(service.getBalances).toHaveBeenCalled();
+    const search = requiredElement<HTMLInputElement>('input[type="search"]');
+    search.value = 'USD Coin';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(document.querySelector('[aria-controls="manage-assets-found-rows"]')).toBeNull();
     expect(row('USD Coin')).toBeDefined();
   });
 
@@ -324,6 +355,8 @@ describe('mounted Manage assets', () => {
           : { total: '125', confirmed: '125', pending: '0' }
       );
       await render();
+      foundDisclosure().click();
+      await settle();
       expect(row('Uniswap')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
       expect(row('Verus')?.textContent).toContain('24.5 VRSC');
       expect(row('USD Coin')?.textContent).toContain('125 USDC');
@@ -347,6 +380,8 @@ describe('mounted Manage assets', () => {
       () => new Promise((resolve) => (finishDiscovery = resolve))
     );
     await render();
+    foundDisclosure().click();
+    await settle();
     expect(row('USD Coin')?.querySelector('[data-slot="skeleton"]')).toBeNull();
     expect(row('USD Coin')?.textContent).toContain('125 USDC');
     expect(row('Verus')?.querySelector('[data-slot="skeleton"]')).not.toBeNull();
@@ -397,11 +432,15 @@ describe('mounted Manage assets', () => {
 
   it('retains balances across visits while fresh requests are pending, but never across sessions', async () => {
     await render();
+    foundDisclosure().click();
+    await settle();
     expect(row('USD Coin')?.textContent).toContain('125 USDC');
     await unmountRenderedComponent();
     service.getBalances.mockReturnValue(new Promise(() => {}));
     service.discoverVrpcAssets.mockReturnValue(new Promise(() => {}));
     await render();
+    foundDisclosure().click();
+    await settle();
     expect(row('USD Coin')?.textContent).toContain('125 USDC');
     expect(row('Verus')?.textContent).toContain('24.5 VRSC');
     expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
@@ -443,6 +482,8 @@ describe('mounted Manage assets', () => {
 
   it('keeps the divider between Found and shown assets but omits the last one', async () => {
     await render();
+    foundDisclosure().click();
+    await settle();
     expect(row('USD Coin')?.firstElementChild?.className).toContain('border-b');
     const rows = [...document.querySelectorAll<HTMLElement>('.asset-row')];
     expect(rows.at(-1)?.firstElementChild?.className).not.toContain('border-b');
@@ -555,18 +596,20 @@ describe('mounted Manage assets', () => {
     expect(row('iUnknownCurrency')?.textContent).toContain('Review');
   });
 
-  it('promotes a newly positive known balance into Found when reopening', async () => {
+  it('counts a newly positive known balance in the collapsed summary when reopening', async () => {
     service.getBalances.mockResolvedValueOnce({ total: '0', confirmed: '0', pending: '0' });
     await render();
     expect(row('USD Coin')).toBeUndefined();
+    expect(document.querySelector('[aria-controls="manage-assets-found-rows"]')).toBeNull();
     service.getBalances.mockResolvedValue({ total: '125', confirmed: '125', pending: '0' });
     await unmountRenderedComponent();
     await render();
     expect(service.getBalances).toHaveBeenCalledTimes(2);
+    expect(foundDisclosure().textContent).toContain('1 asset found outside your portfolio');
+    expect(foundDisclosure().getAttribute('aria-expanded')).toBe('false');
+    foundDisclosure().click();
+    await settle();
     expect(row('USD Coin')).toBeDefined();
-    expect(row('USD Coin')?.closest('section')?.querySelector('h2')?.textContent).toContain(
-      'Found in your wallet'
-    );
   });
 
   it('shows an actionable save error for a failed noncatalog dismissal', async () => {
@@ -738,10 +781,14 @@ describe('mounted Manage assets', () => {
       holdings: [holding(), holding(veth, verusSystemId, 'Verus', '0.8')],
     });
     await render();
+    expect(foundDisclosure().textContent).toContain('2 assets found outside your portfolio');
+    foundDisclosure().click();
+    await settle();
     const before = row('Ethereum on Verus');
     before?.querySelector<HTMLButtonElement>('[role="switch"]')?.click();
     await settle();
     expect(before?.isConnected).toBe(true);
+    expect(foundDisclosure().textContent).toContain('2 assets found in your wallet');
   });
 
   it('shows the selected network balance instead of the all-network total', async () => {

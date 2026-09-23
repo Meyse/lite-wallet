@@ -119,6 +119,7 @@
   let tab = $state<ManageTab>('yours');
   let query = $state('');
   let networkFilter = $state('all');
+  let foundAssetsExpanded = $state(false);
   let otherAssetsExpanded = $state(false);
   let expandedAssetKeys = $state<string[]>([]);
   let pendingCounts = $state<Record<string, number>>({});
@@ -381,6 +382,12 @@
   function displayBalanceAmount(balance: string | null): string {
     if (balance === null) return '';
     return /^-?0+(?:\.0+)?$/.test(balance) ? '0' : balance;
+  }
+
+  function foundSummaryLabel(rows: ManagedAssetRow[]): string {
+    const scope = rows.some((row) => row.inPortfolio) ? 'foundCount' : 'foundOutsidePortfolioCount';
+    const quantity = rows.length === 1 ? 'one' : 'other';
+    return i18n.t(`wallet.manageAssets.${scope}.${quantity}`, { count: rows.length });
   }
 
   const scopedRows = $derived(
@@ -1116,6 +1123,7 @@
     }
     const generation = ++lifecycleGeneration;
     expectedSessionId = '';
+    foundAssetsExpanded = false;
     visitGroupByKey = {};
     discovery = null;
     knownBalances = [];
@@ -1320,11 +1328,30 @@
               {@render AssetSection({ rows: searchCatalogRows })}
             {:else if tab === 'yours'}
               {#if foundRows.length > 0}
-                {@render AssetSection({
-                  title: i18n.t('wallet.manageAssets.found'),
-                  rows: foundRows,
-                  hideLastDivider: shownRows.length === 0,
-                })}
+                <section>
+                  <button
+                    type="button"
+                    class="flex min-h-10 w-full items-center justify-between gap-2 border-b px-1 text-left text-[13px] font-medium text-foreground hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none"
+                    aria-expanded={foundAssetsExpanded}
+                    aria-controls="manage-assets-found-rows"
+                    onclick={() => (foundAssetsExpanded = !foundAssetsExpanded)}
+                  >
+                    <span>{foundSummaryLabel(foundRows)}</span>
+                    {#if foundAssetsExpanded}
+                      <ChevronDownIcon class="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {:else}
+                      <ChevronRightIcon class="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {/if}
+                  </button>
+                  <div id="manage-assets-found-rows">
+                    {#if foundAssetsExpanded}
+                      {@render AssetSection({
+                        rows: foundRows,
+                        hideLastDivider: shownRows.length === 0,
+                      })}
+                    {/if}
+                  </div>
+                </section>
               {/if}
               {#if shownRows.length > 0}
                 {@render AssetSection({ rows: shownRows, hideLastDivider: true })}

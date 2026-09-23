@@ -540,5 +540,11 @@ export const es: Record<string, string> = {
   'wallet.assetDetails.privateSyncInlineHelper': 'Sincronizando balance',
   'wallet.assetDetails.sendCapabilityInline': 'Sync de envio {percent}%',
   'wallet.manageAssets.back': 'Volver a gestionar activos',
+  'wallet.manageAssets.foundCount.one': '{count} activo encontrado en tu cartera',
+  'wallet.manageAssets.foundCount.other': '{count} activos encontrados en tu cartera',
+  'wallet.manageAssets.foundOutsidePortfolioCount.one':
+    '{count} activo encontrado fuera de tu portafolio',
+  'wallet.manageAssets.foundOutsidePortfolioCount.other':
+    '{count} activos encontrados fuera de tu portafolio',
   'help.backToTopics': 'Volver a los temas de ayuda',
 };
