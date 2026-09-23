@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -15,6 +15,7 @@ use crate::commands::identity::{
     build_identity_details_from_payload, map_identity_lookup_error, parse_getidentity_payload,
 };
 use crate::core::address_book::manager as address_book_manager;
+use crate::core::auth::session::ActiveWalletAccessContext;
 use crate::core::auth::{
     capture_active_wallet_access_context, ensure_active_wallet_session, SessionManager,
 };
@@ -44,72 +45,6 @@ fn now_unix() -> u64 {
 fn normalize_non_empty(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
-}
-
-fn normalize_watchlist_entries(
-    entries: Vec<WatchlistEntry>,
-    legacy_addresses: Vec<String>,
-    network: WalletNetwork,
-) -> Vec<WatchlistEntry> {
-    let mut seen = HashSet::<String>::new();
-    let mut normalized = Vec::<WatchlistEntry>::new();
-
-    for mut entry in entries {
-        let Ok(address) = address_book_manager::normalize_destination_address(
-            AddressEndpointKind::Vrpc,
-            &entry.address,
-            network,
-        ) else {
-            continue;
-        };
-        let key = address.to_ascii_lowercase();
-        if !seen.insert(key) {
-            continue;
-        }
-
-        entry.address = address.clone();
-        entry.display_name = normalize_non_empty(&entry.display_name).unwrap_or(address);
-        entry.system_id = entry.system_id.as_deref().and_then(normalize_non_empty);
-        if entry.id.trim().is_empty() {
-            entry.id = Uuid::new_v4().to_string();
-        }
-        normalized.push(entry);
-        if normalized.len() == MAX_WATCHLIST_ENTRIES {
-            return normalized;
-        }
-    }
-
-    for address in legacy_addresses {
-        let Ok(address) = address_book_manager::normalize_destination_address(
-            AddressEndpointKind::Vrpc,
-            &address,
-            network,
-        ) else {
-            continue;
-        };
-        let key = address.to_ascii_lowercase();
-        if !seen.insert(key) {
-            continue;
-        }
-        normalized.push(WatchlistEntry {
-            id: format!("legacy-{address}"),
-            target_kind: if address.starts_with('i') {
-                WatchlistTargetKind::Identity
-            } else {
-                WatchlistTargetKind::Address
-            },
-            display_name: address.clone(),
-            address,
-            system_id: None,
-            created_at: 0,
-            updated_at: 0,
-        });
-        if normalized.len() == MAX_WATCHLIST_ENTRIES {
-            break;
-        }
-    }
-
-    normalized
 }
 
 fn root_system(network: WalletNetwork) -> ConfiguredVrpcSystem {
@@ -421,16 +356,20 @@ async fn resolve_target_metadata(
     }
 }
 
-fn load_entries(
+async fn load_entries(
     store: &AccountStateStore,
-    account_id: &str,
-    network: WalletNetwork,
+    context: &ActiveWalletAccessContext,
 ) -> Result<Vec<WatchlistEntry>, WalletError> {
-    Ok(normalize_watchlist_entries(
-        store.load_watchlist_entries(account_id, network)?,
-        store.load_watched_vrpc_addresses(account_id, network)?,
-        network,
-    ))
+    context
+        .stronghold_store
+        .load_watchlist_entries(
+            &context.account_id,
+            context.password_hash(),
+            store,
+            context.wallet_network,
+            Some(context.session_submission_guard()),
+        )
+        .await
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -439,11 +378,7 @@ pub async fn get_watchlist_entries(
     account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<WatchlistEntry>, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let entries = load_entries(
-        account_state_store.inner(),
-        &context.account_id,
-        context.wallet_network,
-    )?;
+    let entries = load_entries(account_state_store.inner(), &context).await?;
     ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
     Ok(entries)
 }
@@ -501,27 +436,20 @@ pub async fn add_watchlist_entry(
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<WatchlistEntrySnapshot, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let (target_kind, display_name, address, system_id) = resolve_target_metadata(
+    let (target_kind, mut display_name, address, system_id) = resolve_target_metadata(
         &request.query,
         context.wallet_network,
         vrpc_provider_pool.inner().as_ref(),
     )
     .await?;
-    let mut entries = load_entries(
-        account_state_store.inner(),
-        &context.account_id,
-        context.wallet_network,
-    )?;
-    if entries
-        .iter()
-        .any(|entry| entry.address.eq_ignore_ascii_case(&address))
-    {
-        return Err(WalletError::WatchlistDuplicate);
+    if target_kind == WatchlistTargetKind::Address {
+        if let Some(name) = request.name.as_deref().and_then(normalize_non_empty) {
+            if name.chars().count() > 80 || name.chars().any(char::is_control) {
+                return Err(WalletError::WatchlistInvalidInput);
+            }
+            display_name = name;
+        }
     }
-    if entries.len() >= MAX_WATCHLIST_ENTRIES {
-        return Err(WalletError::WatchlistInvalidInput);
-    }
-
     let timestamp = now_unix();
     let entry = WatchlistEntry {
         id: Uuid::new_v4().to_string(),
@@ -541,17 +469,29 @@ pub async fn add_watchlist_entry(
     )
     .await;
 
-    let session = session_manager.lock().await;
-    if !session.is_current_session(&context.session_id) {
-        return Err(WalletError::WalletSessionChanged);
-    }
-    entries.insert(0, entry);
-    account_state_store.store_watchlist_entries(
-        &context.account_id,
-        context.wallet_network,
-        &entries,
-    )?;
-    drop(session);
+    context
+        .stronghold_store
+        .update_watchlist(
+            &context.account_id,
+            context.password_hash(),
+            account_state_store.inner(),
+            context.wallet_network,
+            Some(context.session_submission_guard()),
+            move |entries| {
+                if entries
+                    .iter()
+                    .any(|existing| existing.address == entry.address)
+                {
+                    return Err(WalletError::WatchlistDuplicate);
+                }
+                if entries.len() >= MAX_WATCHLIST_ENTRIES {
+                    return Err(WalletError::WatchlistInvalidInput);
+                }
+                entries.insert(0, entry);
+                Ok(())
+            },
+        )
+        .await?;
     Ok(snapshot)
 }
 
@@ -562,27 +502,24 @@ pub async fn remove_watchlist_entry(
     account_state_store: State<'_, AccountStateStore>,
 ) -> Result<bool, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let mut entries = load_entries(
-        account_state_store.inner(),
-        &context.account_id,
-        context.wallet_network,
-    )?;
-    let before = entries.len();
-    entries.retain(|entry| entry.id != entry_id);
-    if entries.len() == before {
-        return Err(WalletError::WatchlistEntryNotFound);
-    }
-
-    let session = session_manager.lock().await;
-    if !session.is_current_session(&context.session_id) {
-        return Err(WalletError::WalletSessionChanged);
-    }
-    account_state_store.store_watchlist_entries(
-        &context.account_id,
-        context.wallet_network,
-        &entries,
-    )?;
-    drop(session);
+    context
+        .stronghold_store
+        .update_watchlist(
+            &context.account_id,
+            context.password_hash(),
+            account_state_store.inner(),
+            context.wallet_network,
+            Some(context.session_submission_guard()),
+            move |entries| {
+                let before = entries.len();
+                entries.retain(|entry| entry.id != entry_id);
+                if entries.len() == before {
+                    return Err(WalletError::WatchlistEntryNotFound);
+                }
+                Ok(())
+            },
+        )
+        .await?;
     Ok(true)
 }
 
@@ -594,11 +531,7 @@ pub async fn refresh_watchlist(
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<WatchlistRefreshResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let entries = load_entries(
-        account_state_store.inner(),
-        &context.account_id,
-        context.wallet_network,
-    )?;
+    let entries = load_entries(account_state_store.inner(), &context).await?;
     let lookup_limit = shared_watchlist_lookup_limit();
     let mut tasks = JoinSet::new();
     for (index, entry) in entries.iter().cloned().enumerate() {
@@ -649,11 +582,10 @@ pub async fn refresh_watchlist(
 #[cfg(test)]
 mod tests {
     use super::{
-        availability_for_sources, balance_entries, format_amount, normalize_watchlist_entries,
-        with_watchlist_lookup_permit, WATCHLIST_LOOKUP_CONCURRENCY,
+        availability_for_sources, balance_entries, format_amount, with_watchlist_lookup_permit,
+        WATCHLIST_LOOKUP_CONCURRENCY,
     };
-    use crate::types::wallet::WalletNetwork;
-    use crate::types::{WatchlistEntry, WatchlistSource, WatchlistTargetKind};
+    use crate::types::WatchlistSource;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -676,28 +608,6 @@ mod tests {
         assert_eq!(format_amount(entries["isystem"].1), "1.25");
         assert_eq!(format_amount(entries["icurrency"].1), "2.5");
         assert!(!entries.contains_key("ignored"));
-    }
-
-    #[test]
-    fn legacy_addresses_are_deduplicated_behind_structured_entries() {
-        let address = format!("R{}", "1".repeat(33));
-        let entry = WatchlistEntry {
-            id: "saved".to_string(),
-            target_kind: WatchlistTargetKind::Address,
-            display_name: address.clone(),
-            address: address.clone(),
-            system_id: None,
-            created_at: 1,
-            updated_at: 1,
-        };
-        let entries = normalize_watchlist_entries(
-            vec![entry],
-            vec![address.clone(), format!("R{}", "2".repeat(33))],
-            WalletNetwork::Mainnet,
-        );
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].id, "saved");
-        assert_eq!(entries[1].display_name, entries[1].address);
     }
 
     #[test]

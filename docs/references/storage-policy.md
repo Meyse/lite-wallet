@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-23
 ---
 
 # Wallet storage policy
@@ -39,6 +39,7 @@ Metadata that is not spend-authorizing but should stay hidden behind unlock.
 
 - Contacts, including private notes, manual addresses and optional VerusID
   associations.
+- Watchlist membership and locally saved address names.
 - Linked identities.
 
 Policy:
@@ -49,6 +50,13 @@ Policy:
   serialized, session-bound mutations. See
   [Contacts implementation](./contacts-implementation.md) for schema
   compatibility and verification limits.
+- Watchlist entries for both networks live in the versioned
+  `watchlist.snapshot.stronghold` record. The unlocked account key is required
+  for list, mutation, discovery scopes, and watched-only funding checks. The
+  first successful access imports both plaintext account-state fields and the
+  legacy encrypted watched-address snapshot, verifies the new record, then
+  removes the plaintext fields. A non-sensitive version marker prevents a
+  missing or damaged encrypted snapshot from appearing as an empty Watchlist.
 
 Private Sapling notes, recipients, nullifiers, witnesses, transaction history,
 and pending sends also belong to this class. Their frequent writes use an
@@ -63,7 +71,6 @@ restart.
 
 Account-scoped state that is useful after unlock but is not secret material.
 
-- Watched VRPC addresses.
 - Active assets.
 - Identity provisioning jobs.
 
@@ -73,6 +80,14 @@ Policy:
 - Keep state network-scoped with `mainnet` and `testnet` sections.
 - Legacy Stronghold copies are migration-only and should be deleted after
   successful migration.
+- `account_state.json` retains a non-sensitive Watchlist storage-version marker,
+  not Watchlist entries or watched addresses.
+
+The Watchlist migration is one-way for normal use. Older app versions may not
+read the encrypted record and could recreate plaintext fields. Retiring live
+plaintext fields cannot erase historical backups, APFS snapshots, or SSD
+history. Encryption at rest does not hide public balance requests from the
+configured RPC provider.
 
 ### Public, derived, or cache data
 

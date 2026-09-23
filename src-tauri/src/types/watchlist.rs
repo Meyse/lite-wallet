@@ -26,6 +26,7 @@ pub struct WatchlistEntry {
 #[serde(rename_all = "camelCase")]
 pub struct ResolveWatchlistTargetRequest {
     pub query: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

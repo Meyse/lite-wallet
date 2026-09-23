@@ -1,16 +1,23 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-23
 ---
 
 # Plan: encrypted Address Book and Watchlist storage
 
-- Status: proposed; research and planning complete, implementation not started
+- Status: Watchlist storage migration implemented in the 2026-09-23 candidate;
+  native wallet validation and independent security review pending
 - Owner: lite-wallet-team
-- Last updated: 2026-09-19
+- Last updated: 2026-09-23
 - Research baseline: `main` at `88fb350`
-- Authorization for this task: create the plan only; do not migrate wallet data
-  or change runtime behavior yet
+- The 2026-09-19 plan-only authorization was superseded by the user's
+  2026-09-23 request to encrypt Watchlist entries and local aliases.
+
+The Watchlist implementation uses an account-scoped Stronghold record for both
+networks, verifies a migration write before scrubbing both plaintext fields,
+and routes watched-address consumers through that record. Focused synthetic
+tests cover migration, corruption, wrong keys, reload, deletion, and an
+interrupted legacy-key promotion. Native wallet validation remains open.
 
 ## Contacts implementation overlap (2026-09-19)
 

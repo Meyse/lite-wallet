@@ -3,6 +3,7 @@ import type {
   WatchlistAvailability,
   WatchlistEntrySnapshot,
   WatchlistHolding,
+  WatchlistTargetKind,
 } from '$lib/types/watchlist.js';
 import { formatFiatAmount, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
 
@@ -25,6 +26,7 @@ export interface WatchlistHoldingViewModel {
 
 export interface WatchlistEntryViewModel {
   id: string;
+  targetKind: WatchlistTargetKind;
   displayName: string;
   address: string;
   availability: WatchlistAvailability;
@@ -118,6 +120,7 @@ export function buildWatchlistEntryViewModel(
 
   return {
     id: record.snapshot.entry.id,
+    targetKind: record.snapshot.entry.targetKind,
     displayName: record.snapshot.entry.displayName,
     address: record.snapshot.entry.address,
     availability: record.snapshot.availability,

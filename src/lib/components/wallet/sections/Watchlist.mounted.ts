@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writable } from 'svelte/store';
 import { setLocale } from '$lib/i18n';
+import { setContactSession } from '$lib/contacts/session';
+import { identityProfiles } from '$lib/contacts/profiles';
+import { contactChainId, identityKey } from '$lib/contacts/identity';
 import type {
   WatchlistEntry,
   WatchlistEntrySnapshot,
@@ -18,6 +22,15 @@ const service = vi.hoisted(() => ({
   refreshWatchlist: vi.fn(),
 }));
 vi.mock('$lib/services/watchlistService.js', () => service);
+const profileMock = vi.hoisted(() => ({ loadIdentityProfile: vi.fn() }));
+vi.mock('$lib/contacts/profiles', () => ({
+  loadIdentityProfile: profileMock.loadIdentityProfile,
+  identityProfiles: writable({}),
+  profileImage: (profile: { avatar?: { value: { mimeType: string; base64: string } } } | null) =>
+    profile?.avatar
+      ? `data:${profile.avatar.value.mimeType};base64,${profile.avatar.value.base64}`
+      : null,
+}));
 
 class ResizeObserverStub {
   observe() {}
@@ -127,7 +140,14 @@ async function render(): Promise<void> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  profileMock.loadIdentityProfile.mockResolvedValue({
+    state: 'unavailable',
+    issues: [],
+    revisionTxid: null,
+  });
   setLocale('en');
+  setContactSession(null);
+  identityProfiles.set({});
   service.getWatchlistEntries.mockResolvedValue([]);
   service.refreshWatchlist.mockResolvedValue(refreshResult([]));
   service.removeWatchlistEntry.mockResolvedValue(true);
@@ -137,6 +157,8 @@ afterEach(async () => {
   if (component) await unmount(component);
   await settle();
   document.body.replaceChildren();
+  setContactSession(null);
+  identityProfiles.set({});
 });
 
 describe('watchlist workflows', () => {
@@ -196,9 +218,9 @@ describe('watchlist workflows', () => {
     );
 
     await render();
-    expect(document.querySelector('header h2')?.textContent?.trim()).toBe('Watchlist');
+    expect(document.querySelector('header h2')).toBeNull();
     expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
-    button('Add').click();
+    button('Add address').click();
     await settle();
     await setInput('#watchlist-target', 'Alice@');
     button('Continue').click();
@@ -207,8 +229,8 @@ describe('watchlist workflows', () => {
     expect(document.querySelector('[data-testid="watchlist-resolved-preview"]')).not.toBeNull();
     button('Add to watchlist').click();
     await settle();
-    expect(service.addWatchlistEntry).toHaveBeenCalledWith('Alice@');
-    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(1);
+    expect(service.addWatchlistEntry).toHaveBeenCalledWith('Alice@', undefined);
+    expect(document.querySelectorAll('[data-testid="watchlist-entry"]')).toHaveLength(0);
     expect(button('Adding…').disabled).toBe(true);
 
     finishAdd(snapshot);
@@ -234,32 +256,188 @@ describe('watchlist workflows', () => {
     );
   });
 
-  it('keeps the last successful balances visible when a later refresh fails', async () => {
-    service.getWatchlistEntries.mockResolvedValue([entry]);
-    service.refreshWatchlist
-      .mockResolvedValueOnce(refreshResult())
-      .mockRejectedValueOnce(new Error('offline'));
-
+  it('discards a lookup result after the query changes', async () => {
+    let finishLookup!: (value: unknown) => void;
+    service.resolveWatchlistTarget.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        })
+    );
     await render();
-    expect(document.body.textContent).toContain('4.25');
-    button('Refresh').click();
+    button('Add address').click();
     await settle();
-    expect(document.body.textContent).toContain('Update unavailable');
-    expect(document.body.textContent).toContain('4.25');
+    await setInput('#watchlist-target', 'Alice@');
+    button('Continue').click();
+    await settle();
+    expect(document.body.textContent).toContain('Looking up…');
+    await setInput('#watchlist-target', 'Bob@');
+    finishLookup({ targetKind: 'identity', displayName: 'Alice@', address: entry.address });
+    await settle();
+    expect(document.querySelector('[data-testid="watchlist-resolved-preview"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Alice@');
   });
 
-  it('opens a restrained detail view without an identity avatar', async () => {
+  it('saves an optional local name for a raw R-address', async () => {
+    service.resolveWatchlistTarget.mockResolvedValue({
+      targetKind: 'address',
+      displayName: entry.address,
+      address: entry.address,
+      availability: 'available',
+      visibleCurrencyCount: 0,
+    });
+    service.addWatchlistEntry.mockResolvedValue({
+      ...snapshot,
+      entry: { ...entry, targetKind: 'address', displayName: 'Mom' },
+    });
+    await render();
+    button('Add address').click();
+    await settle();
+    await setInput('#watchlist-target', entry.address);
+    button('Continue').click();
+    await settle();
+    expect(document.querySelector('[data-testid="watchlist-address-avatar"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('R-address found');
+    expect(document.body.textContent).toContain('balances are public');
+    await setInput('#watchlist-name', 'Mom');
+    button('Add to watchlist').click();
+    await settle();
+    expect(service.addWatchlistEntry).toHaveBeenCalledWith(entry.address, 'Mom');
+    expect(document.querySelector('[data-testid="watchlist-entry"]')?.textContent).toContain('Mom');
+  });
+
+  it('keeps Retry available after an initial load error', async () => {
+    service.getWatchlistEntries.mockRejectedValueOnce(new Error('unavailable'));
+    await render();
+    expect(document.querySelector('header')).toBeNull();
+    expect(document.body.textContent).toContain('Could not load your watchlist.');
+    button('Retry').click();
+    await settle();
+    expect(document.querySelector('[data-testid="watchlist-empty"]')).not.toBeNull();
+  });
+
+  it('shows a published profile image for an identity and retains initials fallback', async () => {
+    setContactSession({ sessionId: 'avatar-session', network: 'mainnet' });
     service.getWatchlistEntries.mockResolvedValue([entry]);
     service.refreshWatchlist.mockResolvedValue(refreshResult());
+    await render();
+    const avatar = document.querySelector('[data-testid="watchlist-avatar"]');
+    expect(avatar?.textContent).toContain('AL');
+    const identity = {
+      network: 'mainnet' as const,
+      chainId: contactChainId('mainnet'),
+      identityAddress: entry.address,
+      fullyQualifiedName: entry.displayName,
+    };
+    identityProfiles.set({
+      [identityKey(identity)]: {
+        profile: {
+          state: 'ready',
+          issues: [],
+          revisionTxid: null,
+          avatar: {
+            value: {
+              mimeType: 'image/png',
+              base64: 'aGVsbG8=',
+              width: 1,
+              height: 1,
+              byteLength: 5,
+            },
+            source: {
+              systemId: contactChainId('mainnet'),
+              txid: 'profile',
+              vout: 0,
+              height: 1,
+              blockhash: 'block',
+              digest: 'digest',
+            },
+          },
+        },
+        loading: false,
+        unavailable: false,
+        checkedAt: Date.now(),
+      },
+    });
+    await settle();
+    expect(avatar?.querySelector('img')?.getAttribute('src')).toBe(
+      'data:image/png;base64,aGVsbG8='
+    );
+  });
+
+  it('marks a partial snapshot stale while retaining its available balances', async () => {
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(
+      refreshResult([{ ...snapshot, availability: 'partial' }])
+    );
+
+    await render();
+    expect(document.body.textContent).toContain('Current balances unavailable · Last known values');
+    document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]')?.click();
+    await settle();
+    expect(document.body.textContent).toContain('4.25');
+    expect(
+      document.querySelector('[data-testid="watchlist-detail-status"]')?.textContent
+    ).toContain('Current balances unavailable · Last known values');
+  });
+
+  it('distinguishes unavailable detail balances from a confirmed empty address', async () => {
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(
+      refreshResult([{ ...snapshot, holdings: [], availability: 'unavailable' }])
+    );
 
     await render();
     document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]')?.click();
     await settle();
-    expect(document.body.textContent).toContain('Read only');
+    expect(
+      document.querySelector('[data-testid="watchlist-detail-status"]')?.textContent
+    ).toContain('Current balances unavailable');
+    expect(document.body.textContent).not.toContain('No public balances found');
+
+    button('Back to watchlist').click();
+    service.refreshWatchlist.mockResolvedValue(
+      refreshResult([{ ...snapshot, holdings: [], availability: 'available' }])
+    );
+    // A fresh confirmed empty result has different copy from an unavailable response.
+    // The service is called during the next mount rather than through a manual refresh control.
+    await unmount(component);
+    document.body.replaceChildren();
+    await render();
+    document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]')?.click();
+    await settle();
+    expect(document.body.textContent).toContain('No public balances found');
+    expect(document.querySelector('[data-testid="watchlist-detail-status"]')).toBeNull();
+  });
+
+  it('shows passive detail loading while its first balance lookup is pending', async () => {
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockImplementation(() => new Promise(() => {}));
+
+    await render();
+    document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]')?.click();
+    await settle();
+    expect(
+      document.querySelector('[data-testid="watchlist-detail-status"]')?.textContent
+    ).toContain('Loading public balances…');
+    expect(document.body.textContent).not.toContain('No public balances found');
+  });
+
+  it('opens the VerusID detail with an initials avatar and restores row focus on Back', async () => {
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(refreshResult());
+
+    await render();
+    const row = document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]');
+    expect(row?.textContent).not.toContain(entry.address);
+    row?.click();
+    await settle();
+    expect(document.querySelector('[data-testid="watchlist-avatar"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="public-value-card"]')).not.toBeNull();
     expect(document.body.textContent).toContain('4.25');
     expect(document.body.textContent).toContain('VRSC');
-    expect(document.querySelector('[data-testid="identity-avatar"]')).toBeNull();
+    button('Back to watchlist').click();
+    await settle();
+    expect(document.activeElement).toBe(document.querySelector('[data-testid="watchlist-entry"]'));
   });
 
   it('keeps the entry until confirmed removal finishes', async () => {

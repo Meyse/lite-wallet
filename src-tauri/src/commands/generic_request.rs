@@ -19,6 +19,7 @@ use crate::commands::identity::{
     build_identity_details_from_payload, identity_session_context, linked_identity_from_details,
     load_linked_for_context, map_identity_lookup_error as map_link_identity_lookup_error,
     parse_getidentity_payload, store_linked_for_context, upsert_linked_identity,
+    IdentitySessionContext,
 };
 use crate::core::auth::{
     capture_active_wallet_access_context, ensure_active_wallet_session,
@@ -1827,6 +1828,25 @@ pub async fn review_generic_identity_update(
     Ok(inspection.review)
 }
 
+async fn load_watched_funding_addresses(
+    context: &IdentitySessionContext,
+) -> Result<Vec<String>, WalletError> {
+    Ok(context
+        .access
+        .stronghold_store
+        .load_watchlist_entries(
+            &context.account_id,
+            context.access.password_hash(),
+            &context.account_state_store,
+            context.network,
+            Some(context.access.session_submission_guard()),
+        )
+        .await?
+        .into_iter()
+        .map(|entry| entry.address)
+        .collect())
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn preflight_generic_identity_update(
     requested_identity_json: Value,
@@ -1850,9 +1870,7 @@ pub async fn preflight_generic_identity_update(
 
     let resolved = vrpc::parse_vrpc_channel_id(&source_channel_id, Some(&session_vrpc_address))?;
     let linked_identities = load_linked_for_context(&context).await?;
-    let watched_addresses = context
-        .account_state_store
-        .load_watched_vrpc_addresses(&context.account_id, context.network)?;
+    let watched_addresses = load_watched_funding_addresses(&context).await?;
     validate_generic_request_funding_source(
         &resolved.address,
         &resolved.system_id,
@@ -2427,10 +2445,12 @@ mod tests {
     };
     use crate::core::crypto::wif_encoding::generate_p2pkh_address;
     use crate::core::crypto::{derive_public_profile_from_material, Network};
+    use crate::core::wallet::AccountStateStore;
     use crate::core::StrongholdStore;
     use crate::types::{
         GenericAuthenticationResponseInput, GenericIdentityUpdateResponseInput,
-        GenericResponseSignerInput, LinkedIdentity, WalletError,
+        GenericResponseSignerInput, LinkedIdentity, WalletError, WatchlistEntry,
+        WatchlistTargetKind,
     };
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::sync::Arc;
@@ -2609,6 +2629,50 @@ mod tests {
             profile,
             Zeroizing::new(vec![7u8; 32]),
         );
+    }
+
+    #[tokio::test]
+    async fn watched_funding_lookup_fails_closed_when_encrypted_watchlist_is_corrupt() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store_path = std::env::temp_dir().join(format!(
+            "lite_wallet_generic_watchlist_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = AccountStateStore::new(store_path.clone());
+        state
+            .store_watchlist_entries(
+                "generic-account",
+                WalletNetwork::Mainnet,
+                &[WatchlistEntry {
+                    id: "watched".into(),
+                    target_kind: WatchlistTargetKind::Address,
+                    display_name: "Watched only".into(),
+                    address: "RWatchedFunding".into(),
+                    system_id: None,
+                    created_at: 1,
+                    updated_at: 1,
+                }],
+            )
+            .expect("legacy watchlist");
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(store_path.clone()),
+        )));
+        unlock_generic_test_session(&session, "wallet A").await;
+        let context = super::identity_session_context(&session, &state)
+            .await
+            .expect("identity context");
+        assert_eq!(
+            super::load_watched_funding_addresses(&context)
+                .await
+                .unwrap(),
+            vec!["RWatchedFunding".to_string()]
+        );
+        let encrypted = store_path.join("accounts/generic-account/watchlist.snapshot.stronghold");
+        std::fs::write(&encrypted, b"corrupt").unwrap();
+        assert!(super::load_watched_funding_addresses(&context)
+            .await
+            .is_err());
+        let _ = std::fs::remove_dir_all(store_path);
     }
 
     #[tokio::test]

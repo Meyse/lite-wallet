@@ -5,6 +5,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
@@ -13,17 +14,21 @@ use crate::core::auth::kdf::{
     argon2_salt_path, derive_current_argon2id, derive_legacy_sha256,
     CURRENT_KEY_DERIVATION_VERSION, LEGACY_KEY_DERIVATION_VERSION,
 };
+use crate::core::wallet::account_state_store::{LegacyWatchlistNetwork, LegacyWatchlistSources};
 use crate::core::wallet::{AccountStateStore, WalletManager};
 use crate::types::errors::WalletError;
 use crate::types::generic_request::ProvisioningJobRecord;
 use crate::types::identity::LinkedIdentity;
 use crate::types::wallet::{AccountRecord, WalletNetwork};
+use crate::types::{WatchlistEntry, WatchlistTargetKind};
 use iota_stronghold::{KeyProvider, SnapshotPath, Stronghold};
 
 const SEED_RECORD_KEY: &[u8] = b"seed";
 const ADDRESS_BOOK_RECORD_KEY: &[u8] = b"address_book_v1";
 const WATCHED_VRPC_ADDRESSES_RECORD_KEY: &[u8] = b"watched_vrpc_addresses_v1";
 const WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION: u8 = 1;
+const WATCHLIST_RECORD_KEY: &[u8] = b"watchlist_v1";
+const WATCHLIST_SCHEMA_VERSION: u8 = 1;
 const ACTIVE_ASSETS_RECORD_KEY: &[u8] = b"active_assets_v1";
 const ACTIVE_ASSETS_SCHEMA_VERSION: u8 = 1;
 pub const ACTIVE_ASSETS_PROFILE_VERSION: u8 = 2;
@@ -38,6 +43,7 @@ const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WatchedVrpcAddressesSnapshot {
     schema_version: u8,
     mainnet: Vec<String>,
@@ -50,6 +56,88 @@ impl Default for WatchedVrpcAddressesSnapshot {
             schema_version: WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION,
             mainnet: vec![],
             testnet: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct WatchlistSnapshot {
+    schema_version: u8,
+    revision: u64,
+    migration_complete: bool,
+    mainnet: Vec<WatchlistEntry>,
+    testnet: Vec<WatchlistEntry>,
+}
+
+impl WatchlistSnapshot {
+    fn from_legacy(
+        sources: LegacyWatchlistSources,
+        old: WatchedVrpcAddressesSnapshot,
+    ) -> Result<Self, WalletError> {
+        fn merge(
+            source: LegacyWatchlistNetwork,
+            encrypted: Vec<String>,
+        ) -> Result<Vec<WatchlistEntry>, WalletError> {
+            let mut entries = source.entries;
+            let mut seen_addresses = HashSet::new();
+            let mut seen_ids = HashSet::new();
+            for entry in &mut entries {
+                if entry.address.trim().is_empty()
+                    || entry.address.chars().any(char::is_control)
+                    || !seen_addresses.insert(entry.address.clone())
+                {
+                    return Err(WalletError::OperationFailed);
+                }
+                if entry.id.trim().is_empty() {
+                    entry.id = format!("legacy-structured-{}", entry.address);
+                }
+                if !seen_ids.insert(entry.id.clone()) {
+                    return Err(WalletError::OperationFailed);
+                }
+            }
+            for address in source.addresses.into_iter().chain(encrypted) {
+                if address.trim().is_empty() || address.chars().any(char::is_control) {
+                    return Err(WalletError::OperationFailed);
+                }
+                // Base58 addresses are case-sensitive. Exact duplicates carry no
+                // new metadata, while conflicting structured rows fail above.
+                if !seen_addresses.insert(address.clone()) {
+                    continue;
+                }
+                let id = format!("legacy-{address}");
+                if !seen_ids.insert(id.clone()) {
+                    return Err(WalletError::OperationFailed);
+                }
+                entries.push(WatchlistEntry {
+                    id,
+                    target_kind: if address.starts_with('i') {
+                        WatchlistTargetKind::Identity
+                    } else {
+                        WatchlistTargetKind::Address
+                    },
+                    display_name: address.clone(),
+                    address,
+                    system_id: None,
+                    created_at: 0,
+                    updated_at: 0,
+                });
+            }
+            Ok(entries)
+        }
+        Ok(Self {
+            schema_version: WATCHLIST_SCHEMA_VERSION,
+            revision: 1,
+            migration_complete: true,
+            mainnet: merge(sources.mainnet, old.mainnet)?,
+            testnet: merge(sources.testnet, old.testnet)?,
+        })
+    }
+
+    fn entries_mut(&mut self, network: WalletNetwork) -> &mut Vec<WatchlistEntry> {
+        match network {
+            WalletNetwork::Mainnet => &mut self.mainnet,
+            WalletNetwork::Testnet => &mut self.testnet,
         }
     }
 }
@@ -161,7 +249,7 @@ struct LegacyMigrationBundle {
     address_book: Option<Vec<u8>>,
     linked_identities: Option<LinkedIdentitiesSnapshot>,
     dlight_seed: DlightSeedSnapshot,
-    watched_vrpc_addresses: WatchedVrpcAddressesSnapshot,
+    watchlist: WatchlistSnapshot,
     active_assets: ActiveAssetsSnapshot,
     provisioning_jobs: ProvisioningJobsSnapshot,
 }
@@ -251,6 +339,10 @@ impl StrongholdStore {
 
     fn watched_vrpc_addresses_snapshot_path(&self, account_id: &str) -> PathBuf {
         self.isolated_snapshot_path(account_id, "watched_vrpc_addresses.snapshot.stronghold")
+    }
+
+    fn watchlist_snapshot_path(&self, account_id: &str) -> PathBuf {
+        self.isolated_snapshot_path(account_id, "watchlist.snapshot.stronghold")
     }
 
     fn active_assets_snapshot_path(&self, account_id: &str) -> PathBuf {
@@ -398,6 +490,7 @@ impl StrongholdStore {
         self.commit_record_to_path(account_id, path, password_hash, record_key, &payload)
     }
 
+    #[cfg(test)]
     async fn load_watched_vrpc_addresses_snapshot(
         &self,
         account_id: &str,
@@ -715,13 +808,33 @@ impl StrongholdStore {
         canonical_path: &std::path::Path,
         temp_path: &std::path::Path,
     ) -> Result<(), WalletError> {
-        if !temp_path.exists() {
-            return Ok(());
+        if temp_path.exists() {
+            if let Some(parent) = canonical_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|_| WalletError::OperationFailed)?;
+            }
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(temp_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| WalletError::OperationFailed)?;
+            std::fs::rename(temp_path, canonical_path).map_err(|_| WalletError::OperationFailed)?;
         }
-        if let Some(parent) = canonical_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|_| WalletError::OperationFailed)?;
+        // On a resumed migration the temp may already have been renamed. Sync
+        // that canonical file and its directory before plaintext source cleanup.
+        if canonical_path.exists() {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(canonical_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| WalletError::OperationFailed)?;
+            #[cfg(unix)]
+            if let Some(parent) = canonical_path.parent() {
+                std::fs::File::open(parent)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|_| WalletError::OperationFailed)?;
+            }
         }
-        std::fs::rename(temp_path, canonical_path).map_err(|_| WalletError::OperationFailed)
+        Ok(())
     }
 
     fn remove_file_if_exists(path: &std::path::Path) -> Result<(), WalletError> {
@@ -755,7 +868,58 @@ impl StrongholdStore {
         &self,
         account_id: &str,
         legacy_hash: &[u8],
+        account_state_store: &AccountStateStore,
     ) -> Result<LegacyMigrationBundle, WalletError> {
+        let watchlist_path = self.watchlist_snapshot_path(account_id);
+        let existing_watchlist = self
+            .load_optional_record_from_path(
+                account_id,
+                legacy_hash,
+                &watchlist_path,
+                WATCHLIST_RECORD_KEY,
+                "watchlist",
+            )
+            .await?;
+        let watchlist = if let Some(payload) = existing_watchlist {
+            let snapshot: WatchlistSnapshot =
+                serde_json::from_slice(&payload).map_err(|_| WalletError::OperationFailed)?;
+            if snapshot.schema_version != WATCHLIST_SCHEMA_VERSION || !snapshot.migration_complete {
+                return Err(WalletError::OperationFailed);
+            }
+            snapshot
+        } else {
+            if watchlist_path.exists() {
+                return Err(WalletError::OperationFailed);
+            }
+            let sources = account_state_store.legacy_watchlist_sources(account_id)?;
+            if sources.encrypted_version.is_some() {
+                return Err(WalletError::OperationFailed);
+            }
+            let legacy_path = self.watched_vrpc_addresses_snapshot_path(account_id);
+            let old = match self
+                .load_optional_record_from_path(
+                    account_id,
+                    legacy_hash,
+                    &legacy_path,
+                    WATCHED_VRPC_ADDRESSES_RECORD_KEY,
+                    "watched VRPC addresses",
+                )
+                .await?
+            {
+                Some(payload) => {
+                    let snapshot: WatchedVrpcAddressesSnapshot =
+                        serde_json::from_slice(&payload)
+                            .map_err(|_| WalletError::OperationFailed)?;
+                    if snapshot.schema_version != WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION {
+                        return Err(WalletError::OperationFailed);
+                    }
+                    snapshot
+                }
+                None if legacy_path.exists() => return Err(WalletError::OperationFailed),
+                None => WatchedVrpcAddressesSnapshot::default(),
+            };
+            WatchlistSnapshot::from_legacy(sources, old)?
+        };
         Ok(LegacyMigrationBundle {
             seed: self
                 .load_seed_by_hash_internal(account_id, legacy_hash)
@@ -767,17 +931,7 @@ impl StrongholdStore {
             dlight_seed: self
                 .load_dlight_seed_snapshot(account_id, legacy_hash)
                 .await?,
-            watched_vrpc_addresses: WatchedVrpcAddressesSnapshot {
-                schema_version: WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION,
-                mainnet: self
-                    .load_watched_vrpc_addresses(account_id, legacy_hash, WalletNetwork::Mainnet)
-                    .await
-                    .unwrap_or_default(),
-                testnet: self
-                    .load_watched_vrpc_addresses(account_id, legacy_hash, WalletNetwork::Testnet)
-                    .await
-                    .unwrap_or_default(),
-            },
+            watchlist,
             active_assets: ActiveAssetsSnapshot {
                 schema_version: ACTIVE_ASSETS_SCHEMA_VERSION,
                 mainnet: {
@@ -855,6 +1009,15 @@ impl StrongholdStore {
         self.store_json_snapshot_to_path(
             account_id,
             current_hash,
+            &Self::temp_snapshot_path(&self.watchlist_snapshot_path(account_id)),
+            WATCHLIST_RECORD_KEY,
+            &bundle.watchlist,
+            "watchlist",
+        )?;
+
+        self.store_json_snapshot_to_path(
+            account_id,
+            current_hash,
             &self.dlight_seed_temp_snapshot_path(account_id),
             DLIGHT_SEED_RECORD_KEY,
             &bundle.dlight_seed,
@@ -868,16 +1031,6 @@ impl StrongholdStore {
         account_state_store: &AccountStateStore,
         bundle: &LegacyMigrationBundle,
     ) -> Result<(), WalletError> {
-        account_state_store.store_watched_vrpc_addresses(
-            account_id,
-            WalletNetwork::Mainnet,
-            &bundle.watched_vrpc_addresses.mainnet,
-        )?;
-        account_state_store.store_watched_vrpc_addresses(
-            account_id,
-            WalletNetwork::Testnet,
-            &bundle.watched_vrpc_addresses.testnet,
-        )?;
         account_state_store.store_active_assets(
             account_id,
             WalletNetwork::Mainnet,
@@ -920,6 +1073,10 @@ impl StrongholdStore {
         Self::promote_temp_snapshot(
             &self.dlight_seed_snapshot_path(account_id),
             &self.dlight_seed_temp_snapshot_path(account_id),
+        )?;
+        Self::promote_temp_snapshot(
+            &self.watchlist_snapshot_path(account_id),
+            &Self::temp_snapshot_path(&self.watchlist_snapshot_path(account_id)),
         )
     }
 
@@ -941,6 +1098,70 @@ impl StrongholdStore {
         Self::remove_file_if_exists(&self.provisioning_jobs_snapshot_path(account_id))
     }
 
+    async fn resume_interrupted_legacy_migration(
+        &self,
+        account: &AccountRecord,
+        legacy_hash: &[u8],
+        current_hash: &[u8],
+        wallet_manager: &WalletManager,
+        account_state_store: &AccountStateStore,
+    ) -> Result<(), WalletError> {
+        // The seed is promoted first. A current-key seed with old-version
+        // metadata means every migration temp was staged before interruption.
+        self.load_seed_by_hash_internal(&account.id, current_hash)
+            .await?;
+        self.promote_migrated_secret_snapshots(&account.id)?;
+        let payload = self
+            .load_optional_record_from_path(
+                &account.id,
+                current_hash,
+                &self.watchlist_snapshot_path(&account.id),
+                WATCHLIST_RECORD_KEY,
+                "watchlist",
+            )
+            .await?
+            .ok_or(WalletError::OperationFailed)?;
+        let canonical: WatchlistSnapshot =
+            serde_json::from_slice(&payload).map_err(|_| WalletError::OperationFailed)?;
+        if canonical.schema_version != WATCHLIST_SCHEMA_VERSION || !canonical.migration_complete {
+            return Err(WalletError::OperationFailed);
+        }
+        let sources = account_state_store.legacy_watchlist_sources(&account.id)?;
+        if sources.encrypted_version.is_none() {
+            let old_path = self.watched_vrpc_addresses_snapshot_path(&account.id);
+            let old = match self
+                .load_optional_record_from_path(
+                    &account.id,
+                    legacy_hash,
+                    &old_path,
+                    WATCHED_VRPC_ADDRESSES_RECORD_KEY,
+                    "watched VRPC addresses",
+                )
+                .await?
+            {
+                Some(bytes) => {
+                    let snapshot: WatchedVrpcAddressesSnapshot =
+                        serde_json::from_slice(&bytes).map_err(|_| WalletError::OperationFailed)?;
+                    if snapshot.schema_version != WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION {
+                        return Err(WalletError::OperationFailed);
+                    }
+                    snapshot
+                }
+                None if old_path.exists() => return Err(WalletError::OperationFailed),
+                None => WatchedVrpcAddressesSnapshot::default(),
+            };
+            if canonical != WatchlistSnapshot::from_legacy(sources, old)? {
+                return Err(WalletError::OperationFailed);
+            }
+        } else if sources.encrypted_version != Some(WATCHLIST_SCHEMA_VERSION) {
+            return Err(WalletError::OperationFailed);
+        }
+        account_state_store.clear_legacy_watchlist_fields(&account.id)?;
+        self.persist_current_account_kdf_version(account, wallet_manager)
+            .await?;
+        self.remove_legacy_account_state_snapshots(&account.id)
+    }
+
     pub async fn ensure_account_password_hash(
         &self,
         account: &AccountRecord,
@@ -959,16 +1180,80 @@ impl StrongholdStore {
         }
 
         let legacy_hash = Self::derive_legacy_password_hash(password);
-        let bundle = self
-            .read_legacy_migration_bundle(&account.id, legacy_hash.as_ref())
-            .await?;
+        let bundle = match self
+            .read_legacy_migration_bundle(&account.id, legacy_hash.as_ref(), account_state_store)
+            .await
+        {
+            Ok(bundle) => bundle,
+            Err(legacy_error) => {
+                if !self.salt_path.exists() {
+                    return Err(legacy_error);
+                }
+                let current_hash = match self
+                    .derive_current_password_hash_async(password, false)
+                    .await
+                {
+                    Ok(hash) => hash,
+                    Err(_) => return Err(legacy_error),
+                };
+                if self
+                    .load_seed_by_hash_internal(&account.id, current_hash.as_ref())
+                    .await
+                    .is_err()
+                {
+                    return Err(legacy_error);
+                }
+                self.resume_interrupted_legacy_migration(
+                    account,
+                    legacy_hash.as_ref(),
+                    current_hash.as_ref(),
+                    wallet_manager,
+                    account_state_store,
+                )
+                .await?;
+                return Ok(current_hash);
+            }
+        };
         let current_hash = self
             .derive_current_password_hash_async(password, true)
             .await?;
 
         self.write_migrated_secret_snapshots(&account.id, current_hash.as_ref(), &bundle)?;
+        let staged_watchlist = self
+            .load_optional_record_from_path(
+                &account.id,
+                current_hash.as_ref(),
+                &Self::temp_snapshot_path(&self.watchlist_snapshot_path(&account.id)),
+                WATCHLIST_RECORD_KEY,
+                "staged watchlist",
+            )
+            .await?
+            .ok_or(WalletError::OperationFailed)?;
+        if serde_json::from_slice::<WatchlistSnapshot>(&staged_watchlist)
+            .map_err(|_| WalletError::OperationFailed)?
+            != bundle.watchlist
+        {
+            return Err(WalletError::OperationFailed);
+        }
         self.migrate_legacy_account_state(&account.id, account_state_store, &bundle)?;
         self.promote_migrated_secret_snapshots(&account.id)?;
+        let promoted_watchlist = self
+            .load_optional_record_from_path(
+                &account.id,
+                current_hash.as_ref(),
+                &self.watchlist_snapshot_path(&account.id),
+                WATCHLIST_RECORD_KEY,
+                "watchlist",
+            )
+            .await?
+            .ok_or(WalletError::OperationFailed)?;
+        if serde_json::from_slice::<WatchlistSnapshot>(&promoted_watchlist)
+            .map_err(|_| WalletError::OperationFailed)?
+            != bundle.watchlist
+        {
+            return Err(WalletError::OperationFailed);
+        }
+        account_state_store.clear_legacy_watchlist_fields(&account.id)?;
         self.persist_current_account_kdf_version(account, wallet_manager)
             .await?;
         self.remove_legacy_account_state_snapshots(&account.id)?;
@@ -1008,6 +1293,189 @@ impl StrongholdStore {
             .await?;
         println!("[AUTH] Seed loaded successfully");
         Ok(seed)
+    }
+
+    /// One serialized read/change/commit for both Watchlist networks. The encrypted
+    /// snapshot is authoritative as soon as it exists, including when it is empty.
+    /// Plaintext is removed only after the new snapshot has been read back.
+    pub(crate) async fn update_watchlist<T: Send + 'static>(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        account_state_store: &AccountStateStore,
+        network: WalletNetwork,
+        guard: Option<crate::core::auth::session::SessionSubmissionGuard>,
+        update: impl FnOnce(&mut Vec<WatchlistEntry>) -> Result<T, WalletError> + Send + 'static,
+    ) -> Result<T, WalletError> {
+        static GATE: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
+            std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Mutex::new(())));
+        let permit = GATE.clone().lock_owned().await;
+        let path = self.watchlist_snapshot_path(account_id);
+        let obsolete_path = self.watched_vrpc_addresses_snapshot_path(account_id);
+        let sources = account_state_store.legacy_watchlist_sources(account_id)?;
+        if sources
+            .encrypted_version
+            .is_some_and(|version| version != WATCHLIST_SCHEMA_VERSION)
+        {
+            return Err(WalletError::OperationFailed);
+        }
+        let needs_scrub = sources.encrypted_version.is_none()
+            || !sources.mainnet.entries.is_empty()
+            || !sources.mainnet.addresses.is_empty()
+            || !sources.testnet.entries.is_empty()
+            || !sources.testnet.addresses.is_empty();
+        let old = if path.exists() {
+            WatchedVrpcAddressesSnapshot::default()
+        } else {
+            let bytes = self
+                .load_optional_record_from_path(
+                    account_id,
+                    password_hash,
+                    &obsolete_path,
+                    WATCHED_VRPC_ADDRESSES_RECORD_KEY,
+                    "watched VRPC addresses",
+                )
+                .await?;
+            match bytes {
+                Some(bytes) => {
+                    let snapshot: WatchedVrpcAddressesSnapshot =
+                        serde_json::from_slice(&bytes).map_err(|_| WalletError::OperationFailed)?;
+                    if snapshot.schema_version != WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION {
+                        return Err(WalletError::OperationFailed);
+                    }
+                    snapshot
+                }
+                None if obsolete_path.exists() => return Err(WalletError::OperationFailed),
+                None => WatchedVrpcAddressesSnapshot::default(),
+            }
+        };
+        let account_id = account_id.to_string();
+        let password_hash = Zeroizing::new(password_hash.to_vec());
+        let account_state_store = account_state_store.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let exists = path
+                .try_exists()
+                .map_err(|_| WalletError::OperationFailed)?;
+            let keyprovider = Self::keyprovider_from_hash(&password_hash)?;
+            let stronghold = Stronghold::default();
+            let client = Self::get_or_create_client(
+                &stronghold,
+                &SnapshotPath::from_path(&path),
+                &account_id,
+                &keyprovider,
+                exists,
+            )?;
+            let original = client
+                .store()
+                .get(WATCHLIST_RECORD_KEY)
+                .map_err(|_| WalletError::OperationFailed)?
+                .map(Zeroizing::new);
+            let mut snapshot = match original.as_ref() {
+                Some(raw) => serde_json::from_slice::<WatchlistSnapshot>(raw)
+                    .map_err(|_| WalletError::OperationFailed)?,
+                None if !exists && sources.encrypted_version.is_none() => {
+                    WatchlistSnapshot::from_legacy(sources, old)?
+                }
+                None => return Err(WalletError::OperationFailed),
+            };
+            if snapshot.schema_version != WATCHLIST_SCHEMA_VERSION || !snapshot.migration_complete {
+                return Err(WalletError::OperationFailed);
+            }
+            let before = snapshot.clone();
+            let result = update(snapshot.entries_mut(network))?;
+            if snapshot != before {
+                snapshot.revision = snapshot
+                    .revision
+                    .checked_add(1)
+                    .ok_or(WalletError::OperationFailed)?;
+            }
+            let payload = Zeroizing::new(
+                serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?,
+            );
+            if original.as_ref() != Some(&payload) {
+                client
+                    .store()
+                    .insert(WATCHLIST_RECORD_KEY.to_vec(), payload.to_vec(), None)
+                    .map_err(|_| WalletError::OperationFailed)?;
+                let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+                let commit = (|| {
+                    stronghold
+                        .commit_with_keyprovider(&SnapshotPath::from_path(&temp), &keyprovider)
+                        .map_err(|_| WalletError::OperationFailed)?;
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&temp)
+                        .and_then(|file| file.sync_all())
+                        .map_err(|_| WalletError::OperationFailed)?;
+                    let publish = || {
+                        std::fs::rename(&temp, &path).map_err(|_| WalletError::OperationFailed)?;
+                        #[cfg(unix)]
+                        if let Some(parent) = path.parent() {
+                            std::fs::File::open(parent)
+                                .and_then(|file| file.sync_all())
+                                .map_err(|_| WalletError::OperationFailed)?;
+                        }
+                        Ok(())
+                    };
+                    if let Some(guard) = guard {
+                        match guard.poll_admitted(|| std::task::Poll::Ready(publish())) {
+                            std::task::Poll::Ready(result) => result,
+                            std::task::Poll::Pending => unreachable!("synchronous publication"),
+                        }
+                    } else {
+                        publish()
+                    }
+                })();
+                if temp.exists() {
+                    let _ = std::fs::remove_file(temp);
+                }
+                commit?;
+                if original.is_none() {
+                    let reader = Stronghold::default();
+                    let verified_client = reader
+                        .load_client_from_snapshot(
+                            account_id.as_bytes(),
+                            &keyprovider,
+                            &SnapshotPath::from_path(&path),
+                        )
+                        .map_err(|_| WalletError::OperationFailed)?;
+                    let verified = verified_client
+                        .store()
+                        .get(WATCHLIST_RECORD_KEY)
+                        .map_err(|_| WalletError::OperationFailed)?;
+                    if verified.as_deref() != Some(payload.as_slice()) {
+                        return Err(WalletError::OperationFailed);
+                    }
+                }
+            }
+            if needs_scrub {
+                account_state_store.clear_legacy_watchlist_fields(&account_id)?;
+            }
+            Self::remove_file_if_exists(&obsolete_path)?;
+            Ok(result)
+        })
+        .await
+        .map_err(|_| WalletError::OperationFailed)?
+    }
+
+    pub(crate) async fn load_watchlist_entries(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        account_state_store: &AccountStateStore,
+        network: WalletNetwork,
+        guard: Option<crate::core::auth::session::SessionSubmissionGuard>,
+    ) -> Result<Vec<WatchlistEntry>, WalletError> {
+        self.update_watchlist(
+            account_id,
+            password_hash,
+            account_state_store,
+            network,
+            guard,
+            |entries| Ok(entries.clone()),
+        )
+        .await
     }
 
     /// Serialize the complete Contacts read/change/commit, including migration and
@@ -1278,6 +1746,7 @@ impl StrongholdStore {
         Self::remove_file_if_exists(&self.eth_pending_submission_snapshot_path(account_id, network))
     }
 
+    #[cfg(test)]
     pub async fn load_watched_vrpc_addresses(
         &self,
         account_id: &str,
@@ -1290,6 +1759,7 @@ impl StrongholdStore {
         Ok(network_value(snapshot.mainnet, snapshot.testnet, network))
     }
 
+    #[cfg(test)]
     pub async fn store_watched_vrpc_addresses(
         &self,
         account_id: &str,
@@ -1588,7 +2058,7 @@ mod tests {
     use crate::types::generic_request::ProvisioningJobRecord;
     use crate::types::identity::LinkedIdentity;
     use crate::types::wallet::{AccountRecord, WalletNetwork, WalletSecretKind};
-    use crate::types::WalletError;
+    use crate::types::{WalletError, WatchlistEntry, WatchlistTargetKind};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[tokio::test]
@@ -1655,6 +2125,220 @@ mod tests {
             base_path,
             salt_path,
         }
+    }
+
+    #[tokio::test]
+    async fn watchlist_import_encrypts_both_networks_and_never_resurrects_deleted_entries() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let state = AccountStateStore::new(store.base_path.clone());
+        let account = "encrypted-watchlist";
+        let hash = StrongholdStore::derive_legacy_password_hash("watchlist-test-key");
+        let named = WatchlistEntry {
+            id: "named-id".into(),
+            target_kind: WatchlistTargetKind::Address,
+            display_name: "Private local name".into(),
+            address: "RNamedPrivate".into(),
+            system_id: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        state
+            .store_watchlist_entries(account, WalletNetwork::Mainnet, &[named.clone()])
+            .expect("legacy structured entry");
+        state
+            .store_watched_vrpc_addresses(
+                account,
+                WalletNetwork::Mainnet,
+                &["RNamedPrivate".into(), "RPlainPrivate".into()],
+            )
+            .expect("legacy plaintext addresses");
+        state
+            .store_watched_vrpc_addresses(account, WalletNetwork::Testnet, &["RTestPrivate".into()])
+            .expect("testnet plaintext addresses");
+        store
+            .store_watched_vrpc_addresses(
+                account,
+                hash.as_ref(),
+                WalletNetwork::Mainnet,
+                &["ROldEncrypted".into()],
+            )
+            .await
+            .expect("old encrypted address");
+
+        let entries = store
+            .load_watchlist_entries(account, hash.as_ref(), &state, WalletNetwork::Mainnet, None)
+            .await
+            .expect("migrate and load");
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], named);
+        assert_eq!(entries[1].address, "RPlainPrivate");
+        assert_eq!(entries[2].address, "ROldEncrypted");
+        assert_eq!(
+            store
+                .load_watchlist_entries(
+                    account,
+                    hash.as_ref(),
+                    &state,
+                    WalletNetwork::Testnet,
+                    None
+                )
+                .await
+                .expect("testnet load")[0]
+                .address,
+            "RTestPrivate"
+        );
+        let plaintext = std::fs::read_to_string(state.account_state_path(account)).unwrap();
+        assert!(!plaintext.contains("Private"));
+        assert!(plaintext.contains("watchlistEncryptedVersion"));
+        let ciphertext = std::fs::read(store.watchlist_snapshot_path(account)).unwrap();
+        assert!(!ciphertext
+            .windows(b"Private local name".len())
+            .any(|window| window == b"Private local name"));
+        assert!(!ciphertext
+            .windows(b"RNamedPrivate".len())
+            .any(|window| window == b"RNamedPrivate"));
+
+        store
+            .update_watchlist(
+                account,
+                hash.as_ref(),
+                &state,
+                WalletNetwork::Mainnet,
+                None,
+                |entries| {
+                    entries.retain(|entry| entry.id != "named-id");
+                    Ok(())
+                },
+            )
+            .await
+            .expect("remove");
+        let mut stale: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(state.account_state_path(account)).unwrap())
+                .unwrap();
+        stale["mainnet"]["watchlistEntries"] = serde_json::json!([named]);
+        std::fs::write(
+            state.account_state_path(account),
+            serde_json::to_vec(&stale).unwrap(),
+        )
+        .unwrap();
+        let reload = StrongholdStore::new_for_tests(store.base_path.clone());
+        let entries = reload
+            .load_watchlist_entries(account, hash.as_ref(), &state, WalletNetwork::Mainnet, None)
+            .await
+            .expect("reload after stale plaintext");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            reload
+                .load_watchlist_entries(
+                    account,
+                    hash.as_ref(),
+                    &state,
+                    WalletNetwork::Testnet,
+                    None
+                )
+                .await
+                .expect("other network after mutation")[0]
+                .address,
+            "RTestPrivate"
+        );
+        assert!(!std::fs::read_to_string(state.account_state_path(account))
+            .unwrap()
+            .contains("RNamedPrivate"));
+        let _ = std::fs::remove_dir_all(store.base_path);
+    }
+
+    #[tokio::test]
+    async fn watchlist_wrong_key_corruption_and_missing_canonical_fail_closed() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let state = AccountStateStore::new(store.base_path.clone());
+        let account = "watchlist-failure";
+        let hash = StrongholdStore::derive_legacy_password_hash("correct-key");
+        store
+            .update_watchlist(
+                account,
+                hash.as_ref(),
+                &state,
+                WalletNetwork::Mainnet,
+                None,
+                |entries| {
+                    entries.push(WatchlistEntry {
+                        id: "one".into(),
+                        target_kind: WatchlistTargetKind::Address,
+                        display_name: "Secret name".into(),
+                        address: "RSecret".into(),
+                        system_id: None,
+                        created_at: 1,
+                        updated_at: 1,
+                    });
+                    Ok(())
+                },
+            )
+            .await
+            .expect("save encrypted entry");
+        let path = store.watchlist_snapshot_path(account);
+        let before = std::fs::read(&path).unwrap();
+        let wrong = StrongholdStore::derive_legacy_password_hash("wrong-key");
+        assert!(store
+            .load_watchlist_entries(
+                account,
+                wrong.as_ref(),
+                &state,
+                WalletNetwork::Mainnet,
+                None
+            )
+            .await
+            .is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::write(&path, b"corrupt").unwrap();
+        assert!(store
+            .load_watchlist_entries(account, hash.as_ref(), &state, WalletNetwork::Mainnet, None)
+            .await
+            .is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"corrupt");
+        std::fs::remove_file(&path).unwrap();
+        assert!(store
+            .load_watchlist_entries(account, hash.as_ref(), &state, WalletNetwork::Mainnet, None)
+            .await
+            .is_err());
+        let _ = std::fs::remove_dir_all(store.base_path);
+    }
+
+    #[tokio::test]
+    async fn watchlist_conflicting_legacy_rows_preserve_source_and_fail_migration() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let state = AccountStateStore::new(store.base_path.clone());
+        let account = "watchlist-conflict";
+        let hash = StrongholdStore::derive_legacy_password_hash("conflict-key");
+        let entry = |id: &str, name: &str| WatchlistEntry {
+            id: id.into(),
+            target_kind: WatchlistTargetKind::Address,
+            display_name: name.into(),
+            address: "RConflicting".into(),
+            system_id: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        state
+            .store_watchlist_entries(
+                account,
+                WalletNetwork::Mainnet,
+                &[entry("one", "First"), entry("two", "Second")],
+            )
+            .expect("write conflicting legacy rows");
+        let before = std::fs::read(state.account_state_path(account)).unwrap();
+        assert!(store
+            .load_watchlist_entries(account, hash.as_ref(), &state, WalletNetwork::Mainnet, None)
+            .await
+            .is_err());
+        assert_eq!(
+            std::fs::read(state.account_state_path(account)).unwrap(),
+            before
+        );
+        assert!(!store.watchlist_snapshot_path(account).exists());
+        let _ = std::fs::remove_dir_all(store.base_path);
     }
 
     fn test_account(
@@ -1990,6 +2674,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ensure_account_password_hash_resumes_after_seed_promotion() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store = temp_store();
+        let wallet_data_dir =
+            std::env::temp_dir().join(format!("lite_wallet_kdf_resume_{}", uuid::Uuid::new_v4()));
+        let wallet_manager = WalletManager::new(wallet_data_dir.clone());
+        let account_state_store = AccountStateStore::new(wallet_data_dir.clone());
+        let account_id = "legacy-resume";
+        let account = test_account(
+            account_id,
+            LEGACY_KEY_DERIVATION_VERSION,
+            WalletNetwork::Mainnet,
+        );
+        write_account_metadata(&wallet_manager, "resume-wallet", &account);
+        let legacy_hash = StrongholdStore::derive_legacy_password_hash("resume-password");
+        store
+            .store_seed(account_id, "legacy seed", legacy_hash.as_ref())
+            .await
+            .unwrap();
+        account_state_store
+            .store_watched_vrpc_addresses(
+                account_id,
+                WalletNetwork::Mainnet,
+                &["RResumePrivate".into()],
+            )
+            .unwrap();
+        store
+            .store_watched_vrpc_addresses(
+                account_id,
+                legacy_hash.as_ref(),
+                WalletNetwork::Testnet,
+                &["RTestResume".into()],
+            )
+            .await
+            .unwrap();
+        let bundle = store
+            .read_legacy_migration_bundle(account_id, legacy_hash.as_ref(), &account_state_store)
+            .await
+            .unwrap();
+        let current_hash = store
+            .derive_current_password_hash_async("resume-password", true)
+            .await
+            .unwrap();
+        store
+            .write_migrated_secret_snapshots(account_id, current_hash.as_ref(), &bundle)
+            .unwrap();
+        store
+            .migrate_legacy_account_state(account_id, &account_state_store, &bundle)
+            .unwrap();
+        StrongholdStore::promote_temp_snapshot(
+            &store.account_snapshot_path(account_id),
+            &store.seed_temp_snapshot_path(account_id),
+        )
+        .unwrap();
+
+        let restarted_store = StrongholdStore::new_for_tests(store.base_path.clone());
+        let staged_watchlist_path =
+            StrongholdStore::temp_snapshot_path(&store.watchlist_snapshot_path(account_id));
+        let staged_watchlist = std::fs::read(&staged_watchlist_path).unwrap();
+        std::fs::remove_file(&staged_watchlist_path).unwrap();
+        assert!(restarted_store
+            .ensure_account_password_hash(
+                &account,
+                "resume-password",
+                &wallet_manager,
+                &account_state_store,
+            )
+            .await
+            .is_err());
+        assert!(
+            std::fs::read_to_string(account_state_store.account_state_path(account_id))
+                .unwrap()
+                .contains("RResumePrivate")
+        );
+        std::fs::write(&staged_watchlist_path, staged_watchlist).unwrap();
+        let resumed = restarted_store
+            .ensure_account_password_hash(
+                &account,
+                "resume-password",
+                &wallet_manager,
+                &account_state_store,
+            )
+            .await
+            .expect("resume migration");
+        assert_eq!(resumed.as_slice(), current_hash.as_slice());
+        assert_eq!(
+            restarted_store
+                .load_watchlist_entries(
+                    account_id,
+                    resumed.as_ref(),
+                    &account_state_store,
+                    WalletNetwork::Mainnet,
+                    None
+                )
+                .await
+                .unwrap()[0]
+                .address,
+            "RResumePrivate"
+        );
+        assert_eq!(
+            restarted_store
+                .load_watchlist_entries(
+                    account_id,
+                    resumed.as_ref(),
+                    &account_state_store,
+                    WalletNetwork::Testnet,
+                    None
+                )
+                .await
+                .unwrap()[0]
+                .address,
+            "RTestResume"
+        );
+        assert!(
+            !std::fs::read_to_string(account_state_store.account_state_path(account_id))
+                .unwrap()
+                .contains("RResumePrivate")
+        );
+        assert_eq!(
+            wallet_manager
+                .get_account_record_by_account_id(account_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .key_derivation_version,
+            CURRENT_KEY_DERIVATION_VERSION
+        );
+        let _ = std::fs::remove_dir_all(store.base_path);
+        let _ = std::fs::remove_dir_all(wallet_data_dir);
+    }
+
+    #[tokio::test]
     async fn ensure_account_password_hash_migrates_legacy_records_and_state() {
         let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
 
@@ -2129,10 +2945,22 @@ mod tests {
             .expect("load migrated dlight");
         assert_eq!(dlight.as_deref(), Some("dlight-mainnet"));
 
-        let watched = account_state_store
-            .load_watched_vrpc_addresses(account_id, WalletNetwork::Mainnet)
-            .expect("load watched state");
-        assert_eq!(watched, vec!["RMain".to_string()]);
+        let watched = store
+            .load_watchlist_entries(
+                account_id,
+                current_hash.as_ref(),
+                &account_state_store,
+                WalletNetwork::Mainnet,
+                None,
+            )
+            .await
+            .expect("load encrypted watchlist");
+        assert_eq!(watched[0].address, "RMain");
+        assert!(
+            !std::fs::read_to_string(account_state_store.account_state_path(account_id))
+                .unwrap()
+                .contains("RMain")
+        );
         let active_assets = account_state_store
             .load_active_assets(account_id, WalletNetwork::Mainnet)
             .expect("load active assets state");

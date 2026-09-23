@@ -16,6 +16,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::core::address_book::manager as address_book_manager;
+use crate::core::auth::session::ActiveWalletAccessContext;
 use crate::core::auth::{
     capture_active_wallet_access_context, clear_wallet_session_if_current,
     ensure_active_wallet_session, load_primary_secret_material_for_context,
@@ -46,7 +47,7 @@ use crate::types::{
     DlightRuntimeStatusResult, DlightSeedStatusResult, GenerateMnemonicRequest,
     ImportWalletTextRequest, LinkedIdentity, MnemonicResult, RecoverySecretKind,
     SetupDlightSeedRequest, SetupDlightSeedResult, WalletError, WalletListItem,
-    WalletRecoverySecretsResult, WalletSecretKind,
+    WalletRecoverySecretsResult, WalletSecretKind, WatchlistEntry, WatchlistTargetKind,
 };
 
 #[derive(Debug, Default, Deserialize)]
@@ -77,7 +78,6 @@ struct VrpcScopeAddress {
 struct ActiveWalletState {
     account_id: String,
     network: WalletNetwork,
-    addresses: (String, String, String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,12 +165,9 @@ async fn capture_active_wallet_state(
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let addresses = session.get_addresses()?;
-
     Ok(ActiveWalletState {
         account_id,
         network,
-        addresses,
     })
 }
 
@@ -289,6 +286,52 @@ fn coin_expands_vrpc_system_scope(coin: &CoinDefinition) -> bool {
 fn normalize_watched_vrpc_address(address: &str, network: WalletNetwork) -> Option<String> {
     address_book_manager::normalize_destination_address(AddressEndpointKind::Vrpc, address, network)
         .ok()
+}
+
+fn reconcile_watched_entries(
+    entries: &mut Vec<WatchlistEntry>,
+    addresses: Vec<String>,
+    timestamp: u64,
+) {
+    let mut previous = std::mem::take(entries);
+    for address in addresses {
+        if let Some(index) = previous.iter().position(|entry| entry.address == address) {
+            entries.push(previous.remove(index));
+        } else {
+            entries.push(WatchlistEntry {
+                id: Uuid::new_v4().to_string(),
+                target_kind: if address.starts_with('i') {
+                    WatchlistTargetKind::Identity
+                } else {
+                    WatchlistTargetKind::Address
+                },
+                display_name: address.clone(),
+                address,
+                system_id: None,
+                created_at: timestamp,
+                updated_at: timestamp,
+            });
+        }
+    }
+}
+
+async fn load_watched_scope_addresses(
+    context: &ActiveWalletAccessContext,
+    account_state_store: &AccountStateStore,
+) -> Result<Vec<String>, WalletError> {
+    Ok(context
+        .stronghold_store
+        .load_watchlist_entries(
+            &context.account_id,
+            context.password_hash(),
+            account_state_store,
+            context.wallet_network,
+            Some(context.session_submission_guard()),
+        )
+        .await?
+        .into_iter()
+        .map(|entry| entry.address)
+        .collect())
 }
 
 fn dedupe_preserve_order(values: Vec<String>) -> Vec<String> {
@@ -1267,14 +1310,13 @@ pub async fn get_watched_vrpc_addresses(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<String>, WalletError> {
-    let state = capture_active_wallet_state(session_manager.inner()).await?;
-
-    let addresses =
-        account_state_store.load_watched_vrpc_addresses(&state.account_id, state.network)?;
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let addresses = load_watched_scope_addresses(&context, account_state_store.inner()).await?;
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
     Ok(dedupe_preserve_order(
         addresses
             .into_iter()
-            .filter_map(|address| normalize_watched_vrpc_address(&address, state.network))
+            .filter_map(|address| normalize_watched_vrpc_address(&address, context.wallet_network))
             .collect(),
     ))
 }
@@ -1288,25 +1330,39 @@ pub async fn set_watched_vrpc_addresses(
 ) -> Result<Vec<String>, WalletError> {
     const MAX_WATCHED_ADDRESSES: usize = 100;
 
-    let state = capture_active_wallet_state(session_manager.inner()).await?;
-    let primary_vrpc_address = &state.addresses.0;
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let primary_vrpc_address = &context.vrsc_address;
 
     let mut sanitized = dedupe_preserve_order(
         addresses
             .iter()
-            .filter_map(|address| normalize_watched_vrpc_address(address, state.network))
+            .filter_map(|address| normalize_watched_vrpc_address(address, context.wallet_network))
             .filter(|address| !address.eq_ignore_ascii_case(primary_vrpc_address))
             .collect(),
     );
     sanitized.truncate(MAX_WATCHED_ADDRESSES);
 
-    account_state_store.store_watched_vrpc_addresses(
-        &state.account_id,
-        state.network,
-        &sanitized,
-    )?;
+    let result = sanitized.clone();
+    context
+        .stronghold_store
+        .update_watchlist(
+            &context.account_id,
+            context.password_hash(),
+            account_state_store.inner(),
+            context.wallet_network,
+            Some(context.session_submission_guard()),
+            move |entries| {
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                reconcile_watched_entries(entries, sanitized, timestamp);
+                Ok(())
+            },
+        )
+        .await?;
 
-    Ok(sanitized)
+    Ok(result)
 }
 
 /// Return active asset IDs for the active wallet/network.
@@ -1488,7 +1544,7 @@ pub async fn discover_vrpc_assets(
     let network = context.wallet_network;
     coin_registry.set_active_account(Some(account_id.clone()));
 
-    let watched = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
+    let watched = load_watched_scope_addresses(&context, account_state_store.inner()).await?;
     let linked_identities_result = context.load_linked_identities_cached().await;
     let scope_metadata_complete = linked_identities_result.is_ok();
     let linked_identities = linked_identities_result.unwrap_or_default();
@@ -1926,7 +1982,6 @@ pub async fn get_coin_scopes(
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<CoinScopesResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let account_id = context.account_id.clone();
     let network = context.wallet_network;
     let addresses = (
         context.vrsc_address.clone(),
@@ -1941,7 +1996,7 @@ pub async fn get_coin_scopes(
         .ok_or(WalletError::UnsupportedChannel)?;
 
     if coin_supports_channel(&coin, Channel::Vrpc) {
-        let watched = account_state_store.load_watched_vrpc_addresses(&account_id, network)?;
+        let watched = load_watched_scope_addresses(&context, account_state_store.inner()).await?;
         let linked_identities = context
             .load_linked_identities_cached()
             .await
@@ -2065,24 +2120,29 @@ mod tests {
         canonical_non_vrpc_network_metadata, channel_id_for_non_vrpc_coin,
         collect_vrpc_scope_addresses, collect_vrpc_system_descriptors, dedupe_preserve_order,
         dlight_recovery_secret_kind_from_seed, ensure_expected_session_id,
-        format_discovered_amount, merge_discovered_vrpc_amounts, persist_new_account,
+        format_discovered_amount, load_watched_scope_addresses, merge_discovered_vrpc_amounts,
+        persist_new_account, reconcile_watched_entries,
         recovery_secret_kind_from_wallet_secret_kind, sanitize_active_coin_ids,
         vrpc_balance_entries, DiscoveredVrpcAmount, NewAccountPersistenceRequest,
     };
     use crate::core::auth::kdf::CURRENT_KEY_DERIVATION_VERSION;
-    use crate::core::auth::{stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager};
+    use crate::core::auth::{
+        capture_active_wallet_access_context, stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION,
+        SessionManager,
+    };
     use crate::core::channels::vrpc::ConfiguredVrpcSystem;
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
-    use crate::core::crypto::{derive_keys_v1, Network};
+    use crate::core::crypto::{derive_keys_v1, derive_public_profile_from_material, Network};
     use crate::core::runtime_config;
     use crate::core::wallet::{AccountStateStore, WalletManager};
     use crate::core::StrongholdStore;
     use crate::types::wallet::{DlightRecoverySecretKind, RecoverySecretKind, WalletNetwork};
-    use crate::types::LinkedIdentity;
     use crate::types::WalletSecretKind;
+    use crate::types::{LinkedIdentity, WatchlistEntry, WatchlistTargetKind};
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use uuid::Uuid;
+    use zeroize::Zeroizing;
 
     const VRSC_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
     const VETH_SYSTEM_ID: &str = "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X";
@@ -2241,6 +2301,90 @@ mod tests {
                 "RGamma".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn watched_address_replacement_keeps_retained_watchlist_metadata() {
+        let named = WatchlistEntry {
+            id: "saved-id".into(),
+            target_kind: WatchlistTargetKind::Address,
+            display_name: "Private alias".into(),
+            address: "RRetained".into(),
+            system_id: Some("iSystem".into()),
+            created_at: 10,
+            updated_at: 11,
+        };
+        let mut entries = vec![
+            named.clone(),
+            WatchlistEntry {
+                id: "removed".into(),
+                target_kind: WatchlistTargetKind::Address,
+                display_name: "Removed".into(),
+                address: "RRemoved".into(),
+                system_id: None,
+                created_at: 1,
+                updated_at: 1,
+            },
+        ];
+        reconcile_watched_entries(&mut entries, vec!["RRetained".into(), "RNew".into()], 20);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], named);
+        assert_eq!(entries[1].address, "RNew");
+        assert_eq!(entries[1].display_name, "RNew");
+    }
+
+    #[tokio::test]
+    async fn watched_scope_loader_uses_encrypted_entries_and_propagates_storage_failure() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+        let store_path =
+            std::env::temp_dir().join(format!("lite_wallet_scope_watchlist_{}", Uuid::new_v4()));
+        let state = AccountStateStore::new(store_path.clone());
+        state
+            .store_watchlist_entries(
+                "scope-account",
+                WalletNetwork::Mainnet,
+                &[WatchlistEntry {
+                    id: "watched".into(),
+                    target_kind: WatchlistTargetKind::Address,
+                    display_name: "Local name".into(),
+                    address: "RReadOnly".into(),
+                    system_id: None,
+                    created_at: 1,
+                    updated_at: 1,
+                }],
+            )
+            .expect("legacy entry");
+        let session = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(store_path.clone()),
+        )));
+        let profile = derive_public_profile_from_material(
+            "scope wallet",
+            WalletSecretKind::SeedText,
+            Network::Mainnet,
+        )
+        .unwrap();
+        session.lock().await.unlock_with_profile(
+            "scope-account".into(),
+            WalletNetwork::Mainnet,
+            WalletSecretKind::SeedText,
+            profile,
+            Zeroizing::new(vec![7u8; 32]),
+        );
+        let context = capture_active_wallet_access_context(&session)
+            .await
+            .unwrap();
+        assert_eq!(
+            load_watched_scope_addresses(&context, &state)
+                .await
+                .unwrap(),
+            vec!["RReadOnly".to_string()]
+        );
+        let encrypted = store_path.join("accounts/scope-account/watchlist.snapshot.stronghold");
+        std::fs::write(&encrypted, b"corrupt").unwrap();
+        assert!(load_watched_scope_addresses(&context, &state)
+            .await
+            .is_err());
+        let _ = std::fs::remove_dir_all(store_path);
     }
 
     #[test]
