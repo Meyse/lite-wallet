@@ -900,6 +900,7 @@ export interface ProfilePublicationState {
   totalSteps: 1 | 2;
   request: IdentityProfilePreflightRequest;
   pending: PendingIdentityProfileUpdate | null;
+  completedReceipt?: PendingIdentityProfileUpdate | null;
   settledTxids: string[];
   firstReceipt?: PendingIdentityProfileUpdate | null;
 }

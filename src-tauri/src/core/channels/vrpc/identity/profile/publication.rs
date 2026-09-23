@@ -125,9 +125,23 @@ fn public_state(plan: &PublicationPlan) -> ProfilePublicationState {
         total_steps: plan.total_steps,
         request: remaining_request(plan),
         pending: plan.pending.clone(),
+        completed_receipt: None,
         settled_txids: plan.settled_txids.clone(),
         first_receipt: plan.first_receipt.clone(),
     }
+}
+
+fn reconciled_public_state(
+    plan: &PublicationPlan,
+    receipt_before_reconcile: Option<PendingIdentityProfileUpdate>,
+) -> ProfilePublicationState {
+    let mut state = public_state(plan);
+    if plan.status == ProfilePublicationStatus::Complete {
+        // The plan is removed after this response. Preserve its verified receipt
+        // so an ambiguous send can still be matched to canonical readback.
+        state.completed_receipt = receipt_before_reconcile;
+    }
+    state
 }
 
 struct QuotedPlan {
@@ -531,6 +545,7 @@ pub(crate) async fn reconcile(
     } else {
         None
     };
+    let receipt_before_reconcile = plan.pending.clone();
     reconcile_observation(
         &mut plan,
         &profile,
@@ -540,7 +555,7 @@ pub(crate) async fn reconcile(
             height,
         },
     )?;
-    let state = public_state(&plan);
+    let state = reconciled_public_state(&plan, receipt_before_reconcile);
     update(access, move |snapshot| {
         let index = snapshot
             .plans
@@ -784,6 +799,20 @@ mod tests {
             state.request.description,
             IdentityProfileDescriptionChange::Keep
         );
+    }
+
+    #[test]
+    fn completed_reconciliation_exposes_the_exact_receipt_once() {
+        let mut plan = plan();
+        plan.status = ProfilePublicationStatus::Complete;
+        plan.pending = None;
+        let state = reconciled_public_state(&plan, Some(pending()));
+        assert_eq!(state.completed_receipt, Some(pending()));
+        assert!(state.pending.is_none());
+        plan.status = ProfilePublicationStatus::Ready;
+        assert!(reconciled_public_state(&plan, Some(pending()))
+            .completed_receipt
+            .is_none());
     }
 
     #[test]

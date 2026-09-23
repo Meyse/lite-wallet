@@ -343,6 +343,7 @@ pub struct ProfilePublicationState {
     pub total_steps: u8,
     pub request: IdentityProfilePreflightRequest,
     pub pending: Option<PendingIdentityProfileUpdate>,
+    pub completed_receipt: Option<PendingIdentityProfileUpdate>,
     pub settled_txids: Vec<String>,
     pub first_receipt: Option<PendingIdentityProfileUpdate>,
 }

@@ -71,6 +71,34 @@ function harness() {
   return { io, owner: new ProfilePublicationController('identity', io) };
 }
 describe('receipt-bound publication owner', () => {
+  it('keeps an ambiguous submission closed when the old ready plan is still returned', async () => {
+    const { io, owner } = harness();
+    owner.reviewed(prepared(), request);
+    expect(owner.beginSubmission()).toBe(true);
+    io.read.mockResolvedValue(plan());
+    owner.submissionFailed();
+    await owner.refresh();
+    expect(get(owner).uncertain).toBe(true);
+    expect(get(owner).plan?.status).toBe('ready');
+    expect(owner.beginSubmission()).toBe(false);
+    expect(io.submitted).not.toHaveBeenCalled();
+  });
+  it('recovers an uncertain send that completed before the first confirmation check', async () => {
+    const { io, owner } = harness();
+    owner.reviewed(prepared(), request);
+    expect(owner.beginSubmission()).toBe(true);
+    io.read.mockResolvedValue({
+      ...plan(),
+      status: 'complete',
+      completedReceipt: receipt,
+      settledTxids: [receipt.txid],
+    });
+    owner.submissionFailed();
+    await owner.refresh();
+    expect(get(owner).completed).toBe(true);
+    expect(io.confirmed).toHaveBeenCalledExactlyOnceWith(receipt, canonical, true);
+    expect(io.submitted).not.toHaveBeenCalled();
+  });
   it.each([
     [1, 1],
     [1, 2],

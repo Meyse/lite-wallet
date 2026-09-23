@@ -1261,6 +1261,7 @@ export const en: Record<string, string> = {
     'Profile data could not be verified. Core identity details remain available.',
   'wallet.identity.profile.pendingShort': 'Update submitted · awaiting confirmation',
   'wallet.identity.profile.pending.title': 'Profile update submitted',
+  'wallet.identity.profile.pending.descriptionSubmitted': 'Description update submitted',
   'wallet.identity.profile.pending.description':
     'The previous confirmed profile remains visible until this transaction is confirmed.',
   'wallet.identity.profile.pending.removalTitle': 'Profile removal pending',
@@ -1271,6 +1272,7 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.pending.status': 'Status',
   'wallet.identity.profile.pending.notConfirmed': 'Not confirmed',
   'wallet.identity.profile.pending.transaction': 'Transaction ID',
+  'wallet.identity.profile.pending.copyTransaction': 'Copy transaction ID',
   'wallet.identity.profile.confirmed.title': 'Profile updated',
   'wallet.identity.profile.confirmed.description': 'The published profile is confirmed on-chain.',
   'wallet.identity.profile.confirmed.removalToast':
@@ -1285,6 +1287,50 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.readOnly.tokenized_control':
     'Token-controlled VerusIDs cannot publish profiles from this wallet yet.',
   'wallet.identity.profile.ux.publishing': 'Publishing profile',
+  'wallet.identity.profile.ux.reviewChange': 'Review change',
+  'wallet.identity.profile.ux.reviewRemoval': 'Review removal',
+  'wallet.identity.profile.ux.reviewHeaderUpdate': 'Review header update',
+  'wallet.identity.profile.ux.profileUpdate': 'Profile update',
+  'wallet.identity.profile.ux.removalContext': '{fields} removal',
+  'wallet.identity.profile.ux.descriptionWillBeRemoved': 'Description will be removed',
+  'wallet.identity.profile.ux.fieldsWillBeRemoved': '{fields} will be removed',
+  'wallet.identity.profile.ux.oneFieldWillBeRemoved': '{fields} will be removed',
+  'wallet.identity.profile.ux.otherFieldsStay': '{fields} will stay as they are.',
+  'wallet.identity.profile.ux.oneFieldStays': '{fields} will stay as it is.',
+  'wallet.identity.profile.ux.noProfileContent':
+    'This VerusID will have no public profile content.',
+  'wallet.identity.profile.ux.fieldsPublished': '{fields} published',
+  'wallet.identity.profile.ux.firstSubmittedHelp':
+    'Waiting for confirmation. You can review the next update from your profile afterward.',
+  'wallet.identity.profile.ux.newHeader': 'New header image',
+  'wallet.identity.profile.ux.oneUpdateHeading': 'One update',
+  'wallet.identity.profile.ux.separateApproval': 'You’ll approve each fee separately.',
+  'wallet.identity.profile.ux.together': '{fields} together',
+  'wallet.identity.profile.ux.mixedTogether': 'Remove {removed} and change {changed} together',
+  'wallet.identity.profile.ux.removeDescription': 'Remove description',
+  'wallet.identity.profile.ux.removeProfileContent': 'Remove profile content',
+  'wallet.identity.profile.ux.removeSelected': 'Remove selected content',
+  'wallet.identity.profile.ux.removeFields': 'Remove {fields}',
+  'wallet.identity.profile.ux.publishAll': 'Publish all changes',
+  'wallet.identity.profile.ux.publishSelected': 'Publish selected changes',
+  'wallet.identity.profile.ux.descriptionUpdate': 'Description update',
+  'wallet.identity.profile.ux.current': 'Current',
+  'wallet.identity.profile.ux.newDescription': 'New description',
+  'wallet.identity.profile.ux.descriptionRemoval': 'Remove description',
+  'wallet.identity.profile.ux.publishDescription': 'Publish description',
+  'wallet.identity.profile.ux.publishRemoval': 'Publish removal',
+  'wallet.identity.profile.ux.transactionSubmitted': 'Transaction submitted',
+  'wallet.identity.profile.ux.notSent': 'Update wasn’t sent',
+  'wallet.identity.profile.ux.reviewAgain': 'Review fee again',
+  'wallet.identity.profile.ux.submissionUncertain': 'Submission not yet verified',
+  'wallet.identity.profile.ux.submittedDescription': 'Submitted description',
+  'wallet.identity.profile.ux.submittedHeader': 'Submitted header image',
+  'wallet.identity.profile.ux.submittedHelp':
+    'Waiting for confirmation. Your profile will update automatically.',
+  'wallet.identity.profile.ux.uncertainHelp':
+    'Your update may have been sent. We’ll check automatically and update your profile.',
+  'wallet.identity.profile.ux.connectionRetry':
+    'Connection interrupted. We’ll keep checking automatically.',
   'wallet.identity.profile.ux.crop': 'Adjust image',
   'wallet.identity.profile.ux.discardTitle': 'Discard unpublished changes?',
   'wallet.identity.profile.ux.addAvatar': 'Add avatar',
@@ -1322,6 +1368,8 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.ux.transactionDetails': 'Transaction details',
   'wallet.identity.profile.ux.previousTransaction': 'Update 1 · Confirmed transaction',
   'wallet.identity.profile.ux.planActions': 'Publication actions',
+  'wallet.identity.profile.ux.discardHeader': 'Discard unpublished header',
+  'wallet.identity.profile.ux.discardHeaderFailed': 'Couldn’t discard the header. Try again.',
   'wallet.identity.profile.ux.feeDetails': 'Fee details',
   'wallet.identity.profile.ux.quoteHeight': 'Quote at block {height}',
   'wallet.identity.profile.ux.status.publishing': 'Publishing',
@@ -1353,9 +1401,8 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.sequence.keepLater': 'Keep for later',
   'wallet.identity.profile.sequence.continue': 'Continue profile update',
   'wallet.identity.profile.sequence.reviewNext': 'Review fee',
-  'wallet.identity.profile.sequence.refresh': 'Check confirmation',
   'wallet.identity.profile.sequence.waiting': 'Waiting for confirmation',
-  'wallet.identity.profile.sequence.ready': 'Header ready to publish',
+  'wallet.identity.profile.sequence.ready': 'Header image ready to publish',
   'wallet.identity.profile.sequence.saved': 'Profile changes ready for review',
   'wallet.identity.profile.sequence.stale':
     'The profile changed or the transaction expired. Review your retained changes again.',
@@ -1423,8 +1470,6 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.draft.network': 'Network',
   'wallet.identity.profile.draft.fee': 'Transaction fee',
   'wallet.identity.profile.draft.rateUnavailable': 'Fiat estimate unavailable',
-  'wallet.identity.profile.draft.publicDisclosure':
-    'These changes are public. Earlier versions remain on-chain.',
   'wallet.identity.profile.draft.publish': 'Publish profile',
   'wallet.identity.profile.draft.expired': 'Review expired. Review the fee again.',
   'wallet.identity.profile.draft.submittedTitle': 'Update submitted',
@@ -1452,8 +1497,6 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.editor.descriptionPlaceholder': 'Add a short public description',
   'wallet.identity.profile.editor.descriptionSizeHelp':
     'Use fewer emoji or complex characters to stay within the 1 KB on-chain limit.',
-  'wallet.identity.profile.editor.publicDisclosure':
-    'Profile changes are public and require a blockchain transaction.',
   'wallet.identity.profile.editor.review': 'Review publication',
   'wallet.identity.profile.editor.preparingReview': 'Preparing review…',
   'wallet.identity.profile.editor.preview': 'Profile preview',
@@ -1474,10 +1517,6 @@ export const en: Record<string, string> = {
   'wallet.identity.profile.review.funding': 'Funding address',
   'wallet.identity.profile.review.confirmationDisclosure':
     'Publishing submits a transaction. The profile changes are not confirmed until the network includes it in a block.',
-  'wallet.identity.profile.review.confirmationDisclosureWithHistory':
-    'Publishing submits a transaction. The profile changes are not confirmed until the network includes it in a block. Removed data remains public in blockchain history.',
-  'wallet.identity.profile.review.removalDisclosure':
-    'Publishing this removal submits a new blockchain transaction. After it confirms, apps will stop showing this profile data. The VerusID remains active, and earlier versions remain public in blockchain history.',
   'wallet.identity.profile.review.publish': 'Publish profile',
   'wallet.identity.profile.review.publishRemoval': 'Publish removal',
   'wallet.identity.profile.publishing.title': 'Preparing, signing, and submitting…',

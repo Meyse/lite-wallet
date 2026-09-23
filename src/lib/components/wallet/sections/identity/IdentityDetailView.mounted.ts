@@ -82,19 +82,17 @@ describe('identity profile pending notice', () => {
       try {
         flushSync();
         expect(target.textContent).toContain('Profile removal pending');
-        expect(target.textContent).toContain(
-          'Your current profile remains visible until this transaction is confirmed.'
-        );
         expect(target.textContent).toContain('Current public description');
         expect(target.textContent).not.toContain('Profile updated');
 
-        const viewChanges = [...target.querySelectorAll('button')].find((button) =>
-          button.textContent?.includes('View submitted changes')
-        );
-        viewChanges?.click();
-        flushSync();
-        expect(target.textContent).toContain('Not confirmed');
+        expect(target.textContent).toContain('Transaction ID');
         expect(target.textContent).toContain(TXID);
+        const copy = target.querySelector<HTMLButtonElement>(
+          '[data-slot="copy-button"][aria-label="Copy transaction ID"]'
+        );
+        expect(copy?.getAttribute('aria-label')).toBe('Copy transaction ID');
+        expect(copy?.querySelector('svg')).not.toBeNull();
+        expect(copy?.textContent?.trim()).toBe('');
       } finally {
         await unmount(component);
         target.remove();

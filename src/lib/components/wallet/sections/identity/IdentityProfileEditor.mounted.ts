@@ -237,11 +237,12 @@ describe('visual profile draft and explicit approvals', () => {
             description: { action: 'set', value: 'A new introduction' },
           })
         );
-        expect(h.target.querySelector('[data-profile-preview]')?.textContent).toContain(
-          'A new introduction'
-        );
+        expect(h.target.textContent).toContain('New description');
+        expect(h.target.textContent).toContain('A new introduction');
         expect(h.target.querySelector('[aria-label="Fiat estimate unavailable"]')).toBeNull();
-        expect(h.target.textContent?.match(/These changes are public/g)).toHaveLength(1);
+        expect(h.target.textContent).not.toContain('Earlier versions remain on-chain');
+        expect(h.target.textContent).not.toContain('Available:');
+        expect(h.target.textContent).not.toContain('Quote at block');
         await click(h.target, 'Back to edit profile');
         expect(h.target.querySelector('textarea')?.value).toBe('A new introduction');
       } finally {
@@ -266,6 +267,74 @@ describe('visual profile draft and explicit approvals', () => {
       });
       await click(h.target, 'Review changes');
       await vi.waitFor(() => expect(h.target.textContent).toContain('Description will be removed'));
+      expect(h.target.textContent).toContain('Remove description');
+      expect(h.target.textContent).toContain('Published description');
+      expect(mocks.send).not.toHaveBeenCalled();
+    } finally {
+      await h.cleanup();
+    }
+  });
+  it('reviews two removals with the retained description and no submission', async () => {
+    const withImages: IdentityProfileLoadResult = {
+      ...published,
+      avatar: {
+        source,
+        value: { base64: 'AQ==', mimeType: 'image/webp', width: 256, height: 256, byteLength: 1 },
+      },
+      header: {
+        source,
+        value: { base64: 'Ag==', mimeType: 'image/webp', width: 960, height: 160, byteLength: 1 },
+      },
+    };
+    saveProfileDraft(session, details.identityAddress, {
+      ...emptyProfileDraft(),
+      avatar: { action: 'remove' },
+      header: { action: 'remove' },
+    });
+    mocks.preflight.mockResolvedValue({
+      ...result({ description: 'Published description' }, ['avatar', 'header']),
+      currentProfile: {
+        avatarBase64: 'AQ==',
+        headerBase64: 'Ag==',
+        description: 'Published description',
+      },
+    });
+    const h = await harness(withImages);
+    try {
+      await click(h.target, 'Review changes');
+      await vi.waitFor(() => expect(h.target.textContent).toContain('Review removal'));
+      expect(h.target.textContent).toContain('Avatar and header image will be removed');
+      expect(h.target.textContent).toContain('Description will stay as it is.');
+      expect(button(h.target, 'Remove avatar and header image')).toBeDefined();
+      expect(mocks.send).not.toHaveBeenCalled();
+    } finally {
+      await h.cleanup();
+    }
+  });
+  it('describes a mixed removal and change as one approval', async () => {
+    const withImages: IdentityProfileLoadResult = {
+      ...published,
+      avatar: {
+        source,
+        value: { base64: 'AQ==', mimeType: 'image/webp', width: 256, height: 256, byteLength: 1 },
+      },
+    };
+    saveProfileDraft(session, details.identityAddress, {
+      ...emptyProfileDraft(),
+      avatar: { action: 'remove' },
+      description: { action: 'set', value: 'New description' },
+    });
+    mocks.preflight.mockResolvedValue({
+      ...result({ description: 'New description' }, ['avatar', 'description']),
+      currentProfile: { avatarBase64: 'AQ==', description: 'Published description' },
+    });
+    const h = await harness(withImages);
+    try {
+      await click(h.target, 'Review changes');
+      await vi.waitFor(() => expect(h.target.textContent).toContain('One update'));
+      expect(h.target.textContent).toContain('Avatar will be removed');
+      expect(h.target.textContent).toContain('Remove avatar and change description together');
+      expect(button(h.target, 'Publish selected changes')).toBeDefined();
       expect(mocks.send).not.toHaveBeenCalled();
     } finally {
       await h.cleanup();
@@ -376,13 +445,19 @@ describe('visual profile draft and explicit approvals', () => {
         expect(h.target.querySelector('[data-publication-costs]')).not.toBeNull()
       );
       expect(h.target.querySelectorAll('img')).toHaveLength(2);
-      const publish = button(h.target, 'Publish profile');
+      const publish = button(h.target, 'Publish all changes');
       publish.click();
       publish.click();
       flushSync();
       expect(mocks.send).toHaveBeenCalledExactlyOnceWith({ preflightId: 'prepared-id' });
       finish({ txid: 'c'.repeat(64) });
-      await vi.waitFor(() => expect(h.target.textContent).toContain('Waiting for confirmation'));
+      await vi.waitFor(() => expect(h.target.textContent).toContain('Transaction submitted'));
+      const copy = h.target.querySelector<HTMLButtonElement>(
+        '[data-submitted-transaction] [data-slot="copy-button"]'
+      );
+      expect(copy?.getAttribute('aria-label')).toBe('Copy transaction ID');
+      expect(copy?.querySelector('svg')).not.toBeNull();
+      expect(copy?.textContent?.trim()).toBe('');
       expect(h.target.textContent).not.toContain('next update');
       expect(h.target.textContent).not.toContain('Saved for later');
       expect(loadProfileDraft(session, details.identityAddress)).toEqual(emptyProfileDraft());
@@ -399,12 +474,12 @@ describe('visual profile draft and explicit approvals', () => {
       await vi.waitFor(() =>
         expect(h.target.querySelector('[data-publication-costs]')).not.toBeNull()
       );
-      await click(h.target, 'Publish profile');
+      await click(h.target, 'Publish description');
       expect(h.target.textContent).toContain('Review expired. Review the fee again.');
       expect(mocks.send).not.toHaveBeenCalled();
       let finish!: (v: IdentityProfilePreflightResult) => void;
       mocks.resume.mockImplementation(() => new Promise((r) => (finish = r)));
-      await click(h.target, 'Review fee');
+      await click(h.target, 'Review fee again');
       setContactSession({ sessionId: 'other', network: 'testnet' });
       finish(result({ description: 'Wrong wallet' }));
       await tick();
@@ -430,11 +505,9 @@ describe('visual profile draft and explicit approvals', () => {
       await vi.waitFor(() => expect(h.target.textContent).toContain('Transaction fee'));
       expect(h.target.textContent).toContain('Update 2 of 2');
       expect(h.target.textContent).toContain('network fee changed');
-      await click(h.target, 'Back to publication');
-      expect(h.cancel).not.toHaveBeenCalled();
-      expect(h.target.textContent).toContain('Header image');
-      await click(h.target, 'Review header fee');
-      await vi.waitFor(() => expect(mocks.resume).toHaveBeenCalledTimes(2));
+      await click(h.target, 'Back to profile');
+      expect(h.cancel).toHaveBeenCalledOnce();
+      expect(mocks.resume).toHaveBeenCalledTimes(1);
       expect(mocks.send).not.toHaveBeenCalled();
     } finally {
       await h.cleanup();
@@ -497,12 +570,12 @@ describe('earlier one-update comparison and exact fees', () => {
     );
     return h;
   }
-  it('offers a beneficial comparison before costs, preserves original on failure and freshly reviews either choice', async () => {
+  it('offers a beneficial comparison after costs, preserves original on failure and freshly reviews either choice', async () => {
     const h = await ready();
     try {
       const option = required(h.target.querySelector('[data-one-update-option]'));
       const costs = required(h.target.querySelector('[data-publication-costs]'));
-      expect(option.compareDocumentPosition(costs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(costs.compareDocumentPosition(option) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(h.target.textContent).toContain('0.0323 VRSCTEST');
       expect(button(h.target, 'Publish avatar')).toBeDefined();
       await click(h.target, 'Compare images');

@@ -1285,6 +1285,7 @@ export const nl: Record<string, string> = {
     'Profielgegevens konden niet worden geverifieerd. De identiteitsgegevens blijven beschikbaar.',
   'wallet.identity.profile.pendingShort': 'Update verzonden · wacht op bevestiging',
   'wallet.identity.profile.pending.title': 'Profielupdate verzonden',
+  'wallet.identity.profile.pending.descriptionSubmitted': 'Beschrijving bijgewerkt en verzonden',
   'wallet.identity.profile.pending.description':
     'Het vorige bevestigde profiel blijft zichtbaar tot deze transactie is bevestigd.',
   'wallet.identity.profile.pending.removalTitle': 'Profielverwijdering in behandeling',
@@ -1295,6 +1296,7 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.pending.status': 'Status',
   'wallet.identity.profile.pending.notConfirmed': 'Niet bevestigd',
   'wallet.identity.profile.pending.transaction': 'Transactie-ID',
+  'wallet.identity.profile.pending.copyTransaction': 'Kopieer transactie-ID',
   'wallet.identity.profile.confirmed.title': 'Profiel bijgewerkt',
   'wallet.identity.profile.confirmed.description':
     'Het gepubliceerde profiel is on-chain bevestigd.',
@@ -1311,6 +1313,51 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.readOnly.tokenized_control':
     'VerusIDs met tokenbeheer kunnen nog geen profiel vanuit deze wallet publiceren.',
   'wallet.identity.profile.ux.publishing': 'Profiel publiceren',
+  'wallet.identity.profile.ux.reviewChange': 'Wijziging controleren',
+  'wallet.identity.profile.ux.reviewRemoval': 'Verwijdering controleren',
+  'wallet.identity.profile.ux.reviewHeaderUpdate': 'Headerupdate controleren',
+  'wallet.identity.profile.ux.profileUpdate': 'Profielupdate',
+  'wallet.identity.profile.ux.removalContext': '{fields} verwijderen',
+  'wallet.identity.profile.ux.descriptionWillBeRemoved': 'Beschrijving wordt verwijderd',
+  'wallet.identity.profile.ux.fieldsWillBeRemoved': '{fields} worden verwijderd',
+  'wallet.identity.profile.ux.oneFieldWillBeRemoved': '{fields} wordt verwijderd',
+  'wallet.identity.profile.ux.otherFieldsStay': '{fields} blijven ongewijzigd.',
+  'wallet.identity.profile.ux.oneFieldStays': '{fields} blijft ongewijzigd.',
+  'wallet.identity.profile.ux.noProfileContent':
+    'Deze VerusID heeft dan geen openbare profielinhoud.',
+  'wallet.identity.profile.ux.fieldsPublished': '{fields} gepubliceerd',
+  'wallet.identity.profile.ux.firstSubmittedHelp':
+    'We wachten op bevestiging. Daarna kun je de volgende update vanuit je profiel bekijken.',
+  'wallet.identity.profile.ux.newHeader': 'Nieuwe headerafbeelding',
+  'wallet.identity.profile.ux.oneUpdateHeading': 'Eén update',
+  'wallet.identity.profile.ux.separateApproval': 'Je keurt elke vergoeding afzonderlijk goed.',
+  'wallet.identity.profile.ux.together': '{fields} samen',
+  'wallet.identity.profile.ux.mixedTogether':
+    '{removed} verwijderen en {changed} wijzigen in één update',
+  'wallet.identity.profile.ux.removeDescription': 'Beschrijving verwijderen',
+  'wallet.identity.profile.ux.removeProfileContent': 'Profielinhoud verwijderen',
+  'wallet.identity.profile.ux.removeSelected': 'Geselecteerde inhoud verwijderen',
+  'wallet.identity.profile.ux.removeFields': '{fields} verwijderen',
+  'wallet.identity.profile.ux.publishAll': 'Alle wijzigingen publiceren',
+  'wallet.identity.profile.ux.publishSelected': 'Geselecteerde wijzigingen publiceren',
+  'wallet.identity.profile.ux.descriptionUpdate': 'Beschrijving bijwerken',
+  'wallet.identity.profile.ux.current': 'Huidig',
+  'wallet.identity.profile.ux.newDescription': 'Nieuwe beschrijving',
+  'wallet.identity.profile.ux.descriptionRemoval': 'Beschrijving verwijderen',
+  'wallet.identity.profile.ux.publishDescription': 'Beschrijving publiceren',
+  'wallet.identity.profile.ux.publishRemoval': 'Verwijdering publiceren',
+  'wallet.identity.profile.ux.transactionSubmitted': 'Transactie verzonden',
+  'wallet.identity.profile.ux.notSent': 'Update niet verzonden',
+  'wallet.identity.profile.ux.reviewAgain': 'Kosten opnieuw bekijken',
+  'wallet.identity.profile.ux.submissionUncertain': 'Verzending nog niet geverifieerd',
+  'wallet.identity.profile.ux.submittedDescription': 'Verzonden beschrijving',
+  'wallet.identity.profile.ux.submittedHeader': 'Verzonden omslagafbeelding',
+  'wallet.identity.profile.ux.submittedHelp':
+    'We wachten op bevestiging. Je profiel wordt daarna automatisch bijgewerkt.',
+  'wallet.identity.profile.ux.uncertainHelp':
+    'Je update is mogelijk verzonden. We controleren dit automatisch en werken je profiel bij.',
+  'wallet.identity.profile.ux.connectionRetry':
+    'Verbinding onderbroken. We blijven automatisch controleren.',
   'wallet.identity.profile.ux.crop': 'Afbeelding bijsnijden',
   'wallet.identity.profile.ux.discardTitle': 'Ongepubliceerde wijzigingen verwijderen?',
   'wallet.identity.profile.ux.addAvatar': 'Avatar toevoegen',
@@ -1349,6 +1396,9 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.ux.transactionDetails': 'Transactiegegevens',
   'wallet.identity.profile.ux.previousTransaction': 'Update 1 · Bevestigde transactie',
   'wallet.identity.profile.ux.planActions': 'Publicatieacties',
+  'wallet.identity.profile.ux.discardHeader': 'Ongepubliceerde omslag weggooien',
+  'wallet.identity.profile.ux.discardHeaderFailed':
+    'Omslag verwijderen mislukt. Probeer het opnieuw.',
   'wallet.identity.profile.ux.feeDetails': 'Kostendetails',
   'wallet.identity.profile.ux.quoteHeight': 'Kosten berekend bij blok {height}',
   'wallet.identity.profile.ux.status.publishing': 'Wordt gepubliceerd',
@@ -1381,9 +1431,8 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.sequence.keepLater': 'Bewaren voor later',
   'wallet.identity.profile.sequence.continue': 'Profielupdate voortzetten',
   'wallet.identity.profile.sequence.reviewNext': 'Kosten bekijken',
-  'wallet.identity.profile.sequence.refresh': 'Bevestiging controleren',
   'wallet.identity.profile.sequence.waiting': 'Wachten op bevestiging',
-  'wallet.identity.profile.sequence.ready': 'Omslag klaar om te publiceren',
+  'wallet.identity.profile.sequence.ready': 'Omslagafbeelding klaar om te publiceren',
   'wallet.identity.profile.sequence.saved': 'Profielwijzigingen klaar om te bekijken',
   'wallet.identity.profile.sequence.stale':
     'Het profiel is gewijzigd of de transactie is verlopen. Bekijk je bewaarde wijzigingen opnieuw.',
@@ -1455,8 +1504,6 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.draft.network': 'Netwerk',
   'wallet.identity.profile.draft.fee': 'Transactiekosten',
   'wallet.identity.profile.draft.rateUnavailable': 'Schatting in fiat niet beschikbaar',
-  'wallet.identity.profile.draft.publicDisclosure':
-    'Deze wijzigingen zijn openbaar. Eerdere versies blijven op de blockchain.',
   'wallet.identity.profile.draft.publish': 'Profiel publiceren',
   'wallet.identity.profile.draft.expired':
     'De kostencontrole is verlopen. Bekijk de kosten opnieuw.',
@@ -1486,8 +1533,6 @@ export const nl: Record<string, string> = {
     'Voeg een korte openbare beschrijving toe',
   'wallet.identity.profile.editor.descriptionSizeHelp':
     'Gebruik minder emoji of complexe tekens om binnen de on-chainlimiet van 1 KB te blijven.',
-  'wallet.identity.profile.editor.publicDisclosure':
-    'Profielwijzigingen zijn openbaar en vereisen een blockchaintransactie.',
   'wallet.identity.profile.editor.review': 'Publicatie controleren',
   'wallet.identity.profile.editor.preparingReview': 'Controle voorbereiden…',
   'wallet.identity.profile.editor.preview': 'Profielvoorbeeld',
@@ -1508,10 +1553,6 @@ export const nl: Record<string, string> = {
   'wallet.identity.profile.review.funding': 'Financieringsadres',
   'wallet.identity.profile.review.confirmationDisclosure':
     'Publiceren verzendt een transactie. De profielwijzigingen zijn pas bevestigd nadat het netwerk de transactie in een blok heeft opgenomen.',
-  'wallet.identity.profile.review.confirmationDisclosureWithHistory':
-    'Publiceren verzendt een transactie. De profielwijzigingen zijn pas bevestigd nadat het netwerk de transactie in een blok heeft opgenomen. Verwijderde gegevens blijven openbaar in de blockchainhistorie.',
-  'wallet.identity.profile.review.removalDisclosure':
-    'Als je deze verwijdering publiceert, dien je een nieuwe blockchaintransactie in. Nadat deze is bevestigd, tonen apps deze profielgegevens niet meer. De VerusID blijft actief en eerdere versies blijven openbaar in de blockchainhistorie.',
   'wallet.identity.profile.review.publish': 'Profiel publiceren',
   'wallet.identity.profile.review.publishRemoval': 'Verwijdering publiceren',
   'wallet.identity.profile.publishing.title': 'Voorbereiden, ondertekenen en verzenden…',

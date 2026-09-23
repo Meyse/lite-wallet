@@ -13,8 +13,14 @@ import type {
 
 export function installPublicationFixture(params: URLSearchParams, identityAddress: string) {
   const state = params.get('state') ?? 'edit';
-  const split = params.has('split') || state.includes('first') || state.includes('header');
+  const scenario = params.get('scenario');
+  const split =
+    params.has('split') ||
+    scenario === 'split' ||
+    state.includes('first') ||
+    state.includes('header');
   const second = state.includes('header');
+  let currentStep: 1 | 2 = second ? 2 : 1;
   const source = {
     systemId: 'fixture',
     txid: 'b'.repeat(64),
@@ -27,7 +33,8 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
     const canvas = document.createElement('canvas');
     canvas.width = header ? 960 : 256;
     canvas.height = header ? 160 : 256;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Synthetic canvas is unavailable');
     const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     gradient.addColorStop(0, header ? '#bfdce0' : '#24618a');
     gradient.addColorStop(1, header ? '#467984' : '#81c2c7');
@@ -69,7 +76,65 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
     headerMimeType: 'image/webp',
     description: original.description.action === 'set' ? original.description.value : '',
   };
-  const firstReceipt: PendingIdentityProfileUpdate = {
+  const existing = Boolean(scenario && scenario !== 'addition') || params.has('published');
+  const initialDraft = (() => {
+    const keep = { action: 'keep' as const };
+    const changedDescription = {
+      action: 'set' as const,
+      value: 'A simpler profile for our community. I share wallet updates and design notes.',
+    };
+    const changedAvatar = {
+      action: 'set' as const,
+      value: media(false, 0.5),
+      mimeType: 'image/webp',
+    };
+    const changedHeader = {
+      action: 'set' as const,
+      value: media(true, 0.5),
+      mimeType: 'image/webp',
+    };
+    switch (scenario) {
+      case 'addition':
+        return { ...emptyProfileDraft(), description: original.description };
+      case 'change':
+        return { ...emptyProfileDraft(), description: changedDescription };
+      case 'removal':
+        return { ...emptyProfileDraft(), description: { action: 'remove' as const } };
+      case 'two-removals':
+        return {
+          ...emptyProfileDraft(),
+          avatar: { action: 'remove' as const },
+          header: { action: 'remove' as const },
+        };
+      case 'three-removals':
+        return {
+          ...emptyProfileDraft(),
+          avatar: { action: 'remove' as const },
+          header: { action: 'remove' as const },
+          description: { action: 'remove' as const },
+        };
+      case 'two-changes':
+        return { ...emptyProfileDraft(), avatar: changedAvatar, description: changedDescription };
+      case 'three-changes':
+      case 'split':
+        return {
+          ...emptyProfileDraft(),
+          avatar: changedAvatar,
+          header: changedHeader,
+          description: changedDescription,
+          smallerHeader: original.smallerHeader,
+        };
+      case 'mixed':
+        return {
+          ...emptyProfileDraft(),
+          avatar: { action: 'remove' as const },
+          description: changedDescription,
+        };
+      default:
+        return { ...emptyProfileDraft(), ...original, header: keep };
+    }
+  })();
+  let firstReceipt: PendingIdentityProfileUpdate = {
     identityAddress,
     txid: 'd'.repeat(64),
     submittedAt: 1,
@@ -114,12 +179,16 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
     };
   }
   const initialProfile = loaded(
-    second ? firstReceipt.proposedProfile : params.has('published') ? full : {},
+    second ? firstReceipt.proposedProfile : existing ? full : {},
     source.txid
   );
   let request = second
-    ? { ...original, avatar: { action: 'keep' as const }, description: { action: 'keep' as const } }
-    : original;
+    ? {
+        ...initialDraft,
+        avatar: { action: 'keep' as const },
+        description: { action: 'keep' as const },
+      }
+    : initialDraft;
   let plan: ProfilePublicationState | null =
     state === 'edit'
       ? null
@@ -142,8 +211,8 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
       previousProfile: second ? firstReceipt.proposedProfile : {},
       proposedProfile: split && !second ? firstReceipt.proposedProfile : full,
     };
-  if (params.has('draft'))
-    saveProfileDraft(get(contactSession), identityAddress, { ...emptyProfileDraft(), ...original });
+  if (params.has('draft') || scenario)
+    saveProfileDraft(get(contactSession), identityAddress, initialDraft);
   if (params.has('removal'))
     saveProfileDraft(get(contactSession), identityAddress, {
       ...emptyProfileDraft(),
@@ -158,10 +227,11 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
     const fields = (['avatar', 'header', 'description'] as const).filter(
       (f) => (next[f]?.action ?? 'keep') !== 'keep'
     );
-    const proposed: IdentityProfileSnapshot = params.has('published')
-      ? { ...full }
-      : second
-        ? { ...firstReceipt.proposedProfile }
+    const reviewingSecond = currentStep === 2;
+    const proposed: IdentityProfileSnapshot = reviewingSecond
+      ? { ...firstReceipt.proposedProfile }
+      : existing
+        ? { ...full }
         : {};
     for (const f of fields) {
       const change = next[f];
@@ -175,29 +245,34 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
       }
     }
     const totalSteps = split && !selectedSmaller ? 2 : 1;
-    const fee = second ? '8642000' : split && !selectedSmaller ? '13305000' : '8522000';
-    const current = second ? firstReceipt.proposedProfile : params.has('published') ? full : {};
+    const fee = reviewingSecond ? '8642000' : split && !selectedSmaller ? '13305000' : '8522000';
+    const current = reviewingSecond ? firstReceipt.proposedProfile : existing ? full : {};
     const immediate =
-      totalSteps === 2 && !second
-        ? { ...proposed, headerBase64: undefined, headerMimeType: undefined }
+      totalSteps === 2 && !reviewingSecond
+        ? {
+            ...proposed,
+            headerBase64: current.headerBase64,
+            headerMimeType: current.headerMimeType,
+          }
         : proposed;
     review = {
       preflightId: 'synthetic-review',
       expiresAt: params.has('expired') ? 1 : Date.now() / 1000 + 300,
       currentProfile: current,
       proposedProfile: immediate,
-      changedFields: totalSteps === 2 && !second ? fields.filter((f) => f !== 'header') : fields,
+      changedFields:
+        totalSteps === 2 && !reviewingSecond ? fields.filter((f) => f !== 'header') : fields,
       feeSats: fee,
       feeDisplay: 'fixture display must not be used',
       fundingSummary: 'Synthetic fixture',
       evidenceBytes: 100,
       publication: {
         planId: 'fixture-plan',
-        step: second ? 2 : 1,
+        step: currentStep,
         totalSteps,
-        nextFeeSats: totalSteps === 2 && !second ? '8642000' : null,
+        nextFeeSats: totalSteps === 2 && !reviewingSecond ? '8642000' : null,
         estimatedTotalFeeSats: totalSteps === 2 ? '21947000' : fee,
-        earlierFeeSats: second ? (params.has('feeChanged') ? '8000000' : '8642000') : null,
+        earlierFeeSats: reviewingSecond ? (params.has('feeChanged') ? '8000000' : '8642000') : null,
         quoteHeight: 1234567,
         quoteTime: 1,
         availableSats: params.has('insufficient') ? '1' : '100000000',
@@ -205,7 +280,7 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
         changedFields: fields,
         evidenceGroups: [],
         optimization:
-          totalSteps === 2 && !second && !params.has('noAlternative')
+          totalSteps === 2 && !reviewingSecond && !params.has('noAlternative')
             ? {
                 field: 'header',
                 image: { action: 'set', value: smaller, mimeType: 'image/webp' },
@@ -222,17 +297,18 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
       planId: 'fixture-plan',
       identityAddress,
       status: 'ready',
-      step: second ? 2 : 1,
+      step: currentStep,
       totalSteps,
       request,
       pending: null,
-      firstReceipt: second ? firstReceipt : null,
-      settledTxids: second ? [firstReceipt.txid] : [],
+      firstReceipt: reviewingSecond ? firstReceipt : null,
+      settledTxids: reviewingSecond ? [firstReceipt.txid] : [],
     };
     return review;
   }
   let reads = 0;
-  const fallback = window.__PROFILE_FIXTURE_INVOKE__!;
+  const fallback = window.__PROFILE_FIXTURE_INVOKE__;
+  if (!fallback) throw new Error('Synthetic wallet command handler is unavailable');
   window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
     if (command === 'preflight_identity_profile_update')
       return prepare(args?.request as IdentityProfilePreflightRequest);
@@ -252,24 +328,47 @@ export function installPublicationFixture(params: URLSearchParams, identityAddre
         throw new Error('Synthetic confirmation unavailable');
       return plan;
     }
-    if (command === 'confirm_identity_profile_update')
-      return params.has('confirmed') && plan?.pending
-        ? loaded(plan.pending.proposedProfile, plan.pending.txid)
+    if (command === 'confirm_identity_profile_update') {
+      const receipt =
+        plan?.pending?.txid === args?.txid
+          ? plan.pending
+          : plan?.firstReceipt?.txid === args?.txid
+            ? plan.firstReceipt
+            : null;
+      return params.has('confirmed') && receipt
+        ? loaded(receipt.proposedProfile, receipt.txid)
         : null;
+    }
     if (command === 'send_identity_update') {
       await new Promise((r) => setTimeout(r, 600));
       const pending = {
         identityAddress,
-        txid: 'a'.repeat(64),
+        txid: (currentStep === 2 ? 'e' : 'a').repeat(64),
         submittedAt: 1,
         previousProfile: review.currentProfile,
         proposedProfile: review.proposedProfile,
       };
-      plan = { ...plan!, status: 'waiting', pending };
+      if (!plan) throw new Error('Synthetic publication plan is unavailable');
+      plan = { ...plan, status: 'waiting', pending };
       if (params.has('ambiguous')) throw new Error('Synthetic ambiguous transport');
       if (params.has('confirmed'))
         setTimeout(() => {
-          if (plan) plan = { ...plan, status: 'complete' };
+          if (!plan) return;
+          if (split && currentStep === 1 && !selectedSmaller) {
+            firstReceipt = pending;
+            currentStep = 2;
+            plan = {
+              ...plan,
+              status: 'ready',
+              step: 2,
+              request: { ...request, avatar: { action: 'keep' }, description: { action: 'keep' } },
+              pending: null,
+              firstReceipt: pending,
+              settledTxids: [pending.txid],
+            };
+          } else {
+            plan = { ...plan, status: 'complete' };
+          }
         }, 1000);
       return {
         txid: pending.txid,

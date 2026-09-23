@@ -15,6 +15,8 @@ export interface PublicationPresentation {
   uncertain: boolean;
   checking: boolean;
   error: boolean;
+  readFailures: number;
+  failureSince: number | null;
   completed: boolean;
 }
 export const emptyPublication = (): PublicationPresentation => ({
@@ -24,6 +26,8 @@ export const emptyPublication = (): PublicationPresentation => ({
   uncertain: false,
   checking: false,
   error: false,
+  readFailures: 0,
+  failureSince: null,
   completed: false,
 });
 
@@ -156,6 +160,7 @@ export class ProfilePublicationController {
       try {
         const plan = await this.io.read();
         if (!current()) continue;
+        this.set({ readFailures: 0, failureSince: null });
         if (this.value.submitting) continue;
         if (
           plan &&
@@ -164,7 +169,16 @@ export class ProfilePublicationController {
         )
           continue;
         const previousReceipt = this.value.receipt;
-        const receipt = previousReceipt ?? plan?.pending ?? null;
+        const receipt = previousReceipt ?? plan?.pending ?? plan?.completedReceipt ?? null;
+        // The old ready plan may still be visible after a transport failure. It
+        // cannot establish that broadcast failed, so keep repeat submission closed.
+        if (
+          this.value.uncertain &&
+          plan?.status === 'ready' &&
+          plan.step === this.value.plan?.step &&
+          !plan.pending
+        )
+          continue;
         // A post-send ready observation for the same step cannot erase a receipt.
         // Fresh stale/reorg evidence and progression to step 2 remain admissible.
         if (
@@ -215,7 +229,12 @@ export class ProfilePublicationController {
         // Conflict/expiry markers settle local pending caches, never signal success.
         this.settle(plan.settledTxids);
       } catch {
-        if (current()) this.set({ error: true });
+        if (current())
+          this.set({
+            error: true,
+            readFailures: this.value.readFailures + 1,
+            failureSince: this.value.failureSince ?? Date.now(),
+          });
       } finally {
         if (this.active()) this.set({ checking: false });
       }

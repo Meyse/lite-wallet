@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ImageIcon from '@lucide/svelte/icons/image';
+  import CameraIcon from '@lucide/svelte/icons/camera';
   import MoreHorizontalIcon from '@lucide/svelte/icons/ellipsis';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { CopyButton } from '$lib/components/ui/copy-button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
-  import { CopyButton } from '$lib/components/ui/copy-button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -54,6 +55,7 @@
   import ProfileDraftPreview from './ProfileDraftPreview.svelte';
   import ProfilePublicationCosts from './ProfilePublicationCosts.svelte';
   import ProfileImageEditor from './ProfileImageEditor.svelte';
+  import IdentityAvatar from './IdentityAvatar.svelte';
 
   let {
     details,
@@ -90,6 +92,7 @@
   let comparison = $state<IdentityProfilePreflightResult | null>(null);
   let preparing = $state(false);
   let errorMessage = $state('');
+  let reviewExpired = $state(false);
   let input = $state<HTMLInputElement | null>(null);
   let crop = $state.raw<ImageBitmap | null>(null);
   let imageKind = $state<ProfileImageKind>('avatar');
@@ -130,6 +133,24 @@
   );
   const split = $derived(preflight?.publication.totalSteps === 2);
   const second = $derived(preflight?.publication.step === 2);
+  const descriptionOnly = $derived(
+    preflight?.publication.changedFields.length === 1 &&
+      preflight.publication.changedFields[0] === 'description'
+  );
+  const reviewFields = $derived(
+    PROFILE_FIELDS.filter((field) => preflight?.publication.changedFields.includes(field))
+  );
+  const removalFields = $derived(
+    reviewFields.filter((field) => !snapshotValue(reviewProfile, field))
+  );
+  const removalOnly = $derived(
+    reviewFields.length > 0 && removalFields.length === reviewFields.length
+  );
+  const unchangedFields = $derived(
+    PROFILE_FIELDS.filter(
+      (field) => !reviewFields.includes(field) && snapshotValue(preflight?.currentProfile, field)
+    )
+  );
   const alternativeReview = $derived(comparison ?? preflight);
   const optimization = $derived.by(() => {
     const plan = alternativeReview?.publication;
@@ -160,7 +181,7 @@
   );
   const title = $derived(
     i18n.t(
-      `wallet.identity.profile.${$publication.submitting ? 'ux.publishing' : step === 'overview' ? 'editor.title' : step === 'crop' ? 'ux.crop' : step === 'review' ? 'draft.reviewTitle' : step === 'compare' ? 'sequence.previewSmaller' : step === 'discard' ? 'ux.discardTitle' : pending ? 'sequence.waiting' : 'sequence.continue'}`
+      `wallet.identity.profile.${$publication.submitting ? 'ux.publishing' : step === 'overview' ? 'editor.title' : step === 'crop' ? 'ux.crop' : step === 'review' ? (second ? 'ux.reviewHeaderUpdate' : removalOnly ? 'ux.reviewRemoval' : reviewFields.length === 1 ? 'ux.reviewChange' : 'draft.reviewTitle') : step === 'compare' ? 'sequence.previewSmaller' : step === 'discard' ? 'ux.discardTitle' : $publication.uncertain ? 'ux.submissionUncertain' : $publication.receipt ? 'ux.transactionSubmitted' : saved?.status === 'waiting' ? 'ux.transactionSubmitted' : reviewExpired ? 'ux.notSent' : 'sequence.continue'}`
     )
   );
 
@@ -174,6 +195,33 @@
   }
   function label(field: ProfileField) {
     return i18n.t(`wallet.identity.profile.draft.${field}`);
+  }
+  function fieldList(fields: ProfileField[]) {
+    const text = new Intl.ListFormat(i18n.intlLocale, {
+      style: 'long',
+      type: 'conjunction',
+    }).format(fields.map((field) => label(field).toLocaleLowerCase(i18n.intlLocale)));
+    return text.charAt(0).toLocaleUpperCase(i18n.intlLocale) + text.slice(1);
+  }
+  function lowercaseFieldList(fields: ProfileField[]) {
+    const text = fieldList(fields);
+    return text.charAt(0).toLocaleLowerCase(i18n.intlLocale) + text.slice(1);
+  }
+  function unchangedCopy(fields: ProfileField[]) {
+    return i18n.t(
+      fields.length === 1
+        ? 'wallet.identity.profile.ux.oneFieldStays'
+        : 'wallet.identity.profile.ux.otherFieldsStay',
+      { fields: fieldList(fields) }
+    );
+  }
+  function removedCopy(fields: ProfileField[]) {
+    return i18n.t(
+      fields.length === 1
+        ? 'wallet.identity.profile.ux.oneFieldWillBeRemoved'
+        : 'wallet.identity.profile.ux.fieldsWillBeRemoved',
+      { fields: fieldList(fields) }
+    );
   }
   function snapshotValue(
     snapshot: IdentityProfileSnapshot | null | undefined,
@@ -294,6 +342,7 @@
     );
   }
   function adoptReview(result: IdentityProfilePreflightResult, changes: ProfileDraft = draft) {
+    reviewExpired = false;
     preflight = result;
     comparison = null;
     publication.reviewed(result, {
@@ -369,6 +418,7 @@
     preflight = null;
     if (Date.now() >= prepared.expiresAt * 1000) {
       step = 'progress';
+      reviewExpired = true;
       errorMessage = i18n.t('wallet.identity.profile.draft.expired');
       return;
     }
@@ -391,10 +441,11 @@
         }
       );
       clearProfileDraft(session, identityAddress);
-    } catch (error) {
+    } catch {
       if (active()) {
         publication.submissionFailed();
-        errorMessage = mapError(error);
+        // The transport error cannot prove whether the network accepted the update.
+        errorMessage = '';
       }
     }
   }
@@ -407,7 +458,8 @@
     if (step === 'review') {
       const resumed = second;
       invalidate();
-      step = resumed ? 'progress' : 'overview';
+      if (resumed) onCancel();
+      else step = 'overview';
     } else if (step === 'compare') void resume();
     else if (step === 'discard') {
       errorMessage = '';
@@ -441,17 +493,33 @@
           ? 'waiting'
           : 'ready';
   }
-  const publishLabel = $derived(
-    i18n.t(
-      second
-        ? 'wallet.identity.profile.sequence.publishHeader'
-        : split
-          ? preflight?.changedFields.includes('description')
-            ? 'wallet.identity.profile.ux.publishAvatarDescription'
-            : 'wallet.identity.profile.ux.publishAvatar'
-          : 'wallet.identity.profile.draft.publish'
-    )
-  );
+  const publishLabel = $derived.by(() => {
+    const key = second
+      ? 'wallet.identity.profile.sequence.publishHeader'
+      : removalOnly
+        ? reviewFields.length === 1 && reviewFields[0] === 'description'
+          ? 'wallet.identity.profile.ux.removeDescription'
+          : reviewFields.length === 3
+            ? 'wallet.identity.profile.ux.removeProfileContent'
+            : 'wallet.identity.profile.ux.removeFields'
+        : descriptionOnly
+          ? 'wallet.identity.profile.ux.publishDescription'
+          : split
+            ? preflight?.changedFields.includes('description')
+              ? 'wallet.identity.profile.ux.publishAvatarDescription'
+              : 'wallet.identity.profile.ux.publishAvatar'
+            : reviewFields.length === 3 && !removalFields.length
+              ? 'wallet.identity.profile.ux.publishAll'
+              : removalFields.length
+                ? 'wallet.identity.profile.ux.publishSelected'
+                : 'wallet.identity.profile.draft.publish';
+    return i18n.t(
+      key,
+      key === 'wallet.identity.profile.ux.removeFields'
+        ? { fields: lowercaseFieldList(reviewFields) }
+        : undefined
+    );
+  });
   let previousStep = untrack(() => step);
   $effect(() => {
     const next = step;
@@ -483,15 +551,20 @@
     <Button
       variant="secondary"
       size="sm"
+      class={field === 'avatar' ? 'size-8 rounded-full p-0' : ''}
       data-image-control={field}
       disabled={!editable || preparing}
       aria-label={i18n.t(
         `wallet.identity.profile.ux.${value ? 'change' : 'add'}${field === 'avatar' ? 'Avatar' : 'Header'}`
       )}
       onclick={(event) => chooseImage(field, event)}
-      ><ImageIcon class="size-4" />{i18n.t(
-        `wallet.identity.profile.ux.${value ? 'change' : 'add'}${field === 'avatar' ? 'Avatar' : 'Header'}`
-      )}</Button
+      >{#if field === 'avatar'}<CameraIcon class="size-4" />{:else}<ImageIcon
+          class="size-4"
+        />{/if}<span class:sr-only={field === 'avatar'}
+        >{i18n.t(
+          `wallet.identity.profile.ux.${value ? 'change' : 'add'}${field === 'avatar' ? 'Avatar' : 'Header'}`
+        )}</span
+      ></Button
     >
     {#if value || draft[field].action !== 'keep'}
       <DropdownMenu.Root>
@@ -517,11 +590,12 @@
   <Label for="identity-profile-description" class="sr-only">{label('description')}</Label>
   <Textarea
     id="identity-profile-description"
+    variant="surface"
     bind:value={description}
     oninput={typeDescription}
     disabled={!editable || preparing}
     rows={2}
-    class="min-h-[72px] resize-none text-sm leading-5"
+    class="min-h-24 resize-none rounded-[9px] border-input px-3.5 py-3 text-sm leading-5"
     placeholder={i18n.t('wallet.identity.profile.editor.descriptionPlaceholder')}
     aria-invalid={descriptionInvalid}
     aria-describedby={descriptionInvalid ? 'profile-description-error' : undefined}
@@ -560,12 +634,12 @@
     onchange={selectedImage}
     oncancel={() => initiatingControl?.focus()}
   />
-  {#if step !== 'crop' && step !== 'compare' && step !== 'discard' && !$publication.submitting}
+  {#if step !== 'crop' && step !== 'compare' && step !== 'discard' && !$publication.submitting && !(step === 'progress' && pending)}
     <NavigationBackButton
       label={i18n.t(
         step === 'review'
           ? second
-            ? 'wallet.identity.profile.ux.backToProgress'
+            ? 'wallet.identity.profile.editor.back'
             : 'wallet.identity.profile.draft.backToEditor'
           : 'wallet.identity.profile.editor.back'
       )}
@@ -614,31 +688,174 @@
                 </p>
               </details>{/if}
           {:else if step === 'review' && preflight && reviewProfile}
-            <ProfileDraftPreview
-              {identityAddress}
-              {displayName}
-              avatarUrl={profileMediaUrl(reviewProfile.avatarBase64, reviewProfile.avatarMimeType)}
-              headerUrl={profileMediaUrl(reviewProfile.headerBase64, reviewProfile.headerMimeType)}
-              description={reviewProfile.description}
-              compact
-            />
-            {#if !split || second}
-              <p class="mt-3 text-xs text-muted-foreground" data-reviewed-fields>
-                {preflight.changedFields
-                  .map((field) => label(field as ProfileField))
-                  .join(', ')}{#if second}<span class="ml-1"
-                    >· {i18n.t('wallet.identity.profile.sequence.secondUpdate')}</span
-                  >{/if}
-              </p>
+            {#if descriptionOnly || removalOnly || second}
+              <div class="flex items-center gap-3" data-review-identity>
+                <IdentityAvatar seed={identityAddress} label={displayName} class="size-10" />
+                <div class="min-w-0">
+                  <p class="truncate text-base font-semibold">{displayName}</p>
+                  <p class="text-[13px] text-muted-foreground">
+                    {second
+                      ? i18n.t('wallet.identity.profile.sequence.secondUpdate')
+                      : removalOnly
+                        ? i18n.t('wallet.identity.profile.ux.removalContext', {
+                            fields: fieldList(reviewFields),
+                          })
+                        : i18n.t('wallet.identity.profile.ux.descriptionUpdate')}
+                  </p>
+                </div>
+              </div>
+              {#if second}
+                <p class="mt-6 text-[13px] text-muted-foreground">
+                  {i18n.t('wallet.identity.profile.ux.fieldsPublished', {
+                    fields: fieldList(firstFields),
+                  })}
+                </p>
+                <p class="mt-5 text-[13px] font-semibold">
+                  {i18n.t('wallet.identity.profile.ux.newHeader')}
+                </p>
+                <img
+                  class="mt-2 aspect-[6/1] w-full rounded-lg bg-muted object-cover"
+                  src={profileMediaUrl(reviewProfile.headerBase64, reviewProfile.headerMimeType) ??
+                    undefined}
+                  alt=""
+                />
+              {:else if descriptionOnly}
+                <div class="mt-6 space-y-4">
+                  <div class="px-3.5">
+                    <p class="text-[13px] text-muted-foreground">
+                      {i18n.t('wallet.identity.profile.ux.current')}
+                    </p>
+                    <p
+                      class="mt-1 text-sm leading-5 break-words whitespace-pre-wrap text-muted-foreground"
+                    >
+                      {preflight.currentProfile.description ||
+                        i18n.t('wallet.identity.profile.review.removed')}
+                    </p>
+                  </div>
+                  <div class="rounded-lg bg-muted p-3.5" data-review-change>
+                    <p class="text-[13px] font-semibold">
+                      {i18n.t(
+                        reviewProfile.description
+                          ? 'wallet.identity.profile.ux.newDescription'
+                          : 'wallet.identity.profile.ux.descriptionWillBeRemoved'
+                      )}
+                    </p>
+                    {#if reviewProfile.description}<p
+                        class="mt-2 text-[15px] leading-[21px] break-words whitespace-pre-wrap"
+                      >
+                        {reviewProfile.description}
+                      </p>
+                    {:else if unchangedFields.length}<p class="mt-2 text-sm text-muted-foreground">
+                        {unchangedCopy(unchangedFields)}
+                      </p>{/if}
+                  </div>
+                </div>
+              {:else}
+                <div class="mt-6" data-review-removal>
+                  <p class="text-[13px] text-muted-foreground">
+                    {i18n.t('wallet.identity.profile.ux.current')}
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-center gap-4">
+                    {#if preflight.currentProfile.avatarBase64}<div
+                        class="flex items-center gap-2 text-sm text-muted-foreground"
+                      >
+                        <IdentityAvatar
+                          seed={identityAddress}
+                          label={displayName}
+                          imageUrl={profileMediaUrl(
+                            preflight.currentProfile.avatarBase64,
+                            preflight.currentProfile.avatarMimeType
+                          )}
+                          class="size-10"
+                        />
+                        {label('avatar')}
+                      </div>{/if}
+                    {#if preflight.currentProfile.headerBase64}<div
+                        class="flex items-center gap-2 text-sm text-muted-foreground"
+                      >
+                        <img
+                          class="h-10 w-20 rounded-md object-cover"
+                          src={profileMediaUrl(
+                            preflight.currentProfile.headerBase64,
+                            preflight.currentProfile.headerMimeType
+                          ) ?? undefined}
+                          alt=""
+                        />
+                        {label('header')}
+                      </div>{/if}
+                  </div>
+                  {#if preflight.currentProfile.description}<p
+                      class="mt-3 text-sm leading-5 break-words text-muted-foreground"
+                    >
+                      {preflight.currentProfile.description}
+                    </p>{/if}
+                  <div class="mt-4 rounded-lg bg-muted p-3.5">
+                    <p class="text-[13px] font-semibold">
+                      {removedCopy(reviewFields)}
+                    </p>
+                    <p class="mt-2 text-sm text-muted-foreground">
+                      {unchangedFields.length
+                        ? unchangedCopy(unchangedFields)
+                        : i18n.t('wallet.identity.profile.ux.noProfileContent')}
+                    </p>
+                  </div>
+                </div>
+              {/if}
+            {:else}
+              <div class="rounded-xl bg-muted p-3" data-review-preview>
+                <ProfileDraftPreview
+                  {identityAddress}
+                  {displayName}
+                  avatarUrl={profileMediaUrl(
+                    reviewProfile.avatarBase64,
+                    reviewProfile.avatarMimeType
+                  )}
+                  headerUrl={profileMediaUrl(
+                    reviewProfile.headerBase64,
+                    reviewProfile.headerMimeType
+                  )}
+                  description={reviewProfile.description}
+                  compact
+                />
+              </div>
+              {#if removalFields.length}<div
+                  class="mt-3 rounded-lg bg-muted p-3.5"
+                  data-review-removal
+                >
+                  <p class="text-[13px] font-semibold">
+                    {removedCopy(removalFields)}
+                  </p>
+                  {#if unchangedFields.length}<p class="mt-1 text-xs text-muted-foreground">
+                      {unchangedCopy(unchangedFields)}
+                    </p>{/if}
+                </div>{/if}
+              <div class="mt-5" data-update-summary>
+                <p class="text-[17px] font-semibold">
+                  {i18n.t(
+                    split
+                      ? 'wallet.identity.profile.sequence.twoUpdates'
+                      : 'wallet.identity.profile.ux.oneUpdateHeading'
+                  )}
+                </p>
+                <p class="mt-1 text-[13px] text-muted-foreground">
+                  {split
+                    ? i18n.t('wallet.identity.profile.ux.separateApproval')
+                    : removalFields.length
+                      ? i18n.t('wallet.identity.profile.ux.mixedTogether', {
+                          removed: lowercaseFieldList(removalFields),
+                          changed: lowercaseFieldList(
+                            reviewFields.filter((field) => !removalFields.includes(field))
+                          ),
+                        })
+                      : i18n.t('wallet.identity.profile.ux.together', {
+                          fields: fieldList(reviewFields),
+                        })}
+                </p>
+              </div>
             {/if}
-            {#each PROFILE_FIELDS.filter((field) => preflight!.publication.changedFields.includes(field) && !snapshotValue(reviewProfile, field)) as field}<p
-                class="mt-1 text-xs"
-                data-profile-removal
-              >
-                {i18n.t('wallet.identity.profile.ux.removal', { field: label(field) })}
-              </p>{/each}
+            <ProfilePublicationCosts {preflight} {feeRate} plain />
             {#if optimization}<div
-                class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-3 py-2"
+                class="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-3 py-2"
                 data-one-update-option
               >
                 <div>
@@ -657,7 +874,6 @@
                   )}</InlineTextActionButton
                 >
               </div>{/if}
-            <ProfilePublicationCosts {preflight} {feeRate} />
           {:else if step === 'compare' && optimization && comparison}
             <p class="mb-4 truncate text-sm text-muted-foreground">{displayName}</p>
             <div class="grid grid-cols-2 gap-4">
@@ -704,8 +920,57 @@
               {i18n.t('wallet.identity.profile.sequence.compareQuality')}
             </p>
           {:else if step === 'progress' || step === 'discard'}
-            <p class="mb-4 text-lg font-semibold break-words">{displayName}</p>
-            {#if saved?.totalSteps === 2}<p class="mb-3 text-xs text-muted-foreground">
+            {#if $publication.receipt || $publication.uncertain}
+              <div class="mb-5 flex items-center gap-3">
+                <IdentityAvatar seed={identityAddress} label={displayName} class="size-10" />
+                <div class="min-w-0">
+                  <p class="truncate text-base font-semibold">{displayName}</p>
+                  <p class="text-[13px] text-muted-foreground">
+                    {i18n.t(
+                      saved?.totalSteps === 2
+                        ? 'wallet.identity.profile.ux.updateNumber'
+                        : $publication.uncertain &&
+                            progressFields.length === 1 &&
+                            progressFields[0] === 'description'
+                          ? 'wallet.identity.profile.ux.descriptionUpdate'
+                          : 'wallet.identity.profile.ux.profileUpdate',
+                      saved?.totalSteps === 2
+                        ? { step: saved.step, total: saved.totalSteps }
+                        : undefined
+                    )}
+                  </p>
+                </div>
+              </div>
+              {#if $publication.uncertain && progressRequest.description?.action !== 'keep'}<div
+                  class="rounded-lg bg-muted p-3.5"
+                  data-retained-draft
+                >
+                  <p class="text-[13px] font-semibold">
+                    {i18n.t(
+                      progressRequest.description.action === 'set'
+                        ? 'wallet.identity.profile.ux.newDescription'
+                        : 'wallet.identity.profile.ux.descriptionWillBeRemoved'
+                    )}
+                  </p>
+                  {#if progressRequest.description.action === 'set'}<p
+                      class="mt-2 text-sm leading-5 break-words whitespace-pre-wrap"
+                    >
+                      {progressRequest.description.value}
+                    </p>{/if}
+                </div>{/if}
+              <p class="mt-5 text-[13px] text-muted-foreground">
+                {i18n.t(
+                  $publication.uncertain
+                    ? 'wallet.identity.profile.ux.uncertainHelp'
+                    : saved?.totalSteps === 2 && saved.step === 1
+                      ? 'wallet.identity.profile.ux.firstSubmittedHelp'
+                      : 'wallet.identity.profile.ux.submittedHelp'
+                )}
+              </p>
+            {:else}<p class="mb-4 text-lg font-semibold break-words">{displayName}</p>{/if}
+            {#if saved?.totalSteps === 2 && !$publication.receipt && !$publication.uncertain}<p
+                class="mb-3 text-xs text-muted-foreground"
+              >
                 {i18n.t('wallet.identity.profile.ux.updateNumber', {
                   step: saved.step,
                   total: saved.totalSteps,
@@ -721,7 +986,11 @@
                     .join(', '),
                 })}
               </p>{/if}
-            <div class="space-y-1" data-publication-progress>
+            <div
+              class="space-y-1"
+              class:hidden={Boolean($publication.receipt || $publication.uncertain)}
+              data-publication-progress
+            >
               {#each progressFields as field}<div
                   class="flex min-h-11 items-center justify-between gap-4 border-b border-border/60 text-sm"
                 >
@@ -736,41 +1005,36 @@
             {#if saved?.status === 'stale'}<p class="mt-4 text-sm text-muted-foreground">
                 {i18n.t('wallet.identity.profile.sequence.stale')}
               </p>{/if}
-            {#if $publication.uncertain}<p class="mt-4 text-sm text-muted-foreground">
-                {i18n.t('wallet.identity.profile.ux.checkingSubmission')}
-              </p>{/if}
-            {#if $publication.error}<p role="alert" class="mt-3 text-sm text-destructive">
-                {i18n.t('wallet.identity.profile.ux.confirmationUnavailable')}
-              </p>{/if}
-            {#if $publication.receipt || saved?.firstReceipt}<details
-                class="mt-4 text-xs text-muted-foreground"
+            {#if $publication.error && $publication.readFailures >= 3 && $publication.failureSince !== null && Date.now() - $publication.failureSince >= 20_000}<p
+                role="status"
+                class="mt-3 text-xs text-muted-foreground"
               >
-                <summary class="w-fit rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-                  >{i18n.t('wallet.identity.profile.ux.transactionDetails')}</summary
-                >
-                <div class="mt-3 space-y-3">
-                  {#each [saved?.firstReceipt, $publication.receipt].filter(Boolean) as receipt}<div
-                    >
-                      <p class="mb-1">
-                        {i18n.t(
-                          receipt === saved?.firstReceipt
-                            ? 'wallet.identity.profile.ux.previousTransaction'
-                            : 'wallet.identity.profile.pending.transaction'
-                        )}
-                      </p>
-                      <div class="flex items-center gap-2">
-                        <span class="min-w-0 flex-1 truncate font-mono">{receipt!.txid}</span
-                        ><CopyButton
-                          copied={copied.current === receipt!.txid}
-                          onclick={async () => {
-                            if (await writeClipboardText(receipt!.txid)) copied.set(receipt!.txid);
-                          }}
-                          aria-label={i18n.t('wallet.identity.detail.copy')}
-                        />
-                      </div>
-                    </div>{/each}
+                {i18n.t('wallet.identity.profile.ux.connectionRetry')}
+              </p>{/if}
+            {#if $publication.receipt}<div
+                class="mt-6 border-t pt-3 text-[13px]"
+                data-submitted-transaction
+              >
+                <p class="text-muted-foreground">
+                  {i18n.t('wallet.identity.profile.pending.transaction')}
+                </p>
+                <div class="mt-1 flex min-w-0 items-center gap-3">
+                  <span class="min-w-0 flex-1 truncate font-mono text-xs"
+                    >{$publication.receipt.txid}</span
+                  >
+                  <CopyButton
+                    size="xs"
+                    copied={copied.current === $publication.receipt.txid}
+                    aria-label={i18n.t('wallet.identity.profile.pending.copyTransaction')}
+                    title={i18n.t('wallet.identity.profile.pending.copyTransaction')}
+                    onclick={async () => {
+                      const receipt = $publication.receipt;
+                      if (receipt && (await writeClipboardText(receipt.txid)))
+                        copied.set(receipt.txid);
+                    }}
+                  />
                 </div>
-              </details>{/if}
+              </div>{/if}
             {#if step === 'progress' && saved && !pending && !$publication.submitting}<details
                 class="mt-4 text-xs text-muted-foreground"
               >
@@ -794,9 +1058,6 @@
       </ScrollArea.Viewport><ScrollArea.Scrollbar orientation="vertical" />
     </ScrollArea.Root>
     <div class="shrink-0 space-y-3 pt-1" data-profile-footer>
-      {#if step === 'review'}<p class="text-xs leading-5 text-muted-foreground">
-          {i18n.t('wallet.identity.profile.draft.publicDisclosure')}
-        </p>{/if}
       <div class="flex min-h-9 items-center justify-end gap-2">
         {#if step === 'overview'}<Button
             onclick={review}
@@ -832,16 +1093,16 @@
             class="text-sm text-muted-foreground"
             >{i18n.t('wallet.identity.profile.publishing.keepOpen')}</span
           >
-        {:else if pending}<Button variant="secondary" onclick={() => publication.refresh()}
-            >{#if $publication.checking}<Spinner class="size-4" />{/if}{i18n.t(
-              'wallet.identity.profile.sequence.refresh'
-            )}</Button
+        {:else if pending}<Button onclick={onCancel}
+            >{i18n.t('wallet.identity.profile.editor.back')}</Button
           >
         {:else}<Button onclick={() => resume()} disabled={preparing || !editable}
             >{#if preparing}<Spinner class="size-4" />{/if}{i18n.t(
-              saved?.step === 2
-                ? 'wallet.identity.profile.ux.reviewHeader'
-                : 'wallet.identity.profile.sequence.reviewNext'
+              reviewExpired
+                ? 'wallet.identity.profile.ux.reviewAgain'
+                : saved?.step === 2
+                  ? 'wallet.identity.profile.ux.reviewHeader'
+                  : 'wallet.identity.profile.sequence.reviewNext'
             )}</Button
           >{/if}
       </div>
