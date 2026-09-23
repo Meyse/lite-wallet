@@ -1,0 +1,1819 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Wallet Help editor</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --canvas: #fafafa;
+        --sidebar: #f2f2f2;
+        --field: #ffffff;
+        --ink: #202124;
+        --quiet: #66686d;
+        --line: #dddddf;
+        --hover: #e8e8ea;
+        --selected: #e2e2e5;
+        --button: #27272a;
+        --button-text: #ffffff;
+        --ring: #777980;
+        --error: #ae3030;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 14px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #19191b;
+          --sidebar: #222225;
+          --field: #202023;
+          --ink: #efeff1;
+          --quiet: #b0b0b7;
+          --line: #3a3a40;
+          --hover: #2e2e33;
+          --selected: #37373d;
+          --button: #efeff1;
+          --button-text: #202023;
+          --ring: #9c9ca5;
+          --error: #ff9f9f;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+      }
+      select,
+      button,
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: default;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+      }
+      select:focus-visible,
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.45;
+      }
+      button:not(:disabled):hover {
+        background: var(--hover);
+      }
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--field);
+      }
+      input {
+        padding: 11px 12px;
+      }
+      textarea {
+        padding: 16px;
+        resize: vertical;
+        line-height: 1.75;
+      }
+      label {
+        display: block;
+        margin-bottom: 9px;
+        font-size: 13px;
+        color: var(--quiet);
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: 23px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .app {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 520px;
+      }
+      .toolbar {
+        min-height: 68px;
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .language {
+        color: var(--quiet);
+        font-size: 13px;
+      }
+      .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
+      .actions button,
+      .pager button {
+        padding: 10px 14px;
+        white-space: nowrap;
+      }
+      .actions .primary {
+        background: var(--button);
+        color: var(--button-text);
+      }
+      .actions .primary:not(:disabled):hover {
+        opacity: 0.88;
+        background: var(--button);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 266px minmax(0, 1fr);
+        flex: 1;
+        min-height: 0;
+      }
+      aside {
+        background: var(--sidebar);
+        border-right: 1px solid var(--line);
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+      }
+      .search {
+        padding: 20px 16px 12px;
+      }
+      .search input {
+        background: var(--canvas);
+        border: 0;
+      }
+      nav {
+        overflow-y: auto;
+        min-height: 0;
+        padding: 0 12px 18px;
+        flex: 1;
+      }
+      .category {
+        margin-top: 17px;
+      }
+      .category h2 {
+        margin: 0 8px 6px;
+        color: var(--quiet);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0;
+        line-height: 1.5;
+      }
+      .article-link {
+        width: 100%;
+        padding: 10px 9px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        text-align: left;
+        line-height: 1.5;
+        font-size: 13px;
+      }
+      .article-link[aria-current='page'],
+      .side-actions button[aria-current='page'] {
+        background: var(--selected);
+      }
+      .changed-mark {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--quiet);
+        flex-shrink: 0;
+      }
+      .side-actions {
+        border-top: 1px solid var(--line);
+        padding: 12px;
+        display: grid;
+        gap: 3px;
+      }
+      .side-actions button {
+        text-align: left;
+        padding: 10px 9px;
+        font-size: 13px;
+      }
+      .link-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .link-tools label {
+        margin: 0;
+      }
+      .link-tools select {
+        min-width: 150px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--field);
+        padding: 7px;
+        cursor: default;
+      }
+      .link-tools button {
+        padding: 8px 10px;
+        background: var(--sidebar);
+      }
+      .link-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .link-list button {
+        text-align: left;
+        padding: 5px 8px;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .link-hint {
+        margin-top: 8px;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .empty {
+        color: var(--quiet);
+        padding: 20px 8px;
+        font-size: 13px;
+      }
+      main {
+        overflow-y: auto;
+        min-width: 0;
+        padding: 28px;
+      }
+      .content {
+        max-width: 820px;
+        margin: 0 auto;
+      }
+      .field + .field {
+        margin-top: 25px;
+      }
+      #article-title {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        padding: 13px 14px;
+      }
+      #article-text {
+        min-height: 310px;
+        font-size: 15px;
+      }
+      .pager {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 14px;
+      }
+      .fields {
+        margin-top: 26px;
+        display: grid;
+        gap: 22px;
+      }
+      .statusbar {
+        min-height: 43px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        padding: 11px 24px;
+        font-size: 12px;
+        color: var(--quiet);
+      }
+      #change-count {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      .notice {
+        padding: 12px 24px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+        color: var(--error);
+        line-height: 1.6;
+      }
+      .notice button {
+        text-decoration: underline;
+        padding: 2px 6px;
+      }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: 215px minmax(0, 1fr);
+        }
+        main {
+          padding: 22px 18px;
+        }
+        .toolbar {
+          padding-inline: 18px;
+          gap: 10px;
+        }
+        .language {
+          display: none;
+        }
+      }
+      @media (max-width: 540px) {
+        .app {
+          height: auto;
+          min-height: 100dvh;
+        }
+        .toolbar {
+          flex-wrap: wrap;
+          padding: 16px;
+        }
+        .actions {
+          gap: 0;
+        }
+        .actions button {
+          padding: 9px 10px;
+          font-size: 12px;
+        }
+        .layout {
+          display: block;
+        }
+        aside {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          max-height: 260px;
+        }
+        .search {
+          padding-top: 12px;
+        }
+        .side-actions {
+          display: flex;
+        }
+        main {
+          overflow: visible;
+        }
+        .statusbar {
+          padding-inline: 16px;
+          align-items: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app" id="help-copy-editor">
+      <header class="toolbar">
+        <h1>Help editor</h1>
+        <span class="language">English</span>
+        <div class="actions">
+          <button type="button" id="load-edits">Open edits</button>
+          <button type="button" id="download-edits" class="primary" disabled>Download edits</button>
+        </div>
+        <input type="file" id="import-file" accept=".json,application/json" hidden />
+      </header>
+      <div class="notice" id="notice" role="alert" hidden></div>
+      <div class="layout">
+        <aside>
+          <div class="search">
+            <input
+              type="search"
+              id="search"
+              aria-label="Find an article"
+              placeholder="Find an article"
+              autocomplete="off"
+            />
+          </div>
+          <nav id="article-nav" aria-label="Help articles"></nav>
+          <div class="side-actions">
+            <button type="button" id="section-names">Section names</button>
+            <button type="button" id="help-labels">Help labels</button>
+          </div>
+        </aside>
+        <main>
+          <div class="content">
+            <section id="article-editor" aria-label="Edit article">
+              <div class="field">
+                <label for="article-title">Title</label
+                ><input id="article-title" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="article-text">Text</label
+                ><textarea
+                  id="article-text"
+                  spellcheck="true"
+                  aria-describedby="link-hint"
+                ></textarea>
+                <div class="link-tools">
+                  <label for="link-destination">Link to screen</label>
+                  <select id="link-destination"></select>
+                  <button id="apply-link" type="button" disabled>Add link</button>
+                  <button id="remove-link" type="button" hidden>Remove link</button>
+                </div>
+                <p class="link-hint" id="link-hint" role="status">
+                  Select text to link to a screen.
+                </p>
+                <div class="link-list" id="article-links" aria-label="Screen links"></div>
+              </div>
+              <div class="pager">
+                <button type="button" id="previous">Previous article</button
+                ><button type="button" id="next">Next article</button>
+              </div>
+            </section>
+            <section id="labels-editor" hidden>
+              <h2 id="labels-heading" tabindex="-1"></h2>
+              <div id="label-fields" class="fields"></div>
+            </section>
+          </div>
+        </main>
+      </div>
+      <footer class="statusbar">
+        <span id="save-status" role="status">Choose an article and edit its text</span
+        ><span id="change-count">No changes yet</span>
+      </footer>
+    </div>
+    <script id="help-copy-data" type="application/json">
+      {
+        "sourceId": "9e189cb7b7a3f2597775",
+        "capturedOn": "2026-09-22",
+        "baseline": {
+          "helpCenter.title": "Help",
+          "helpCenter.search": "Search help",
+          "helpCenter.searchPlaceholder": "Search questions or topics",
+          "helpCenter.home": "All topics",
+          "helpCenter.suggested": "Start here",
+          "helpCenter.topics": "Help topics",
+          "helpCenter.backWallet": "Back to wallet",
+          "helpCenter.backWelcome": "Back to welcome",
+          "helpCenter.backUnlock": "Back to sign in",
+          "helpCenter.backResults": "Back to results",
+          "helpCenter.backArticle": "Back to article",
+          "helpCenter.backTopics": "Back to topics",
+          "helpCenter.results": "Search results",
+          "helpCenter.resultOne": "1 article",
+          "helpCenter.resultCount": "{count} articles",
+          "helpCenter.noResults": "No matching articles",
+          "helpCenter.noResultsHint": "Try a shorter search, or choose a topic.",
+          "helpCenter.related": "Related articles",
+          "helpCenter.community": "Ask the community",
+          "helpCenter.communityHint": "Opens Verus Discord",
+          "helpCenter.source.identity": "More about VerusID",
+          "helpCenter.source.conversions": "More about Verus conversions",
+          "helpCenter.source.bridge": "More about the Verus-Ethereum Bridge",
+          "helpCenter.category.basics": "Getting started",
+          "helpCenter.category.payments": "Sending and receiving",
+          "helpCenter.category.conversions": "Conversions and cross-chain",
+          "helpCenter.category.identity": "VerusID and profiles",
+          "helpCenter.category.security": "Security and recovery",
+          "helpCenter.category.data": "Wallet data and settings",
+          "helpCenter.article.wallet.title": "How this wallet works",
+          "helpCenter.article.wallet.summary": "Your wallet holds the keys that authorize transactions. Your balances are recorded on the networks you use.",
+          "helpCenter.article.wallet.body": "Creating a wallet gives you a recovery secret and a local password. The password unlocks this installation; the recovery secret can restore access to the keys. Keep the recovery secret somewhere you can access without this device.\n\nA wallet can display several assets and networks. Each has its own addresses, fees and confirmation rules. A VerusID is optional for ordinary payments.",
+          "helpCenter.article.wallet.keywords": "self custody account new create import beginner keys",
+          "helpCenter.article.assets.title": "Adding or hiding an asset",
+          "helpCenter.article.assets.summary": "Manage assets controls which currencies appear in your wallet. Hiding an asset does not move its funds.",
+          "helpCenter.article.assets.body": "In Wallet, choose Assets to open Manage assets. Add a supported currency, or use Add custom asset when the currency is not listed. For custom assets, verify the network and currency ID or token contract using a source you trust. A name or ticker alone does not identify a currency.\n\nAdding an asset lets the wallet display it; it does not buy the asset or create a balance. If funds are missing, check the receiving address and network before adding another entry.",
+          "helpCenter.article.assets.keywords": "coin token erc20 contract add custom hide remove portfolio",
+          "helpCenter.article.networks.title": "Choosing the right network",
+          "helpCenter.article.networks.summary": "The asset, destination address and receiving network must agree.",
+          "helpCenter.article.networks.body": "Mainnet and testnet are separate networks. Test coins are for testing and cannot be sent as mainnet coins. An address can look valid while belonging to the wrong network or an unsupported service.\n\nFor a payment, use the network specified by the recipient. For a cross-chain transfer, check the destination network in the review. A familiar ticker or the same-looking address does not guarantee that the recipient supports that asset on that network.",
+          "helpCenter.article.networks.keywords": "mainnet testnet vrsctest sepolia wrong network address chain",
+          "helpCenter.article.balances.title": "Understanding balances and prices",
+          "helpCenter.article.balances.summary": "A displayed balance, a spendable balance and an estimated fiat value describe different things.",
+          "helpCenter.article.balances.body": "Pending funds, network fees, identity permissions and private-wallet synchronization can limit what is available to send. A linked identity or watched address may be visible even when this wallet cannot spend its funds.\n\nFiat values use market price data and can be delayed or unavailable. They are estimates, not conversion quotes. If a balance cannot be updated, check your connection and retry. An unavailable balance does not establish that the address is empty.",
+          "helpCenter.article.balances.keywords": "money missing zero stale refresh price fiat euro dollar available balance",
+          "helpCenter.article.receive.title": "Receiving a payment",
+          "helpCenter.article.receive.summary": "Share the receiving address for the asset and network you want to receive.",
+          "helpCenter.article.receive.body": "Open Receive, choose the asset and receiving option, then copy the address or show its QR code. Check the network with the sender, especially for tokens that exist on several chains. A QR code is another way to share the payment details; it does not confirm a payment.\n\nYou can share a public receiving address. Keep recovery phrases, private keys and spending keys private. To check whether a payment arrived, open the asset in Wallet and inspect its transaction history.",
+          "helpCenter.article.receive.keywords": "deposit receive qr code receiving address payment",
+          "helpCenter.article.send.title": "Sending a payment",
+          "helpCenter.article.send.summary": "Review the recipient, asset, network, amount and fees before you approve a transfer.",
+          "helpCenter.article.send.body": "Choose Send from Wallet or an asset. Select the source, enter the amount and recipient, then open Review. For supported Verus routes you can use a VerusID; check the identity and resolved destination shown by the wallet.\n\nThe review can change the sendable amount to leave room for fees. Read the final values before sending. Once a transaction is confirmed, the wallet cannot undo it. Returning from Help preserves your form, but a transfer may require a fresh review before submission.",
+          "helpCenter.article.send.keywords": "send transfer recipient address review max amount cancel",
+          "helpCenter.article.pending.title": "My transfer has not arrived",
+          "helpCenter.article.pending.summary": "Submission and confirmation are separate steps. Cross-chain transfers also need processing on the destination network.",
+          "helpCenter.article.pending.body": "Open the asset in Wallet and check its transaction history. If a transaction ID and explorer link are available, inspect the transaction on the correct network. Check the recipient address and whether the receiving service requires more confirmations.\n\nConfirmation times depend on the network, fees and current conditions. A confirmed source transaction does not by itself prove that a cross-chain payment has arrived. If submission is uncertain, check the existing transaction before sending another payment.",
+          "helpCenter.article.pending.keywords": "stuck pending waiting slow missing transfer not arrived confirmation history activity",
+          "helpCenter.article.fees.title": "Why a transfer needs fees",
+          "helpCenter.article.fees.summary": "Fees pay for network processing. The currency used for fees depends on the route.",
+          "helpCenter.article.fees.body": "Sending an Ethereum token requires ETH on that Ethereum network for gas, in addition to the token balance. Conversions and cross-chain transfers can include conversion and bridge fees as well as the network fee.\n\nUse the review to check the total debited and the currency for each fee. An estimate can change before submission. Where a maximum fee is shown, it is an upper bound for that fee, not a promise that the full maximum will be spent. Fee choices, when available, affect priority; they do not guarantee a confirmation time.",
+          "helpCenter.article.fees.keywords": "gas eth insufficient funds fee maximum economy standard expensive cost",
+          "helpCenter.article.uncertain.title": "Submission could not be confirmed",
+          "helpCenter.article.uncertain.summary": "The wallet may have lost the response after sending a transaction. That does not prove the transaction failed.",
+          "helpCenter.article.uncertain.body": "Check the asset transaction history and any transaction ID already shown. Avoid starting a duplicate payment while the outcome is unknown.\n\nFor an Ethereum transfer, use the saved transfer recovery screen when it appears. Review the saved details and choose Continue transfer or Show submitted transfer as offered. This follows the existing operation. If the result remains unclear, ask for help with the network, error message and public transaction ID.",
+          "helpCenter.article.uncertain.keywords": "uncertain broadcast timeout failed retry duplicate ethereum recovery submission",
+          "helpCenter.article.convert.title": "How conversions work",
+          "helpCenter.article.convert.summary": "A conversion exchanges one currency for another through a supported Verus currency basket.",
+          "helpCenter.article.convert.body": "A basket holds reserve currencies. The protocol calculates conversion prices from its reserves and processes conversions together at consensus. The amount you receive depends on the route, amount, reserve balances and fees.\n\nChoose Convert, select what you pay and receive, and review the destination and estimate. A conversion can also deliver to another supported network. Only routes available for the chosen source and destination appear; adding a token does not automatically make it convertible.",
+          "helpCenter.article.convert.keywords": "swap exchange trade convert conversion basket reserve defi pbaas",
+          "helpCenter.article.conversion-estimate.title": "Why the conversion amount can change",
+          "helpCenter.article.conversion-estimate.summary": "The receive amount is an estimate until the network processes the conversion.",
+          "helpCenter.article.conversion-estimate.body": "Other conversions can change the basket reserves between your quote and settlement. The size of your conversion also affects the price. This price movement is often called slippage. The wallet displays the route and estimated result before you approve.\n\nRead the latest review, including conversion and network fees. Refresh an expired review. The fiat value in your portfolio is a separate market estimate and is not the rate used to settle your conversion.",
+          "helpCenter.article.conversion-estimate.keywords": "slippage estimate quote rate price minimum receive final amount basket",
+          "helpCenter.article.cross-chain.title": "How cross-chain transfers work",
+          "helpCenter.article.cross-chain.summary": "A cross-chain transfer moves value from one network to another through a supported route.",
+          "helpCenter.article.cross-chain.body": "The source network first records the transfer. Proof of that transfer then needs to be accepted and processed on the destination network. These stages can take longer than a payment that stays on one chain.\n\nCheck the destination network and receiving currency in Review. A source transaction ID or source confirmation does not establish destination arrival. Use the available explorer details to inspect progress, and allow for additional verification and any requirements of the receiving service. Availability depends on the route and network; this article is not a live bridge-status report.",
+          "helpCenter.article.cross-chain.keywords": "bridge cross chain cross-chain export import destination pbaas delayed",
+          "helpCenter.article.ethereum.title": "Ethereum bridge transfers and approvals",
+          "helpCenter.article.ethereum.summary": "An Ethereum token bridge transfer may need a token approval before the transfer itself.",
+          "helpCenter.article.ethereum.body": "An approval gives the bridge contract permission to use the token amount. It is a separate on-chain operation and can incur gas. An approval transaction alone does not mean the bridge transfer has been submitted or received. Keep enough ETH on the source network for the required steps.\n\nFollow the wallet review and any saved transfer recovery steps. If approval succeeds but the next step fails, continue the saved operation when offered. Bridge routes may be disabled or unavailable in a build or on a network; do not assume every Ethereum token can be bridged.",
+          "helpCenter.article.ethereum.keywords": "eth ethereum erc20 approval allowance gas bridge continue recovery",
+          "helpCenter.article.verusid.title": "What is a VerusID?",
+          "helpCenter.article.verusid.summary": "A VerusID is an on-chain identity with a name, an identity address and rules for who can control it.",
+          "helpCenter.article.verusid.body": "You can use a VerusID as a payment destination on supported routes and with applications that support VerusID. Its primary addresses and signing rules determine who can authorize actions. Revocation and recovery authorities provide separate controls.\n\nA public profile can add images and a description to the identity. Applications choose which identity and profile features they display. A name or profile image does not by itself prove someone is trustworthy.",
+          "helpCenter.article.verusid.keywords": "identity name handle at address ownership account portable",
+          "helpCenter.article.link-identity.title": "Linking and unlinking a VerusID",
+          "helpCenter.article.link-identity.summary": "Linking adds an existing identity to this wallet. It does not register a new identity or transfer ownership.",
+          "helpCenter.article.link-identity.body": "Open VerusID and use Link VerusID to find an existing identity on the selected network. The wallet checks the identity and what this wallet is allowed to do. Seeing an identity or its balance does not necessarily mean you control it.\n\nUnlink removes the local link. The identity, its funds and its public profile remain on-chain. To change the identity itself, an authorized on-chain update is required.",
+          "helpCenter.article.link-identity.keywords": "link unlink find lookup register registration owner read only",
+          "helpCenter.article.public-profile.title": "What becomes public in my profile?",
+          "helpCenter.article.public-profile.summary": "Publishing stores your chosen profile images and description on the public Verus blockchain.",
+          "helpCenter.article.public-profile.body": "Anyone can read published profile data. Apps that support this profile can display it using your VerusID, so the information is not tied to this installation. Each app decides which fields it supports.\n\nLater changes or removals update the current profile; earlier versions remain in blockchain history. Publish only information you intend to make public. Your private contact notes and recovery secrets are not included in a profile update.",
+          "helpCenter.article.public-profile.keywords": "onchain on chain on-chain public permanent privacy profile picture photo avatar header description delete remove history",
+          "helpCenter.article.publish-profile.title": "Editing and publishing a profile",
+          "helpCenter.article.publish-profile.summary": "Edits start as a local draft. Publishing requires review, a network fee and an authorized signature.",
+          "helpCenter.article.publish-profile.body": "Open your linked VerusID and choose Edit profile when available. Add or change the avatar, header image or description, then review the changes and cost. This build publishes profiles for supported VRSCTEST identities only. An active identity and a supported control setup are required.\n\nThe review may offer one update or two, depending on the images. With two updates, the first must confirm before you review and approve the second. Ordinary unpublished drafts last for the current unlock session. A saved continuation after the first update has a separate recovery flow.",
+          "helpCenter.article.publish-profile.keywords": "edit publish profile images avatar header fee draft testnet vrsctest two updates",
+          "helpCenter.article.profile-pending.title": "Why my profile still shows the old version",
+          "helpCenter.article.profile-pending.summary": "The wallet keeps showing the last confirmed profile while an update is waiting for confirmation.",
+          "helpCenter.article.profile-pending.body": "Use the submitted changes and transaction details to see what was sent. A submitted update has not yet established the new confirmed profile. If a confirmation check fails, retry the check before publishing again.\n\nFor a two-update publication, the avatar and description can confirm before the header. Review and approve the remaining header update when offered. Other apps may refresh their profile data at different times, so their display can lag behind the chain.",
+          "helpCenter.article.profile-pending.keywords": "profile pending old image unchanged waiting confirm header second update saved later",
+          "helpCenter.article.profile-unavailable.title": "Why a profile cannot be shown or edited",
+          "helpCenter.article.profile-unavailable.summary": "A missing profile, an unreadable profile and a profile you cannot edit are different states.",
+          "helpCenter.article.profile-unavailable.body": "An identity may have no public profile yet. If profile data cannot be loaded or verified, the wallet can still show core identity details; retry when your connection is available.\n\nEditing requires this wallet to control a supported active identity. Mainnet publishing, token-controlled identities and unsupported signing arrangements are not available in this profile editor. Read the reason shown by the wallet. Linking the identity again does not grant signing permission.",
+          "helpCenter.article.profile-unavailable.keywords": "profile unavailable read only cannot edit missing permission unsupported mainnet",
+          "helpCenter.article.recovery.title": "What should I back up?",
+          "helpCenter.article.recovery.summary": "Keep the recovery secret for every set of funds you use, including a separate Private Verus secret if you created or imported one.",
+          "helpCenter.article.recovery.body": "Open Settings, then Profile and security, to view recovery information. Private Verus recovery information is also accessible from its settings. Follow the wallet prompts and keep an accurate offline copy. A separately imported key may protect only its own addresses.\n\nAnyone with a recovery phrase or spending key can potentially use the funds it controls. Do not share it in chat, screenshots or a support form. Your local password and your recovery secret serve different purposes; knowing the password alone does not restore a lost installation.",
+          "helpCenter.article.recovery.keywords": "backup seed phrase secret private spending key 24 words safety lost device",
+          "helpCenter.article.forgot-password.title": "I cannot unlock my wallet",
+          "helpCenter.article.forgot-password.summary": "A forgotten local password cannot be recovered by the wallet or the community.",
+          "helpCenter.article.forgot-password.body": "If you have the original recovery phrase or another supported recovery secret, import it as a wallet and set a new local password. Choose the import method that matches your backup and use the correct network. You may need to restore a separate Private Verus secret as well.\n\nKeep the old installation and its files until you have checked your restored addresses and balances. Importing keys does not recreate local contacts or notes. VerusID recovery is a separate mechanism and is only useful when the required authority can still authorize recovery.",
+          "helpCenter.article.forgot-password.keywords": "forgot password lost access locked unlock reset restore import device",
+          "helpCenter.article.guard.title": "What VerusID Guard can recover",
+          "helpCenter.article.guard.summary": "VerusID Guard helps an authorized revocation or recovery authority act on a VerusID.",
+          "helpCenter.article.guard.body": "Revocation disables normal use of the identity once the revocation takes effect on-chain. Recovery can assign new primary control to a revoked identity. Both require the appropriate authority and an on-chain transaction; selecting an authority does not help if you also lose access to its keys.\n\nGuard is available from Welcome and Unlock. It does not reset a local password or recover arbitrary Bitcoin, Ethereum or ordinary address funds. If keys are compromised, identity recovery only addresses what that identity controls. Check the identity, authorities, network and proposed changes before approving.",
+          "helpCenter.article.guard.keywords": "revoke recover guard stolen compromised freeze authority identity lost keys",
+          "helpCenter.article.private-verus.title": "Setting up Private Verus",
+          "helpCenter.article.private-verus.summary": "Private Verus uses a shielded address and needs its own recovery material and synchronization.",
+          "helpCenter.article.private-verus.body": "Open Settings, then Private Verus. Depending on your wallet, you can reuse the primary recovery phrase, create a new privacy recovery secret, or import one. If you create or import a separate secret, back it up separately. The primary wallet backup alone may not restore those private funds.\n\nLet private synchronization finish before sending. It scans the chain for funds the private keys can use. A new installation or restored privacy secret may need time to find the full balance. Follow any setup or restart instructions shown by the wallet.",
+          "helpCenter.article.private-verus.keywords": "privacy shielded zs sapling dlight sync synchronize private setup seed",
+          "helpCenter.article.private-send.title": "Private addresses and transaction memos",
+          "helpCenter.article.private-send.summary": "A shielded address protects different information from a public receiving address. Check both ends of the transfer.",
+          "helpCenter.article.private-send.body": "Private Verus sends can target supported shielded or transparent Verus destinations. Sending to a public address exposes the receiving side on-chain. Using the private source does not make a public destination private.\n\nPrivate memos are supported for shielded destinations. The wallet must finish private synchronization and prepare the transaction proof before it can submit. Proof generation can take time. If submission becomes uncertain, check history before trying another send.",
+          "helpCenter.article.private-send.keywords": "memo message shielded transparent zs private proof slow privacy",
+          "helpCenter.article.requests.title": "Reviewing a request from an app",
+          "helpCenter.article.requests.summary": "A request asks the wallet to perform specific actions. Check the requester and each action before approving.",
+          "helpCenter.article.requests.body": "Use Open request for a supported request, or open a supported wallet link. The wallet verifies the request and shows the actions it understands. These can include authentication and identity changes; some actions also require funding and a fee.\n\nA valid signature identifies the signer, but does not make the request desirable. Check the identity, permissions, destination and changes yourself. Reject an unexpected request. The Apps section is not currently an app directory, and Activity has no transaction history in this version; inspect an asset for its transactions.",
+          "helpCenter.article.requests.keywords": "app apps request deeplink link sign signature authentication login permissions activity",
+          "helpCenter.article.contacts.title": "Contacts and public profiles",
+          "helpCenter.article.contacts.summary": "Contacts store recipients and private notes in this wallet. A linked public profile comes from the VerusID.",
+          "helpCenter.article.contacts.body": "Save a contact with a supported address, or associate a VerusID. A public profile can help you recognize the identity; your own note stays local. Check the selected receiving address and network each time you pay.\n\nDeleting a contact removes the local entry. It does not delete the person's VerusID, public profile or blockchain transactions. Contacts are encrypted in this installation and are not recreated just by importing the wallet recovery phrase on another device.",
+          "helpCenter.article.contacts.keywords": "contact address book recipient private note save delete profile",
+          "helpCenter.article.watchlist.title": "What the Watchlist shows",
+          "helpCenter.article.watchlist.summary": "The Watchlist follows public holdings of supported Verus addresses and identities.",
+          "helpCenter.article.watchlist.body": "Adding an address or identity lets you inspect its available public balances. It does not import a key or grant permission to spend. Watched funds are separate from funds this wallet controls.\n\nResults depend on the supported networks and the data that can be reached. An unavailable or partially loaded result is not proof of a zero balance. Private balances cannot be discovered from a public address lookup. Removing a watched entry changes your local list only.",
+          "helpCenter.article.watchlist.keywords": "watch watchlist read only public balance address identity holdings",
+          "helpCenter.article.local-data.title": "What stays on this device?",
+          "helpCenter.article.local-data.summary": "Keys and local wallet records serve a different purpose from public blockchain records.",
+          "helpCenter.article.local-data.body": "Contacts, private notes, watchlist choices and display settings are local wallet data. Publishing a VerusID profile does not publish these records. Importing a recovery secret restores the keys it represents, not a copy of every local setting or contact.\n\nPublic transactions and published profile history remain on their networks. Locking the wallet protects local access; it does not hide information that is already public. Keep the original wallet files until you have verified any move to a new installation.",
+          "helpCenter.article.local-data.keywords": "local data device privacy restore backup sync contacts notes storage public",
+          "helpCenter.article.settings.title": "Display, language and wallet locking",
+          "helpCenter.article.settings.summary": "Settings controls appearance, display currency, language, auto-lock and access to recovery information.",
+          "helpCenter.article.settings.body": "Use Display and language to choose a theme, language or fiat display currency. Changing the display currency changes estimates in the interface; it does not convert your funds.\n\nProfile and security includes the inactivity lock interval and recovery access. Lock ends the current unlocked session, so finish or safely leave your work first. Private Verus has its own setup page. About and support shows the app version, which is useful when reporting a problem.",
+          "helpCenter.article.settings.keywords": "settings theme dark light language fiat euro currency auto lock version",
+          "helpCenter.article.support.title": "Getting help from the community",
+          "helpCenter.article.support.summary": "Describe what you tried, what you expected and the message the wallet showed.",
+          "helpCenter.article.support.body": "Include the app version, network and asset. A public transaction ID can help with a transfer problem, but it can also reveal transaction details. Review screenshots before sharing them and remove anything private.\n\nUse Ask the community to open the Verus Discord. Never send a recovery phrase, private key, spending key or password to someone offering help. Core Help articles work offline; community links, live balances and network lookups require a connection.",
+          "helpCenter.article.support.keywords": "support community discord error problem report bug offline help",
+          "help.link.needHelp": "Get help",
+          "common.clearSearch": "Clear search"
+        },
+        "initialChanges": {},
+        "articles": [
+          {
+            "id": "wallet",
+            "category": "basics",
+            "titleKey": "helpCenter.article.wallet.title",
+            "summaryKey": "helpCenter.article.wallet.summary",
+            "bodyKey": "helpCenter.article.wallet.body"
+          },
+          {
+            "id": "assets",
+            "category": "basics",
+            "titleKey": "helpCenter.article.assets.title",
+            "summaryKey": "helpCenter.article.assets.summary",
+            "bodyKey": "helpCenter.article.assets.body"
+          },
+          {
+            "id": "networks",
+            "category": "basics",
+            "titleKey": "helpCenter.article.networks.title",
+            "summaryKey": "helpCenter.article.networks.summary",
+            "bodyKey": "helpCenter.article.networks.body"
+          },
+          {
+            "id": "receive",
+            "category": "payments",
+            "titleKey": "helpCenter.article.receive.title",
+            "summaryKey": "helpCenter.article.receive.summary",
+            "bodyKey": "helpCenter.article.receive.body"
+          },
+          {
+            "id": "send",
+            "category": "payments",
+            "titleKey": "helpCenter.article.send.title",
+            "summaryKey": "helpCenter.article.send.summary",
+            "bodyKey": "helpCenter.article.send.body"
+          },
+          {
+            "id": "pending",
+            "category": "payments",
+            "titleKey": "helpCenter.article.pending.title",
+            "summaryKey": "helpCenter.article.pending.summary",
+            "bodyKey": "helpCenter.article.pending.body"
+          },
+          {
+            "id": "fees",
+            "category": "payments",
+            "titleKey": "helpCenter.article.fees.title",
+            "summaryKey": "helpCenter.article.fees.summary",
+            "bodyKey": "helpCenter.article.fees.body"
+          },
+          {
+            "id": "uncertain",
+            "category": "payments",
+            "titleKey": "helpCenter.article.uncertain.title",
+            "summaryKey": "helpCenter.article.uncertain.summary",
+            "bodyKey": "helpCenter.article.uncertain.body"
+          },
+          {
+            "id": "convert",
+            "category": "conversions",
+            "titleKey": "helpCenter.article.convert.title",
+            "summaryKey": "helpCenter.article.convert.summary",
+            "bodyKey": "helpCenter.article.convert.body"
+          },
+          {
+            "id": "conversion-estimate",
+            "category": "conversions",
+            "titleKey": "helpCenter.article.conversion-estimate.title",
+            "summaryKey": "helpCenter.article.conversion-estimate.summary",
+            "bodyKey": "helpCenter.article.conversion-estimate.body"
+          },
+          {
+            "id": "cross-chain",
+            "category": "conversions",
+            "titleKey": "helpCenter.article.cross-chain.title",
+            "summaryKey": "helpCenter.article.cross-chain.summary",
+            "bodyKey": "helpCenter.article.cross-chain.body"
+          },
+          {
+            "id": "ethereum",
+            "category": "conversions",
+            "titleKey": "helpCenter.article.ethereum.title",
+            "summaryKey": "helpCenter.article.ethereum.summary",
+            "bodyKey": "helpCenter.article.ethereum.body"
+          },
+          {
+            "id": "verusid",
+            "category": "identity",
+            "titleKey": "helpCenter.article.verusid.title",
+            "summaryKey": "helpCenter.article.verusid.summary",
+            "bodyKey": "helpCenter.article.verusid.body"
+          },
+          {
+            "id": "link-identity",
+            "category": "identity",
+            "titleKey": "helpCenter.article.link-identity.title",
+            "summaryKey": "helpCenter.article.link-identity.summary",
+            "bodyKey": "helpCenter.article.link-identity.body"
+          },
+          {
+            "id": "public-profile",
+            "category": "identity",
+            "titleKey": "helpCenter.article.public-profile.title",
+            "summaryKey": "helpCenter.article.public-profile.summary",
+            "bodyKey": "helpCenter.article.public-profile.body"
+          },
+          {
+            "id": "publish-profile",
+            "category": "identity",
+            "titleKey": "helpCenter.article.publish-profile.title",
+            "summaryKey": "helpCenter.article.publish-profile.summary",
+            "bodyKey": "helpCenter.article.publish-profile.body"
+          },
+          {
+            "id": "profile-pending",
+            "category": "identity",
+            "titleKey": "helpCenter.article.profile-pending.title",
+            "summaryKey": "helpCenter.article.profile-pending.summary",
+            "bodyKey": "helpCenter.article.profile-pending.body"
+          },
+          {
+            "id": "profile-unavailable",
+            "category": "identity",
+            "titleKey": "helpCenter.article.profile-unavailable.title",
+            "summaryKey": "helpCenter.article.profile-unavailable.summary",
+            "bodyKey": "helpCenter.article.profile-unavailable.body"
+          },
+          {
+            "id": "recovery",
+            "category": "security",
+            "titleKey": "helpCenter.article.recovery.title",
+            "summaryKey": "helpCenter.article.recovery.summary",
+            "bodyKey": "helpCenter.article.recovery.body"
+          },
+          {
+            "id": "forgot-password",
+            "category": "security",
+            "titleKey": "helpCenter.article.forgot-password.title",
+            "summaryKey": "helpCenter.article.forgot-password.summary",
+            "bodyKey": "helpCenter.article.forgot-password.body"
+          },
+          {
+            "id": "guard",
+            "category": "security",
+            "titleKey": "helpCenter.article.guard.title",
+            "summaryKey": "helpCenter.article.guard.summary",
+            "bodyKey": "helpCenter.article.guard.body"
+          },
+          {
+            "id": "private-verus",
+            "category": "security",
+            "titleKey": "helpCenter.article.private-verus.title",
+            "summaryKey": "helpCenter.article.private-verus.summary",
+            "bodyKey": "helpCenter.article.private-verus.body"
+          },
+          {
+            "id": "private-send",
+            "category": "security",
+            "titleKey": "helpCenter.article.private-send.title",
+            "summaryKey": "helpCenter.article.private-send.summary",
+            "bodyKey": "helpCenter.article.private-send.body"
+          },
+          {
+            "id": "requests",
+            "category": "security",
+            "titleKey": "helpCenter.article.requests.title",
+            "summaryKey": "helpCenter.article.requests.summary",
+            "bodyKey": "helpCenter.article.requests.body"
+          },
+          {
+            "id": "contacts",
+            "category": "data",
+            "titleKey": "helpCenter.article.contacts.title",
+            "summaryKey": "helpCenter.article.contacts.summary",
+            "bodyKey": "helpCenter.article.contacts.body"
+          },
+          {
+            "id": "watchlist",
+            "category": "data",
+            "titleKey": "helpCenter.article.watchlist.title",
+            "summaryKey": "helpCenter.article.watchlist.summary",
+            "bodyKey": "helpCenter.article.watchlist.body"
+          },
+          {
+            "id": "local-data",
+            "category": "data",
+            "titleKey": "helpCenter.article.local-data.title",
+            "summaryKey": "helpCenter.article.local-data.summary",
+            "bodyKey": "helpCenter.article.local-data.body"
+          },
+          {
+            "id": "settings",
+            "category": "data",
+            "titleKey": "helpCenter.article.settings.title",
+            "summaryKey": "helpCenter.article.settings.summary",
+            "bodyKey": "helpCenter.article.settings.body"
+          },
+          {
+            "id": "support",
+            "category": "data",
+            "titleKey": "helpCenter.article.support.title",
+            "summaryKey": "helpCenter.article.support.summary",
+            "bodyKey": "helpCenter.article.support.body"
+          }
+        ],
+        "categories": [
+          {
+            "id": "basics",
+            "key": "helpCenter.category.basics"
+          },
+          {
+            "id": "payments",
+            "key": "helpCenter.category.payments"
+          },
+          {
+            "id": "conversions",
+            "key": "helpCenter.category.conversions"
+          },
+          {
+            "id": "identity",
+            "key": "helpCenter.category.identity"
+          },
+          {
+            "id": "security",
+            "key": "helpCenter.category.security"
+          },
+          {
+            "id": "data",
+            "key": "helpCenter.category.data"
+          }
+        ],
+        "labels": [
+          {
+            "key": "helpCenter.title",
+            "label": "Help title"
+          },
+          {
+            "key": "helpCenter.search",
+            "label": "Search field label"
+          },
+          {
+            "key": "helpCenter.searchPlaceholder",
+            "label": "Search placeholder"
+          },
+          {
+            "key": "helpCenter.home",
+            "label": "All topics link"
+          },
+          {
+            "key": "helpCenter.suggested",
+            "label": "Suggested articles heading"
+          },
+          {
+            "key": "helpCenter.topics",
+            "label": "Topics navigation label"
+          },
+          {
+            "key": "helpCenter.backWallet",
+            "label": "Return to wallet"
+          },
+          {
+            "key": "helpCenter.backWelcome",
+            "label": "Return to welcome"
+          },
+          {
+            "key": "helpCenter.backUnlock",
+            "label": "Return to sign in"
+          },
+          {
+            "key": "helpCenter.backResults",
+            "label": "Return to results"
+          },
+          {
+            "key": "helpCenter.backArticle",
+            "label": "Return to previous article"
+          },
+          {
+            "key": "helpCenter.backTopics",
+            "label": "Return to topics"
+          },
+          {
+            "key": "helpCenter.results",
+            "label": "Search results heading"
+          },
+          {
+            "key": "helpCenter.resultOne",
+            "label": "One article"
+          },
+          {
+            "key": "helpCenter.resultCount",
+            "label": "Article count — keep {count}"
+          },
+          {
+            "key": "helpCenter.noResults",
+            "label": "No results heading"
+          },
+          {
+            "key": "helpCenter.noResultsHint",
+            "label": "No results suggestion"
+          },
+          {
+            "key": "helpCenter.related",
+            "label": "Related articles heading"
+          },
+          {
+            "key": "helpCenter.community",
+            "label": "Community link"
+          },
+          {
+            "key": "helpCenter.communityHint",
+            "label": "Community link description"
+          },
+          {
+            "key": "helpCenter.source.identity",
+            "label": "VerusID reference link"
+          },
+          {
+            "key": "helpCenter.source.conversions",
+            "label": "Conversions reference link"
+          },
+          {
+            "key": "helpCenter.source.bridge",
+            "label": "Bridge reference link"
+          },
+          {
+            "key": "help.link.needHelp",
+            "label": "Get help link"
+          },
+          {
+            "key": "common.clearSearch",
+            "label": "Clear search label"
+          }
+        ],
+        "copyRevision": "secret-recovery-phrase-2026-09-22",
+        "copyEdits": [
+          {
+            "key": "helpCenter.article.wallet.body",
+            "replacements": [["recovery secret", "Secret Recovery Phrase"]]
+          },
+          {
+            "key": "helpCenter.article.receive.body",
+            "replacements": [["recovery phrases", "Secret Recovery Phrases"]]
+          },
+          {
+            "key": "helpCenter.article.public-profile.body",
+            "replacements": [
+              [
+                "Your private contact notes and recovery secrets",
+                "Your private contact notes, Secret Recovery Phrase and private keys"
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.recovery.summary",
+            "replacements": [
+              [
+                "Keep the recovery secret for every set of funds you use, including a separate Private Verus secret if you created or imported one.",
+                "Back up the Secret Recovery Phrase or private key for each wallet you use. Keep a separate backup for Private Verus if you created or imported a separate Secret Recovery Phrase or spending key."
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.recovery.body",
+            "replacements": [
+              [
+                "a recovery phrase or spending key",
+                "a Secret Recovery Phrase, private key or spending key"
+              ],
+              [
+                "Your local password and your recovery secret serve different purposes; knowing the password alone does not restore a lost installation.",
+                "Your local password unlocks this installation; your Secret Recovery Phrase or private key restores access to the keys. Knowing the password alone does not restore a lost installation."
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.forgot-password.body",
+            "replacements": [
+              [
+                "the original recovery phrase or another supported recovery secret",
+                "the original Secret Recovery Phrase, a private key or a supported custom seed"
+              ],
+              [
+                "a separate Private Verus secret",
+                "a separate Private Verus Secret Recovery Phrase or spending key"
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.private-verus.body",
+            "replacements": [
+              ["the primary recovery phrase", "the primary Secret Recovery Phrase"],
+              [
+                "create a new privacy recovery secret, or import one",
+                "create a new Secret Recovery Phrase for Private Verus, or import an existing Secret Recovery Phrase or spending key"
+              ],
+              ["a separate secret", "a separate Secret Recovery Phrase or spending key"],
+              [
+                "A new installation or restored privacy secret may need time to find the full balance.",
+                "A new installation may need time to find the full balance after you restore a Secret Recovery Phrase or spending key."
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.contacts.body",
+            "replacements": [["the wallet recovery phrase", "the wallet's Secret Recovery Phrase"]]
+          },
+          {
+            "key": "helpCenter.article.local-data.body",
+            "replacements": [
+              [
+                "Importing a recovery secret restores the keys it represents",
+                "Importing a Secret Recovery Phrase or private key restores the keys it represents"
+              ]
+            ]
+          },
+          {
+            "key": "helpCenter.article.support.body",
+            "replacements": [["a recovery phrase", "a Secret Recovery Phrase"]]
+          }
+        ],
+        "destinations": {
+          "manage-assets": {
+            "label": "Manage assets",
+            "section": "overview"
+          },
+          "send": {
+            "label": "Send",
+            "section": "send"
+          },
+          "receive": {
+            "label": "Receive",
+            "section": "receive"
+          },
+          "convert": {
+            "label": "Convert",
+            "section": "conversions"
+          },
+          "verusid": {
+            "label": "VerusID",
+            "section": "identity"
+          },
+          "contacts": {
+            "label": "Contacts",
+            "section": "address-book"
+          },
+          "watchlist": {
+            "label": "Watchlist",
+            "section": "watchlist"
+          },
+          "private-verus": {
+            "label": "Private Verus",
+            "section": "settings",
+            "settingsView": "private-verus"
+          },
+          "display-language": {
+            "label": "Display and language",
+            "section": "settings",
+            "settingsView": "display-language"
+          },
+          "profile-security": {
+            "label": "Profile and security",
+            "section": "settings",
+            "settingsView": "profile-security"
+          },
+          "about-support": {
+            "label": "About and support",
+            "section": "settings",
+            "settingsView": "about-support"
+          }
+        },
+        "baselineLinks": {
+          "helpCenter.article.assets.summary": [
+            {
+              "start": 0,
+              "end": 13,
+              "destination": "manage-assets"
+            }
+          ],
+          "helpCenter.article.receive.body": [
+            {
+              "start": 5,
+              "end": 12,
+              "destination": "receive"
+            }
+          ],
+          "helpCenter.article.send.body": [
+            {
+              "start": 7,
+              "end": 11,
+              "destination": "send"
+            }
+          ],
+          "helpCenter.article.convert.body": [
+            {
+              "start": 232,
+              "end": 239,
+              "destination": "convert"
+            }
+          ],
+          "helpCenter.article.link-identity.body": [
+            {
+              "start": 5,
+              "end": 12,
+              "destination": "verusid"
+            }
+          ],
+          "helpCenter.article.publish-profile.body": [
+            {
+              "start": 17,
+              "end": 24,
+              "destination": "verusid"
+            }
+          ],
+          "helpCenter.article.recovery.body": [
+            {
+              "start": 20,
+              "end": 40,
+              "destination": "profile-security"
+            }
+          ],
+          "helpCenter.article.private-verus.body": [
+            {
+              "start": 20,
+              "end": 33,
+              "destination": "private-verus"
+            }
+          ],
+          "helpCenter.article.contacts.summary": [
+            {
+              "start": 0,
+              "end": 8,
+              "destination": "contacts"
+            }
+          ],
+          "helpCenter.article.watchlist.summary": [
+            {
+              "start": 4,
+              "end": 13,
+              "destination": "watchlist"
+            }
+          ],
+          "helpCenter.article.settings.body": [
+            {
+              "start": 4,
+              "end": 24,
+              "destination": "display-language"
+            },
+            {
+              "start": 178,
+              "end": 198,
+              "destination": "profile-security"
+            },
+            {
+              "start": 341,
+              "end": 354,
+              "destination": "private-verus"
+            },
+            {
+              "start": 379,
+              "end": 396,
+              "destination": "about-support"
+            }
+          ]
+        },
+        "removedArticleIds": ["balances"]
+      }
+    </script>
+    <script>
+      (() => {
+        'use strict';
+        const data = JSON.parse(document.getElementById('help-copy-data').textContent);
+        const root = document.getElementById('help-copy-editor');
+        const get = (id) => root.querySelector('#' + id);
+        const storageKey = 'wallet-help-copy:' + data.sourceId;
+        const baseline = data.baseline;
+        const articleKeys = new Set(
+          // Retain baseline keys so removing an article cannot invalidate saved drafts.
+          Object.keys(baseline).filter((key) =>
+            /^helpCenter\.article\..+\.(title|summary|body)$/.test(key)
+          )
+        );
+        const allowedKeys = new Set([
+          ...articleKeys,
+          ...data.categories.map((c) => c.key),
+          ...data.labels.map((l) => l.key),
+        ]);
+        const linkKeys = new Set([...articleKeys].filter((key) => /\.(summary|body)$/.test(key)));
+        const removedKeys = new Set(
+          [...articleKeys].filter((key) =>
+            data.removedArticleIds.some((id) => key.startsWith('helpCenter.article.' + id + '.'))
+          )
+        );
+        const baselineLinks = Object.fromEntries(
+          [...linkKeys].map((key) => [key, data.baselineLinks[key] ?? []])
+        );
+        let links = structuredClone(baselineLinks);
+        let editorText = '';
+        let selection = { start: 0, end: 0 };
+        let values = reviseLinkedCopy({ ...baseline, ...data.initialChanges }, links);
+        let selected = data.articles[0].id;
+        let mode = 'article';
+        let saveTimer;
+        let recoveryRequired = false;
+        let draftUnsaved = false;
+        let downloadedAt = null;
+        const title = get('article-title');
+        const text = get('article-text');
+        const nav = get('article-nav');
+        const status = get('save-status');
+        const notice = get('notice');
+
+        // Apply this requested wording correction once to older drafts, replacing
+        // only the known phrases so unrelated edits remain intact.
+        function reviseCopy(candidate, appliedRevision) {
+          if (appliedRevision === data.copyRevision) return candidate;
+          for (const edit of data.copyEdits ?? []) {
+            for (const [from, to] of edit.replacements) {
+              candidate[edit.key] = candidate[edit.key].replaceAll(from, to);
+            }
+          }
+          return candidate;
+        }
+
+        function sameLinks(a, b) {
+          return JSON.stringify(a) === JSON.stringify(b);
+        }
+        function changedLinkKeys() {
+          return [...linkKeys].filter((key) => !sameLinks(links[key], baselineLinks[key]));
+        }
+        function changedLinkValues() {
+          return Object.fromEntries(changedLinkKeys().map((key) => [key, links[key]]));
+        }
+        function allChangedKeys() {
+          return [...new Set([...changedKeys(), ...changedLinkKeys()])];
+        }
+        function validateLinks(candidate, value) {
+          if (!Array.isArray(candidate))
+            throw new Error('Invalid screen links. Your draft is unchanged.');
+          let end = 0;
+          return candidate.map((link) => {
+            if (
+              !link ||
+              !Object.hasOwn(data.destinations, link.destination) ||
+              !Number.isInteger(link.start) ||
+              !Number.isInteger(link.end) ||
+              link.start < end ||
+              link.start < 0 ||
+              link.end <= link.start ||
+              link.end > value.length ||
+              !value.slice(link.start, link.end).trim() ||
+              /[\r\n\[\]]/.test(value.slice(link.start, link.end))
+            )
+              throw new Error('Invalid screen links. Your draft is unchanged.');
+            end = link.end;
+            return { start: link.start, end: link.end, destination: link.destination };
+          });
+        }
+        // Edits move explicit ranges. Renaming a linked span retains its target;
+        // deletion or edits crossing its boundary remove it instead of guessing.
+        function moveLinks(before, after, ranges) {
+          let start = 0;
+          while (start < before.length && start < after.length && before[start] === after[start])
+            start++;
+          if (start === before.length && start === after.length) return structuredClone(ranges);
+          let oldEnd = before.length,
+            newEnd = after.length;
+          while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) {
+            oldEnd--;
+            newEnd--;
+          }
+          const delta = newEnd - oldEnd;
+          return ranges.flatMap((link) => {
+            let next;
+            if (
+              oldEnd <= link.start &&
+              !(start === oldEnd && start > link.start && start < link.end)
+            )
+              next = { ...link, start: link.start + delta, end: link.end + delta };
+            else if (start >= link.end) next = { ...link };
+            else if (start >= link.start && oldEnd <= link.end)
+              next = { ...link, end: link.end + delta };
+            if (
+              !next ||
+              next.end <= next.start ||
+              !after.slice(next.start, next.end).trim() ||
+              /[\r\n\[\]]/.test(after.slice(next.start, next.end))
+            )
+              return [];
+            return [next];
+          });
+        }
+        // Older text-only drafts do not declare link edits. Keep default links
+        // only for unchanged fields; never attach a target by matching wording.
+        function legacyLinks(candidate) {
+          return Object.fromEntries(
+            [...linkKeys].map((key) => [
+              key,
+              candidate[key] === baseline[key] ? structuredClone(baselineLinks[key]) : [],
+            ])
+          );
+        }
+        function reviseLinkedCopy(candidate, candidateLinks, revision) {
+          const before = { ...candidate };
+          reviseCopy(candidate, revision);
+          for (const key of linkKeys)
+            candidateLinks[key] = moveLinks(before[key], candidate[key], candidateLinks[key]);
+          return candidate;
+        }
+        function currentArticle() {
+          return data.articles.find((a) => a.id === selected);
+        }
+        function combinedLinks() {
+          const a = currentArticle(),
+            offset = values[a.summaryKey].length + 2;
+          return [
+            ...links[a.summaryKey],
+            ...links[a.bodyKey].map((link) => ({
+              ...link,
+              start: link.start + offset,
+              end: link.end + offset,
+            })),
+          ];
+        }
+        function storeCombinedLinks(ranges) {
+          const a = currentArticle(),
+            offset = values[a.summaryKey].length + 2;
+          links[a.summaryKey] = ranges.filter((link) => link.end <= offset - 2);
+          links[a.bodyKey] = ranges
+            .filter((link) => link.start >= offset)
+            .map((link) => ({ ...link, start: link.start - offset, end: link.end - offset }));
+        }
+        function selectedLink() {
+          return combinedLinks().find(
+            (link) =>
+              selection.start >= link.start &&
+              selection.end <= link.end &&
+              selection.start < link.end
+          );
+        }
+        function updateLinkTools() {
+          const link = selectedLink();
+          const a = currentArticle(),
+            offset = values[a.summaryKey].length + 2;
+          const valid =
+            selection.end > selection.start &&
+            (selection.end <= offset - 2 || selection.start >= offset) &&
+            text.value.slice(selection.start, selection.end).trim() &&
+            !/[\r\n\[\]]/.test(text.value.slice(selection.start, selection.end));
+          get('apply-link').disabled = !link && !valid;
+          get('apply-link').textContent = link ? 'Update link' : 'Add link';
+          get('remove-link').hidden = !link;
+          if (link) get('link-destination').value = link.destination;
+          get('link-hint').textContent = link
+            ? 'Linked to ' +
+              data.destinations[link.destination].label +
+              '. Change the screen or remove the link.'
+            : valid
+              ? 'Choose the screen for the selected text.'
+              : 'Select text within one paragraph to link to a screen.';
+        }
+        function renderLinks() {
+          const list = get('article-links');
+          list.replaceChildren();
+          for (const link of combinedLinks()) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent =
+              text.value.slice(link.start, link.end) +
+              ' → ' +
+              data.destinations[link.destination].label;
+            button.addEventListener('click', () => {
+              text.focus();
+              text.setSelectionRange(link.start, link.end);
+              selection = { start: link.start, end: link.end };
+              updateLinkTools();
+            });
+            list.append(button);
+          }
+          updateLinkTools();
+        }
+        for (const [id, destination] of Object.entries(data.destinations)) {
+          const option = document.createElement('option');
+          option.value = id;
+          option.textContent = destination.label;
+          get('link-destination').append(option);
+        }
+        for (const event of ['select', 'keyup', 'mouseup', 'focus'])
+          text.addEventListener(event, () => {
+            selection = { start: text.selectionStart, end: text.selectionEnd };
+            updateLinkTools();
+          });
+        get('apply-link').addEventListener('click', () => {
+          const existing = selectedLink();
+          const range = existing ?? selection;
+          const destination = get('link-destination').value;
+          if (!Object.hasOwn(data.destinations, destination) || get('apply-link').disabled) return;
+          storeCombinedLinks(
+            [
+              ...combinedLinks().filter(
+                (link) => link.end <= range.start || link.start >= range.end
+              ),
+              { start: range.start, end: range.end, destination },
+            ].sort((a, b) => a.start - b.start)
+          );
+          change();
+          renderLinks();
+        });
+        get('remove-link').addEventListener('click', () => {
+          const existing = selectedLink();
+          if (!existing) return;
+          storeCombinedLinks(combinedLinks().filter((link) => link.start !== existing.start));
+          change();
+          renderLinks();
+          text.focus();
+        });
+
+        function changedKeys() {
+          return [...allowedKeys].filter((key) => values[key] !== baseline[key]);
+        }
+        function changedValues() {
+          return Object.fromEntries(changedKeys().map((key) => [key, values[key]]));
+        }
+        function validChanges(candidate) {
+          if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+          return Object.entries(candidate).every(
+            ([key, value]) => allowedKeys.has(key) && typeof value === 'string'
+          );
+        }
+        function showNotice(message) {
+          notice.textContent = message;
+          notice.hidden = false;
+        }
+        function time() {
+          return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        function updateStatus() {
+          const changed = allChangedKeys();
+          const articles = data.articles.filter((a) =>
+            [a.titleKey, a.summaryKey, a.bodyKey].some((key) => changed.includes(key))
+          ).length;
+          const labels = changed.filter((key) => !articleKeys.has(key)).length;
+          const parts = [];
+          if (articles)
+            parts.push(articles + (articles === 1 ? ' article changed' : ' articles changed'));
+          if (labels) parts.push(labels + (labels === 1 ? ' label changed' : ' labels changed'));
+          if (changed.some((key) => removedKeys.has(key)))
+            parts.push('Removed article edits preserved');
+          get('change-count').textContent = parts.join(' · ') || 'No changes yet';
+          get('download-edits').disabled = !changed.length;
+        }
+        function saveDraft() {
+          clearTimeout(saveTimer);
+          saveTimer = undefined;
+          if (recoveryRequired) {
+            status.textContent = 'Browser saving unavailable · Download edits to keep your changes';
+            return;
+          }
+          try {
+            localStorage.setItem(
+              storageKey,
+              JSON.stringify({
+                version: 2,
+                sourceId: data.sourceId,
+                copyRevision: data.copyRevision,
+                changes: changedValues(),
+                linkChanges: changedLinkValues(),
+                selected,
+                mode,
+              })
+            );
+            draftUnsaved = false;
+            status.textContent = 'Saved in this browser · ' + time();
+          } catch {
+            draftUnsaved = true;
+            status.textContent = 'Browser saving unavailable · Download edits to keep your changes';
+          }
+        }
+        function change() {
+          downloadedAt = null;
+          draftUnsaved = true;
+          updateStatus();
+          status.textContent = 'Saving in this browser…';
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveDraft, 250);
+          renderNav();
+        }
+        function renderNav() {
+          const scroll = nav.scrollTop;
+          nav.replaceChildren();
+          const query = get('search').value.trim().toLowerCase();
+          let count = 0;
+          for (const category of data.categories) {
+            const articles = data.articles.filter(
+              (a) =>
+                a.category === category.id &&
+                (values[a.titleKey] + ' ' + values[a.summaryKey] + ' ' + values[a.bodyKey])
+                  .toLowerCase()
+                  .includes(query)
+            );
+            if (!articles.length) continue;
+            const section = document.createElement('section');
+            section.className = 'category';
+            const heading = document.createElement('h2');
+            heading.textContent = values[category.key];
+            section.append(heading);
+            for (const article of articles) {
+              count++;
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'article-link';
+              button.dataset.article = article.id;
+              if (mode === 'article' && selected === article.id)
+                button.setAttribute('aria-current', 'page');
+              const label = document.createElement('span');
+              label.textContent = values[article.titleKey] || 'Untitled article';
+              button.append(label);
+              if (
+                [article.titleKey, article.summaryKey, article.bodyKey].some(
+                  (key) =>
+                    values[key] !== baseline[key] ||
+                    (linkKeys.has(key) && !sameLinks(links[key], baselineLinks[key]))
+                )
+              ) {
+                const dot = document.createElement('span');
+                dot.className = 'changed-mark';
+                dot.setAttribute('aria-label', 'Edited');
+                button.append(dot);
+              }
+              button.addEventListener('click', () => selectArticle(article.id));
+              section.append(button);
+            }
+            nav.append(section);
+          }
+          if (!count) {
+            const empty = document.createElement('p');
+            empty.className = 'empty';
+            empty.textContent = 'No matching articles';
+            nav.append(empty);
+          }
+          nav.scrollTop = scroll;
+          for (const [id, target] of [
+            ['section-names', 'categories'],
+            ['help-labels', 'labels'],
+          ]) {
+            if (mode === target) get(id).setAttribute('aria-current', 'page');
+            else get(id).removeAttribute('aria-current');
+          }
+        }
+        function renderEditor(focus = false) {
+          get('article-editor').hidden = mode !== 'article';
+          get('labels-editor').hidden = mode === 'article';
+          if (mode === 'article') {
+            const article = data.articles.find((a) => a.id === selected);
+            title.value = values[article.titleKey];
+            text.value = [values[article.summaryKey], values[article.bodyKey]].join('\n\n');
+            editorText = text.value;
+            selection = { start: 0, end: 0 };
+            renderLinks();
+            const index = data.articles.indexOf(article);
+            get('previous').disabled = index === 0;
+            get('next').disabled = index === data.articles.length - 1;
+            if (focus) title.focus({ preventScroll: true });
+          } else {
+            get('labels-heading').textContent =
+              mode === 'categories' ? 'Section names' : 'Help labels';
+            const fields = get('label-fields');
+            fields.replaceChildren();
+            const list =
+              mode === 'categories'
+                ? data.categories.map((c) => ({ key: c.key, label: baseline[c.key] }))
+                : data.labels;
+            list.forEach((field, index) => {
+              const wrapper = document.createElement('div');
+              const label = document.createElement('label');
+              label.htmlFor = 'copy-field-' + index;
+              label.textContent = field.label;
+              const input = document.createElement('input');
+              input.id = label.htmlFor;
+              input.value = values[field.key];
+              input.autocomplete = 'off';
+              input.addEventListener('input', () => {
+                values[field.key] = input.value;
+                change();
+              });
+              wrapper.append(label, input);
+              fields.append(wrapper);
+            });
+            if (focus) get('labels-heading').focus({ preventScroll: true });
+          }
+          root.querySelector('main').scrollTop = 0;
+        }
+        function selectArticle(id) {
+          selected = id;
+          mode = 'article';
+          renderNav();
+          renderEditor(true);
+        }
+        title.addEventListener('input', () => {
+          const article = data.articles.find((a) => a.id === selected);
+          values[article.titleKey] = title.value;
+          change();
+        });
+        text.addEventListener('input', () => {
+          const article = currentArticle();
+          const nextText = text.value.replace(/\r\n?/g, '\n');
+          const nextLinks = moveLinks(editorText, nextText, combinedLinks());
+          const split = nextText.indexOf('\n\n');
+          values[article.summaryKey] = split < 0 ? nextText : nextText.slice(0, split);
+          values[article.bodyKey] = split < 0 ? '' : nextText.slice(split + 2);
+          storeCombinedLinks(nextLinks);
+          editorText = nextText;
+          selection = { start: text.selectionStart, end: text.selectionEnd };
+          change();
+          renderLinks();
+        });
+        get('search').addEventListener('input', renderNav);
+        get('previous').addEventListener('click', () => {
+          const index = data.articles.findIndex((a) => a.id === selected);
+          if (index > 0) selectArticle(data.articles[index - 1].id);
+        });
+        get('next').addEventListener('click', () => {
+          const index = data.articles.findIndex((a) => a.id === selected);
+          if (index < data.articles.length - 1) selectArticle(data.articles[index + 1].id);
+        });
+        for (const [id, target] of [
+          ['section-names', 'categories'],
+          ['help-labels', 'labels'],
+        ])
+          get(id).addEventListener('click', () => {
+            mode = target;
+            renderNav();
+            renderEditor(true);
+          });
+
+        get('download-edits').addEventListener('click', () => {
+          const changes = changedKeys().map((key) => ({
+            key,
+            before: baseline[key],
+            after: values[key],
+          }));
+          const linkChanges = changedLinkKeys().map((key) => ({
+            key,
+            before: baselineLinks[key],
+            after: links[key],
+          }));
+          if (!changes.length && !linkChanges.length) return;
+          if (!values['helpCenter.resultCount'].includes('{count}')) {
+            showNotice('Keep {count} in the article count label so the app can insert the number.');
+            return;
+          }
+          const output = {
+            format: 'wallet-help-edits',
+            version: 2,
+            locale: 'en',
+            sourceId: data.sourceId,
+            copyRevision: data.copyRevision,
+            capturedOn: data.capturedOn,
+            exportedAt: new Date().toISOString(),
+            removedArticleIds: data.removedArticleIds,
+            translationInstruction:
+              'Apply the English edits and update the other supported app languages.',
+            changes,
+            linkChanges,
+          };
+          const blob = new Blob([JSON.stringify(output, null, 2) + '\n'], {
+            type: 'application/json',
+          });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'wallet-help-edits.json';
+          document.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          downloadedAt = new Date().toISOString();
+          status.textContent =
+            'Download requested · Give the edits file to Codex to apply and translate';
+        });
+        get('load-edits').addEventListener('click', () => get('import-file').click());
+        get('import-file').addEventListener('change', async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          try {
+            if (file.size > 2 * 1024 * 1024) throw new Error('This edits file is too large.');
+            const imported = JSON.parse(await file.text());
+            if (
+              imported.format !== 'wallet-help-edits' ||
+              ![1, 2].includes(imported.version) ||
+              imported.locale !== 'en' ||
+              imported.sourceId !== data.sourceId ||
+              !Array.isArray(imported.changes)
+            )
+              throw new Error(
+                'This edits file belongs to a different version. Give it to Codex to reconcile.'
+              );
+            const next = { ...baseline };
+            const seen = new Set();
+            for (const edit of imported.changes) {
+              if (
+                !edit ||
+                !allowedKeys.has(edit.key) ||
+                seen.has(edit.key) ||
+                edit.before !== baseline[edit.key] ||
+                typeof edit.after !== 'string'
+              )
+                throw new Error(
+                  'This file contains an invalid or conflicting change. Your current draft is unchanged.'
+                );
+              seen.add(edit.key);
+              next[edit.key] = edit.after;
+            }
+            const nextLinks =
+              imported.version === 1 ? legacyLinks(next) : structuredClone(baselineLinks);
+            if (imported.version === 2) {
+              if (!Array.isArray(imported.linkChanges))
+                throw new Error('Missing screen link metadata. Your draft is unchanged.');
+              const seenLinks = new Set();
+              for (const edit of imported.linkChanges) {
+                if (
+                  !edit ||
+                  !linkKeys.has(edit.key) ||
+                  seenLinks.has(edit.key) ||
+                  !sameLinks(edit.before, baselineLinks[edit.key])
+                )
+                  throw new Error('Conflicting screen links. Your draft is unchanged.');
+                seenLinks.add(edit.key);
+                nextLinks[edit.key] = validateLinks(edit.after, next[edit.key]);
+              }
+              for (const key of linkKeys) nextLinks[key] = validateLinks(nextLinks[key], next[key]);
+            }
+            if (
+              allChangedKeys().length &&
+              !window.confirm(
+                'Replace your current browser draft with this edits file? Download your current edits first if you want to keep both.'
+              )
+            )
+              return;
+            values = reviseLinkedCopy(next, nextLinks, imported.copyRevision);
+            links = nextLinks;
+            recoveryRequired = false;
+            notice.hidden = true;
+            downloadedAt = imported.exportedAt ?? null;
+            saveDraft();
+            updateStatus();
+            renderNav();
+            renderEditor();
+          } catch (error) {
+            showNotice(
+              error instanceof SyntaxError
+                ? 'This is not a readable edits file. Your draft is unchanged.'
+                : error.message
+            );
+          } finally {
+            event.target.value = '';
+          }
+        });
+
+        try {
+          const stored = localStorage.getItem(storageKey);
+          if (stored) {
+            const draft = JSON.parse(stored);
+            if (
+              ![1, 2].includes(draft.version) ||
+              draft.sourceId !== data.sourceId ||
+              !validChanges(draft.changes)
+            )
+              throw new Error('Invalid saved draft');
+            const candidate = { ...baseline, ...draft.changes };
+            const candidateLinks =
+              draft.version === 1 ? legacyLinks(candidate) : structuredClone(baselineLinks);
+            if (draft.version === 2) {
+              if (
+                !draft.linkChanges ||
+                typeof draft.linkChanges !== 'object' ||
+                Array.isArray(draft.linkChanges)
+              )
+                throw new Error('Invalid link draft');
+              for (const [key, ranges] of Object.entries(draft.linkChanges)) {
+                if (!linkKeys.has(key)) throw new Error('Unknown link field');
+                candidateLinks[key] = validateLinks(ranges, candidate[key]);
+              }
+              for (const key of linkKeys)
+                candidateLinks[key] = validateLinks(candidateLinks[key], candidate[key]);
+            }
+            values = reviseLinkedCopy(candidate, candidateLinks, draft.copyRevision);
+            links = candidateLinks;
+            if (data.articles.some((a) => a.id === draft.selected)) selected = draft.selected;
+            if (['article', 'categories', 'labels'].includes(draft.mode)) mode = draft.mode;
+            status.textContent = 'Browser draft restored';
+          }
+        } catch {
+          recoveryRequired = true;
+          showNotice(
+            'The browser draft could not be restored. Download any new edits to keep them; the existing browser draft will not be overwritten.'
+          );
+          status.textContent = 'Browser saving unavailable · Use Download edits';
+        }
+        window.addEventListener('pagehide', () => {
+          if (saveTimer) saveDraft();
+        });
+        window.addEventListener('beforeunload', (event) => {
+          if (allChangedKeys().length && draftUnsaved && !downloadedAt) {
+            event.preventDefault();
+            event.returnValue = '';
+          }
+        });
+        renderNav();
+        renderEditor();
+        updateStatus();
+      })();
+    </script>
+  </body>
+</html>

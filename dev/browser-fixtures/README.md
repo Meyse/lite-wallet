@@ -81,3 +81,11 @@ broadcast. Other fixture signing policies above are unchanged. Browser
 file-input attachment does not exercise the native OS chooser. Fee grouping,
 image quality and real confirmation still require the native VRSCTEST acceptance
 run.
+
+## Help center
+
+`help.html` renders Help, its sidebar entry and the pre-unlock link using a
+synthetic draft. It uses a 920×620 iframe by default; `?frame` uses the browser
+viewport. Add `theme=dark` or `locale=nl`. It makes no wallet calls and cannot
+submit transactions. See
+[the Help reference](../../docs/references/help-center.md).

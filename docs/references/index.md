@@ -27,6 +27,8 @@ External references and source repos used for parity or implementation checks.
 - Disposable testnet wallet automation:
   [`./test-wallet-keychain.md`](./test-wallet-keychain.md)
 
+- Wallet Help content and navigation: [`help-center.md`](./help-center.md).
+
 ## Notes
 
 - Prefer primary source code over stale copied notes.
