@@ -44,6 +44,10 @@ Start the wallet normally with the repository-pinned `pnpm tauri dev`. Select
 - `preflight` checks testnet metadata, the exact running development executable,
   one window/web area, the visible wallet name, and the sole writable secure
   `unlock-password` field. It does not access Keychain.
+- Immediately after launch, the unlock page can be visible before WebKit exposes
+  its accessibility web area. If `preflight` reports `web areas: 0`, allow a
+  brief bounded readiness retry on the unchanged hidden-password unlock screen;
+  run `unlock` only after `preflight` passes. Do not relax the screen checks.
 - `unlock` rechecks the binding and screen after Keychain retrieval, brings the
   exact wallet app and secure field into focus, and types using native keyboard
   events sent only to that wallet process. Before every key it rechecks account,

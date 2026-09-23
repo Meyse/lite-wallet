@@ -40,6 +40,14 @@ Use this file as a table of contents, not as an encyclopedia.
   [Keychain helper runbook](docs/references/test-wallet-keychain.md).
 - Never request or print its password in chat, arguments, environment variables,
   logs, or screenshots. Use the native setup dialog and guarded helper commands.
+- For native tests, check the helper's `status`, wait for its `preflight` to pass
+  on the selected hidden-password unlock screen, then use `unlock` and verify
+  the wallet UI. Repeat this after an automatic lock instead of asking the owner
+  to unlock the disposable wallet manually. A newly launched webview may need a
+  short readiness retry before Accessibility exposes its secure field.
+- If the dedicated item is missing, the binding changes, or macOS denies access,
+  report the specific blocker. Never bypass the helper's guards or request the
+  password in chat; one-time setup uses the helper's native masked dialog.
 
 ## Primary maps
 
