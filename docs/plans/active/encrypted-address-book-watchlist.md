@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-23
+last_reviewed: 2026-09-24
 ---
 
 # Plan: encrypted Address Book and Watchlist storage
@@ -8,16 +8,16 @@ last_reviewed: 2026-09-23
 - Status: Watchlist storage migration implemented in the 2026-09-23 candidate;
   native wallet validation and independent security review pending
 - Owner: lite-wallet-team
-- Last updated: 2026-09-23
+- Last updated: 2026-09-24
 - Research baseline: `main` at `88fb350`
-- The 2026-09-19 plan-only authorization was superseded by the user's
-  2026-09-23 request to encrypt Watchlist entries and local aliases.
+- The 2026-09-19 plan-only authorization was superseded by the user's 2026-09-23
+  request to encrypt Watchlist entries and local aliases.
 
 The Watchlist implementation uses an account-scoped Stronghold record for both
-networks, verifies a migration write before scrubbing both plaintext fields,
-and routes watched-address consumers through that record. Focused synthetic
-tests cover migration, corruption, wrong keys, reload, deletion, and an
-interrupted legacy-key promotion. Native wallet validation remains open.
+networks, verifies a migration write before scrubbing both plaintext fields, and
+routes watched-address consumers through that record. Focused synthetic tests
+cover migration, corruption, wrong keys, reload, deletion, and an interrupted
+legacy-key promotion. Native wallet validation remains open.
 
 ## Contacts implementation overlap (2026-09-19)
 
@@ -540,10 +540,16 @@ tests must prove storage and actual waiting behavior separately.
 
 ### What is known and what remains unmeasured
 
-The reported 5–10 seconds is user-observed. Source inspection identifies
-redundant decryptions, sequential validation IPC, synchronous crypto on an async
-worker and Watchlist network work before persistence. It does not establish
-which dominates on the user's running build or how fast the result will be.
+The reported 5–10 seconds is user-observed. Current source shows an extra
+encrypted read before editing a contact whenever `identities` is present,
+including an empty list. Watchlist detail also forced a fresh encrypted Contacts
+read for every membership check. Contact deletion has no network request.
+Stronghold Contacts mutations already run in a blocking worker under a writer
+gate, with one snapshot load and an atomic durable commit per mutation. The
+native disposable-wallet measurement below shows that snapshot load and commit
+dominate this debug build. The user's release build has not been timed.
+Watchlist membership addition has separate network work; it is not the
+Watchlist-to-Contacts path investigated here.
 
 Do not reuse old debug timings as a current baseline. Record build profile,
 dependency versions, machine, crypto settings, contact count, endpoint count,
@@ -555,6 +561,25 @@ in this repository. Do not lower crypto settings to meet a speed target.
 Use disposable synthetic accounts in task-owned directories. For native tests
 with the designated disposable wallet, follow the existing Keychain runbook;
 never expose its password in arguments, logs or screenshots.
+
+For local timing, launch a **new task-owned app process** with
+`LITE_WALLET_CONTACT_PERF=1 pnpm tauri dev`. Rust emits `[CONTACT_PERF]` lines
+for the Contacts command, writer-gate wait, blocking-worker wait, snapshot load,
+mutation/serialization, and durable commit. Save also separates the retained
+identity pre-read and identity resolution. In that app's WebView developer
+console, set `sessionStorage.setItem('lite-wallet-contact-perf', '1')` before
+the action to see UI busy-frame, validation, mutation-response and result-frame
+timings. These opt-in logs contain only fixed operation/phase labels, an
+anonymous process-local token and duration. Filter to `[CONTACT_PERF]`; other
+application logs are outside this diagnostic contract. Do not restart or measure
+an existing process whose build predates the instrumentation.
+
+If a direct form create loses its response after a possible commit, the next
+Save refreshes encrypted Contacts. A matching endpoint is shown as the existing
+duplicate error, with the draft retained; the app cannot tell whether it came
+from that attempt or was already present. Delete Retry reads the contact ID
+before issuing another delete, and a confirmed absence resolves the dialog.
+Neither case treats an unconfirmed command response as proof of success.
 
 Measure separate intervals for:
 
@@ -583,21 +608,92 @@ typical and bounded larger fixtures; single/multiple endpoints;
 save/edit/delete; last-used racing an edit; cold/warm reads; offline and slow
 RPC conditions.
 
+### Native measurement and decision gate (2026-09-24)
+
+Three synthetic receiving-address contacts were created and deleted through the
+real macOS Tauri WebView and Rust backend in the designated disposable testnet
+wallet. The guarded Keychain helper passed preflight and unlock. The fresh debug
+build used Stronghold work factor 15 and the existing debug-only WebDriver
+feature on loopback. The test app and both local listeners were stopped
+afterward. No wallet password, address, name, note or account identifier was
+retained in the timing output. Screenshots were skipped because the native
+Contacts list could include existing wallet data.
+
+| Phase                              | Three-trial median |                        Range |
+| ---------------------------------- | -----------------: | ---------------------------: |
+| UI create action to completed view |            5.713 s |                5.612–5.719 s |
+| UI delete action to closed dialog  |            5.912 s |                5.911–5.912 s |
+| Save snapshot load                 |            2.802 s |                2.798–2.831 s |
+| Save durable commit                |            2.811 s |                2.796–2.825 s |
+| Delete snapshot load               |            2.816 s |                2.808–2.829 s |
+| Delete durable commit              |            2.808 s |                2.797–2.813 s |
+| First rendered busy feedback       |           25–29 ms | 16–32 ms across both actions |
+
+The gate and blocking-worker waits were approximately zero, and address
+classification and snapshot mutation were negligible in these trials. One
+initial Contacts list read took 2.905 s. These are post-change measurements:
+there is no native pre-change baseline to quantify the cache or edit-read
+improvement. Contact count, snapshot size, stored snapshot work factor and
+release-equivalent timings were not captured, so the results apply to this
+fixture and build only.
+
+**Decision:** the simple warm delete remains several seconds. Frontend feedback
+and fewer redundant reads cannot remove the measured Stronghold load/commit
+cost. Retaining a loaded Stronghold instance might remove the load portion but
+would still leave a roughly 2.8-second commit in this build. A separate
+authenticated encrypted metadata file with a random key protected by Stronghold
+is the next architecture candidate for genuinely fast durable Contacts writes.
+It needs its own security, migration, recovery, backup and cross-platform review
+before implementation; do not weaken the current work factor or skip durable
+sync to meet a latency target.
+
+### Proposed fast encrypted Contacts storage (requires a separate decision)
+
+Keep the public Contacts commands and data model stable. Move only the Contacts
+record behind a new storage implementation; Watchlist membership stays on its
+current Stronghold path until measured separately.
+
+1. Generate an independent random 256-bit Contacts key per account, protect it
+   in a Stronghold record, and load it into zeroizing, account- and
+   session-scoped memory. Clear it on lock. Do not derive it from the spending
+   key or keep it in browser storage.
+2. Encrypt each complete Contacts generation with authenticated encryption,
+   using a fresh random nonce and associated data binding the account, record
+   purpose and format version. Bound the file size and reject corruption,
+   unknown versions and key mismatches. Reuse the existing private-cache file
+   writer's permission and atomic-write patterns where applicable, without
+   sharing its key.
+3. Keep one serialized writer per account, an exclusive cross-process lock, and
+   the current session publication guard. A successful Save/Delete response
+   still follows an encrypted temporary write, file sync, rename and directory
+   sync. Failed or interrupted publication must reconcile before retry.
+4. On first use, migrate the legacy Stronghold Contacts snapshot under the same
+   gate: decrypt, write the new encrypted file, read it back, then durably mark
+   the new format canonical in the protected key record before accepting writes.
+   A crash before that marker can restart migration from the legacy snapshot; a
+   crash after it must use the new file. After that point, a missing or corrupt
+   new file must fail closed rather than silently restoring stale legacy
+   contacts. Define a paired backup and recovery procedure for the key record
+   and encrypted file before rollout.
+5. Prove wrong-key/tamper failure, nonce uniqueness, crash points around
+   migration and replacement, concurrent processes, lock/reopen, and backup
+   restore. Require independent security review and native tests on macOS,
+   Windows and Linux. A prototype should demonstrate a durable save/delete
+   median under 500 ms and p95 under 1 s on the same reference machine before
+   replacing the current store; these are targets, not measured results.
+
 ### Ranked opportunities
 
-| Priority                       | Opportunity                                                                     | Expected effect and proof needed                                                                                             |
-| ------------------------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| First implementation           | One loaded Stronghold instance per mutation                                     | Removes the second existing-file load/decrypt; prove operation count and measure latency                                     |
-| First implementation           | Bounded blocking-worker execution                                               | Improves scheduler responsiveness; may not reduce crypto wall time                                                           |
-| First implementation           | Serialize complete mutations                                                    | Prevents lost updates and duplicate/conflicting writes; measure queue time separately                                        |
-| First implementation           | Single backend endpoint classification/validation                               | Removes repeated IPC; do not claim it explains several seconds without timings                                               |
-| First implementation           | Skip unchanged mutations                                                        | Avoids unnecessary encrypted commits; preserve timestamp and duplicate semantics                                             |
-| First implementation           | Persist Watchlist before balance enrichment                                     | Keeps network slowness out of durable-save latency; verify saved entries survive RPC failure                                 |
-| After baseline                 | Coalesce/cache reads per unlock                                                 | Avoids repeated decryptions for lists/discovery; adds invalidation and memory-lifetime obligations                           |
-| After baseline                 | Reuse a backend-resolved Watchlist target                                       | Avoids duplicate lookup; requires a session/query-bound trusted handle and expiry                                            |
-| After baseline                 | Retain a loaded Stronghold instance per unlock                                  | Could remove further reads; requires failure rollback, revision discipline and clear-on-lock ownership                       |
-| Later, only if needed          | Coalesce last-used updates                                                      | Could reduce metadata writes; explicitly decide acceptable timestamp loss on crash; never defer explicit Save/Delete success |
-| Separate architecture decision | Authenticated encrypted metadata file with a random key protected by Stronghold | Could avoid per-commit snapshot KDF costs; larger format/key/migration/recovery scope, not part of this first integration    |
+| Priority                       | Opportunity                                                                     | Expected effect and proof needed                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Current pass                   | Skip retained-identity pre-read for an explicit empty identity list             | Removes one encrypted pass from ordinary address-only edits while preserving `Some([])` removal semantics           |
+| Current pass                   | Use and reconcile the session Contacts cache for routine membership checks      | Removes forced reads from warm Watchlist and identity-add paths; verify lock, races and uncertain errors            |
+| Already present                | One loaded Stronghold instance, blocking worker and serialized durable writes   | Preserve these properties; distinguish queue, snapshot load and commit in actual timings                            |
+| After native baseline          | Consolidate endpoint classification/validation IPC                              | Consider only if it is material in measured saves; backend normalization remains authoritative                      |
+| After native baseline          | Skip unchanged mutations or optimize last-used writes                           | Preserve timestamp, failure and durability semantics; measure write frequency and cost first                        |
+| After native baseline          | Reuse a backend-resolved Watchlist target or change Watchlist enrichment order  | Separate Watchlist membership add from Watchlist-to-Contacts; measure its own network and storage intervals         |
+| Later, only if needed          | Retain a loaded Stronghold instance per unlock                                  | Could remove further reads; requires failure rollback, revision discipline and clear-on-lock ownership              |
+| Separate architecture decision | Authenticated encrypted metadata file with a random key protected by Stronghold | Could avoid per-commit snapshot KDF costs; larger format/key/migration/recovery scope, not part of this integration |
 
 The last option is technically plausible because the repository already uses
 authenticated encryption for a private cache. It is not a drop-in reuse: do not

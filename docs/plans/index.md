@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-21
+last_reviewed: 2026-09-24
 ---
 
 # Plans index
@@ -17,8 +17,11 @@ Plans are first-class artifacts for multi-step work.
 
 - Action wait feedback across user-started operations (proposed):
   [`./active/action-wait-feedback.md`](./active/action-wait-feedback.md)
-- Encrypted Address Book and Watchlist (proposed; implementation not started):
+- Encrypted Address Book and Watchlist (scoped speed changes implemented;
+  broader work remains active):
   [`./active/encrypted-address-book-watchlist.md`](./active/encrypted-address-book-watchlist.md)
+- Fast encrypted Contacts storage (deferred handoff after native timing):
+  [`./active/fast-encrypted-contacts-storage.md`](./active/fast-encrypted-contacts-storage.md)
 - Remaining settings designs from Paper (ready for implementation):
   [`./active/settings-remaining-paper-integration.md`](./active/settings-remaining-paper-integration.md)
 - Verus and Noble dependency upgrade (maintenance integration; generic-request
