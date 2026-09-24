@@ -88,15 +88,23 @@
       onSaved(matches[0]);
       return;
     }
-    if ($contactsLoadState !== 'ready') {
-      await loadContacts(true).catch(() => {});
-      return;
-    }
+    const savingIdentity = resolved;
     const request = generation;
+    const session = $contactSession;
+    const retryingSave = saveState === 'error';
     saveState = 'saving';
     error = '';
     try {
-      const contact = await addIdentityContact(resolved);
+      if ($contactsLoadState !== 'ready') {
+        const contacts = await loadContacts();
+        if (request !== generation || resolved !== savingIdentity || $contactSession !== session)
+          return;
+        if (matchingContacts(contacts, savingIdentity).length || !retryingSave) {
+          saveState = 'idle';
+          return;
+        }
+      }
+      const contact = await addIdentityContact(savingIdentity);
       if (request === generation) {
         saved = contact;
         saveState = 'saved';
@@ -146,7 +154,9 @@
           ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved'
           : ''}"
         aria-busy={saving}
-        aria-disabled={saving || saveState === 'saved' || $contactsLoadState !== 'ready'}
+        aria-disabled={saving ||
+          saveState === 'saved' ||
+          ($contactsLoadState !== 'ready' && saveState !== 'error')}
         onclick={save}
       >
         {#if saving}<Spinner class="size-3.5" />

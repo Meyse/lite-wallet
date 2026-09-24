@@ -253,6 +253,32 @@ describe('interactive identity preview', () => {
     await settle();
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
   });
+  it('reconciles a lost save response with one retry click and does not save twice', async () => {
+    let persisted: AddressBookContact[] = [];
+    let saves = 0;
+    invoke.mockImplementation((command: string) => {
+      if (command === 'get_identity_profile') return Promise.resolve(profile);
+      if (command === 'list_address_book_contacts') return Promise.resolve(persisted);
+      if (command === 'save_address_book_contact') {
+        saves++;
+        persisted = [contact];
+        return Promise.reject(new Error('reply lost'));
+      }
+      return Promise.resolve(null);
+    });
+    await render();
+    const trigger = document.querySelector<HTMLButtonElement>('[data-popover-trigger]')!;
+    trigger.click();
+    await settle();
+    button('Add to contacts').click();
+    await settle();
+    const retry = button('Try again');
+    expect(retry.getAttribute('aria-disabled')).toBe('false');
+    retry.click();
+    await settle();
+    expect(button('View in contacts')).toBe(retry);
+    expect(saves).toBe(1);
+  });
   it('dismisses the previous preview and clears presentation on lock', async () => {
     await render();
     await render();
@@ -374,6 +400,35 @@ it('saves directly after a Contacts lookup and discards feedback when the query 
   expect(target.textContent).not.toContain('Saved');
   expect(onSaved).not.toHaveBeenCalled();
   expect(get(addressBookStore)[0].id).toBe(contact.id);
+});
+
+it('retries a failed lookup save with one click after reconciling empty storage', async () => {
+  let saves = 0;
+  invoke.mockImplementation((command: string) => {
+    if (command === 'resolve_contact_identity') return Promise.resolve(identity);
+    if (command === 'list_address_book_contacts') return Promise.resolve([]);
+    if (command === 'save_address_book_contact')
+      return ++saves === 1 ? Promise.reject(new Error('reply lost')) : Promise.resolve(contact);
+    return Promise.resolve(profile);
+  });
+  const target = document.createElement('div');
+  document.body.append(target);
+  components.push(mount(IdentityLookup, { target, props: { onSaved: vi.fn() } }));
+  await settle();
+  const input = target.querySelector('input') as HTMLInputElement;
+  input.value = 'alex@';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await settle();
+  button('Find VerusID').click();
+  await settle();
+  button('Add to contacts').click();
+  await settle();
+  const retry = button('Try again');
+  expect(retry.getAttribute('aria-disabled')).toBe('false');
+  retry.click();
+  await settle();
+  expect(button('Saved')).toBe(retry);
+  expect(saves).toBe(2);
 });
 
 it('shows testnet lookup failures, retries, and clears the mention when the session changes', async () => {

@@ -22,6 +22,7 @@
   import { i18nStore } from '$lib/i18n';
   import { contactChainId, matchingContacts } from '$lib/contacts/identity';
   import { addIdentityContact, loadContacts } from '$lib/contacts/service';
+  import { startContactPerf } from '$lib/contacts/perf';
   import { contactSession } from '$lib/contacts/session';
   import { validateDestinationAddress } from '$lib/services/addressBookService';
   import type { ContactIdentity } from '$lib/types/addressBook';
@@ -200,6 +201,7 @@
     entry: WatchlistEntry,
     session: typeof $contactSession = $contactSession
   ): Promise<void> {
+    const perf = startContactPerf('watchlist_contact_check');
     const generation = ++contactGeneration;
     contactState = 'checking';
     if (!session || session.network !== walletNetwork) {
@@ -211,9 +213,11 @@
       // The backend supplies the canonical normalized VRPC address. Base58
       // addresses are case-sensitive, so compare that value without case folding.
       const normalized = await validateDestinationAddress({ kind: 'vrpc', address: entry.address });
+      perf.mark('address_validation');
       if (!normalized.valid || !normalized.normalizedAddress)
         throw new Error('Invalid watchlist contact address');
-      const contacts = await loadContacts(true);
+      const contacts = await loadContacts();
+      perf.mark('contacts_load');
       if (!mounted || generation !== contactGeneration || $contactSession !== session) return;
       const identityMatches =
         entry.targetKind === 'identity' ? matchingContacts(contacts, entryIdentity(entry)) : [];
@@ -227,7 +231,9 @@
           )
       );
       contactState = matches.length ? 'duplicate' : 'ready';
+      perf.nextPaint('result_frame');
     } catch {
+      perf.mark('check_failed');
       if (!mounted || generation !== contactGeneration) return;
       contactError = 'load';
       contactState = 'error';
@@ -256,12 +262,17 @@
       return;
     }
     const generation = ++contactGeneration;
+    const perf = startContactPerf('watchlist_identity_save');
     contactState = 'saving';
+    perf.nextPaint('busy_frame');
     try {
       await addIdentityContact(entryIdentity(entry));
+      perf.mark('mutation_response');
       if (!mounted || generation !== contactGeneration || $contactSession !== session) return;
       contactState = 'saved';
+      perf.nextPaint('result_frame');
     } catch {
+      perf.mark('mutation_failed');
       if (!mounted || generation !== contactGeneration) return;
       contactError = 'save';
       contactState = 'error';

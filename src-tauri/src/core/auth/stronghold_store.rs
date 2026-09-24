@@ -7,6 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
@@ -41,6 +43,37 @@ const DLIGHT_SEED_SCHEMA_VERSION: u8 = 1;
 const ETH_PENDING_SUBMISSION_RECORD_KEY: &[u8] = b"eth_pending_submission_v1";
 const MAX_LINKED_IDENTITIES: usize = 100;
 const MAX_FAVORITE_LINKED_IDENTITIES: usize = 2;
+
+/// Local, opt-in timing only. Labels are fixed at call sites; no contact or account data is logged.
+#[derive(Clone, Copy)]
+pub(crate) struct AddressBookPerf {
+    operation: &'static str,
+    token: u64,
+    enabled: bool,
+}
+
+impl AddressBookPerf {
+    pub(crate) fn new(operation: &'static str) -> Self {
+        static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
+        Self {
+            operation,
+            token: NEXT_TOKEN.fetch_add(1, Ordering::Relaxed),
+            enabled: std::env::var_os("LITE_WALLET_CONTACT_PERF").is_some_and(|value| value == "1"),
+        }
+    }
+
+    pub(crate) fn mark(self, phase: &'static str, started: Instant) {
+        if self.enabled {
+            println!(
+                "[CONTACT_PERF] operation={} token={} phase={} elapsed_ms={:.1}",
+                self.operation,
+                self.token,
+                phase,
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1478,9 +1511,7 @@ impl StrongholdStore {
         .await
     }
 
-    /// Serialize the complete Contacts read/change/commit, including migration and
-    /// last-used writes. The owned gate stays inside the worker if its caller is cancelled.
-    /// Only this record family uses this path; encryption parameters remain unchanged.
+    #[cfg(test)]
     pub(crate) async fn update_address_book<T: Send + 'static>(
         &self,
         account_id: &str,
@@ -1490,14 +1521,42 @@ impl StrongholdStore {
             + Send
             + 'static,
     ) -> Result<T, WalletError> {
+        self.update_address_book_with_perf(
+            account_id,
+            password_hash,
+            guard,
+            AddressBookPerf::new("internal"),
+            update,
+        )
+        .await
+    }
+
+    /// Serialize the complete Contacts read/change/commit, including migration and
+    /// last-used writes. The owned gate stays inside the worker if its caller is cancelled.
+    /// Only this record family uses this path; encryption parameters remain unchanged.
+    pub(crate) async fn update_address_book_with_perf<T: Send + 'static>(
+        &self,
+        account_id: &str,
+        password_hash: &[u8],
+        guard: Option<crate::core::auth::session::SessionSubmissionGuard>,
+        perf: AddressBookPerf,
+        update: impl FnOnce(&mut crate::types::AddressBookSnapshot) -> Result<T, WalletError>
+            + Send
+            + 'static,
+    ) -> Result<T, WalletError> {
         static GATE: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
             std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Mutex::new(())));
+        let gate_started = Instant::now();
         let permit = GATE.clone().lock_owned().await;
+        perf.mark("gate_wait", gate_started);
         let path = self.address_book_snapshot_path(account_id);
         let account_id = account_id.to_string();
         let password_hash = Zeroizing::new(password_hash.to_vec());
+        let worker_started = Instant::now();
         tokio::task::spawn_blocking(move || {
+            perf.mark("worker_wait", worker_started);
             let _permit = permit;
+            let load_started = Instant::now();
             let exists = path
                 .try_exists()
                 .map_err(|_| WalletError::OperationFailed)?;
@@ -1524,13 +1583,17 @@ impl StrongholdStore {
             if !(1..=2).contains(&snapshot.schema_version) {
                 return Err(WalletError::OperationFailed);
             }
+            perf.mark("snapshot_load", load_started);
+            let mutation_started = Instant::now();
             let result = update(&mut snapshot)?;
             let payload = Zeroizing::new(
                 serde_json::to_vec(&snapshot).map_err(|_| WalletError::OperationFailed)?,
             );
+            perf.mark("mutation_serialize", mutation_started);
             if original.as_ref() == Some(&payload) || (!exists && snapshot.contacts.is_empty()) {
                 return Ok(result);
             }
+            let commit_started = Instant::now();
             client
                 .store()
                 .insert(ADDRESS_BOOK_RECORD_KEY.to_vec(), payload.to_vec(), None)
@@ -1567,6 +1630,7 @@ impl StrongholdStore {
             if temp.exists() {
                 let _ = std::fs::remove_file(temp);
             }
+            perf.mark("commit_durable", commit_started);
             commit
         })
         .await

@@ -16,11 +16,7 @@
   import { i18nStore } from '$lib/i18n';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
-  import {
-    addressBookStore,
-    removeAddressBookContact,
-    upsertAddressBookContact,
-  } from '$lib/stores/addressBook';
+  import { addressBookStore } from '$lib/stores/addressBook';
   import * as addressBookService from '$lib/services/addressBookService';
   import type {
     AddressBookContact,
@@ -41,6 +37,7 @@
     matchingContacts,
   } from '$lib/contacts/identity';
   import { loadContacts, resolveContactIdentity } from '$lib/contacts/service';
+  import { startContactPerf } from '$lib/contacts/perf';
   import { contactSession, contactsLoadState } from '$lib/contacts/session';
   import type { AddressContactPrefill, ContactReturnState } from '$lib/contacts/navigation';
 
@@ -95,6 +92,8 @@
 
   let formMode = $state<FormMode>(null);
   let formContactId = $state<string | null>(null);
+  let formSaveRetry: addressBookService.ContactSaveRetry = {};
+  let formDeleteRetry: addressBookService.ContactDeleteRetry = {};
   let formDisplayName = $state('');
   let formIdentities = $state<ContactIdentity[]>([]);
   let selectedProfileKey = $state<string | null>(null);
@@ -276,6 +275,8 @@
 
   function startCreateContact(prefill?: AddressContactPrefill) {
     formGeneration++;
+    formSaveRetry = {};
+    formDeleteRetry = {};
     formIdentities = [];
     selectedProfileKey = null;
     lookupMode = !prefill;
@@ -294,6 +295,8 @@
 
   function startEditContact(contact: AddressBookContact) {
     formGeneration++;
+    formSaveRetry = {};
+    formDeleteRetry = {};
     lookupMode = false;
     formIdentities = [...(contact.identities ?? [])];
     selectedProfileKey = contactProfile(contact) ? identityKey(contactProfile(contact)!) : null;
@@ -317,6 +320,8 @@
 
   function cancelForm() {
     formGeneration++;
+    formSaveRetry = {};
+    formDeleteRetry = {};
     formIdentities = [];
     selectedProfileKey = null;
     lookupMode = false;
@@ -430,6 +435,7 @@
 
   async function submitContactForm() {
     if (saving || deleting || !formMode) return;
+    const perf = startContactPerf('form_save');
     nameError = '';
     endpointsError = '';
     endpointErrorIndex = null;
@@ -463,6 +469,7 @@
     }
 
     saving = true;
+    perf.nextPaint('busy_frame');
     try {
       const saveEndpoints: Array<{
         id?: string;
@@ -510,25 +517,32 @@
 
       if (!alive || generation !== formGeneration || (createPrefill && $contactSession !== session))
         return;
-      const savedContact = await addressBookService.saveAddressBookContact({
-        id: formContactId ?? undefined,
-        displayName,
-        note: formNote.trim() ? formNote.trim() : null,
-        endpoints: saveEndpoints,
-        identities: formIdentities,
-        profileIdentity: formProfile,
-      });
+      perf.mark('input_validation');
+      const savedContact = await addressBookService.saveAddressBookContact(
+        {
+          id: formContactId ?? undefined,
+          displayName,
+          note: formNote.trim() ? formNote.trim() : null,
+          endpoints: saveEndpoints,
+          identities: formIdentities,
+          profileIdentity: formProfile,
+        },
+        formSaveRetry
+      );
+      perf.mark('mutation_response');
 
       if (!alive || generation !== formGeneration || (createPrefill && $contactSession !== session))
         return;
-      upsertAddressBookContact(savedContact);
       selectedContactId = savedContact.id;
       cancelForm();
       if (createPrefill) onContactCreated?.(savedContact);
+      perf.nextPaint('result_frame');
     } catch (error) {
+      perf.mark('mutation_failed');
       if (!alive || generation !== formGeneration) return;
       formError = mapSaveError(error);
       saving = false;
+      perf.nextPaint('error_frame');
     }
   }
 
@@ -536,23 +550,28 @@
     // Deletion belongs to the contact being edited, never a changing list selection.
     const contactId = formContactId;
     if (!contactId || deleting || saving) return;
+    const perf = startContactPerf('form_delete');
     deleting = true;
+    perf.nextPaint('busy_frame');
     deleteError = '';
 
     try {
-      const deleted = await addressBookService.deleteAddressBookContact(contactId);
+      const deleted = await addressBookService.deleteAddressBookContact(contactId, formDeleteRetry);
+      perf.mark('mutation_response');
       if (!deleted) {
         deleteError = i18n.t('wallet.addressBook.error.deleteFailed');
         return;
       }
       if (!alive) return;
-      removeAddressBookContact(contactId);
       showDeleteDialog = false;
       cancelForm();
+      perf.nextPaint('result_frame');
     } catch (error) {
+      perf.mark('mutation_failed');
       deleteError = isForcedWalletLockError(error)
         ? ''
         : i18n.t('wallet.addressBook.error.deleteFailed');
+      perf.nextPaint('error_frame');
     } finally {
       deleting = false;
     }

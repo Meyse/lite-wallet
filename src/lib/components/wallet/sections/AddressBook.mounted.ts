@@ -8,7 +8,11 @@ import { identityProfiles } from '$lib/contacts/profiles';
 import { contactSession } from '$lib/contacts/session';
 import type { ContactReturnState } from '$lib/contacts/navigation';
 import type { AddressContactPrefill } from '$lib/contacts/navigation';
-import { addressBookStore } from '$lib/stores/addressBook';
+import {
+  addressBookStore,
+  removeAddressBookContact,
+  upsertAddressBookContact,
+} from '$lib/stores/addressBook';
 import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
 import AddressBook from './AddressBook.svelte';
 
@@ -153,7 +157,8 @@ describe('address book contact workflows', () => {
         endpoints: [
           expect.objectContaining({ kind: 'vrpc', address: contact.endpoints[0].address }),
         ],
-      })
+      }),
+      expect.any(Object)
     );
     expect(onContactCreated).toHaveBeenCalledWith(contact);
     expect(onReturn).not.toHaveBeenCalled();
@@ -170,6 +175,38 @@ describe('address book contact workflows', () => {
     button('Cancel').click();
     expect(onReturn).toHaveBeenCalledTimes(1);
     expect(service.saveAddressBookContact).not.toHaveBeenCalled();
+  });
+
+  it('keeps the create draft and retry identity after an uncertain save response', async () => {
+    contactSession.set({ sessionId: 'contacts-watchlist-retry', network: 'mainnet' });
+    const onContactCreated = vi.fn();
+    await render([], undefined, {
+      createPrefill: { address: contact.endpoints[0].address, name: 'Mum' },
+      onContactCreated,
+    });
+    button('Add note').click();
+    await settle();
+    await input('#address-book-note', 'Private note');
+    service.saveAddressBookContact.mockRejectedValueOnce(new Error('reply lost'));
+    button('Save').click();
+    await settle();
+    expect(document.body.textContent).toContain('reply lost');
+    expect(document.querySelector<HTMLInputElement>('#address-book-note')?.value).toBe(
+      'Private note'
+    );
+    expect(onContactCreated).not.toHaveBeenCalled();
+    const retryContext = service.saveAddressBookContact.mock.calls[0][1];
+    const saved = { ...contact, note: 'Private note' };
+    service.saveAddressBookContact.mockImplementationOnce(async (_request, context) => {
+      expect(context).toBe(retryContext);
+      upsertAddressBookContact(saved);
+      return saved;
+    });
+    button('Save').click();
+    await settle();
+    expect(service.saveAddressBookContact).toHaveBeenCalledTimes(2);
+    expect(onContactCreated).toHaveBeenCalledWith(saved);
+    expect(get(addressBookStore)).toEqual([saved]);
   });
 
   it('does not submit a prefilled address after its contact session is lost during validation', async () => {
@@ -312,7 +349,8 @@ describe('address book contact workflows', () => {
       expect.objectContaining({
         endpoints: [expect.objectContaining({ address: identity.identityAddress })],
         identities: [identity],
-      })
+      }),
+      expect.any(Object)
     );
     expect(service.validateDestinationAddress).not.toHaveBeenCalled();
   });
@@ -436,7 +474,11 @@ describe('address book contact workflows', () => {
     service.saveAddressBookContact.mockImplementation(
       () =>
         new Promise((resolve) => {
-          finish = resolve;
+          finish = (value) => {
+            // The real service publishes only after the backend acknowledges the write.
+            upsertAddressBookContact(value);
+            resolve(value);
+          };
         })
     );
     button('Save').click();
@@ -448,7 +490,8 @@ describe('address book contact workflows', () => {
         endpoints: expect.arrayContaining([
           expect.objectContaining({ id: 'btc', address: contact.endpoints[1].address }),
         ]),
-      })
+      }),
+      expect.any(Object)
     );
     expect(service.validateDestinationAddress).not.toHaveBeenCalled();
     expect(button('Cancel').disabled).toBe(true);
@@ -507,14 +550,19 @@ describe('address book contact workflows', () => {
     expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Loading');
     finishDelete(false);
     await settle();
+    const retryContext = service.deleteAddressBookContact.mock.calls[0][1];
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       'Could not delete this contact. Try again.'
     );
     expect(get(addressBookStore)).toHaveLength(1);
-    service.deleteAddressBookContact.mockResolvedValue(true);
+    service.deleteAddressBookContact.mockImplementation(async (contactId) => {
+      removeAddressBookContact(contactId);
+      return true;
+    });
     button('Delete contact', document.querySelector('[role="dialog"]')).click();
     await settle();
-    expect(service.deleteAddressBookContact).toHaveBeenLastCalledWith('mum');
+    expect(service.deleteAddressBookContact).toHaveBeenLastCalledWith('mum', expect.any(Object));
+    expect(service.deleteAddressBookContact.mock.calls.at(-1)?.[1]).toBe(retryContext);
     expect(get(addressBookStore)).toHaveLength(0);
     expect(document.querySelector('form')).toBeNull();
     expect(document.body.textContent).toContain('Save a trusted contact');
@@ -591,15 +639,20 @@ describe('address book contact workflows', () => {
     button('Add note').click();
     await settle();
     await input('#address-book-note', 'A note');
-    service.saveAddressBookContact.mockResolvedValue({
+    const savedContact = {
       ...contact,
       displayName: 'New contact',
       note: 'A note',
+    };
+    service.saveAddressBookContact.mockImplementation(async () => {
+      upsertAddressBookContact(savedContact);
+      return savedContact;
     });
     button('Save').click();
     await settle();
     expect(service.saveAddressBookContact).toHaveBeenCalledWith(
-      expect.objectContaining({ id: undefined, displayName: 'New contact', note: 'A note' })
+      expect.objectContaining({ id: undefined, displayName: 'New contact', note: 'A note' }),
+      expect.any(Object)
     );
     expect(document.body.textContent).toContain('A note');
   });

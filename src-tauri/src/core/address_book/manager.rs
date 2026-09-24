@@ -625,11 +625,19 @@ mod tests {
         assert!(upsert_contact(&mut snapshot, request.clone(), WalletNetwork::Mainnet).is_err());
         request.profile_identity = Some(b.clone());
         assert_eq!(
-            upsert_contact(&mut snapshot, request, WalletNetwork::Mainnet)
+            upsert_contact(&mut snapshot, request.clone(), WalletNetwork::Mainnet)
                 .unwrap()
                 .display_name,
             b.fully_qualified_name
         );
+        // Some([]) is a deliberate removal, whereas None retains associations.
+        request.identities = Some(vec![]);
+        request.profile_identity = None;
+        request.display_name = "Local name".into();
+        let cleared = upsert_contact(&mut snapshot, request, WalletNetwork::Mainnet).unwrap();
+        assert!(cleared.identities.is_empty());
+        assert!(cleared.profile_identity.is_none());
+        assert_eq!(cleared.display_name, "Local name");
     }
 
     #[test]

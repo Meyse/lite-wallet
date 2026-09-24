@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -7,6 +8,7 @@ use crate::commands::identity::{
 };
 use crate::core::address_book::manager;
 use crate::core::auth::session::ActiveWalletAccessContext;
+use crate::core::auth::stronghold_store::AddressBookPerf;
 use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::{VrpcProvider, VrpcProviderPool};
 use crate::types::address_book::{ContactIdentity, ResolvedContactIdentity};
@@ -36,6 +38,7 @@ async fn context(
 
 async fn update<T: Send + 'static>(
     context: ActiveWalletAccessContext,
+    perf: AddressBookPerf,
     mutation: impl FnOnce(&mut crate::types::AddressBookSnapshot) -> Result<T, WalletError>
         + Send
         + 'static,
@@ -43,12 +46,14 @@ async fn update<T: Send + 'static>(
     let cancellation = context.session_submission_guard().cancellation();
     let worker_cancellation = cancellation.clone();
     let network = context.wallet_network;
+    let storage_started = Instant::now();
     let result = context
         .stronghold_store
-        .update_address_book(
+        .update_address_book_with_perf(
             &context.account_id,
             context.password_hash(),
             Some(context.session_submission_guard()),
+            perf,
             move |snapshot| {
                 if worker_cancellation.is_cancelled() {
                     return Err(WalletError::WalletLocked);
@@ -57,7 +62,9 @@ async fn update<T: Send + 'static>(
                 mutation(snapshot)
             },
         )
-        .await?;
+        .await;
+    perf.mark("storage_total", storage_started);
+    let result = result?;
     if cancellation.is_cancelled() {
         return Err(WalletError::WalletLocked);
     }
@@ -134,11 +141,16 @@ pub async fn list_address_book_contacts(
     expected_session_id: Option<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<Vec<AddressBookContact>, WalletError> {
-    update(
+    let perf = AddressBookPerf::new("list");
+    let started = Instant::now();
+    let result = update(
         context(session_manager.inner(), expected_session_id.as_deref()).await?,
+        perf,
         |snapshot| Ok(manager::sorted_contacts(snapshot)),
     )
-    .await
+    .await;
+    perf.mark("command_total", started);
+    result
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -147,6 +159,8 @@ pub async fn save_address_book_contact(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<AddressBookContact, WalletError> {
+    let perf = AddressBookPerf::new("save");
+    let started = Instant::now();
     let ctx = context(
         session_manager.inner(),
         request.expected_session_id.as_deref(),
@@ -155,9 +169,16 @@ pub async fn save_address_book_contact(
     let network = ctx.wallet_network;
     // Already verified associations may be edited offline. Recheck their presence
     // under the writer gate so an intervening edit cannot silently restore one.
-    let retained = if request.identities.is_some() {
+    // An explicit empty list only removes associations. It needs no retained
+    // identity lookup, so an ordinary address-only edit takes one encrypted pass.
+    let retained = if request
+        .identities
+        .as_ref()
+        .is_some_and(|identities| !identities.is_empty())
+    {
         if let Some(id) = request.id.clone() {
-            update(ctx.clone(), move |snapshot| {
+            let read_started = Instant::now();
+            let result = update(ctx.clone(), perf, move |snapshot| {
                 Ok(snapshot
                     .contacts
                     .iter()
@@ -165,7 +186,9 @@ pub async fn save_address_book_contact(
                     .map(|c| c.identities.clone())
                     .unwrap_or_default())
             })
-            .await?
+            .await;
+            perf.mark("retained_read", read_started);
+            result?
         } else {
             Vec::new()
         }
@@ -178,6 +201,7 @@ pub async fn save_address_book_contact(
         if request.expected_session_id.is_none() || identities.len() > 20 {
             return Err(WalletError::AddressBookInvalidInput);
         }
+        let resolution_started = Instant::now();
         for identity in identities
             .iter_mut()
             .filter(|id| id.network == network && !retained.contains(id))
@@ -193,8 +217,9 @@ pub async fn save_address_book_contact(
             .await?
             .identity;
         }
+        perf.mark("identity_resolution", resolution_started);
     }
-    update(ctx, move |snapshot| {
+    let result = update(ctx, perf, move |snapshot| {
         if let Some(identities) = request.identities.as_ref() {
             for identity in identities
                 .iter()
@@ -230,7 +255,9 @@ pub async fn save_address_book_contact(
         }
         manager::upsert_contact(snapshot, request, network)
     })
-    .await
+    .await;
+    perf.mark("command_total", started);
+    result
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -239,11 +266,16 @@ pub async fn delete_address_book_contact(
     expected_session_id: Option<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<bool, WalletError> {
-    update(
+    let perf = AddressBookPerf::new("delete");
+    let started = Instant::now();
+    let result = update(
         context(session_manager.inner(), expected_session_id.as_deref()).await?,
+        perf,
         move |snapshot| Ok(manager::delete_contact(snapshot, &contact_id)),
     )
-    .await
+    .await;
+    perf.mark("command_total", started);
+    result
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -252,11 +284,16 @@ pub async fn mark_address_book_endpoint_used(
     expected_session_id: Option<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
 ) -> Result<bool, WalletError> {
-    update(
+    let perf = AddressBookPerf::new("last_used");
+    let started = Instant::now();
+    let result = update(
         context(session_manager.inner(), expected_session_id.as_deref()).await?,
+        perf,
         move |snapshot| Ok(manager::mark_endpoint_used(snapshot, &endpoint_id)),
     )
-    .await
+    .await;
+    perf.mark("command_total", started);
+    result
 }
 
 #[tauri::command(rename_all = "snake_case")]

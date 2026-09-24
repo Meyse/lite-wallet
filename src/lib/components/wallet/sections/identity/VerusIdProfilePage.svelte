@@ -258,18 +258,34 @@
   }
   async function activateContactAction(): Promise<void> {
     if (linked !== false || navigationDisabled || saveState === 'saving' || inContacts) return;
-    if ($contactsLoadState !== 'ready') {
-      await loadContacts(true).catch(() => {});
-      return;
-    }
     const savingIdentity = identity;
     const session = $contactSession;
+    const retryingSave = saveState === 'error';
     saveState = 'saving';
     try {
+      if ($contactsLoadState !== 'ready') {
+        // A failed write invalidates membership. Retry must reconcile first,
+        // including a commit whose response was lost.
+        const contacts = await loadContacts();
+        if (!alive || identity !== savingIdentity || $contactSession !== session) {
+          if (alive) saveState = 'idle';
+          return;
+        }
+        if (matchingContacts(contacts, savingIdentity).length) {
+          saveState = 'idle';
+          return;
+        }
+        if (!retryingSave) {
+          saveState = 'idle';
+          return;
+        }
+      }
       await addIdentityContact(savingIdentity);
       if (alive && identity === savingIdentity && $contactSession === session) saveState = 'saved';
+      else if (alive) saveState = 'idle';
     } catch {
       if (alive && identity === savingIdentity && $contactSession === session) saveState = 'error';
+      else if (alive) saveState = 'idle';
     }
   }
   onMount(() => {
@@ -382,7 +398,7 @@
             disabled={navigationDisabled ||
               saveState === 'saving' ||
               $contactsLoadState === 'loading' ||
-              $contactsLoadState === 'idle' ||
+              ($contactsLoadState === 'idle' && saveState !== 'error') ||
               inContacts}
             aria-busy={saveState === 'saving'}
             onclick={() => void activateContactAction()}

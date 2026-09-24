@@ -92,19 +92,36 @@
 
   async function activate() {
     if (saveState === 'saving' || saveState === 'saved') return;
-    if ($contactsLoadState !== 'ready') {
-      await loadContacts(true).catch(() => {});
-      return;
-    }
-    if (saved) {
-      changeOpen(false);
-      openContact?.(identity, trigger);
-      return;
-    }
+    const savingIdentity = identity;
+    const session = $contactSession;
     const opened = opening;
+    const retryingSave = saveState === 'error';
     saveState = 'saving';
     try {
-      await addIdentityContact(identity);
+      if ($contactsLoadState !== 'ready') {
+        const contacts = await loadContacts();
+        if (
+          !alive ||
+          !open ||
+          opened !== opening ||
+          identity !== savingIdentity ||
+          $contactSession !== session
+        ) {
+          if (alive) saveState = 'idle';
+          return;
+        }
+        if (matchingContacts(contacts, savingIdentity).length || !retryingSave) {
+          saveState = 'idle';
+          return;
+        }
+      }
+      if (saved) {
+        saveState = 'idle';
+        changeOpen(false);
+        openContact?.(savingIdentity, trigger);
+        return;
+      }
+      await addIdentityContact(savingIdentity);
       if (!alive) return;
       saveState = open && opened === opening ? 'saved' : 'idle';
       if (saveState === 'saved')
@@ -246,7 +263,7 @@
         aria-disabled={saveState === 'saving' ||
           saveState === 'saved' ||
           $contactsLoadState === 'loading' ||
-          $contactsLoadState === 'idle'}
+          ($contactsLoadState === 'idle' && saveState !== 'error')}
         onclick={activate}
         onkeydown={(event) => {
           if (event.key === 'Tab') {

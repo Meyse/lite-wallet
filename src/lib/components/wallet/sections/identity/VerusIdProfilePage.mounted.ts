@@ -2,6 +2,7 @@
 
 import { mount, tick, unmount } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { get } from 'svelte/store';
 import type { ResolvedContactIdentity } from '$lib/types/addressBook';
 
 const mocks = vi.hoisted(() => ({
@@ -171,7 +172,7 @@ describe('mounted public VerusID profile', () => {
       await settle();
       button(target, 'Try again').click();
       await settle();
-      expect(mocks.loadContacts).toHaveBeenLastCalledWith(true);
+      expect(mocks.loadContacts).toHaveBeenLastCalledWith();
       expect(mocks.addIdentityContact).not.toHaveBeenCalled();
     } finally {
       await unmount(component);
@@ -195,6 +196,75 @@ describe('mounted public VerusID profile', () => {
       mocks.addIdentityContact.mockResolvedValueOnce({});
       button(target, 'Try again').click();
       await settle();
+      expect(mocks.addIdentityContact).toHaveBeenCalledTimes(2);
+      expect(target.textContent).toContain('In contacts');
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('retries after a failed add invalidates membership and reconciles a committed contact', async () => {
+    mocks.addIdentityContact.mockImplementationOnce(() => {
+      contactsLoadState.set('idle');
+      return Promise.reject(new Error('reply lost'));
+    });
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, { target, props: { identity } });
+    try {
+      await settle();
+      button(target, 'Add to contacts').click();
+      await settle();
+      const retry = button(target, 'Try again');
+      expect(retry.disabled).toBe(false);
+      expect(get(contactsLoadState)).toBe('idle');
+      mocks.loadContacts.mockImplementationOnce(async () => {
+        const persisted = {
+          id: 'durably-saved',
+          displayName: identity.fullyQualifiedName,
+          note: null,
+          createdAt: 1,
+          updatedAt: 1,
+          endpoints: [],
+          identities: [identity],
+          profileIdentity: identity,
+        };
+        addressBookStore.set([persisted]);
+        contactsLoadState.set('ready');
+        return [persisted];
+      });
+      retry.click();
+      await settle();
+      expect(mocks.loadContacts).toHaveBeenCalledTimes(2);
+      expect(mocks.addIdentityContact).toHaveBeenCalledTimes(1);
+      expect(button(target, 'In contacts').disabled).toBe(true);
+    } finally {
+      await unmount(component);
+      target.remove();
+    }
+  });
+
+  it('retries the save after reconciliation confirms the identity was not stored', async () => {
+    mocks.addIdentityContact.mockImplementationOnce(() => {
+      contactsLoadState.set('idle');
+      return Promise.reject(new Error('storage failed'));
+    });
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(VerusIdProfilePage, { target, props: { identity } });
+    try {
+      await settle();
+      button(target, 'Add to contacts').click();
+      await settle();
+      mocks.loadContacts.mockImplementationOnce(async () => {
+        contactsLoadState.set('ready');
+        return [];
+      });
+      mocks.addIdentityContact.mockResolvedValueOnce({});
+      button(target, 'Try again').click();
+      await settle();
+      expect(mocks.loadContacts).toHaveBeenCalledTimes(2);
       expect(mocks.addIdentityContact).toHaveBeenCalledTimes(2);
       expect(target.textContent).toContain('In contacts');
     } finally {
