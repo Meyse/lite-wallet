@@ -10,6 +10,9 @@ requirements.
 
 ## Current specs and trackers
 
+- Desktop window chrome (selected Windows concept and Linux spacing direction;
+  implementation deferred):
+  [`./desktop-window-chrome.md`](./desktop-window-chrome.md)
 - Wallet asset sorting and search (approved Paper design):
   [`./wallet-asset-sorting.md`](./wallet-asset-sorting.md)
 - Contacts and VerusID profiles (draft; includes interactive profile previews):
