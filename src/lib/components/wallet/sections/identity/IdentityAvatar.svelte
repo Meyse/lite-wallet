@@ -1,5 +1,6 @@
 <script lang="ts">
   import { pickIdentityAvatarGradient } from '$lib/styles/identityAvatarGradients';
+  import { cn } from '$lib/utils';
 
   type IdentityAvatarProps = {
     seed: string;
@@ -33,12 +34,15 @@
     src={imageUrl}
     onerror={() => (failedUrl = imageUrl)}
     alt=""
-    class={`size-9 shrink-0 rounded-full object-cover ${className}`}
+    class={cn('size-9 shrink-0 rounded-full object-cover', className)}
     aria-hidden="true"
   />
 {:else}
   <div
-    class={`inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide text-white select-none ${className}`}
+    class={cn(
+      'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide text-white select-none',
+      className
+    )}
     style={`background-image: linear-gradient(135deg, ${gradient[0]}, ${gradient[1]});`}
     aria-hidden="true"
   >

@@ -2,6 +2,7 @@ import '../../src/app.css';
 import { mount } from 'svelte';
 import { setLocale } from '$lib/i18n';
 import { setContactSession, contactsLoadState } from '$lib/contacts/session';
+import { setWatchlistSession } from '$lib/watchlist/session';
 import Fixture from './SpinnerFixture.svelte';
 
 const params = new URLSearchParams(location.search);
@@ -32,6 +33,7 @@ Object.assign(window, {
   },
 });
 setContactSession({ sessionId: 'spinner-fixture', network: 'mainnet' });
+setWatchlistSession({ sessionId: 'spinner-fixture', network: 'mainnet' });
 contactsLoadState.set('ready');
 document.documentElement.classList.toggle('dark', params.get('theme') === 'dark');
 setLocale(params.get('locale') === 'nl' ? 'nl' : 'en');

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Watchlist from '../Watchlist.svelte';
   import { transferWalletSessionKey } from '../transfer-wizard/preflightRequest.js';
+  import { setWatchlistSession } from '$lib/watchlist/session.js';
   import type { WalletNetwork } from '$lib/types/wallet.js';
 
   let walletName = $state('Wallet A');
@@ -9,6 +10,8 @@
   const walletKey = $derived(transferWalletSessionKey(walletName, walletNetwork, walletSessionId));
 
   function switchWallet(): void {
+    // The wallet route binds the session before rendering a replacement wallet.
+    setWatchlistSession({ sessionId: 'session-b', network: 'testnet' });
     walletName = 'Wallet B';
     walletNetwork = 'testnet';
     walletSessionId = 'session-b';

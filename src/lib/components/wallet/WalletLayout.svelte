@@ -8,8 +8,10 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { ContactIdentity } from '$lib/types/addressBook';
+  import { contactChainId } from '$lib/contacts/identity';
   import { provideContactNavigation } from '$lib/contacts/navigation';
-  import type { ContactReturnState } from '$lib/contacts/navigation';
+  import type { AddressContactPrefill, ContactReturnState } from '$lib/contacts/navigation';
+  import type { WatchlistEntry } from '$lib/types/watchlist';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import * as Alert from '$lib/components/ui/alert';
@@ -83,7 +85,13 @@
     | 'address-book'
     | 'settings';
 
-  const { walletData }: { walletData: WalletData } = $props();
+  const {
+    walletData,
+    onRetryWalletSession,
+  }: {
+    walletData: WalletData;
+    onRetryWalletSession?: () => Promise<void>;
+  } = $props();
   let activeSection = $state<SectionId>('overview');
   let helpOpen = $state(false);
   let assetsOpen = $state(false);
@@ -101,6 +109,9 @@
   let nextDraftId = 0;
   let requestedContactIdentity = $state<ContactIdentity | null>(null);
   let contactReturnState = $state<ContactReturnState | null>(null);
+  let watchlistContactReturn = $state<{ walletKey: string; entryId: string } | null>(null);
+  let watchlistContactPrefill = $state<AddressContactPrefill | null>(null);
+  let requestedWatchlistContactId = $state<string | null>(null);
   let pendingTransfer = $state<{
     intent: 'send' | 'convert';
     context: TransferEntryContext | null;
@@ -147,10 +158,65 @@
     transferDraft?.walletKey === transferWalletKey ? transferDraft : null
   );
   const navigationLocked = $derived(!!currentDraft && transferNavigation.locked);
+  const currentWatchlistContactReturn = $derived(
+    watchlistContactReturn?.walletKey === transferWalletKey ? watchlistContactReturn : null
+  );
+
+  function clearWatchlistContactOrigin(): void {
+    watchlistContactReturn = null;
+    watchlistContactPrefill = null;
+    requestedWatchlistContactId = null;
+    if (identitySectionSession.publicProfile?.origin.kind === 'watchlist') {
+      identitySectionSession = { ...identitySectionSession, publicProfile: null };
+    }
+  }
+
+  function returnToWatchlistDetail(): void {
+    if (!currentWatchlistContactReturn) return;
+    watchlistContactPrefill = null;
+    requestedWatchlistContactId = null;
+    activeSection = 'watchlist';
+  }
+
+  function openWatchlistAddressContact(entry: WatchlistEntry): void {
+    if (navigationLocked) return;
+    watchlistContactReturn = { walletKey: transferWalletKey, entryId: entry.id };
+    watchlistContactPrefill = {
+      address: entry.address,
+      name: entry.displayName === entry.address ? '' : entry.displayName,
+    };
+    requestedWatchlistContactId = null;
+    requestedContactIdentity = null;
+    contactReturnState = null;
+    activeSection = 'address-book';
+  }
+
+  function openWatchlistProfile(entry: WatchlistEntry): void {
+    if (navigationLocked || entry.targetKind !== 'identity') return;
+    watchlistContactReturn = { walletKey: transferWalletKey, entryId: entry.id };
+    watchlistContactPrefill = null;
+    requestedWatchlistContactId = null;
+    requestedContactIdentity = null;
+    contactReturnState = null;
+    identitySectionSession = {
+      ...identitySectionSession,
+      publicProfile: {
+        identity: {
+          identityAddress: entry.address,
+          fullyQualifiedName: entry.displayName,
+          network: walletData.network ?? 'mainnet',
+          chainId: contactChainId(walletData.network ?? 'mainnet'),
+        },
+        origin: { kind: 'watchlist' },
+      },
+    };
+    activeSection = 'identity';
+  }
 
   provideContactNavigation((identity, focus) => {
     if (navigationLocked) return;
     if (currentDraft && isTransferSection) transferFocus = focus;
+    clearWatchlistContactOrigin();
     requestedContactIdentity = identity;
     contactReturnState = null;
     activeSection = 'address-book';
@@ -171,7 +237,14 @@
 
   function navigateToSection(section: SectionId): void {
     if (navigationLocked) return;
+    if (
+      section === 'identity' &&
+      activeSection === 'identity' &&
+      identitySectionSession.publicProfile?.origin.kind === 'watchlist'
+    )
+      return;
     if (section !== 'address-book') contactReturnState = null;
+    clearWatchlistContactOrigin();
     if (
       isTransferSection &&
       document.activeElement instanceof HTMLElement &&
@@ -208,6 +281,7 @@
     context: TransferEntryContext | null,
     recipientIntent: TransferRecipientIntent | null = null
   ): void {
+    clearWatchlistContactOrigin();
     transferNavigation = { mode: intent, dirty: false, locked: false, completed: false };
     transferDraft = {
       id: ++nextDraftId,
@@ -433,9 +507,11 @@
       <div
         class={activeSection === 'address-book'
           ? 'absolute inset-x-0 top-0 z-40 h-6'
-          : activeSection === 'identity' || activeSection === 'settings'
-            ? 'absolute inset-x-0 top-0 z-40 h-5'
-            : `${activeSection === 'overview' ? 'h-5' : 'h-6'} shrink-0`}
+          : activeSection === 'watchlist'
+            ? 'absolute inset-x-0 top-0 z-40 h-4'
+            : activeSection === 'identity' || activeSection === 'settings'
+              ? 'absolute inset-x-0 top-0 z-40 h-5'
+              : `${activeSection === 'overview' ? 'h-5' : 'h-6'} shrink-0`}
         data-tauri-drag-region
         aria-hidden="true"
       ></div>
@@ -555,6 +631,10 @@
                 contactReturnState = returnState;
                 activeSection = 'address-book';
               }}
+              onReturnToWatchlist={() => {
+                identitySectionSession = { ...identitySectionSession, publicProfile: null };
+                returnToWatchlistDetail();
+              }}
               onSend={(identity) => {
                 requestTransfer('send', null, identity);
               }}
@@ -566,11 +646,20 @@
           <Activity />
         {:else if activeSection === 'watchlist'}
           {#key transferWalletKey}
-            <Watchlist walletNetwork={walletData.network ?? 'mainnet'} />
+            <Watchlist
+              walletNetwork={walletData.network ?? 'mainnet'}
+              {onRetryWalletSession}
+              initialSelectedEntryId={currentWatchlistContactReturn?.entryId ?? null}
+              onCreateAddressContact={openWatchlistAddressContact}
+              onViewIdentityProfile={openWatchlistProfile}
+              onBackToList={() => (watchlistContactReturn = null)}
+            />
           {/key}
         {:else if activeSection === 'address-book'}
           <AddressBook
             requestedIdentity={requestedContactIdentity}
+            requestedContactId={currentWatchlistContactReturn ? requestedWatchlistContactId : null}
+            createPrefill={currentWatchlistContactReturn ? watchlistContactPrefill : null}
             returnState={contactReturnState}
             profileNavigationDisabled={navigationLocked}
             restoreProfileFocus={Boolean(contactReturnState)}
@@ -583,16 +672,23 @@
               };
               activeSection = 'identity';
             }}
-            onReturn={requestedContactIdentity && currentDraft ? resumeTransfer : undefined}
-            returnLabel={requestedContactIdentity && currentDraft
-              ? i18n.t(
-                  transferNavigation.completed
-                    ? 'wallet.transfer.returnToResult'
-                    : transferNavigation.mode === 'convert'
-                      ? 'wallet.transfer.resumeConvert'
-                      : 'wallet.transfer.resumeSend'
-                )
-              : ''}
+            onContactCreated={currentWatchlistContactReturn ? returnToWatchlistDetail : undefined}
+            onReturn={currentWatchlistContactReturn
+              ? returnToWatchlistDetail
+              : requestedContactIdentity && currentDraft
+                ? resumeTransfer
+                : undefined}
+            returnLabel={currentWatchlistContactReturn
+              ? i18n.t('wallet.watchlist.backToDetail')
+              : requestedContactIdentity && currentDraft
+                ? i18n.t(
+                    transferNavigation.completed
+                      ? 'wallet.transfer.returnToResult'
+                      : transferNavigation.mode === 'convert'
+                        ? 'wallet.transfer.resumeConvert'
+                        : 'wallet.transfer.resumeSend'
+                  )
+                : ''}
           />
         {:else if activeSection === 'settings'}
           {#key transferWalletKey}

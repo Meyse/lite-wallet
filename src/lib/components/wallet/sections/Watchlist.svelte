@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import CheckIcon from '@lucide/svelte/icons/check';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
   import InfoIcon from '@lucide/svelte/icons/info';
-  import MoreHorizontalIcon from '@lucide/svelte/icons/ellipsis';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { Spinner } from '$lib/components/ui/spinner';
+  import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import NavigationBackButton from '$lib/components/common/NavigationBackButton.svelte';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import CoinIcon from '$lib/components/wallet/CoinIcon.svelte';
@@ -14,11 +16,15 @@
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as Dialog from '$lib/components/ui/dialog';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import { i18nStore } from '$lib/i18n';
+  import { contactChainId, matchingContacts } from '$lib/contacts/identity';
+  import { addIdentityContact, loadContacts } from '$lib/contacts/service';
+  import { contactSession } from '$lib/contacts/session';
+  import { validateDestinationAddress } from '$lib/services/addressBookService';
+  import type { ContactIdentity } from '$lib/types/addressBook';
   import { ratesStore } from '$lib/stores/rates.js';
   import { settingsStore } from '$lib/stores/settings.js';
   import * as watchlistService from '$lib/services/watchlistService.js';
@@ -32,21 +38,54 @@
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import {
     buildWatchlistEntryViewModel,
-    mergeWatchlistSnapshots,
+    mergeWatchlistSnapshot,
     type WatchlistRecord,
   } from '$lib/utils/watchlist.js';
+  import {
+    addWatchlistEntry,
+    loadWatchlistEntries,
+    refreshWatchlist,
+    removeWatchlistEntry,
+  } from '$lib/watchlist/service.js';
+  import {
+    watchlistEntriesStore,
+    watchlistLoadState,
+    watchlistSession,
+  } from '$lib/watchlist/session.js';
 
-  const { walletNetwork }: { walletNetwork: WalletNetwork } = $props();
+  const {
+    walletNetwork,
+    onRetryWalletSession,
+    initialSelectedEntryId = null,
+    onCreateAddressContact,
+    onViewIdentityProfile,
+    onBackToList,
+  }: {
+    walletNetwork: WalletNetwork;
+    onRetryWalletSession?: () => Promise<void>;
+    initialSelectedEntryId?: string | null;
+    onCreateAddressContact?: (entry: WatchlistEntry) => void;
+    onViewIdentityProfile?: (entry: WatchlistEntry) => void;
+    onBackToList?: () => void;
+  } = $props();
   const i18n = $derived($i18nStore);
   const rates = $derived($ratesStore);
   const settings = $derived($settingsStore);
 
-  let records = $state<WatchlistRecord[]>([]);
-  let initialLoading = $state(true);
+  const BALANCE_SKELETON_DELAY_MS = 240;
+
+  let snapshots = $state<Record<string, WatchlistEntrySnapshot>>({});
   let loadError = $state('');
   let refreshError = $state('');
   let refreshing = $state(false);
+  let showBalanceSkeleton = $state(false);
   let selectedEntryId = $state<string | null>(null);
+  let appliedInitialEntryId: string | null = null;
+  let contactState = $state<'checking' | 'ready' | 'duplicate' | 'saving' | 'saved' | 'error'>(
+    'checking'
+  );
+  let contactError = $state<'load' | 'save'>('load');
+  let contactGeneration = 0;
   let addViewOpen = $state(false);
   let addQuery = $state('');
   let addName = $state('');
@@ -59,30 +98,216 @@
   let removing = $state(false);
   let mounted = false;
   let addGeneration = 0;
+  /** Balance attempts already made per entry id, scoped to this component. */
+  const attemptedEntryIds = new Set<string>();
+  let recoveringWalletSession = $state(false);
   const copiedAddressState = new TimedValueState<string>();
 
-  const viewModels = $derived(
-    records.map((record) =>
-      buildWatchlistEntryViewModel(record, rates, i18n.intlLocale, settings.displayCurrency)
-    )
+  const records = $derived.by<WatchlistRecord[]>(() => {
+    const entries = $watchlistEntriesStore;
+    if (!entries) return [];
+    return entries.map((entry) => {
+      const snapshot = snapshots[entry.id];
+      return snapshot
+        ? { snapshot, stale: snapshot.availability !== 'available' }
+        : { snapshot: placeholderSnapshot(entry), stale: true };
+    });
+  });
+  const rows = $derived(
+    records.map((record) => ({
+      record,
+      view: buildWatchlistEntryViewModel(record, rates, i18n.intlLocale, settings.displayCurrency),
+    }))
   );
-  const selectedView = $derived(
-    selectedEntryId ? (viewModels.find((entry) => entry.id === selectedEntryId) ?? null) : null
+  const selectedRow = $derived(
+    selectedEntryId ? (rows.find((row) => row.view.id === selectedEntryId) ?? null) : null
   );
+  const selectedView = $derived(selectedRow?.view ?? null);
   const hasStaleData = $derived(records.some((record) => record.stale));
   const hasKnownBalances = $derived(records.some((record) => record.snapshot.holdings.length > 0));
-  const detailStatusKey = $derived(
-    selectedView?.stale
-      ? refreshing && selectedView.refreshedAt === 0
-        ? 'wallet.watchlist.loadingBalances'
-        : selectedView.holdings.length > 0
+  const hasPendingBalances = $derived(records.some((record) => isBalancePending(record.snapshot)));
+  const hasUnsuccessfulBalances = $derived(
+    records.some((record) => !isBalancePending(record.snapshot) && record.stale)
+  );
+  // Provider failures often resolve as unavailable/partial snapshots instead of
+  // rejections, so Retry must follow the settled state, not only errors.
+  const canRetryBalances = $derived(
+    !refreshing && (Boolean(refreshError) || hasUnsuccessfulBalances)
+  );
+  const membershipError = $derived(
+    Boolean(loadError) || ($watchlistLoadState === 'error' && $watchlistEntriesStore === null)
+  );
+  const membershipPending = $derived($watchlistEntriesStore === null && !membershipError);
+  const listStatusKey = $derived(
+    refreshError
+      ? hasKnownBalances
+        ? 'wallet.watchlist.updateUnavailable'
+        : 'wallet.watchlist.updateUnavailableEmpty'
+      : hasStaleData && !refreshing && !hasPendingBalances
+        ? hasKnownBalances
           ? 'wallet.watchlist.updateUnavailable'
           : 'wallet.watchlist.updateUnavailableEmpty'
-      : null
+        : null
   );
+  const detailStatusKey = $derived.by<string | null>(() => {
+    if (!selectedView) return null;
+    if (selectedRow && isBalancePending(selectedRow.record.snapshot)) {
+      return refreshError
+        ? 'wallet.watchlist.updateUnavailableEmpty'
+        : 'wallet.watchlist.loadingBalances';
+    }
+    if (refreshError) {
+      return selectedView.holdings.length > 0
+        ? 'wallet.watchlist.updateUnavailable'
+        : 'wallet.watchlist.updateUnavailableEmpty';
+    }
+    if (!selectedView.stale) return null;
+    return selectedView.holdings.length > 0
+      ? 'wallet.watchlist.updateUnavailable'
+      : 'wallet.watchlist.updateUnavailableEmpty';
+  });
+  const detailBalancePending = $derived(
+    Boolean(selectedRow && isBalancePending(selectedRow.record.snapshot) && !refreshError)
+  );
+
+  $effect(() => {
+    if (initialSelectedEntryId && initialSelectedEntryId !== appliedInitialEntryId) {
+      selectedEntryId = initialSelectedEntryId;
+      appliedInitialEntryId = initialSelectedEntryId;
+    } else if (!initialSelectedEntryId) {
+      appliedInitialEntryId = null;
+    }
+  });
+
+  $effect(() => {
+    const entryId = selectedEntryId;
+    const session = $contactSession;
+    const entry = $watchlistEntriesStore?.find((candidate) => candidate.id === entryId);
+    if (!entry) return;
+    untrack(() => void checkContact(entry, session));
+  });
+
+  function entryIdentity(entry: WatchlistEntry): ContactIdentity {
+    return {
+      identityAddress: entry.address,
+      fullyQualifiedName: entry.displayName,
+      network: walletNetwork,
+      chainId: contactChainId(walletNetwork),
+    };
+  }
+
+  async function checkContact(
+    entry: WatchlistEntry,
+    session: typeof $contactSession = $contactSession
+  ): Promise<void> {
+    const generation = ++contactGeneration;
+    contactState = 'checking';
+    if (!session || session.network !== walletNetwork) {
+      contactError = 'load';
+      contactState = 'error';
+      return;
+    }
+    try {
+      // The backend supplies the canonical normalized VRPC address. Base58
+      // addresses are case-sensitive, so compare that value without case folding.
+      const normalized = await validateDestinationAddress({ kind: 'vrpc', address: entry.address });
+      if (!normalized.valid || !normalized.normalizedAddress)
+        throw new Error('Invalid watchlist contact address');
+      const contacts = await loadContacts(true);
+      if (!mounted || generation !== contactGeneration || $contactSession !== session) return;
+      const identityMatches =
+        entry.targetKind === 'identity' ? matchingContacts(contacts, entryIdentity(entry)) : [];
+      const matches = contacts.filter(
+        (contact) =>
+          identityMatches.includes(contact) ||
+          contact.endpoints.some(
+            (endpoint) =>
+              endpoint.kind === 'vrpc' &&
+              endpoint.normalizedAddress === normalized.normalizedAddress
+          )
+      );
+      contactState = matches.length ? 'duplicate' : 'ready';
+    } catch {
+      if (!mounted || generation !== contactGeneration) return;
+      contactError = 'load';
+      contactState = 'error';
+    }
+  }
+
+  async function activateContact(): Promise<void> {
+    const entry = selectedRow?.record.snapshot.entry;
+    if (!entry || contactState === 'checking' || contactState === 'saving') return;
+    if (contactState === 'duplicate' || contactState === 'saved') return;
+    if (contactState === 'error') {
+      if (contactError === 'load') await checkContact(entry);
+      else await saveIdentityContact(entry);
+      return;
+    }
+    if (entry.targetKind === 'address') onCreateAddressContact?.(entry);
+    else await saveIdentityContact(entry);
+  }
+
+  async function saveIdentityContact(entry: WatchlistEntry): Promise<void> {
+    if (entry.targetKind !== 'identity') return;
+    const session = $contactSession;
+    if (!session || session.network !== walletNetwork) {
+      contactError = 'load';
+      contactState = 'error';
+      return;
+    }
+    const generation = ++contactGeneration;
+    contactState = 'saving';
+    try {
+      await addIdentityContact(entryIdentity(entry));
+      if (!mounted || generation !== contactGeneration || $contactSession !== session) return;
+      contactState = 'saved';
+    } catch {
+      if (!mounted || generation !== contactGeneration) return;
+      contactError = 'save';
+      contactState = 'error';
+    }
+  }
+
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    showBalanceSkeleton = false;
+    if (!refreshError && hasPendingBalances) {
+      timer = setTimeout(() => (showBalanceSkeleton = true), BALANCE_SKELETON_DELAY_MS);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  });
+
+  // Membership can grow after the initial hydrate (for example an add that
+  // finished after the user left and re-entered). Refresh entries that no
+  // covering request has attempted yet instead of leaving their balance fields
+  // loading forever. Attempts are tracked against the shared request that
+  // actually covered them, so joining an older request cannot suppress the
+  // follow-up refresh for a newer entry.
+  $effect(() => {
+    if (membershipPending || membershipError || records.length === 0) return;
+    if (!hasPendingBalances || refreshing || refreshError) return;
+    const hasUnattemptedPending = records.some(
+      (record) =>
+        isBalancePending(record.snapshot) && !attemptedEntryIds.has(record.snapshot.entry.id)
+    );
+    if (!hasUnattemptedPending) return;
+    untrack(() => void refreshAll());
+  });
 
   function placeholderSnapshot(entry: WatchlistEntry): WatchlistEntrySnapshot {
     return { entry, holdings: [], sources: [], availability: 'unavailable', refreshedAt: 0 };
+  }
+
+  function isBalancePending(snapshot: WatchlistEntrySnapshot): boolean {
+    return snapshot.refreshedAt === 0 && snapshot.holdings.length === 0;
+  }
+
+  // A confirmed empty response may show zero currencies; unavailable or partial
+  // responses must not claim zero before a refresh verifies them.
+  function showsCurrencyCount(snapshot: WatchlistEntrySnapshot): boolean {
+    return snapshot.availability === 'available' || snapshot.holdings.length > 0;
   }
 
   function currencyCountLabel(count: number): string {
@@ -107,20 +332,55 @@
     }
   }
 
-  async function hydrate(): Promise<void> {
-    initialLoading = true;
+  // An unbound Watchlist cannot load membership on its own. Ask the route to
+  // recover the verified wallet session first, then retry the membership read.
+  async function retryMembership(): Promise<void> {
+    if (recoveringWalletSession) return;
+    if (!$watchlistSession && onRetryWalletSession) {
+      recoveringWalletSession = true;
+      try {
+        await onRetryWalletSession();
+      } catch {
+        // The route owns metadata recovery errors; keep the guarded failure.
+      } finally {
+        recoveringWalletSession = false;
+      }
+    }
+    if ($watchlistSession) await hydrate(true);
+  }
+
+  async function hydrate(force = false): Promise<void> {
     loadError = '';
     try {
-      const entries = await watchlistService.getWatchlistEntries();
+      const entries = await loadWatchlistEntries(force);
       if (!mounted) return;
-      records = entries.map((entry) => ({ snapshot: placeholderSnapshot(entry), stale: true }));
-      initialLoading = false;
+      loadError = '';
       if (entries.length > 0) await refreshAll();
     } catch (error) {
       if (!mounted) return;
       loadError = translateError(error, 'wallet.watchlist.error.loadFailed');
-      initialLoading = false;
     }
+  }
+
+  function applyRefreshSnapshots(
+    entries: WatchlistEntrySnapshot[],
+    refreshedAt: number,
+    requestedEntryIds: Set<string>
+  ): void {
+    const next = { ...snapshots };
+    for (const snapshot of entries) {
+      next[snapshot.entry.id] = mergeWatchlistSnapshot(next[snapshot.entry.id], snapshot);
+    }
+    // A completed refresh that did not report one of its own requested entries
+    // must not leave that row loading forever. Entries added after the request
+    // started stay pending and are fetched by the follow-up refresh.
+    for (const record of records) {
+      const id = record.snapshot.entry.id;
+      if (next[id] || !isBalancePending(record.snapshot)) continue;
+      if (!requestedEntryIds.has(id)) continue;
+      next[id] = { ...record.snapshot, refreshedAt };
+    }
+    snapshots = next;
   }
 
   async function refreshAll(): Promise<void> {
@@ -128,12 +388,18 @@
     refreshing = true;
     refreshError = '';
     try {
-      const result = await watchlistService.refreshWatchlist();
+      const { result, requestedEntryIds } = await refreshWatchlist();
+      // Only entries covered by this shared request count as attempted; entries
+      // added after it started stay eligible for the follow-up refresh.
+      for (const id of requestedEntryIds) attemptedEntryIds.add(id);
       if (!mounted) return;
-      records = mergeWatchlistSnapshots(records, result.entries);
+      if (result.network !== walletNetwork) {
+        refreshError = i18n.t('wallet.watchlist.error.refreshFailed');
+        return;
+      }
+      applyRefreshSnapshots(result.entries, result.refreshedAt, new Set(requestedEntryIds));
     } catch (error) {
       if (!mounted) return;
-      records = records.map((record) => ({ ...record, stale: true }));
       refreshError = translateError(error, 'wallet.watchlist.error.refreshFailed');
     } finally {
       if (mounted) refreshing = false;
@@ -197,12 +463,9 @@
     adding = true;
     resolveError = '';
     try {
-      const snapshot = await watchlistService.addWatchlistEntry(query, name || undefined);
+      const snapshot = await addWatchlistEntry(query, name || undefined);
       if (!mounted || !addViewOpen || generation !== addGeneration) return;
-      records = mergeWatchlistSnapshots(records, [
-        snapshot,
-        ...records.map((record) => record.snapshot),
-      ]);
+      snapshots = { ...snapshots, [snapshot.entry.id]: snapshot };
       addGeneration++;
       addViewOpen = false;
       addQuery = '';
@@ -217,8 +480,10 @@
   }
 
   async function backToList(): Promise<void> {
+    contactGeneration++;
     const rowId = selectedEntryId;
     selectedEntryId = null;
+    onBackToList?.();
     await tick();
     const row = [
       ...document.querySelectorAll<HTMLButtonElement>('[data-testid="watchlist-entry"]'),
@@ -240,9 +505,8 @@
     removing = true;
     removeError = '';
     try {
-      await watchlistService.removeWatchlistEntry(selectedEntryId);
+      await removeWatchlistEntry(selectedEntryId);
       if (!mounted) return;
-      records = records.filter((record) => record.snapshot.entry.id !== selectedEntryId);
       selectedEntryId = null;
       removeDialogOpen = false;
     } catch (error) {
@@ -258,14 +522,19 @@
     return () => {
       mounted = false;
       addGeneration++;
+      contactGeneration++;
     };
   });
 </script>
 
-<div class="flex min-h-0 w-full flex-1 flex-col" data-testid="watchlist-section">
+<div
+  class="flex min-h-0 w-full flex-1 flex-col"
+  data-testid="watchlist-section"
+  aria-busy={membershipPending ? 'true' : undefined}
+>
   {#if addViewOpen}
     <form
-      class="flex min-h-0 flex-1 flex-col px-5 pt-5 pb-7"
+      class="flex min-h-0 flex-1 flex-col px-5 pt-5 pb-5"
       onsubmit={(event) => {
         event.preventDefault();
         if (resolvedTarget) void addResolvedTarget();
@@ -395,12 +664,20 @@
     </form>
   {:else if selectedView}
     <div class="flex min-h-0 flex-1 flex-col px-5 pt-5">
-      <NavigationBackButton
-        label={i18n.t('wallet.watchlist.back')}
-        tone="settings"
-        class="mb-5 self-start"
-        onclick={() => void backToList()}
-      />
+      <div class="mb-4 flex h-9 shrink-0 items-start justify-between">
+        <NavigationBackButton
+          label={i18n.t('wallet.watchlist.back')}
+          tone="settings"
+          onclick={() => void backToList()}
+        />
+        <InlineTextActionButton
+          tone="destructive"
+          class="h-8 px-1 text-[13px]"
+          onclick={requestRemove}
+        >
+          {i18n.t('wallet.watchlist.remove')}
+        </InlineTextActionButton>
+      </div>
       <header class="flex shrink-0 items-center gap-4 pb-5">
         <WatchlistAvatar
           address={selectedView.address}
@@ -429,44 +706,124 @@
             </div>
           {/if}
         </div>
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger
-            class="flex size-8 shrink-0 items-center justify-center rounded-md text-settings-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-settings-focus-ring"
-            aria-label={i18n.t('wallet.watchlist.moreActions')}
-          >
-            <MoreHorizontalIcon class="size-4" />
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Content align="end" class="w-52">
-            <DropdownMenu.Item variant="destructive" onclick={requestRemove}>
-              {i18n.t('wallet.watchlist.remove')}
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
       </header>
+      <div
+        class="mb-5 flex shrink-0 flex-col items-start gap-1.5"
+        data-testid="watchlist-contact-action"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            class="gap-1.5 {contactState === 'duplicate' || contactState === 'saved'
+              ? 'bg-contact-saved text-contact-saved-foreground hover:bg-contact-saved disabled:cursor-default disabled:opacity-100 disabled:hover:bg-contact-saved'
+              : ''}"
+            disabled={contactState === 'checking' ||
+              contactState === 'saving' ||
+              contactState === 'duplicate' ||
+              contactState === 'saved'}
+            aria-busy={contactState === 'checking' || contactState === 'saving'}
+            onclick={() => void activateContact()}
+          >
+            {#if contactState === 'checking' || contactState === 'saving'}
+              <Spinner class="size-3.5" />
+            {:else if contactState === 'duplicate' || contactState === 'saved'}
+              <CheckIcon class="size-3.5" aria-hidden="true" />
+            {/if}
+            {i18n.t(
+              contactState === 'checking'
+                ? 'wallet.identity.publicProfile.checkingContacts'
+                : contactState === 'saving'
+                  ? 'wallet.addressBook.form.saving'
+                  : contactState === 'duplicate' || contactState === 'saved'
+                    ? 'wallet.identity.publicProfile.inContacts'
+                    : contactState === 'error'
+                      ? 'wallet.contacts.retry'
+                      : 'wallet.contacts.add'
+            )}
+          </Button>
+          {#if selectedRow?.record.snapshot.entry.targetKind === 'identity'}
+            <Button
+              size="sm"
+              variant="secondary"
+              onclick={() => onViewIdentityProfile?.(selectedRow.record.snapshot.entry)}
+            >
+              {i18n.t('wallet.identity.lookup.viewProfile')}
+            </Button>
+          {/if}
+        </div>
+        {#if contactState === 'error'}
+          <p class="text-xs text-destructive" role="alert">
+            {i18n.t(
+              contactError === 'save' ? 'wallet.contacts.saveFailed' : 'wallet.contacts.loadFailed'
+            )}
+          </p>
+        {/if}
+      </div>
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport>
-          <div class="pb-8">
+          <div class="pb-8" aria-busy={detailBalancePending ? 'true' : undefined}>
             {#if detailStatusKey}
-              <p
-                class="mb-3 text-xs text-settings-muted-foreground"
-                role="status"
-                data-testid="watchlist-detail-status"
-              >
-                {i18n.t(detailStatusKey)}
-              </p>
+              <div class="mb-3 flex items-center gap-2 text-xs text-settings-muted-foreground">
+                <p role="status" data-testid="watchlist-detail-status">
+                  {i18n.t(detailStatusKey)}
+                </p>
+                {#if canRetryBalances}
+                  <InlineTextActionButton tone="muted" onclick={() => void refreshAll()}>
+                    {i18n.t('wallet.watchlist.retry')}
+                  </InlineTextActionButton>
+                {/if}
+              </div>
             {/if}
             <section
               class="rounded-xl bg-settings-surface px-5 py-5"
               data-testid="public-value-card"
+              aria-busy={detailBalancePending ? 'true' : undefined}
             >
               <p class="text-xs font-medium text-settings-muted-foreground">
                 {i18n.t('wallet.watchlist.publicValue')}
               </p>
-              <p class="mt-1 text-[30px] leading-9 font-semibold tracking-tight">
-                {selectedView.publicValueDisplay}
-              </p>
+              {#if detailBalancePending && showBalanceSkeleton}
+                <div
+                  class="mt-1 flex h-9 items-center"
+                  aria-label={i18n.t('wallet.loading.balancePending')}
+                >
+                  <Skeleton class="h-8 w-40 rounded-md motion-reduce:animate-none" />
+                </div>
+              {:else if detailBalancePending}
+                <div class="mt-1 h-9" aria-hidden="true"></div>
+              {:else}
+                <p class="mt-1 text-[30px] leading-9 font-semibold tracking-tight">
+                  {selectedView.publicValueDisplay}
+                </p>
+              {/if}
             </section>
-            {#if selectedView.holdings.length === 0}
+            {#if detailBalancePending}
+              <div
+                class="mt-5 overflow-hidden rounded-xl border border-border/60"
+                data-testid="watchlist-detail-skeleton"
+                aria-hidden="true"
+              >
+                {#if showBalanceSkeleton}
+                  {#each [0, 1, 2] as row (row)}
+                    <div
+                      class="flex min-h-[70px] items-center gap-3 px-4 py-3 {row > 0
+                        ? 'border-t border-border/60'
+                        : ''}"
+                    >
+                      <Skeleton class="size-8 shrink-0 rounded-full motion-reduce:animate-none" />
+                      <div class="min-w-0 flex-1">
+                        <Skeleton class="h-3.5 w-24 rounded-sm motion-reduce:animate-none" />
+                        <Skeleton class="mt-2 h-3 w-12 rounded-sm motion-reduce:animate-none" />
+                      </div>
+                      <Skeleton class="h-4 w-16 rounded-sm motion-reduce:animate-none" />
+                    </div>
+                  {/each}
+                {:else}
+                  <div class="h-[212px]"></div>
+                {/if}
+              </div>
+            {:else if selectedView.holdings.length === 0}
               {#if !selectedView.stale}
                 <div
                   class="mt-5 rounded-xl border border-border/60 px-5 py-8 text-center text-sm text-settings-muted-foreground"
@@ -508,23 +865,24 @@
         <ScrollArea.Scrollbar orientation="vertical" />
       </ScrollArea.Root>
     </div>
-  {:else if initialLoading}
-    <div
-      class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center"
-      data-testid="watchlist-loading"
-      role="status"
-    >
-      <Spinner class="size-5 text-settings-muted-foreground" />
-      <p class="text-sm text-settings-muted-foreground">{i18n.t('wallet.watchlist.loading')}</p>
-    </div>
-  {:else if loadError && records.length === 0}
+  {:else if membershipError}
     <div class="flex flex-1 flex-col items-center justify-center px-8 text-center">
       <CircleAlertIcon class="size-7 text-settings-muted-foreground" aria-hidden="true" />
-      <p class="mt-3 text-sm font-medium">{loadError}</p>
-      <Button variant="secondary" size="sm" class="mt-4" onclick={() => void hydrate()}>
+      <p class="mt-3 text-sm font-medium">
+        {loadError || i18n.t('wallet.watchlist.error.loadFailed')}
+      </p>
+      <Button
+        variant="secondary"
+        size="sm"
+        class="mt-4"
+        disabled={recoveringWalletSession}
+        onclick={() => void retryMembership()}
+      >
         {i18n.t('wallet.watchlist.retry')}
       </Button>
     </div>
+  {:else if membershipPending}
+    <div class="min-h-0 flex-1" data-testid="watchlist-membership-pending" aria-hidden="true"></div>
   {:else if records.length === 0}
     <WalletEmptyState
       illustration="watch-list"
@@ -536,56 +894,78 @@
     />
   {:else}
     <div class="flex min-h-0 flex-1 flex-col px-5">
-      <div class="flex h-[74px] shrink-0 items-center justify-between gap-3">
-        <span class="text-xs text-settings-muted-foreground" aria-live="polite">
-          {#if refreshError || (hasStaleData && !refreshing)}
-            {i18n.t(
-              hasKnownBalances
-                ? 'wallet.watchlist.updateUnavailable'
-                : 'wallet.watchlist.updateUnavailableEmpty'
-            )}
+      <div class="flex h-[72px] shrink-0 items-center justify-between gap-3">
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="truncate text-xs text-settings-muted-foreground" aria-live="polite">
+            {#if listStatusKey}{i18n.t(listStatusKey)}{/if}
+          </span>
+          {#if canRetryBalances}
+            <InlineTextActionButton class="shrink-0" tone="muted" onclick={() => void refreshAll()}>
+              {i18n.t('wallet.watchlist.retry')}
+            </InlineTextActionButton>
           {/if}
-        </span>
-        <Button size="sm" onclick={openAddView}>
+        </div>
+        <Button size="sm" class="shrink-0" onclick={openAddView}>
           <PlusIcon class="size-3.5" aria-hidden="true" />
           {i18n.t('wallet.watchlist.addAddress')}
         </Button>
       </div>
       <ScrollArea.Root class="min-h-0 flex-1">
         <ScrollArea.Viewport>
-          <div class="pb-8">
-            {#each viewModels as entry, index (entry.id)}
+          <div class="pb-8" aria-busy={hasPendingBalances && !refreshError ? 'true' : undefined}>
+            {#each rows as row, index (row.view.id)}
               <button
                 type="button"
                 class="row-hover-fade group/watch-row flex min-h-[88px] w-full items-center gap-3.5 px-2 text-left outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-settings-focus-ring {index <
-                viewModels.length - 1
+                rows.length - 1
                   ? 'border-b border-border/60'
                   : ''}"
                 data-testid="watchlist-entry"
-                data-entry-id={entry.id}
-                onclick={() => (selectedEntryId = entry.id)}
+                data-entry-id={row.view.id}
+                onclick={() => (selectedEntryId = row.view.id)}
               >
                 <WatchlistAvatar
-                  address={entry.address}
-                  displayName={entry.displayName}
-                  targetKind={entry.targetKind}
+                  address={row.view.address}
+                  displayName={row.view.displayName}
+                  targetKind={row.view.targetKind}
                   network={walletNetwork}
                 />
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-[15px] font-semibold">{entry.displayName}</p>
-                  {#if entry.targetKind === 'address' && entry.displayName !== entry.address}
+                  <p class="truncate text-[15px] font-semibold">{row.view.displayName}</p>
+                  {#if row.view.targetKind === 'address' && row.view.displayName !== row.view.address}
                     <IdentifierText
-                      value={entry.address}
+                      value={row.view.address}
                       mode="review"
                       class="mt-0.5 block truncate text-xs text-settings-muted-foreground"
                     />
                   {/if}
                 </div>
                 <div class="shrink-0 text-right">
-                  <p class="text-sm font-semibold tabular-nums">{entry.publicValueDisplay}</p>
-                  <p class="mt-0.5 text-xs text-settings-muted-foreground">
-                    {currencyCountLabel(entry.currencyCount)}
-                  </p>
+                  {#if isBalancePending(row.record.snapshot) && !refreshError}
+                    {#if showBalanceSkeleton}
+                      <div
+                        class="flex h-5 items-center justify-end"
+                        aria-label={i18n.t('wallet.loading.balancePending')}
+                      >
+                        <Skeleton class="h-3.5 w-16 rounded-sm motion-reduce:animate-none" />
+                      </div>
+                      <div class="mt-0.5 flex h-4 items-center justify-end" aria-hidden="true">
+                        <Skeleton class="h-3 w-20 rounded-sm motion-reduce:animate-none" />
+                      </div>
+                    {:else}
+                      <div class="h-5" aria-hidden="true"></div>
+                      <div class="mt-0.5 h-4" aria-hidden="true"></div>
+                    {/if}
+                  {:else}
+                    <p class="text-sm font-semibold tabular-nums">
+                      {row.view.publicValueDisplay}
+                    </p>
+                    {#if showsCurrencyCount(row.record.snapshot)}
+                      <p class="mt-0.5 text-xs text-settings-muted-foreground">
+                        {currencyCountLabel(row.view.currencyCount)}
+                      </p>
+                    {/if}
+                  {/if}
                 </div>
                 <ChevronRightIcon
                   class="size-4 shrink-0 text-muted-foreground/70 transition-colors group-hover/watch-row:text-foreground group-focus-visible/watch-row:text-foreground"

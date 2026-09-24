@@ -5,6 +5,7 @@
   import { contactSession } from '$lib/contacts/session';
   import type { WalletNetwork } from '$lib/types/wallet';
   import type { WatchlistTargetKind } from '$lib/types/watchlist';
+  import { cn } from '$lib/utils';
   import IdentityAvatar from './identity/IdentityAvatar.svelte';
 
   let {
@@ -61,10 +62,18 @@
 
 <span bind:this={element} class="inline-flex shrink-0" data-testid="watchlist-avatar">
   {#if targetKind === 'identity'}
-    <IdentityAvatar seed={address} label={displayName} imageUrl={avatarUrl} class={className} />
+    <IdentityAvatar
+      seed={address}
+      label={displayName}
+      imageUrl={avatarUrl}
+      class={cn('size-12', className)}
+    />
   {:else}
     <span
-      class="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground {className}"
+      class={cn(
+        'inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground',
+        className
+      )}
       aria-hidden="true"
       data-testid="watchlist-address-avatar"
     >

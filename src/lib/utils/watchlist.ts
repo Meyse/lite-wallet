@@ -132,24 +132,31 @@ export function buildWatchlistEntryViewModel(
   };
 }
 
-export function mergeWatchlistSnapshots(
-  previous: WatchlistRecord[],
-  next: WatchlistEntrySnapshot[]
-): WatchlistRecord[] {
-  const previousById = new Map(previous.map((record) => [record.snapshot.entry.id, record]));
+/**
+ * Merges a refreshed snapshot with the last known one without inventing an
+ * empty result. Systems that responded successfully are authoritative, so
+ * their fresh holdings (including a confirmed empty list) replace the previous
+ * ones. Holdings from systems that failed or were not reported are kept as
+ * last known values instead of disappearing.
+ */
+export function mergeWatchlistSnapshot(
+  previous: WatchlistEntrySnapshot | undefined,
+  next: WatchlistEntrySnapshot
+): WatchlistEntrySnapshot {
+  if (next.availability === 'available' || !previous?.holdings.length) return next;
 
-  return next.map((snapshot) => {
-    const existing = previousById.get(snapshot.entry.id);
-    if (snapshot.availability === 'unavailable' && existing?.snapshot.holdings.length) {
-      return {
-        snapshot: {
-          ...snapshot,
-          holdings: existing.snapshot.holdings,
-        },
-        stale: true,
-      };
-    }
-
-    return { snapshot, stale: snapshot.availability !== 'available' };
+  const statusBySystem = new Map(
+    next.sources.map((source) => [source.systemId, source.status] as const)
+  );
+  const freshKeys = new Set(next.holdings.map((holding) => holding.assetKey));
+  const retained = previous.holdings.filter((holding) => {
+    if (freshKeys.has(holding.assetKey)) return false;
+    const status = statusBySystem.get(holding.systemId);
+    // A system that is missing from the report is not proof that its holdings
+    // disappeared, and a failed system keeps its last known value.
+    return status === undefined || status !== 'available';
   });
+
+  if (!retained.length) return next;
+  return { ...next, holdings: [...next.holdings, ...retained] };
 }

@@ -14,7 +14,9 @@ export type VerusIdLookupState = {
 };
 
 export type VerusIdProfileOrigin =
-  { kind: 'lookup' } | { kind: 'contacts'; returnState: ContactReturnState };
+  | { kind: 'lookup' }
+  | { kind: 'contacts'; returnState: ContactReturnState }
+  | { kind: 'watchlist' };
 
 export type VerusIdProfileDestination = {
   identity: ResolvedContactIdentity;

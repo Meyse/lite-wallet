@@ -42,7 +42,7 @@
   } from '$lib/contacts/identity';
   import { loadContacts, resolveContactIdentity } from '$lib/contacts/service';
   import { contactSession, contactsLoadState } from '$lib/contacts/session';
-  import type { ContactReturnState } from '$lib/contacts/navigation';
+  import type { AddressContactPrefill, ContactReturnState } from '$lib/contacts/navigation';
 
   type EndpointDraft = {
     id?: string;
@@ -57,20 +57,26 @@
 
   let {
     requestedIdentity = null,
+    requestedContactId = null,
+    createPrefill = null,
     returnState = null,
     onViewProfile,
     profileNavigationDisabled = false,
     restoreProfileFocus = false,
     onReturn,
     returnLabel = '',
+    onContactCreated,
   }: {
     requestedIdentity?: ContactIdentity | null;
+    requestedContactId?: string | null;
+    createPrefill?: AddressContactPrefill | null;
     returnState?: ContactReturnState | null;
     onViewProfile?: (identity: ContactIdentity, returnState: ContactReturnState) => void;
     profileNavigationDisabled?: boolean;
     restoreProfileFocus?: boolean;
     onReturn?: () => void;
     returnLabel?: string;
+    onContactCreated?: (contact: AddressBookContact) => void;
   } = $props();
 
   const i18n = $derived($i18nStore);
@@ -122,12 +128,16 @@
   let deleteError = $state('');
 
   $effect(() => {
-    $contactSession;
-    cancelForm();
+    const session = $contactSession;
+    const prefill = createPrefill;
     const restored = untrack(() => returnState);
-    selectedContactId = restored?.contactId ?? null;
-    searchTerm = restored?.searchTerm ?? '';
-    showDeleteDialog = false;
+    untrack(() => {
+      cancelForm();
+      selectedContactId = restored?.contactId ?? requestedContactId ?? null;
+      searchTerm = restored?.searchTerm ?? '';
+      showDeleteDialog = false;
+      if (session && prefill) startCreateContact(prefill);
+    });
   });
 
   $effect(() => {
@@ -187,7 +197,7 @@
       return;
     }
 
-    if (requestedIdentity) return;
+    if (requestedIdentity || requestedContactId || createPrefill) return;
     selectedContactId = contacts[0]?.id ?? null;
   });
 
@@ -264,17 +274,17 @@
     return null;
   }
 
-  function startCreateContact() {
+  function startCreateContact(prefill?: AddressContactPrefill) {
     formGeneration++;
     formIdentities = [];
     selectedProfileKey = null;
-    lookupMode = true;
+    lookupMode = !prefill;
     formMode = 'create';
     formContactId = null;
-    formDisplayName = '';
+    formDisplayName = prefill?.name ?? '';
     formNote = '';
     showNote = false;
-    formEndpoints = [newEndpointDraft()];
+    formEndpoints = prefill ? [{ address: prefill.address, kind: 'vrpc' }] : [newEndpointDraft()];
     endpointInputEls = [null];
     nameError = '';
     endpointsError = '';
@@ -426,6 +436,11 @@
     formError = '';
 
     const generation = formGeneration;
+    const session = $contactSession;
+    if (createPrefill && !session) {
+      formError = i18n.t('wallet.contacts.loadFailed');
+      return;
+    }
     const displayName = formProfile?.fullyQualifiedName ?? formDisplayName.trim();
     if (formIdentities.length > 1 && !formProfile) {
       formError = i18n.t('wallet.contacts.chooseProfile');
@@ -433,6 +448,11 @@
     }
     if (!displayName) {
       nameError = i18n.t('wallet.addressBook.error.nameRequired');
+      nameInputEl?.focus();
+      return;
+    }
+    if (createPrefill && displayName === createPrefill.address.trim()) {
+      nameError = i18n.t('wallet.addressBook.error.usefulNameRequired');
       nameInputEl?.focus();
       return;
     }
@@ -488,7 +508,8 @@
         });
       }
 
-      if (!alive || generation !== formGeneration) return;
+      if (!alive || generation !== formGeneration || (createPrefill && $contactSession !== session))
+        return;
       const savedContact = await addressBookService.saveAddressBookContact({
         id: formContactId ?? undefined,
         displayName,
@@ -498,10 +519,12 @@
         profileIdentity: formProfile,
       });
 
-      if (!alive || generation !== formGeneration) return;
+      if (!alive || generation !== formGeneration || (createPrefill && $contactSession !== session))
+        return;
       upsertAddressBookContact(savedContact);
       selectedContactId = savedContact.id;
       cancelForm();
+      if (createPrefill) onContactCreated?.(savedContact);
     } catch (error) {
       if (!alive || generation !== formGeneration) return;
       formError = mapSaveError(error);
@@ -542,12 +565,16 @@
 >
   {#if onReturn}
     <div class="mb-4 shrink-0">
-      <NavigationBackButton label={returnLabel} onclick={onReturn} />
+      <NavigationBackButton
+        label={returnLabel}
+        onclick={onReturn}
+        disabled={Boolean(createPrefill) && saving}
+      />
     </div>
   {/if}
   {#if contacts.length > 0 && !formMode}
     <div class="absolute top-5 right-5 z-10 shrink-0">
-      <Button size="sm" onclick={startCreateContact}
+      <Button size="sm" onclick={() => startCreateContact()}
         ><PlusIcon class="size-3.5" aria-hidden="true" />{i18n.t(
           'wallet.addressBook.addContact'
         )}</Button
@@ -651,7 +678,7 @@
           eyebrow={i18n.t('wallet.empty.encrypted')}
           title={i18n.t('wallet.addressBook.empty')}
           actionLabel={i18n.t('wallet.addressBook.addContact')}
-          onAction={startCreateContact}
+          onAction={() => startCreateContact()}
           testId="address-book-empty"
         />
       {:else if formMode}
@@ -922,7 +949,14 @@
               {/if}
             </div>
             <div class="flex items-center gap-2">
-              <Button variant="secondary" onclick={cancelForm} disabled={saving || deleting}>
+              <Button
+                variant="secondary"
+                onclick={() => {
+                  if (createPrefill && formMode === 'create') onReturn?.();
+                  else cancelForm();
+                }}
+                disabled={saving || deleting}
+              >
                 {i18n.t('common.cancel')}
               </Button>
               {#if !lookupMode}<Button

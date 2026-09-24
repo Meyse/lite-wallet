@@ -67,6 +67,7 @@
     onSessionStateChange = noop,
     navigationDisabled = false,
     onReturnToContacts,
+    onReturnToWatchlist,
     onSend = noopIdentity,
   }: {
     walletNetwork?: 'mainnet' | 'testnet';
@@ -74,6 +75,7 @@
     onSessionStateChange?: (nextState: IdentitySectionSessionState) => void;
     navigationDisabled?: boolean;
     onReturnToContacts?: (returnState: ContactReturnState) => void;
+    onReturnToWatchlist?: () => void;
     onSend?: (identity: ResolvedContactIdentity) => void;
   } = $props();
 
@@ -630,6 +632,10 @@
       onReturnToContacts?.(origin.returnState);
       return;
     }
+    if (origin?.kind === 'watchlist') {
+      onReturnToWatchlist?.();
+      return;
+    }
     activeTab = 'lookup';
     restoreLookupFocus = true;
     void tick();
@@ -789,7 +795,9 @@
       {navigationDisabled}
       backLabel={publicProfile.origin.kind === 'contacts'
         ? i18n.t('wallet.identity.publicProfile.backToContacts')
-        : undefined}
+        : publicProfile.origin.kind === 'watchlist'
+          ? i18n.t('wallet.identity.publicProfile.backToWatchlist')
+          : undefined}
       onBack={closePublicProfile}
       {onSend}
     />

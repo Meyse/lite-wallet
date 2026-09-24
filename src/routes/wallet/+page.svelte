@@ -14,12 +14,19 @@
   import {
     forceWalletToUnlock,
     isForcedWalletLockError,
+    walletLockEpoch,
     walletUnlockRedirectingStore,
   } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import * as coinsService from '$lib/services/coinsService.js';
   import { loadContacts } from '$lib/contacts/service';
   import { setContactSession } from '$lib/contacts/session';
+  import { loadWatchlistEntries } from '$lib/watchlist/service';
+  import { resetWatchlistSession, setWatchlistSession } from '$lib/watchlist/session';
+  import {
+    bindRecoveredWalletSession,
+    recoverActiveWalletSession,
+  } from '$lib/services/walletSessionRecovery.js';
   import { setupWalletEventBridge } from '$lib/services/eventBridge.js';
   import { resetWalletDisplaySession } from '$lib/services/walletDisplayService.js';
   import { balanceStore } from '$lib/stores/balances.js';
@@ -87,8 +94,43 @@
     }
   }
 
+  function fallbackWalletData(network: WalletNetwork) {
+    return {
+      name: i18n.t('wallet.overview.mainWallet'),
+      emoji: '💰',
+      color: 'blue',
+      network,
+      sessionId: 'unavailable',
+    };
+  }
+
+  function walletSessionKey(data: { sessionId: string; network: WalletNetwork } | null): string {
+    return data ? `${data.sessionId}::${data.network}` : 'unbound';
+  }
+
+  // Used when the route rendered on fallback metadata. It re-reads the active
+  // wallet and only then rebinds the route sessions; a missing or replaced
+  // wallet cannot grant a placeholder or previous-wallet binding.
+  async function retryWalletSession(): Promise<void> {
+    const expectedWalletKey = walletSessionKey(walletData);
+    const recovered = await recoverActiveWalletSession().catch((error) => {
+      console.error('[WALLET_ROUTE] Failed to recover the active wallet session', error);
+      return null;
+    });
+    if (!recovered || !routeScope?.active || get(walletUnlockRedirectingStore)) return;
+    if (walletSessionKey(walletData) !== expectedWalletKey) return;
+    bindRecoveredWalletSession(recovered);
+    walletData = recovered;
+    // Contacts had no session while the route ran on fallback metadata; load
+    // them now so the section cannot falsely appear empty.
+    void loadContacts().catch((error) => {
+      console.error('[WALLET_ROUTE] Failed to load address book contacts after recovery', error);
+    });
+  }
+
   onMount(async () => {
     const scope = new DisposableScope();
+    const bootLockEpoch = get(walletLockEpoch);
     const dashboardStartedAt = performance.now();
     routeScope = scope;
     resetWalletDisplaySession();
@@ -172,6 +214,15 @@
       ]);
       if (!scope.active) return;
       const walletNetwork: WalletNetwork = active?.network ?? 'mainnet';
+      if (get(walletLockEpoch) !== bootLockEpoch) {
+        // A forced lock happened while the metadata read was pending and its
+        // navigation failed. Stay on the guarded fallback instead of rebinding
+        // the wallet that the lock already invalidated.
+        walletData = fallbackWalletData(walletNetwork);
+        setContactSession(null);
+        resetWatchlistSession();
+        return;
+      }
       walletData = active
         ? {
             name: active.wallet_name,
@@ -180,14 +231,13 @@
             network: walletNetwork,
             sessionId: active.session_id,
           }
-        : {
-            name: i18n.t('wallet.overview.mainWallet'),
-            emoji: '💰',
-            color: 'blue',
-            network: walletNetwork,
-            sessionId: 'unavailable',
-          };
+        : fallbackWalletData(walletNetwork);
       setContactSession(active ? { sessionId: active.session_id, network: walletNetwork } : null);
+      if (active) {
+        setWatchlistSession({ sessionId: active.session_id, network: walletNetwork });
+      } else {
+        resetWatchlistSession();
+      }
       const cacheKey = activeAssetsCacheKey(walletData.name, walletNetwork);
 
       if (!addresses) {
@@ -217,14 +267,25 @@
         `[WALLET_PERF] dashboard phase=essential_metadata elapsed_ms=${Math.round(performance.now() - dashboardStartedAt)}`
       );
 
-      void loadContacts().catch(async (error) => {
-        if (!scope.active) return;
-        if (isForcedWalletLockError(error)) {
-          await handleSessionExpired();
-          return;
-        }
-        console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
-      });
+      if (active) {
+        void loadContacts().catch(async (error) => {
+          if (!scope.active) return;
+          if (isForcedWalletLockError(error)) {
+            await handleSessionExpired();
+            return;
+          }
+          console.error('[WALLET_ROUTE] Failed to load address book contacts', error);
+        });
+
+        void loadWatchlistEntries().catch(async (error) => {
+          if (!scope.active) return;
+          if (isForcedWalletLockError(error)) {
+            await handleSessionExpired();
+            return;
+          }
+          console.error('[WALLET_ROUTE] Failed to load watchlist entries', error);
+        });
+      }
 
       const teardownEventBridge = await eventBridgePromise;
       if (!scope.active || !teardownEventBridge) return;
@@ -255,13 +316,7 @@
       const message = error instanceof Error ? error.message : i18n.t('common.unknownError');
       pushWalletBackgroundError(message);
       if (!walletData) {
-        walletData = {
-          name: i18n.t('wallet.overview.mainWallet'),
-          emoji: '💰',
-          color: 'blue',
-          network: 'mainnet',
-          sessionId: 'unavailable',
-        };
+        walletData = fallbackWalletData('mainnet');
       }
     } finally {
       if (scope.active) {
@@ -282,6 +337,7 @@
     clearCoinScopes();
     resetWalletChannels();
     setContactSession(null);
+    resetWatchlistSession();
   });
 </script>
 
@@ -290,5 +346,5 @@
     <div class="text-muted-foreground">{i18n.t('common.loading')}</div>
   </main>
 {:else if walletData}
-  <WalletLayout {walletData} />
+  <WalletLayout {walletData} onRetryWalletSession={retryWalletSession} />
 {/if}

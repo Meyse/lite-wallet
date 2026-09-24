@@ -3,6 +3,7 @@ import '../../src/app.css';
 import { mount, tick } from 'svelte';
 import { setLocale } from '$lib/i18n';
 import { setContactSession } from '$lib/contacts/session';
+import { setWatchlistSession } from '$lib/watchlist/session';
 import { ratesStore } from '$lib/stores/rates';
 import type { WatchlistEntry, WatchlistEntrySnapshot } from '$lib/types/watchlist';
 import Fixture from './WatchlistStatesFixture.svelte';
@@ -81,6 +82,31 @@ Object.assign(window, {
       if (command === 'refresh_watchlist' && state === 'detail-loading') return pending();
       if (command === 'refresh_watchlist')
         return { network: 'mainnet', entries: entries.map(snapshot), refreshedAt: 1 };
+      if (command === 'validate_destination_address') {
+        const request = args.request as { address: string };
+        return { valid: true, normalizedAddress: request.address, reason: null };
+      }
+      if (command === 'list_address_book_contacts')
+        return params.get('contact') === 'existing'
+          ? [
+              {
+                id: 'mira-contact',
+                displayName: 'mira@',
+                note: null,
+                createdAt: 1,
+                updatedAt: 1,
+                endpoints: [],
+                identities: [
+                  {
+                    identityAddress,
+                    fullyQualifiedName: 'mira@',
+                    network: 'mainnet',
+                    chainId: coin.currencyId,
+                  },
+                ],
+              },
+            ]
+          : [];
       if (command === 'get_identity_profile')
         return { state: 'empty', issues: [], revisionTxid: null };
       if (command === 'resolve_watchlist_target') {
@@ -105,6 +131,7 @@ Object.assign(window, {
   },
 });
 setContactSession({ sessionId: 'watchlist-fixture', network: 'mainnet' });
+setWatchlistSession({ sessionId: 'watchlist-fixture', network: 'mainnet' });
 ratesStore.set({ VRSC: { rates: { USD: 2.2, EUR: 2 }, usdChange24hPct: null } });
 document.documentElement.classList.toggle('dark', params.get('theme') === 'dark');
 setLocale(params.get('locale') === 'nl' ? 'nl' : 'en');

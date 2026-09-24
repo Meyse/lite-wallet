@@ -34,6 +34,10 @@ Open either page on `http://127.0.0.1:1428`:
 - `/dev/browser-fixtures/contacts.html`: isolated Contacts and Send states,
   profile loading, long content, saving, and retry. See the
   [Contacts verification notes](../../docs/references/contacts-implementation.md).
+- `/dev/browser-fixtures/watchlist.html`: the production Watchlist in the wallet
+  shell, starting empty. Add `alex@` or `RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka` to
+  step through lookup, resolved preview, list, and detail views. Balances and
+  rates are synthetic. Supports `theme=dark` and `locale=nl`.
 - `/dev/browser-fixtures/transfer-navigation.html`: the production wallet shell
   and retained Send/Convert drafts, including profile-to-Contacts navigation.
   See the

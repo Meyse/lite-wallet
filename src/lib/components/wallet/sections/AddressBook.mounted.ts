@@ -7,6 +7,7 @@ import { identityKey } from '$lib/contacts/identity';
 import { identityProfiles } from '$lib/contacts/profiles';
 import { contactSession } from '$lib/contacts/session';
 import type { ContactReturnState } from '$lib/contacts/navigation';
+import type { AddressContactPrefill } from '$lib/contacts/navigation';
 import { addressBookStore } from '$lib/stores/addressBook';
 import type { AddressBookContact, ContactIdentity } from '$lib/types/addressBook';
 import AddressBook from './AddressBook.svelte';
@@ -85,6 +86,10 @@ async function render(
     returnState?: ContactReturnState;
     onViewProfile?: (identity: ContactIdentity, returnState: ContactReturnState) => void;
     restoreProfileFocus?: boolean;
+    createPrefill?: AddressContactPrefill;
+    onReturn?: () => void;
+    onContactCreated?: (contact: AddressBookContact) => void;
+    requestedContactId?: string;
   } = {}
 ) {
   addressBookStore.set(contacts);
@@ -110,6 +115,80 @@ afterEach(async () => {
 });
 
 describe('address book contact workflows', () => {
+  it('prefills a watched R-address, requires a useful name, and returns after a confirmed save', async () => {
+    contactSession.set({ sessionId: 'contacts-watchlist-test', network: 'mainnet' });
+    const onReturn = vi.fn();
+    const onContactCreated = vi.fn();
+    await render([], undefined, {
+      createPrefill: { address: contact.endpoints[0].address, name: '' },
+      onReturn,
+      onContactCreated,
+    });
+    expect(document.querySelector('[data-address-book-form-content]')).not.toBeNull();
+    expect(document.querySelector<HTMLInputElement>('#endpoint-address-0')?.value).toBe(
+      contact.endpoints[0].address
+    );
+    expect(document.querySelector<HTMLInputElement>('#address-book-name')?.value).toBe('');
+    button('Save').click();
+    await settle();
+    expect(document.body.textContent).toContain('Enter a contact name.');
+    await input('#address-book-name', contact.endpoints[0].address);
+    button('Save').click();
+    await settle();
+    expect(document.body.textContent).toContain('Give this contact a name other than its address.');
+    await input('#address-book-name', 'Mum');
+    service.saveAddressBookContact.mockRejectedValueOnce(new Error('Temporary save failure'));
+    button('Save').click();
+    await settle();
+    expect(document.body.textContent).toContain('Temporary save failure');
+    expect(onContactCreated).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLInputElement>('#address-book-name')?.value).toBe('Mum');
+
+    service.saveAddressBookContact.mockResolvedValueOnce(contact);
+    button('Save').click();
+    await settle();
+    expect(service.saveAddressBookContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        displayName: 'Mum',
+        endpoints: [
+          expect.objectContaining({ kind: 'vrpc', address: contact.endpoints[0].address }),
+        ],
+      })
+    );
+    expect(onContactCreated).toHaveBeenCalledWith(contact);
+    expect(onReturn).not.toHaveBeenCalled();
+  });
+
+  it('returns from a prefilled creation form on cancel without saving', async () => {
+    contactSession.set({ sessionId: 'contacts-watchlist-test', network: 'mainnet' });
+    const onReturn = vi.fn();
+    await render([], undefined, {
+      createPrefill: { address: contact.endpoints[0].address, name: 'Mum' },
+      onReturn,
+    });
+    expect(document.querySelector<HTMLInputElement>('#address-book-name')?.value).toBe('Mum');
+    button('Cancel').click();
+    expect(onReturn).toHaveBeenCalledTimes(1);
+    expect(service.saveAddressBookContact).not.toHaveBeenCalled();
+  });
+
+  it('does not submit a prefilled address after its contact session is lost during validation', async () => {
+    contactSession.set({ sessionId: 'contacts-watchlist-test', network: 'mainnet' });
+    let finishValidation!: (value: { valid: boolean }) => void;
+    service.validateDestinationAddress.mockImplementationOnce(
+      () => new Promise((resolve) => (finishValidation = resolve))
+    );
+    await render([], undefined, {
+      createPrefill: { address: contact.endpoints[0].address, name: 'Mum' },
+    });
+    button('Save').click();
+    await settle();
+    expect(service.validateDestinationAddress).toHaveBeenCalled();
+    contactSession.set(null);
+    finishValidation({ valid: true });
+    await settle();
+    expect(service.saveAddressBookContact).not.toHaveBeenCalled();
+  });
   const identity: ContactIdentity = {
     fullyQualifiedName: 'alice.example@',
     identityAddress: 'iQjVunnXvHswZhmNnqT4ucbRmvDkr5hBAg',
@@ -161,6 +240,27 @@ describe('address book contact workflows', () => {
     await render([contact], undefined, { onViewProfile });
     expect(document.querySelector('[data-contact-detail]')?.textContent).toContain('Mum');
     expect(document.body.textContent).not.toContain('View profile');
+  });
+
+  it('restores the explicitly returned contact after a Watchlist contact opens another profile', async () => {
+    contactSession.set({ sessionId: 'contacts-profile-test', network: 'testnet' });
+    identityProfiles.set({
+      [identityKey(identity)]: {
+        profile: null,
+        loading: false,
+        unavailable: true,
+        checkedAt: Date.now(),
+      },
+    });
+    await render([contact, identityContact], undefined, {
+      requestedContactId: contact.id,
+      returnState: { contactId: identityContact.id, searchTerm: 'alice' },
+    });
+    expect(document.querySelector<HTMLInputElement>('aside input')?.value).toBe('alice');
+    expect(document.querySelector('[data-contact-detail]')?.textContent).toContain(
+      identity.fullyQualifiedName
+    );
+    expect(document.querySelector('[data-contact-detail]')?.textContent).not.toContain('Mum');
   });
 
   it('shows the VerusID name and identifier without its description and preserves it when editing', async () => {
