@@ -272,7 +272,7 @@
                 {#if related}
                   <button
                     type="button"
-                    class="help-related group/help-row relative isolate before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-r before:from-transparent before:via-muted/25 before:to-transparent before:opacity-0 before:transition-opacity hover:before:opacity-100 dark:before:via-muted/15"
+                    class="row-hover-fade help-related group/help-row"
                     onclick={() => openArticle(id)}
                   >
                     <span>{related.title}</span><ChevronRightIcon
@@ -311,7 +311,7 @@
                 {#each visibleArticles as item (item.id)}
                   <button
                     type="button"
-                    class="group/help-row relative isolate flex w-full items-center justify-between gap-5 rounded-md px-3 py-4 text-left before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-r before:from-transparent before:via-muted/25 before:to-transparent before:opacity-0 before:transition-opacity hover:before:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none focus-visible:ring-inset dark:before:via-muted/15"
+                    class="row-hover-fade group/help-row flex w-full items-center justify-between gap-5 rounded-md px-3 py-4 text-left focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none focus-visible:ring-inset"
                     onclick={() => openArticle(item.id)}
                   >
                     <span class="min-w-0 text-sm leading-5 font-medium">{item.title}</span>

@@ -557,7 +557,7 @@
             {#each viewModels as entry, index (entry.id)}
               <button
                 type="button"
-                class="group/watch-row relative isolate flex min-h-[88px] w-full items-center gap-3.5 px-2 text-left outline-none before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-r before:from-transparent before:via-muted/25 before:to-transparent before:opacity-0 before:transition-opacity hover:before:opacity-100 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-settings-focus-ring dark:before:via-muted/15 {index <
+                class="row-hover-fade group/watch-row flex min-h-[88px] w-full items-center gap-3.5 px-2 text-left outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-settings-focus-ring {index <
                 viewModels.length - 1
                   ? 'border-b border-border/60'
                   : ''}"

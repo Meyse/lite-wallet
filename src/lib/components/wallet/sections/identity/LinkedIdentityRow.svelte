@@ -89,7 +89,7 @@
   bind:this={rowElement}
   data-linked-identity-row
   data-divider={showDivider ? 'between' : 'none'}
-  class={`group/identity-row relative isolate flex w-full items-center gap-3.5 py-[18px] before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-r before:from-transparent before:via-muted/25 before:to-transparent before:opacity-0 before:transition-opacity hover:before:opacity-100 dark:before:via-muted/15 ${showDivider ? 'border-b' : ''}`}
+  class={`row-hover-fade group/identity-row flex w-full items-center gap-3.5 py-[18px] ${showDivider ? 'border-b' : ''}`}
 >
   <button
     type="button"

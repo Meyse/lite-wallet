@@ -287,6 +287,39 @@
 }
 
 @layer utilities {
+  .row-hover-fade {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .row-hover-fade::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      to right,
+      transparent,
+      color-mix(in oklab, var(--foreground) 3%, transparent),
+      transparent
+    );
+    opacity: 0;
+  }
+
+  .dark .row-hover-fade::before {
+    background: linear-gradient(
+      to right,
+      transparent,
+      color-mix(in oklab, var(--foreground) 5%, transparent),
+      transparent
+    );
+  }
+
+  .row-hover-fade:hover::before {
+    opacity: 1;
+  }
+
   .font-google-sans-17pt {
     font-family: 'Google Sans 17pt', var(--font-sans);
   }
