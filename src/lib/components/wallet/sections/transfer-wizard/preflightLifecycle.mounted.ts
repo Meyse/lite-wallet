@@ -3,6 +3,7 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CoinDefinition, CoinScope, PreflightResult, SendResult } from '$lib/types/wallet';
+import type { AddressBookContact } from '$lib/types/addressBook';
 
 const mocks = vi.hoisted(() => ({
   preflightSend: vi.fn(),
@@ -92,7 +93,8 @@ import { coinsStore } from '$lib/stores/coins';
 import { networkStore } from '$lib/stores/network';
 import { ratesStore } from '$lib/stores/rates';
 import { localeStore } from '$lib/i18n';
-import { contactsLoadState, setContactSession } from '$lib/contacts/session';
+import { setContactSession } from '$lib/contacts/session';
+import { loadContacts } from '$lib/contacts/service';
 import { PreflightRequestGuard } from './preflightRequestGuard';
 import TransferWizard from '../TransferWizard.svelte';
 import WalletLayoutLifecycleHarness from './test-fixtures/WalletLayoutLifecycleHarness.svelte';
@@ -598,37 +600,40 @@ it('visits Contacts from the production Send preview and returns to the same dra
       },
     ],
   });
-  setContactSession({ sessionId: 'session-1', network: 'mainnet' });
-  addressBookStore.set([
-    {
-      id: 'alice',
-      displayName: 'alice@',
-      note: 'Saved contact note',
-      createdAt: 1,
-      updatedAt: 1,
-      identities: [identity],
-      endpoints: [
-        {
-          id: 'alice-endpoint',
-          address: vrscSystemId,
-          normalizedAddress: vrscSystemId,
-          kind: 'vrpc',
-          label: 'VerusID',
-          lastUsedAt: null,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ],
-    },
-  ]);
-  contactsLoadState.set('ready');
+  const contact: AddressBookContact = {
+    id: 'alice',
+    displayName: 'alice@',
+    note: 'Saved contact note',
+    createdAt: 1,
+    updatedAt: 1,
+    identities: [identity],
+    endpoints: [
+      {
+        id: 'alice-endpoint',
+        address: vrscSystemId,
+        normalizedAddress: vrscSystemId,
+        kind: 'vrpc',
+        label: 'VerusID',
+        lastUsedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  };
+  const contactResponses: Record<string, unknown> = {
+    resolve_contact_identity: identity,
+    list_address_book_contacts: [contact],
+    get_identity_profile: { state: 'empty', issues: [], revisionTxid: null },
+  };
   mocks.contactInvoke.mockImplementation((command: string) =>
-    Promise.resolve(
-      command === 'resolve_contact_identity'
-        ? identity
-        : { state: 'empty', issues: [], revisionTxid: null }
-    )
+    command in contactResponses
+      ? Promise.resolve(contactResponses[command])
+      : Promise.reject(new Error(`Unexpected contacts command ${command}`))
   );
+  setContactSession({ sessionId: 'session-1', network: 'mainnet' });
+  // Warm the cache through the service: seeding the stores directly leaves its
+  // membership cache incomplete, so the next read would still hit the backend.
+  await loadContacts();
   const target = document.createElement('div');
   document.body.append(target);
   const component = mount(WalletLayoutLifecycleHarness, { target });

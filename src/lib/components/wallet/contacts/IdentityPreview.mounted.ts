@@ -267,7 +267,7 @@ describe('interactive identity preview', () => {
       return Promise.resolve(null);
     });
     await render();
-    const trigger = document.querySelector<HTMLButtonElement>('[data-popover-trigger]')!;
+    const trigger = document.querySelector('[data-popover-trigger]') as HTMLButtonElement;
     trigger.click();
     await settle();
     button('Add to contacts').click();
