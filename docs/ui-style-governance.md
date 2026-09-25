@@ -115,19 +115,20 @@ component.
 
 ## Semantic tokens in `src/app.css`
 
-| Token                            | Light     | Dark      | Purpose                                      |
-| -------------------------------- | --------- | --------- | -------------------------------------------- |
-| `app-canvas`                     | `#FBFBFB` | `#111111` | Entry screens and dark wallet shell surfaces |
-| `sidebar-surface`                | `#EDEDED` | `#28282B` | Sidebar and aside surface                    |
-| `sidebar-item-hover`             | `#E0E0E0` | `#36373B` | Sidebar hover state                          |
-| `sidebar-item-pressed`           | `#D8D8D8` | `#323338` | Sidebar pressed state                        |
-| `sidebar-item-active`            | `#E5E5E5` | `#303136` | Sidebar active state                         |
-| `text-action`                    | `#3165D4` | `#89AEFF` | Standalone, non-destructive text actions     |
-| `guard-revoke`                   | `#D4313E` | `#D4313E` | Guard revoke accent                          |
-| `guard-recover`                  | `#4AA658` | `#4AA658` | Guard recover accent                         |
-| `brand-discord`                  | `#5865F2` | `#5865F2` | Community hangout background                 |
-| `brand-discord-foreground`       | `#4752C4` | `#7B86F8` | Community hangout text/icon color            |
-| `brand-discord-foreground-hover` | `#3F49B7` | `#A0A8FF` | Community hangout hover text/icon color      |
+| Token                            | Light     | Dark               | Purpose                                      |
+| -------------------------------- | --------- | ------------------ | -------------------------------------------- |
+| `app-canvas`                     | `#FBFBFB` | `#111111`          | Entry screens and dark wallet shell surfaces |
+| `sidebar-surface`                | `#EDEDED` | `#28282B`          | Sidebar and aside surface                    |
+| `sidebar-item-hover`             | `#E0E0E0` | `#36373B`          | Sidebar hover state                          |
+| `sidebar-item-pressed`           | `#D8D8D8` | `#323338`          | Sidebar pressed state                        |
+| `sidebar-item-active`            | `#E5E5E5` | `#303136`          | Sidebar active state                         |
+| `sidebar-divider`                | `#DEDEDE` | `--sidebar-border` | Sidebar edge divider                         |
+| `text-action`                    | `#3165D4` | `#89AEFF`          | Standalone, non-destructive text actions     |
+| `guard-revoke`                   | `#D4313E` | `#D4313E`          | Guard revoke accent                          |
+| `guard-recover`                  | `#4AA658` | `#4AA658`          | Guard recover accent                         |
+| `brand-discord`                  | `#5865F2` | `#5865F2`          | Community hangout background                 |
+| `brand-discord-foreground`       | `#4752C4` | `#7B86F8`          | Community hangout text/icon color            |
+| `brand-discord-foreground-hover` | `#3F49B7` | `#A0A8FF`          | Community hangout hover text/icon color      |
 
 ## Approved literal registries
 

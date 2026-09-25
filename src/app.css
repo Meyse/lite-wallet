@@ -115,6 +115,7 @@
   --sidebar-item-hover: #e0e0e0;
   --sidebar-item-pressed: #d8d8d8;
   --sidebar-item-active: #e5e5e5;
+  --sidebar-divider: #dedede;
   --wallet-balance-gradient-start: oklab(53.6% -0.022 -0.179);
   --wallet-balance-gradient-end: oklab(70.5% -0.019 -0.153);
   --wallet-balance-foreground: #ffffff;
@@ -183,6 +184,7 @@
   --sidebar-item-hover: #36373b;
   --sidebar-item-pressed: #323338;
   --sidebar-item-active: #303136;
+  --sidebar-divider: var(--sidebar-border);
   --wallet-balance-gradient-start: oklab(34.3% -0.017 -0.138);
   --wallet-balance-gradient-end: oklab(43.2% -0.018 -0.147);
   --wallet-balance-edge: #21499f;
@@ -250,6 +252,7 @@
   --color-sidebar-item-hover: var(--sidebar-item-hover);
   --color-sidebar-item-pressed: var(--sidebar-item-pressed);
   --color-sidebar-item-active: var(--sidebar-item-active);
+  --color-sidebar-divider: var(--sidebar-divider);
   --color-contact-saved: var(--contact-saved);
   --color-contact-saved-foreground: var(--contact-saved-foreground);
   --color-asset-result-surface: var(--asset-result-surface);
