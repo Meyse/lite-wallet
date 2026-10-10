@@ -15,6 +15,8 @@ Plans are first-class artifacts for multi-step work.
 
 ## Current active plans
 
+- Requests in the guided flow (active; not started):
+  [`./active/generic-requests-guided-flow.md`](./active/generic-requests-guided-flow.md)
 - Action wait feedback across user-started operations (proposed):
   [`./active/action-wait-feedback.md`](./active/action-wait-feedback.md)
 - Encrypted Address Book and Watchlist (scoped speed changes implemented;

@@ -23,8 +23,10 @@ Use this file as a table of contents, not as an encyclopedia.
   `UnlockScreen` input treatment).
 - Use Lucide icons (`@lucide/svelte/icons/*`) for UI iconography; avoid custom
   inline SVG icons when a Lucide equivalent exists.
-- For parity research against `valu-mobile` (`newsend3`), use
-  `/Users/maxtheyse/dev/valu-mobile` on branch `newsend3`.
+- For parity research against Verus Mobile, use VerusCoin/Verus-Mobile
+  `dev-asf-parent`: the `upstream/dev-asf-parent` ref in
+  `/Users/maxtheyse/dev/Verus-Mobile`. Read it with `git show`; do not switch
+  that checkout's branch. `valu-mobile` is no longer the parity reference.
 - Centralize repeated user-facing content definitions instead of duplicating
   them across screens.
 - For shared help topics, FAQs, and copy blocks used in more than one screen,

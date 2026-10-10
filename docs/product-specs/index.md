@@ -30,7 +30,10 @@ requirements.
   [`./verusid-profile-discovery.md`](./verusid-profile-discovery.md)
 - Verified websites (draft; guided proof upload, verification, and publication):
   [`./verusid-verified-websites.md`](./verusid-verified-websites.md)
-- Shared contact and profile terminology: [`../../CONTEXT.md`](../../CONTEXT.md)
+- Requests from websites and apps (approved direction; not implemented):
+  [`./generic-requests.md`](./generic-requests.md)
+- Shared terminology for contacts, profiles, and requests:
+  [`../../CONTEXT.md`](../../CONTEXT.md)
 - Verus/PBaaS parity matrix:
   [`./verus-pbaas-core-parity-matrix.md`](./verus-pbaas-core-parity-matrix.md)
 - Verus/PBaaS parity fixtures:
@@ -43,7 +46,9 @@ requirements.
 
 ## Scope notes
 
-- Parity documents track behavior versus `valu-mobile` (`newsend3`).
+- Parity documents track behavior versus `valu-mobile` (`newsend3`), except
+  request handling, which tracks Verus Mobile `dev-asf-parent`
+  ([ADR 0003](../adr/0003-mobile-parity-scope.md)).
 - Component matrix tracks implementation status in this repo.
 
 ## Gaps to fill next

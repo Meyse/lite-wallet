@@ -1,8 +1,11 @@
 # Lite wallet language
 
-Shared product language for contacts and VerusID profiles.
+Shared product language for contacts, VerusID profiles, and requests from
+websites and apps.
 
 ## Language
+
+### Contacts and profiles
 
 **Contact**: A private record of a person, organization, or destination saved by
 the wallet user. A contact can have receiving addresses and optional associated
@@ -46,3 +49,53 @@ VerusID have different sources, even if their values match.
 **Contact profile**: The selected VerusID's name, avatar, and description shown
 with the contact's manually saved receiving addresses. Other associated
 identities retain their own names and profiles wherever shown individually.
+
+### Requests
+
+**Request**: A message from a website or app that asks the wallet to do one or
+more things. Its requester signs it; only a request whose details are all
+invoices, gift card claims, or wallet backups may be unsigned. _Avoid_:
+Deeplink, envelope, generic request in UI copy.
+
+**Detail**: One thing a request asks for, such as signing in, paying an invoice,
+or updating a VerusID. A request holds its details in a fixed order. _Avoid_:
+Part, step, item.
+
+**Requester**: The VerusID that signed a request. _Avoid_: Signer, app.
+
+**Responder**: The VerusID in this wallet that answers a request. _Avoid_:
+Signer, active identity.
+
+**Response**: The answer the wallet signs and returns for a request. A request
+that only pays an invoice has no response. _Avoid_: Reply, result.
+
+**Response address**: The web or app address that receives a response. A website
+connection to the requester links it to that VerusID; without one it is only a
+destination. _Avoid_: Site, callback, origin.
+
+**Delivery**: Sending a response to its response address. A response is
+delivered only when that address accepts it; signing alone is not delivery.
+_Avoid_: Submit, callback.
+
+**Approval**: The user's single, final consent to a request. Before approval,
+the wallet signs, broadcasts, and sends nothing for that request. _Avoid_:
+Confirm, accept.
+
+**Decline**: The user's refusal of a request. The wallet signs and sends
+nothing, so the requester is not told. _Avoid_: Cancel, reject.
+
+**Impact**: What a detail can do to the user: sign as them, share their data,
+spend their funds, or change control of a VerusID. _Avoid_: Weight, risk level.
+
+**Receipt**: The record of what the wallet did for a request: what it signed,
+broadcast, and delivered. _Avoid_: Result, history item.
+
+**Credential**: Data stored encrypted in a VerusID's own on-chain content, so
+that only the wallet that controls that VerusID can read it. A request can ask
+the wallet to share credentials. _Avoid_: Record, attestation, document.
+
+**Credential scope**: The VerusIDs that a credential may be shared with.
+_Avoid_: Audience, permission.
+
+**Gift card claim**: A detail that asks the wallet to move funds from a key the
+request carries into the wallet. _Avoid_: Spendable key in UI copy, voucher.

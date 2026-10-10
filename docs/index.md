@@ -20,6 +20,7 @@ This directory is the repository knowledge system of record.
 - Plans: [`./plans/index.md`](./plans/index.md)
 - Context packs: [`./context-packs/index.md`](./context-packs/index.md)
 - References: [`./references/index.md`](./references/index.md)
+- Architecture decisions: [`./adr/`](./adr/)
 
 ## Existing parity and UI trackers
 
