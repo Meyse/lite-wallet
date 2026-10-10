@@ -117,7 +117,10 @@ type ContentMultiMapRemoveMeta = {
 
 const IDENTITY_FLAG_REVOKED = 0x8000;
 
+// Private payments to an identity can be directed to its private address, so a
+// change is high risk, as in Verus Mobile (classifyChanges.js).
 const HIGH_RISK_ROOT_KEYS = new Set([
+  'privateaddress',
   'primaryaddresses',
   'recoveryauthority',
   'revocationauthority',
@@ -676,6 +679,21 @@ export function buildGenericIdentityUpdateReview(
     t
   );
   otherHighRiskItems.push(...contentRiskItems);
+
+  const hasRequestedPrivateAddress = Object.keys(requestedIdentity).some(
+    (key) => key.toLowerCase() === 'privateaddress'
+  );
+  const privateAddressBefore = getStringField(currentIdentity, 'privateaddress', 'privateAddress');
+  const privateAddressAfter = getStringField(requestedIdentity, 'privateaddress', 'privateAddress');
+  if (hasRequestedPrivateAddress && privateAddressBefore !== privateAddressAfter) {
+    otherHighRiskItems.push({
+      id: 'private-address',
+      title: t('genericRequest.update.privateAddressChange.title'),
+      description: t('genericRequest.update.privateAddressChange.description'),
+      currentValue: privateAddressBefore,
+      nextValue: privateAddressAfter,
+    });
+  }
 
   const revokedBefore = isRevokedIdentity(currentIdentity);
   const revokedAfter = isRevokedIdentity(requestedIdentity);

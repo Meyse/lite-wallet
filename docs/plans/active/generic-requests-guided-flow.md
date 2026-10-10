@@ -5,7 +5,7 @@ last_reviewed: 2026-10-10
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done)
+- Status: active (phase 0 done; phase 1 in progress)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-10
 
@@ -90,6 +90,35 @@ guided flow defined by the
    (`pnpm tauri build --debug`), launched once so macOS registers it.
 
 ### Phase 1: library versions, shell, existing details, parity fixes
+
+**Progress on 2026-10-10.**
+
+- **Done:**
+  - Step 7, without the module contract: the shell has the variation B layout.
+    The per-detail logic still lives in the shell. The module contract comes
+    with Pay invoice in phase 2, when a third detail type tests it.
+  - Step 8, without the auto-lock pause and the lock handling: the update is
+    broadcast after Approval, and only a failed stage retries.
+  - Step 9: Sign in, Update identity (Changes and Network fee), New VerusID, and
+    the private address risk class.
+  - Step 10, in part: the new copy in four languages.
+  - Step 11: the `requests.html` fixture.
+- **Verified:**
+  - Unit tests for the flow rules.
+  - A mounted test: nothing is broadcast before Approval, a delivery retry never
+    broadcasts again, and Decline sends nothing.
+  - Native testnet runs: sign in alone, and sign in plus update
+    (`78e2cabf86df99cfa44f3fd48cb48337a07a84ff64ea80364eed5ea7e68b2b1c`). Deep
+    Link Sim verified both responses.
+- **Not done:** steps 1 to 6, the module contract, the auto-lock pause, keeping
+  a request across a lock, warning-code copy, the locale test, and Help.
+- **Found:**
+  - Desktop echoes the sign-in detail ID; mobile echoes the envelope ID (step
+    4).
+  - The update builder returns `IdentityBuildFailed` for `namespace::name`
+    content keys, which mobile accepts (step 3).
+  - The Changes step shows content values as raw JSON.
+  - "Connected to" stays hidden: no website-connection check exists yet.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`

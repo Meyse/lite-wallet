@@ -32,6 +32,27 @@ describe('identity content review compatibility', () => {
     expect(currentIdentity.contentmultimap[unrelated]).toEqual(['cafe']);
   });
 
+  it('treats a private address change as high risk, as Verus Mobile does', () => {
+    const next = 'zs13akhfdhypx9a8t2efkfgxpd5d9h3glz7d5pug2ys65mrzt4mw5vjqx0vw29gx82y3e0xjjuhrwn';
+    const review = buildGenericIdentityUpdateReview({
+      ...defaults,
+      currentIdentity: { name: 'player7' },
+      requestedIdentity: { name: 'player7', privateaddress: next },
+      rawRequestedIdentity: { privateaddress: next },
+    });
+    expect(review.contentChanges).toHaveLength(0);
+    expect(review.hasHighRisk).toBe(true);
+    expect(review.otherHighRiskItems).toEqual([
+      {
+        id: 'private-address',
+        title: 'genericRequest.update.privateAddressChange.title',
+        description: 'genericRequest.update.privateAddressChange.description',
+        currentValue: null,
+        nextValue: next,
+      },
+    ]);
+  });
+
   it('recognizes the nested VDXF remove operation in review JSON', () => {
     const removal = { [ContentMultiMapRemoveKey.vdxfid]: { version: 1, action: 3, entrykey: key } };
     const review = buildGenericIdentityUpdateReview({
