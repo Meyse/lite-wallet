@@ -5,7 +5,7 @@ last_reviewed: 2026-10-10
 
 # Plan: Requests in the guided flow
 
-- Status: active (not started)
+- Status: active (phase 0 done)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-10
 
@@ -52,14 +52,15 @@ guided flow defined by the
 
 ### Phase 0: test readiness
 
-1. **Generators.** Use Deep Link Sim. Its GR3 work is commit `5566227` on
-   `codex/gr3-generators` in `/Users/maxtheyse/dev/deeplink-sim-deps-update`;
-   merging and pushing are the owner's call. Generator coverage:
+1. **Generators (done).** Use Deep Link Sim on `codex/gr3-generators` in
+   `/Users/maxtheyse/dev/deeplink-sim-deps-update`. The GR3 work is commit
+   `5566227`; the sign-in generators are uncommitted on that branch. Merging and
+   pushing are the owner's call. Generator coverage:
 
    | Request                              | Source                                                 |
    | ------------------------------------ | ------------------------------------------------------ |
-   | Sign in alone, with local receiver   | Add to Deep Link Sim                                   |
-   | Sign in plus update identity         | Add; GR3 has the update variants                       |
+   | Sign in alone, with local receiver   | `create:sign-in`                                       |
+   | Sign in plus update identity         | `create:identity-update --sign-in`                     |
    | New VerusID                          | `/Users/maxtheyse/dev/verus-fake-provisioning-webhook` |
    | Pay invoice, with or without sign in | Deep Link Sim invoice lab                              |
    | Sign data, Share data, combinations  | Deep Link Sim data lab                                 |
@@ -67,8 +68,8 @@ guided flow defined by the
    | Gift card claim                      | Add in phase 5                                         |
    | Legacy sign in and invoice links     | Add in phase 6                                         |
 
-2. **Responder pre-check.** Through the Keychain helper, unlock "mijn app" and
-   confirm four things:
+2. **Responder pre-check (done).** Through the Keychain helper, unlock "mijn
+   app" and confirm four things:
    - a linked testnet VerusID
    - testnet funds
    - private addresses set up
@@ -77,10 +78,16 @@ guided flow defined by the
 
    Report any gap to the owner instead of assuming.
 
-3. **Real links.** Write a short runbook in
-   `docs/references/request-testing.md`. Daily work pastes links. Real
-   `verus://` links need a bundled debug build (`pnpm tauri build --debug`),
-   launched once so macOS registers it.
+   Done on 2026-10-10; see the
+   [runbook](../../references/request-testing.md#test-wallet). The wallet has
+   testnet funds and six linked VerusIDs that it controls. Private Verus is now
+   set up with a separate privacy secret, and `player7@` has the wallet's
+   shielded address.
+
+3. **Real links (done).** The runbook is
+   [`request-testing.md`](../../references/request-testing.md). Daily work
+   pastes links. Real `verus://` links need a bundled debug build
+   (`pnpm tauri build --debug`), launched once so macOS registers it.
 
 ### Phase 1: library versions, shell, existing details, parity fixes
 
@@ -141,7 +148,10 @@ guided flow defined by the
      (`src/lib/services/walletLockCoordinator.ts`).
 9. **Existing details.** Move Sign in, Update identity (a Changes step and a
    Network fee step), and New VerusID (keeping "Link and continue") onto the
-   shell.
+   shell. Classify a private address change as high risk, as mobile does
+   ("Change private address" in
+   `IdentityUpdateRequestInfo/utils/classifyChanges.js`). Desktop now counts it
+   as a content change (found on 2026-10-10).
 10. **Copy.**
     - Map Rust warning codes to translated copy.
     - Add the strings in all four languages.

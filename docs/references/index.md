@@ -26,6 +26,10 @@ External references and source repos used for parity or implementation checks.
 - Wallet storage policy: [`./storage-policy.md`](./storage-policy.md)
 - Disposable testnet wallet automation:
   [`./test-wallet-keychain.md`](./test-wallet-keychain.md)
+- Verus Mobile request parity source: `/Users/maxtheyse/dev/Verus-Mobile` (ref
+  `upstream/dev-asf-parent`; read with `git show`)
+- Request testing against VRSCTEST:
+  [`./request-testing.md`](./request-testing.md)
 
 - Wallet Help content and navigation: [`help-center.md`](./help-center.md).
 
