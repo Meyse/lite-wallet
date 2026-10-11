@@ -494,19 +494,14 @@ export const en: Record<string, string> = {
   'genericRequest.update.privateAddressChange.description':
     'Private payments sent to this VerusID can go to this address.',
   'genericRequest.import.title': 'Open request',
-  'genericRequest.import.heading': 'Paste a GenericRequest',
-  'genericRequest.import.description':
-    'Open a Verus app request from a full `verus:` link or the raw request hex.',
   'genericRequest.import.label': 'Request link or code',
   'genericRequest.import.placeholder': 'Paste a verus: link or request code',
   'genericRequest.import.help': 'Press Cmd/Ctrl + Enter to open.',
-  'genericRequest.import.paste': 'Paste',
   'genericRequest.import.pasteTooltip': 'Paste from clipboard',
   'genericRequest.import.submit': 'Open',
   'genericRequest.import.error.empty': 'Paste a request to continue.',
   'genericRequest.import.error.invalid': 'This request could not be parsed.',
   'genericRequest.error.generic': 'This request could not be opened right now.',
-  'genericRequest.error.walletLocked': 'Wallet is locked. Unlock and try again.',
   'genericRequest.error.identityOwnershipMismatch':
     'This wallet cannot satisfy the ownership requirements for this request.',
   'genericRequest.error.identityRequestExpired': 'This identity update request has expired.',
@@ -523,15 +518,11 @@ export const en: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
-  'genericRequest.summary.toggle': 'Show summary',
   'genericRequest.summary.provisioningRequested':
     'A new VerusID can be provisioned from this request.',
-  'genericRequest.auth.title': 'Sign-in request',
-  'genericRequest.auth.description': 'Choose the VerusID you want to use for this request.',
   'genericRequest.auth.requiredId': 'Required VerusID',
   'genericRequest.auth.requiredSystem': 'Required system',
   'genericRequest.auth.requiredParent': 'Required parent',
-  'genericRequest.auth.identities': 'Eligible VerusIDs',
   'genericRequest.auth.loading': 'Loading linked VerusIDs…',
   'genericRequest.auth.selectorDescription':
     'Choose the linked VerusID you want to use for this sign-in request.',
@@ -554,13 +545,11 @@ export const en: Record<string, string> = {
   'genericRequest.update.content.currentIdentityContent': 'Current identity content',
   'genericRequest.update.content.credentials': 'Credentials (stored encrypted)',
   'genericRequest.update.content.noneAfterUpdate': 'No content after update',
-  'genericRequest.update.content.currentLabel': 'Current',
   'genericRequest.update.content.currentValueLabel': 'Current value',
   'genericRequest.update.content.currentValuesLabel': 'Current values',
   'genericRequest.update.content.existingLabel': 'Existing',
   'genericRequest.update.content.newLabel': 'Will add',
   'genericRequest.update.content.addingLabel': 'Will add',
-  'genericRequest.update.content.willRemoveLabel': 'Will remove',
   'genericRequest.update.content.afterUpdateLabel': 'After this update',
   'genericRequest.update.content.badge.add': 'Will add',
   'genericRequest.update.content.badge.append': 'Will add',
@@ -580,21 +569,13 @@ export const en: Record<string, string> = {
     'Apps will no longer see this data on your VerusID, but it will still be visible on the blockchain.',
   'genericRequest.update.contentRemoveValueTitle': 'Remove one current value under {label}',
   'genericRequest.update.contentRemoveValueTitleGeneric': 'Remove one current value under this key',
-  'genericRequest.update.contentRemoveValueDescription':
-    'This request removes one value from {label}.',
   'genericRequest.update.contentRemoveAllValuesTitle': 'Remove all current values under {label}',
   'genericRequest.update.contentRemoveAllValuesTitleGeneric':
     'Remove all current values under this key',
-  'genericRequest.update.contentRemoveAllValuesDescription':
-    'This request removes every current value stored under {label}.',
   'genericRequest.update.contentRemoveMatchingValuesTitle':
     'Remove matching current values under {label}',
   'genericRequest.update.contentRemoveMatchingValuesTitleGeneric':
     'Remove matching current values under this key',
-  'genericRequest.update.contentRemoveMatchingValuesDescription':
-    'This request removes matching values from {label}.',
-  'genericRequest.update.contentRemoveEffect':
-    'Removed values stop appearing in the current identity content after this update.',
   'genericRequest.update.contentRemoveHistory': 'They can still be found on the blockchain.',
   'genericRequest.update.contentRemoveHistoryHash':
     'This request targets values matching hash {hash}. They can still be found on the blockchain.',
@@ -647,20 +628,11 @@ export const en: Record<string, string> = {
     'This update restores the identity to an active state.',
   'genericRequest.update.status.revoked': 'Revoked',
   'genericRequest.update.status.active': 'Active',
-  'genericRequest.update.fundingSource': 'Wallet to pay from',
-  'genericRequest.update.fundingSourcePlaceholder': 'Choose a funding source',
   'genericRequest.update.fundingSourcesLoading': 'Loading wallet balances…',
   'genericRequest.update.fundingCalculating': 'Calculating fee…',
   'genericRequest.update.fundingEmpty':
     'No eligible wallets on this network are available to pay from.',
-  'genericRequest.complete.updateBroadcast': 'Identity update broadcast: {txid}',
   'genericRequest.complete.txidLabel': 'Transaction id',
-  'genericRequest.provisioning.title': 'Provision requested VerusID',
-  'genericRequest.provisioning.description':
-    'Create the requested VerusID, then finish this request after it appears in your wallet.',
-  'genericRequest.provisioning.ready': 'Provisioning can start from this request.',
-  'genericRequest.provisioning.webhookMissing':
-    'This request did not include a provisioning webhook.',
   'genericRequest.provisioning.error.noSigningAddress':
     'No active VRSC signing address is available for provisioning.',
   'genericRequest.provisioning.error.noWebhook':

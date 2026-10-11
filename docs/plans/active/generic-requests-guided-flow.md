@@ -173,8 +173,13 @@ guided flow defined by the
   service could not register the name: a subID registration under a currency
   needs a reserve transfer, and testnet has DeFi functions disabled. Linking a
   ready provisioned VerusID was not verified.
+- **Copy, 2026-10-11:** `src/lib/i18n/requestLocales.test.ts` fails when a
+  request string is untranslated, extra, or loses a placeholder in Dutch,
+  German, or Spanish. It found 117 English request strings in each language
+  (older Sign in, Update identity, error, and provisioning copy). They are now
+  translated. 21 unused request keys are removed.
 - **Not done yet:** keeping a request across a lock, the auto-lock pause,
-  warning-code copy, the locale test, and Help.
+  warning-code copy, and Help.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`
