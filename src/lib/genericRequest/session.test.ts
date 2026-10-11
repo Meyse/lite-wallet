@@ -14,7 +14,8 @@ vi.mock('buffer', () => import('node:buffer'));
 // The separate Rust vector has independently fixed bytes and signature hashes.
 describe('persisted request compatibility', () => {
   it('agrees with the Rust generic-request vector', () => {
-    const request = parseGenericRequestSession(fixtures.rustSignedRequest).request!;
+    const { request } = parseGenericRequestSession(fixtures.rustSignedRequest);
+    if (!request) throw new Error('The Rust vector is a GenericRequest');
     expect(request.toBuffer().toString('hex')).toBe(fixtures.rustSignedRequest);
     expect(request.getRawDataSha256().toString('hex')).toBe(
       'eebf8a0602c116bd35d14319883dcb547a493df882b734b509fe5f86b851edd7'
@@ -82,11 +83,16 @@ describe('persisted request compatibility', () => {
 });
 
 describe('share data requests', () => {
-  const vector = (name: string) => vectors.cases.find((entry) => entry.name === name)!;
+  const vector = (name: string) => {
+    const found = vectors.cases.find((entry) => entry.name === name);
+    if (!found) throw new Error(`Missing vector ${name}`);
+    return found;
+  };
 
   it('reads the requested credential keys and the identity that must answer', () => {
     const { details } = parseGenericRequestSession(vector('auth-credential').hex);
-    const expected = vector('auth-credential').expect.userData!;
+    const expected = vector('auth-credential').expect.userData;
+    if (!expected) throw new Error('The vector names its credential keys');
     expect(details[1]).toEqual({
       index: 1,
       type: 'userData',

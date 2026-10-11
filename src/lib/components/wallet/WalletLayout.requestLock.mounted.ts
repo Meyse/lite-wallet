@@ -103,10 +103,15 @@ afterEach(() => {
   clearQueuedGenericRequest();
 });
 
+/** A lock unmounts the wallet layout. */
+async function lock() {
+  if (component) await unmount(component);
+  component = null;
+}
+
 describe('a lock with a request open', () => {
   it('keeps the request in memory before Approval, to open again after unlock', async () => {
-    await unmount(component!);
-    component = null;
+    await lock();
     expect(get(genericRequestQueueStore)).toMatchObject({
       input: REQUEST,
       passthroughAutoLinkFqn: null,
@@ -117,8 +122,7 @@ describe('a lock with a request open', () => {
   it('drops the request after Approval, as on mobile', async () => {
     (target.querySelector('[data-request-flow-stub] button') as HTMLButtonElement).click();
     await settle();
-    await unmount(component!);
-    component = null;
+    await lock();
     expect(get(genericRequestQueueStore)).toBeNull();
   });
 });

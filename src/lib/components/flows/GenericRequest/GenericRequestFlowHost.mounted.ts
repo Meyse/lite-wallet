@@ -6,11 +6,11 @@ import { coinsStore } from '$lib/stores/coins';
 import type {
   AuthenticationDetailSession,
   DataPacketDetailSession,
-  UserDataDetailSession,
-  GiftCardDetailSession,
   GenericRequestFlowSession,
+  GiftCardDetailSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
+  UserDataDetailSession,
 } from '$lib/genericRequest/session';
 import GenericRequestFlowHost from './GenericRequestFlowHost.svelte';
 
