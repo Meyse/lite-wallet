@@ -2166,7 +2166,6 @@ pub async fn verify_identity_signature_hash(
 
 struct GenericIdentityUpdateInspection {
     target: crate::core::channels::vrpc::identity::preflight::TargetIdentityState,
-    effective_requested_identity: Value,
     review: GenericIdentityUpdateReviewResult,
 }
 
@@ -2296,7 +2295,6 @@ async fn inspect_generic_identity_update(
 
     Ok(GenericIdentityUpdateInspection {
         target: target.clone(),
-        effective_requested_identity: effective_requested_identity.clone(),
         review: GenericIdentityUpdateReviewResult {
             target_identity: target_identity_address.trim().to_string(),
             warnings,
@@ -2569,17 +2567,14 @@ pub async fn preflight_generic_identity_update(
         request_meta.as_ref(),
     )
     .await?;
-    let GenericIdentityUpdateInspection {
-        target,
-        mut effective_requested_identity,
-        mut review,
-    } = inspection;
+    let GenericIdentityUpdateInspection { target, mut review } = inspection;
+    let mut update_identity = identity_update_for_node(&target.identity, &requested_identity_json);
     // The review keeps the plain credentials; the daemon sees them encrypted.
     encrypt_update_credentials(
         &update,
         &target_identity_address,
         &target.identity,
-        &mut effective_requested_identity,
+        &mut update_identity,
         &context.access,
     )
     .await?;
@@ -2604,16 +2599,15 @@ pub async fn preflight_generic_identity_update(
     }
 
     let update_tx_raw = provider
-        .updateidentity(&effective_requested_identity, true)
+        .updateidentity(&update_identity, true)
         .await
         .map_err(|err| match err {
             WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
             _ => WalletError::IdentityBuildFailed,
         })?;
     let update_tx_hex = parse_updateidentity_hex(update_tx_raw)?;
-    let control_intent = crate::core::channels::vrpc::intent::identity_control_intent_from_json(
-        &effective_requested_identity,
-    )?;
+    let control_intent =
+        crate::core::channels::vrpc::intent::identity_control_intent_from_json(&update_identity)?;
     crate::core::channels::vrpc::intent::validate_identity_control_intent(
         &update_tx_hex,
         &control_intent,
@@ -3405,6 +3399,33 @@ fn merge_identity_update_patch(current: &Value, patch: &Value) -> Value {
     }
 }
 
+/// The identity the node builds the update transaction from: the current
+/// identity with the request's changes, holding only the request's own
+/// content. Content is written per transaction and the node collects it across
+/// the identity's history, so current content is never copied forward, as in
+/// Verus Mobile (verusid-ts-client `prepareIdentityUpdateTransaction` sends
+/// only the request's partial identity). A copy would publish the content
+/// again, and the node drops profile values that getidentity prints as a list
+/// inside a list, so the update would fail its intent check.
+fn identity_update_for_node(current: &Value, requested: &Value) -> Value {
+    let mut update = merge_identity_update_patch(current, requested);
+    if let Some(fields) = update.as_object_mut() {
+        fields.remove("contentMultiMap");
+        match requested
+            .get("contentmultimap")
+            .or_else(|| requested.get("contentMultiMap"))
+        {
+            Some(content) => {
+                fields.insert("contentmultimap".to_string(), content.clone());
+            }
+            None => {
+                fields.remove("contentmultimap");
+            }
+        }
+    }
+    update
+}
+
 fn validate_unsupported_identity_flags(before: &Value, after: &Value) -> Result<(), WalletError> {
     const IDENTITY_FLAG_ACTIVE_CURRENCY: u64 = 0x1;
     const IDENTITY_FLAG_TOKENIZED_CONTROL: u64 = 0x4;
@@ -3549,13 +3570,14 @@ async fn resolve_identity_friendly_names(
 mod tests {
     use super::{
         build_and_sign_generic_response_for_session, build_generic_response_redirect_url,
-        decode_defined_key_label, map_generic_session_change, merge_identity_update_patch,
-        parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
-        post_generic_response_callback_for_session, post_generic_response_callback_request,
-        provisioning_signature, resolve_signer_cmm_key_labels_from_identity,
-        sign_unsigned_response, validate_generic_request_funding_source,
-        wallet_network_to_crypto_network, CallbackBody, WalletNetwork,
-        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID, MAINNET_VERUS_CHAIN_ID,
+        decode_defined_key_label, identity_update_for_node, map_generic_session_change,
+        merge_identity_update_patch, parse_generic_response_post_callback_uri,
+        parse_provisioning_challenge_hex, post_generic_response_callback_for_session,
+        post_generic_response_callback_request, provisioning_signature,
+        resolve_signer_cmm_key_labels_from_identity, sign_unsigned_response,
+        validate_generic_request_funding_source, wallet_network_to_crypto_network, CallbackBody,
+        WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
+        MAINNET_VERUS_CHAIN_ID,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
@@ -4509,6 +4531,75 @@ mod tests {
         assert_eq!(
             labels.get("i5ZsXhytTtBe6f6DeV1eQRVLUgBBXwVi6h"),
             Some(&"Profile avatar".to_string())
+        );
+    }
+
+    #[test]
+    fn identity_update_for_node_carries_only_the_requested_content() {
+        // player6@ on testnet: its last update published a profile header,
+        // which getidentity prints as one value holding two descriptors.
+        let descriptor = |objectdata: &str| {
+            serde_json::json!({
+                "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv": {
+                    "version": 1,
+                    "flags": 13,
+                    "objectdata": objectdata,
+                    "epk": "f2bcb23fb53770212318bf724891c35e8bfc1230de11e53d5347d3322f7ef7f0",
+                    "ivk": "9a8ff4cbba2053b325197bba7f3d177e6e111d48186d52a6a912fe077957bd04"
+                }
+            })
+        };
+        let current = serde_json::json!({
+            "version": 3,
+            "flags": 0,
+            "minimumsignatures": 1,
+            "name": "player6",
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "primaryaddresses": ["RFWcHcpnFh57ovrV1hmzN8o8wmMZjyqCSh"],
+            "contentmultimap": {
+                "iP9hXXzqYXQhnY9EXikYjqraGBCrvaysAe": [[descriptor("cd27de51"), descriptor("4deabd34")]]
+            },
+            "contentmap": {},
+            "revocationauthority": "iBV3ZM3rqLpgEJKiZk4Pw4Lq3GAjEcGmA2",
+            "recoveryauthority": "iBV3ZM3rqLpgEJKiZk4Pw4Lq3GAjEcGmA2",
+            "systemid": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "timelock": 0
+        });
+        let note = serde_json::json!({
+            "iLme69iDKF3hdEF7kSFeRxvyhVigF5Dbwu": [
+                {"iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": "Disposable deeplink-sim QA note"}
+            ]
+        });
+        let adds_note = serde_json::json!({
+            "name": "player6",
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "contentmultimap": note
+        });
+
+        let update = identity_update_for_node(&current, &adds_note);
+
+        assert_eq!(update["contentmultimap"], note);
+        assert_eq!(
+            update["primaryaddresses"],
+            serde_json::json!(["RFWcHcpnFh57ovrV1hmzN8o8wmMZjyqCSh"])
+        );
+        assert_eq!(
+            update["revocationauthority"],
+            serde_json::json!("iBV3ZM3rqLpgEJKiZk4Pw4Lq3GAjEcGmA2")
+        );
+
+        let changes_recovery_only = serde_json::json!({
+            "name": "player6",
+            "parent": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+            "recoveryauthority": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+        });
+
+        let update = identity_update_for_node(&current, &changes_recovery_only);
+
+        assert!(update.get("contentmultimap").is_none());
+        assert_eq!(
+            update["recoveryauthority"],
+            serde_json::json!("iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
         );
     }
 

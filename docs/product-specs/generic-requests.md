@@ -155,6 +155,9 @@ single-screen header.
   1. **Changes.** Content and profile changes. High-risk changes (primary
      addresses, revocation, recovery, status, clearing content) come with an
      outcome summary and an acknowledgement. Continue needs the acknowledgement.
+     The update holds only the content that the request adds or removes. The
+     node keeps each identity's content across its updates, so the wallet never
+     copies the current content into the update, as on mobile.
   2. **Network fee.** The user picks who pays: the primary address or a linked
      VerusID on the request's system, never a watched address. Nothing is
      preselected. The fee shows after the choice.
