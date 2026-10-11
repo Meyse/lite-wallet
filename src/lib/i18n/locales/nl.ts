@@ -188,7 +188,7 @@ export const nl: Record<string, string> = {
   'wallet.sidebar.activity': 'Activiteit',
   'wallet.sidebar.addressBook': 'Contacten',
   'wallet.sidebar.watchlist': 'Volglijst',
-  'wallet.sidebar.openRequest': 'Open request',
+  'wallet.sidebar.openRequest': 'Verzoek openen',
   'wallet.topbar.settings': 'Instellingen',
   'wallet.topbar.lockWallet': 'Vergrendelen',
   'genericRequest.flow.close': 'Verzoek sluiten',

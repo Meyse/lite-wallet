@@ -80,7 +80,7 @@ export const es: Record<string, string> = {
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Actividad',
   'wallet.sidebar.addressBook': 'Libreta de direcciones',
-  'wallet.sidebar.openRequest': 'Open request',
+  'wallet.sidebar.openRequest': 'Abrir solicitud',
   'wallet.topbar.settings': 'Ajustes',
   'wallet.topbar.lockWallet': 'Bloquear',
   'genericRequest.import.title': 'Abrir solicitud',

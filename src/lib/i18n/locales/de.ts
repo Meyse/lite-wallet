@@ -81,7 +81,7 @@ export const de: Record<string, string> = {
   'wallet.sidebar.apps': 'Apps',
   'wallet.sidebar.activity': 'Aktivitat',
   'wallet.sidebar.addressBook': 'Adressbuch',
-  'wallet.sidebar.openRequest': 'Open request',
+  'wallet.sidebar.openRequest': 'Anfrage öffnen',
   'wallet.topbar.settings': 'Einstellungen',
   'wallet.topbar.lockWallet': 'Sperren',
   'genericRequest.import.title': 'Anfrage öffnen',

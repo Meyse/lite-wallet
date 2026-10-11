@@ -191,7 +191,11 @@ guided flow defined by the
   opens again after unlock. Rust checks it again. After Approval it is dropped.
   Verified natively: a Deep Link Sim sign in survived a simulated auto-lock and
   was verified after unlock.
-- **Not done yet:** Help.
+- **Help, 2026-10-11:** the Requests article (English and Dutch) names older
+  Verus links, says nothing is signed or sent before Approval, and describes
+  retry, lock, and auto-lock behavior. German and Spanish keep the English Help,
+  as for every article. The sidebar's Open request label is translated. The
+  help-copy editing documents (`docs/references/help-copy`) are not changed.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`
