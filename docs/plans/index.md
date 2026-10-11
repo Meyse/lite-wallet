@@ -17,9 +17,6 @@ Plans are first-class artifacts for multi-step work.
 
 - Requests in the guided flow (active; phase 1 in progress):
   [`./active/generic-requests-guided-flow.md`](./active/generic-requests-guided-flow.md)
-- Watchlist portfolio boundary and startup latency (in progress: steps 1–3.4 and
-  testnet checks done; mainnet steps pending):
-  [`./active/watchlist-portfolio-boundary-and-startup-latency.md`](./active/watchlist-portfolio-boundary-and-startup-latency.md)
 - Action wait feedback across user-started operations (proposed):
   [`./active/action-wait-feedback.md`](./active/action-wait-feedback.md)
 - Encrypted Address Book and Watchlist (scoped speed changes implemented;
@@ -53,6 +50,9 @@ Plans are first-class artifacts for multi-step work.
 
 ## Recent completed plans
 
+- Watchlist portfolio boundary and startup latency (watched IDs stay out of the
+  owned portfolio on testnet and mainnet; startup and rate timings measured):
+  [`./done/watchlist-portfolio-boundary-and-startup-latency.md`](./done/watchlist-portfolio-boundary-and-startup-latency.md)
 - VerusID profile publishing UX corrections (all six audit findings accepted;
   local tests and native macOS one/two-update retest passed):
   [`./done/verusid-profile-publishing-ux.md`](./done/verusid-profile-publishing-ux.md)

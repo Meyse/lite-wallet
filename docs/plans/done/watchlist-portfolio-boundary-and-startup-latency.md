@@ -5,8 +5,36 @@ last_reviewed: 2026-10-11
 
 # Watchlist portfolio boundary and startup latency
 
-- Status: in progress (steps 1–2 done; steps 3.1–3.4 and the testnet part of
-  step 4 done on 2026-10-11; mainnet steps 3.5, 3.6 and 4.4 pending)
+- Status: done on 2026-10-11. Step 3.6 was not needed: the mainnet baseline
+  showed no rate delay.
+
+## Final result
+
+- **Shipped:** `1c57be6` (VerusID names with spaces), `2b7da07` (Watchlist
+  per-coin fiat and partial total), `aab78e5` (owned-only scopes and discovery),
+  `567611f` (optimized crypto crates in debug builds), `9497c33` (post-unlock
+  metadata warm-up), `9e668b3` (no "0.00" total while balances load).
+- **Done when, checked:** a watched ID with 10,203 VRSC never entered owned
+  discovery, balances, or the total on testnet or mainnet; the Watchlist shows
+  it; on mainnet, rates arrive about 0.1 s after the engine starts. The rest of
+  the debug startup delay is the Vite dev server loading the wallet route.
+- **Follow-ups:**
+  1. The Watchlist has fiat values only for the wallet's active coins. DAI,
+     tBTC, MKR, vUSDT and other watched currencies show "—". Fetching their
+     rates would tell CoinPaprika which currencies are watched, so it needs a
+     privacy decision.
+  2. The Watchlist lists one currency once per chain under the same name (for
+     example three "Verus" rows) without naming the chain.
+  3. After a VRPC outage ends, balances stay unavailable until the 300 s
+     refresh; a reload recovers them.
+  4. New wallets start with no active coins (`create_wallet` stores an empty,
+     uninitialized list).
+  5. Release-build native timing is not measured; the release figures come from
+     a probe.
+  6. The rate fallback order under a CoinPaprika failure is untested; there is
+     no failure hook for CoinPaprika or ECB.
+  7. The shielded balance still needs a second dlight decrypt; removing it needs
+     a security review.
 
 ## Goal
 
@@ -162,8 +190,8 @@ timings, but no native run has confirmed them yet.
 
 - Do not lower the Stronghold work factor or skip durable sync. Do not change
   the storage format. The deferred
-  [fast Contacts storage plan](./fast-encrypted-contacts-storage.md) owns that
-  work.
+  [fast Contacts storage plan](../active/fast-encrypted-contacts-storage.md)
+  owns that work.
 - Do not run a release build against the disposable wallet's data. A release
   write stores files at work factor 19, and later debug reads of those files
   become much slower. Debug unlock lowers only the seed file again.
@@ -339,3 +367,34 @@ the unlock call starts; median (range).
   at 920×620; the default fixture still shows a "$53.90 Partial" subtotal.
 - **Not checked:** automatic lock (the backend path is the same as a manual
   lock), release builds, and mainnet (steps 3.5, 3.6 and 4.4).
+
+## Mainnet results (2026-10-11)
+
+With the owner's permission, a throwaway mainnet wallet ("mainnetprobe", no
+funds) was created through the real creation flow for this test. Its default
+coins (VRSC, ETH, BTC, vUSDC.vETH) were set with `set_active_assets`, because
+new wallets start with none (follow-up 4). It watches `Verus Coin Foundation@`.
+
+- **Boundary:** the owned total stayed "€ 0.00" in every run while the Watchlist
+  showed the Foundation's 10,203.29 VRSC (€1,642.96) and 15 other holdings.
+  Manage assets listed only the four owned coins.
+- **Name fix:** `Verus Coin Foundation@` resolves to
+  `Verus Coin Foundation.VRSC@` and can be added.
+- **Hero:** "€ 0.00 Partial" appears after the owned balances (2.1–2.3 s) and
+  stays until the private balance arrives (5.4–5.6 s); then "€ 0.00". The label
+  reflects the syncing private balance.
+
+Three cold starts, debug build, seconds after the unlock call starts:
+
+| Phase                       | Median (range)   |
+| --------------------------- | ---------------- |
+| `unlock_wallet`             | 0.12 (0.11–0.12) |
+| First non-empty rate event  | 1.90 (1.71–1.92) |
+| First rate event with EUR   | 1.93 (1.78–1.94) |
+| VRSC price shown in its row | 2.00 (1.81–2.00) |
+| First owned balance event   | 2.08 (1.99–2.09) |
+| Rate cycle (backend)        | 0.08–0.12        |
+
+No run needed the Bridge.vETH fallback, and no rate request or VRPC read failed.
+Step 3.6 therefore stays undone; its fallback-order issue matters only when the
+direct quote fails (follow-up 6).
