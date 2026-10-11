@@ -1,12 +1,12 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Requests from websites and apps
 
-- Status: approved direction; not implemented. Delivery is tracked in
-  [the plan](../plans/active/generic-requests-guided-flow.md).
+- Status: implemented and verified on testnet, except the items the
+  [plan](../plans/active/generic-requests-guided-flow.md) lists as not done.
 - Parity reference: VerusCoin/Verus-Mobile `dev-asf-parent` at `7d74cd6a`
   (2026-10-08). Parity covers protocol and behaviour, not the flow
   ([ADR 0003](../adr/0003-mobile-parity-scope.md)).

@@ -5,7 +5,8 @@ last_reviewed: 2026-10-11
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phases 1 to 6 in progress)
+- Status: active. Phases 0 to 6 are implemented and verified on testnet; each
+  phase lists what is still not done.
 - Owner: lite-wallet-team
 - Last updated: 2026-10-11
 
@@ -298,7 +299,7 @@ guided flow defined by the
   identical invoices paid back to back as two transactions (`652d7aa0…db35a9`,
   `57580d48…dfd02b`). An invoice opened while the wallet's only output was
   unconfirmed showed the funds message and paid nothing.
-- **Not done:** conversion (second release), Help, and the spec status.
+- **Not done:** conversion (second release).
 
 1. **Rust.**
    - Re-check the invoice fields from the verified bytes.
@@ -327,7 +328,6 @@ guided flow defined by the
 - **Verified on testnet, 2026-10-11:** sign in plus a data packet, and a data
   packet alone, from Deep Link Sim's data lab. Deep Link Sim verified four
   signatures each time.
-- **Not done:** Help and the spec status.
 
 1. **Rust command.** It builds each item's and each statement's hash from the
    verified request. It then signs the height-bound identity hash, reusing
@@ -367,8 +367,9 @@ guided flow defined by the
     chain holds only encrypted descriptors under the hashed key.
   - Sign in plus a credential request with no match: Deep Link Sim verified an
     encrypted response with zero credentials and the missing key.
-- **Not done:** sharing the stored credentials, which waits for the update to be
-  mined.
+  - After the update was mined, sharing the stored credentials as `dlscredqa1@`:
+    Deep Link Sim verified both matching credentials, and one credential plus
+    the missing key for a request that names a required signer.
 
 1. **Key derivation in Rust.** Implement the channel-key derivation from the
    extended spending key on the existing upstream crates. Promote
