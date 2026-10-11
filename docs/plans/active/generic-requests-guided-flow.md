@@ -186,7 +186,12 @@ guided flow defined by the
   inactivity timer only while a request is open, for at most five minutes. The
   end of the hold counts as activity. A manual lock still locks. Verified with a
   Deep Link Sim sign in on testnet (verified once).
-- **Not done yet:** keeping a request across a lock, and Help.
+- **Lock before Approval, 2026-10-11:** when a lock unmounts the wallet with a
+  request open and not approved, the request waits in memory (source `lock`) and
+  opens again after unlock. Rust checks it again. After Approval it is dropped.
+  Verified natively: a Deep Link Sim sign in survived a simulated auto-lock and
+  was verified after unlock.
+- **Not done yet:** Help.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`

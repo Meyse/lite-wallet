@@ -6,7 +6,8 @@
 -->
 
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import type { ContactIdentity } from '$lib/types/addressBook';
   import { contactChainId } from '$lib/contacts/identity';
   import { provideContactNavigation } from '$lib/contacts/navigation';
@@ -50,6 +51,7 @@
   import {
     consumeQueuedGenericRequest,
     genericRequestQueueStore,
+    queueGenericRequest,
   } from '$lib/stores/genericRequest.js';
   import { i18nStore } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
@@ -135,6 +137,8 @@
   let genericRequestFlowOpen = $state(false);
   let genericRequestApproved = $state(false);
   let genericRequestSession = $state<GenericRequestFlowSession | null>(null);
+  /** What opened the request, so a lock before Approval can reopen it. */
+  let genericRequestInput: { input: string; passthroughAutoLinkFqn: string | null } | null = null;
   let identitySectionSession = $state<IdentitySectionSessionState>(
     createIdentitySectionSessionState()
   );
@@ -455,6 +459,7 @@
       await genericRequestService.openGenericRequest(nextSession.requestHex);
 
       genericRequestSession = nextSession;
+      genericRequestInput = { input: input.trim(), passthroughAutoLinkFqn };
       genericRequestFlowOpen = true;
       genericRequestImportOpen = false;
       genericRequestImportError = '';
@@ -479,10 +484,21 @@
     settingsTarget = 'private-verus';
   }
 
+  // A lock unmounts this layout. Before Approval the request waits in memory
+  // and opens again after unlock, where Rust checks it again (spec "Lock before
+  // Approval", ADR 0001). After Approval it is lost, as on mobile. A link that
+  // arrived later already waits and wins.
+  onDestroy(() => {
+    if (!genericRequestFlowOpen || genericRequestApproved || !genericRequestInput) return;
+    if (get(genericRequestQueueStore)) return;
+    queueGenericRequest({ ...genericRequestInput, source: 'lock' });
+  });
+
   function closeGenericRequestFlow(): void {
     genericRequestFlowOpen = false;
     genericRequestApproved = false;
     genericRequestSession = null;
+    genericRequestInput = null;
     void genericRequestService.closeGenericRequest().catch(() => {});
   }
 </script>
