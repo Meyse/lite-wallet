@@ -401,6 +401,37 @@ describe('mounted wallet overview controls', () => {
     expect(vrscRow?.textContent).toContain('10.0000 VRSC');
   });
 
+  it('keeps the total pending instead of showing 0.00 while only zero balances have loaded', async () => {
+    delete balances[channels.byCoinId.VRSC].VRSC;
+    balances[channels.byCoinId.ETH].ETH = balance('0');
+    balances[channels.byCoinId.usdc].usdc = balance('0');
+    balanceStore.set(balances);
+    let finishScopes!: (value: unknown) => void;
+    services.getDisplayCoinScopes.mockImplementation((coinId) =>
+      coinId === 'VRSC'
+        ? new Promise((resolve) => {
+            finishScopes = resolve;
+          })
+        : Promise.resolve({
+            coinId,
+            scopes: [{ channelId: channels.byCoinId[coinId], coinId, scopeKind: 'transparent' }],
+          })
+    );
+    await render();
+    expect(document.querySelector('.balance-banner [data-slot="skeleton"]')).not.toBeNull();
+    expect(banner()).not.toContain('0.00');
+    expect(banner()).not.toContain('Partial');
+
+    balances[channels.byCoinId.VRSC].VRSC = balance('10');
+    finishScopes({
+      coinId: 'VRSC',
+      scopes: [{ channelId: channels.byCoinId.VRSC, coinId: 'VRSC', scopeKind: 'transparent' }],
+    });
+    await settle();
+    expect(document.querySelector('.balance-banner [data-slot="skeleton"]')).toBeNull();
+    expect(banner()).toContain('20.00');
+  });
+
   it('keeps a read-only scope and a cached watched balance out of owned rows and the total', async () => {
     const linked = 'vrpc.iLinkedFixture.verus';
     const watched = 'vrpc.iWatchedFixture.verus';

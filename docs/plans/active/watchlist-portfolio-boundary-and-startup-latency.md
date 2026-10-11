@@ -5,8 +5,8 @@ last_reviewed: 2026-10-11
 
 # Watchlist portfolio boundary and startup latency
 
-- Status: in progress (steps 1–2 done on testnet; steps 3–4 planned below;
-  mainnet rate timing pending)
+- Status: in progress (steps 1–2 done; steps 3.1–3.4 and the testnet part of
+  step 4 done on 2026-10-11; mainnet steps 3.5, 3.6 and 4.4 pending)
 
 ## Goal
 
@@ -257,3 +257,85 @@ timings, but no native run has confirmed them yet.
    open.** This keeps the sections ready without a visible wait.
 3. **Out of scope:** keeping rates across restarts, a faster storage format, and
    removing the second dlight decrypt. Each needs its own decision.
+
+## Steps 3.1–3.4 and testnet step 4 results (2026-10-11)
+
+### 3.1 Release storage cost
+
+A probe outside the repository timed `load_client_from_snapshot` with the same
+crate versions (`iota_stronghold` 2.1.0, `iota-crypto` 0.23.2, `scrypt` 0.11.0)
+on a synthetic 4 KiB snapshot. Apple M1 Pro, 16 GB. Peak memory is the probe
+process's maximum resident set size.
+
+| Build                          |    One read | Two parallel |    Four parallel | Peak, four reads |
+| ------------------------------ | ----------: | -----------: | ---------------: | ---------------: |
+| Debug, work factor 15          |      2.86 s |            — |      2.95 s each |           138 MB |
+| Debug, crypto crates optimized |      0.07 s |            — |      0.07 s each |           138 MB |
+| Release, work factor 19        | 1.09–1.11 s |  1.10–1.14 s | 1.10–1.81 s each |          2.15 GB |
+
+The debug figure matches the native 2.8 s read, so the probe is faithful. One
+release read (about 1.1 s) is long compared with a provider read (40–60 ms), so
+step 3.3 went ahead. Two parallel release reads need 1.08 GB; four need 2.15 GB.
+
+### 3.2–3.4 Changes
+
+- **3.2:** `src-tauri/Cargo.toml` optimizes scrypt, salsa20, pbkdf2, hmac, sha2,
+  argon2 and blake2 in debug builds. Settings and work factors are unchanged.
+- **3.3:** after a successful unlock, the backend starts the linked-ID and
+  dlight metadata reads in the background. `list_address_book_contacts` and
+  `get_watchlist_entries` wait for that warm-up (at most 5 s) before their own
+  reads. The frontend still requests them at mount, so Contacts, Watchlist and
+  the transfer flow keep their data without a visible change.
+- **3.4:** the Overview total shows its skeleton, without the Partial label,
+  while a balance is pending and no priced holding has arrived. A subtotal above
+  zero keeps the Partial label. The `wallet-loading` fixture has a `zeroFirst`
+  state.
+
+### Native testnet timings
+
+Same method as steps 1–2: three cold starts per column with the debug WebDriver
+feature and the guarded Keychain helper, `T.Betelgeuse@` watched. Seconds after
+the unlock call starts; median (range).
+
+| Phase                         |           `HEAD` | Crypto optimized | All step 3 changes |
+| ----------------------------- | ---------------: | ---------------: | -----------------: |
+| `unlock_wallet`               | 3.09 (3.08–3.11) | 0.09 (0.09–0.09) |   0.10 (0.10–0.11) |
+| First owned balance event     | 4.87 (4.69–5.00) | 2.02 (1.85–2.19) |   2.17 (1.97–2.27) |
+| Linked-ID read in scopes      | 2.94 (2.91–3.07) | 0.08 (0.07–0.10) |   0.00 (0.00–0.00) |
+| Scope discovery ends          | 7.60 (7.44–7.62) | 1.74 (1.73–1.76) |   1.73 (1.71–1.75) |
+| Scoped Overview balances done | 7.79 (7.62–7.83) | 2.10 (1.97–2.27) |   2.23 (2.04–2.35) |
+| First hero value              | 4.62 (4.62–4.86) | 1.84 (1.77–1.85) |   2.35 (2.25–2.46) |
+| "€ 0.00 Partial" flash        |      3 of 3 runs |      3 of 3 runs |        0 of 3 runs |
+
+- In debug builds, the rest of the delay is the Vite dev server: the first
+  wallet command starts about 1.5 s after unlock ends.
+- The warm-up ends about 0.1 s after unlock, before the route asks, so the scope
+  call finds the linked IDs cached. Its release effect (fewer parallel reads,
+  about half the peak memory) is estimated from the probe, not measured
+  natively. A release run needs data written by a release build.
+- The first hero value now comes after the balances, because the hero waits for
+  a true value. On testnet that value is "—", because testnet has no rates.
+
+### Testnet step 4 checks
+
+- **Automated:** `cargo test` (576 passed), unit tests (348), mounted tests
+  (311), `pnpm check` and the UI style lint pass. Vitest from the repository
+  root also collects tests from other worktrees under `.claude/worktrees/`;
+  those failures are not from this checkout. ESLint reports one existing warning
+  in `WalletHeroBackground.svelte`.
+- **Flows:** right after unlock, Contacts showed their 3 contacts without an
+  empty state, and the Watchlist showed `T.Betelgeuse@` with 1,000 Betelgeuse
+  and 100 VRSCTEST. The owned VRSCTEST row stayed 2.7889 after lock and unlock,
+  after a reload, and after removing and adding `T.Betelgeuse@` again. Manage
+  assets listed VRSCTEST 2.78887, AUD 1, gamecurrency 200 and gamesession5
+  0.00009996, with no Betelgeuse and no read-only label.
+- **Failure and recovery:** with `VRPC_TESTNET_URL` pointed at a local server
+  that never answers, the hero showed its skeleton from 1.8 s to 61.9 s, then "€
+  0.00 Partial" with VRSCTEST "Unavailable". Before step 3.4 it would have shown
+  "€ 0.00 Partial" for that whole minute. After the server forwarded again, the
+  row stayed unavailable for two minutes (the balance refresh interval is 300
+  s); a reload restored 2.7889 VRSCTEST.
+- **UI:** the `zeroFirst` fixture shows only the skeleton in light and dark mode
+  at 920×620; the default fixture still shows a "$53.90 Partial" subtotal.
+- **Not checked:** automatic lock (the backend path is the same as a manual
+  lock), release builds, and mainnet (steps 3.5, 3.6 and 4.4).

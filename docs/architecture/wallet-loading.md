@@ -41,7 +41,10 @@ be interpreted as proof of a zero private balance.
   navigation and controls visible. Initial missing balances, addresses, metadata
   summaries and structured lists use skeletons with reduced-motion support.
   Refreshes never replace known values with skeletons. Unavailable values do not
-  become zero, and partial totals remain labelled.
+  become zero, and partial totals remain labelled. While a balance is still
+  loading and no priced holding has arrived, the Overview total stays a
+  skeleton: a "0.00" from zero-balance rows that load first would read as an
+  empty wallet.
 - Passive reads in Manage assets, Asset details, Settings, and history use a
   quiet status near the affected content after one second. Overview relies on
   values and initial skeletons without a separate status line. A status does not

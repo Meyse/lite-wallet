@@ -348,6 +348,7 @@
         return {
           symbol: '',
           value: OVERVIEW_UNAVAILABLE_DISPLAY,
+          hasPositiveTotal: false,
           hasPartialRates: false,
           hasPartialBalances: rows.some((row) => !row.hasSnapshot),
         };
@@ -357,6 +358,7 @@
         return {
           symbol: '',
           value: OVERVIEW_UNAVAILABLE_DISPLAY,
+          hasPositiveTotal: false,
           hasPartialRates: false,
           hasPartialBalances: false,
         };
@@ -366,18 +368,22 @@
       return {
         symbol: parts.symbol,
         value: parts.value,
+        hasPositiveTotal: totalFiat > 0,
         hasPartialRates: hasHoldings && hasAnyFiatForHoldings && hasMissingFiatForHoldings,
         hasPartialBalances: rows.some((row) => !row.hasSnapshot),
       };
     })()
   );
-  const heroTotalIsPartial = $derived(
-    heroSummary.value !== OVERVIEW_UNAVAILABLE_DISPLAY &&
-      (heroSummary.hasPartialRates || heroSummary.hasPartialBalances)
-  );
+  // While a balance is still loading and nothing priced has arrived, the total
+  // is unknown: "0.00" from zero-balance rows that load first would read as empty.
   const heroInitiallyLoading = $derived(
-    heroSummary.value === OVERVIEW_UNAVAILABLE_DISPLAY &&
+    !heroSummary.hasPositiveTotal &&
       allRows.some((row) => !row.hasSnapshot && isBalancePending(row))
+  );
+  const heroTotalIsPartial = $derived(
+    !heroInitiallyLoading &&
+      heroSummary.value !== OVERVIEW_UNAVAILABLE_DISPLAY &&
+      (heroSummary.hasPartialRates || heroSummary.hasPartialBalances)
   );
 
   function isBalancePending(row: WalletEntryRow): boolean {

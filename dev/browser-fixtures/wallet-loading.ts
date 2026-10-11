@@ -81,6 +81,7 @@ const invoke = async (command: string, args: Record<string, unknown> = {}) => {
   }
   if (command === 'get_balances') {
     if (params.has('cold')) return pending();
+    if (params.has('zeroFirst')) return args.coin_id === 'ETH' ? balance('0') : pending();
     if (args.coin_id === 'ETH' && params.has('failBalance') && balanceAttempts++ === 0)
       throw new Error('Synthetic balance failure');
     if (args.coin_id === 'ETH' && (params.get('wait') === 'balances' || !params.get('screen')))
@@ -127,10 +128,14 @@ walletChannelsStore.set(channels);
 balanceStore.set(
   params.has('cold')
     ? {}
-    : {
-        [channels.byCoinId.VRSC]: { VRSC: balance('24.5') },
-        ...(params.has('cachedBalance') ? { [channels.byCoinId.ETH]: { ETH: balance('2') } } : {}),
-      }
+    : params.has('zeroFirst')
+      ? { [channels.byCoinId.ETH]: { ETH: balance('0') } }
+      : {
+          [channels.byCoinId.VRSC]: { VRSC: balance('24.5') },
+          ...(params.has('cachedBalance')
+            ? { [channels.byCoinId.ETH]: { ETH: balance('2') } }
+            : {}),
+        }
 );
 ratesStore.set({ VRSC: { rates: { EUR: 2, USD: 2.2 } } });
 walletBootstrapStore.set(true);
