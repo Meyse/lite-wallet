@@ -327,7 +327,9 @@ pub fn verify_identity_signature_against_addresses(
     allowed_addresses: &[String],
     network: Network,
 ) -> bool {
-    if allowed_addresses.is_empty() {
+    // `all()` holds for no signatures, so an empty list must fail here: every
+    // caller treats `true` as proof that a key of the identity signed.
+    if allowed_addresses.is_empty() || identity_signature.compact_signatures.is_empty() {
         return false;
     }
 
@@ -991,7 +993,8 @@ pub(crate) fn encode_compact_i_address(address: &str) -> Result<Vec<u8>, WalletE
 mod tests {
     use super::{
         compute_identity_signature_hash, get_raw_envelope_sha256, parse_generic_envelope_hex,
-        sign_identity_hash, sign_identity_hash_with_private_bytes,
+        parse_identity_signature, sign_identity_hash, sign_identity_hash_with_private_bytes,
+        verify_identity_signature_against_addresses,
     };
     use crate::core::crypto::{derive_keys_v1, Network};
 
@@ -1117,5 +1120,41 @@ mod tests {
                 .expect("sign with private bytes");
 
         assert_eq!(from_private_bytes, from_wif);
+    }
+
+    #[test]
+    fn a_signature_without_compact_signatures_does_not_verify() {
+        let secp = secp256k1::Secp256k1::new();
+        let private_key = [7u8; 32];
+        let public_key = secp256k1::PublicKey::from_secret_key(
+            &secp,
+            &secp256k1::SecretKey::from_slice(&private_key).unwrap(),
+        );
+        let address = crate::core::crypto::wif_encoding::generate_p2pkh_address(
+            &public_key,
+            Network::Mainnet,
+        )
+        .unwrap();
+        let allowed = std::slice::from_ref(&address);
+        let hash = [42u8; 32];
+
+        // Version 2, SHA-256, height 1, and a count of zero: no key signed.
+        let empty = parse_identity_signature(&hex::decode("02050100000000").unwrap())
+            .expect("header parses");
+        assert!(empty.compact_signatures.is_empty());
+        assert!(!verify_identity_signature_against_addresses(
+            hash,
+            &empty,
+            allowed,
+            Network::Mainnet,
+        ));
+
+        let signed = sign_identity_hash_with_private_bytes(hash, 1, &private_key).unwrap();
+        assert!(verify_identity_signature_against_addresses(
+            hash,
+            &parse_identity_signature(&signed).unwrap(),
+            allowed,
+            Network::Mainnet,
+        ));
     }
 }
