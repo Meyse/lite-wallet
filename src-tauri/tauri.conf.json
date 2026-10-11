@@ -49,7 +49,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["verus"]
+        "schemes": ["verus", "i5jtwbp6zymeay9llnraglgjqgdrffsau4"]
       }
     }
   }

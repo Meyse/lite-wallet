@@ -588,7 +588,9 @@ impl InvoiceRequest {
     }
 }
 
-fn read_transfer_destination(reader: &mut Reader<'_>) -> Result<InvoiceDestination, WalletError> {
+pub(crate) fn read_transfer_destination(
+    reader: &mut Reader<'_>,
+) -> Result<InvoiceDestination, WalletError> {
     let kind = reader.u8()?;
     let bytes = reader.var_slice()?;
     let mut supported = true;

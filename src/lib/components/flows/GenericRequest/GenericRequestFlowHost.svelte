@@ -73,6 +73,7 @@
   import { SignDataModule } from './modules/SignDataModule.svelte';
   import { EncryptionKeyModule } from './modules/EncryptionKeyModule.svelte';
   import { ShareDataModule } from './modules/ShareDataModule.svelte';
+  import { legacyLoginWebhookBody } from '$lib/genericRequest/legacy';
   import EncryptionKeyStep from './EncryptionKeyStep.svelte';
   import ShareDataStep from './ShareDataStep.svelte';
   import SignDataStep from './SignDataStep.svelte';
@@ -1063,7 +1064,8 @@
         activeSession.requestHex,
         post,
         response.signedResponseHex,
-        response.sessionId
+        response.sessionId,
+        activeSession.legacy === 'login' ? legacyLoginWebhookBody(response.signedResponseHex) : null
       );
       return;
     }

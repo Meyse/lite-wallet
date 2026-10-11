@@ -57,6 +57,11 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes(bytes))
     }
 
+    pub(crate) fn u64_le(&mut self) -> Result<u64, WalletError> {
+        let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| invalid())?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
     pub(crate) fn i64_le(&mut self) -> Result<i64, WalletError> {
         let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| invalid())?;
         Ok(i64::from_le_bytes(bytes))

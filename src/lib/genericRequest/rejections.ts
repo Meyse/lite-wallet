@@ -37,6 +37,8 @@ export const REJECTION_CODES = [
   'credentialsOnly',
   'credentialsNotEncrypted',
   'credentialAddress',
+  'loginContext',
+  'loginPermission',
 ] as const;
 
 export type RejectionCode = (typeof REJECTION_CODES)[number];

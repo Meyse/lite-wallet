@@ -9,6 +9,7 @@ use crate::types::WalletError;
 
 use super::credentials::Credential;
 use super::details::DetailKind;
+use super::legacy::{is_legacy_link, LoginConsentRequest};
 use super::request::{parse_request_hex, ParsedRequest};
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,9 @@ pub(crate) struct OpenRequest {
     /// The credentials the user reviewed, with the identity they belong to.
     /// The response shares exactly these.
     pub reviewed_credentials: Option<(String, Vec<Credential>)>,
+    /// A legacy login consent request, which has its own response. A legacy
+    /// invoice needs nothing here: it is held as the request's invoice.
+    pub legacy_login: Option<LoginConsentRequest>,
 }
 
 #[derive(Default)]
@@ -57,10 +61,15 @@ impl GenericRequestStore {
             .as_ref()
             .filter(|open| open.session_id == session_id)
             .ok_or(WalletError::GenericRequestRejected("notOpen".to_string()))?;
-        let requested = parse_request_hex(request_hex)?;
-        if requested.request_hash != open.parsed.request_hash
-            || !open.request_hex.eq_ignore_ascii_case(request_hex.trim())
-        {
+        // A legacy link is held as given: base64url is case sensitive.
+        let same = if is_legacy_link(request_hex) {
+            open.request_hex == request_hex.trim()
+        } else {
+            let requested = parse_request_hex(request_hex)?;
+            requested.request_hash == open.parsed.request_hash
+                && open.request_hex.eq_ignore_ascii_case(request_hex.trim())
+        };
+        if !same {
             return Err(WalletError::GenericRequestRejected("notOpen".to_string()));
         }
         Ok(open.clone())

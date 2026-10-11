@@ -14,7 +14,7 @@ vi.mock('buffer', () => import('node:buffer'));
 // The separate Rust vector has independently fixed bytes and signature hashes.
 describe('persisted request compatibility', () => {
   it('agrees with the Rust generic-request vector', () => {
-    const { request } = parseGenericRequestSession(fixtures.rustSignedRequest);
+    const request = parseGenericRequestSession(fixtures.rustSignedRequest).request!;
     expect(request.toBuffer().toString('hex')).toBe(fixtures.rustSignedRequest);
     expect(request.getRawDataSha256().toString('hex')).toBe(
       'eebf8a0602c116bd35d14319883dcb547a493df882b734b509fe5f86b851edd7'
@@ -103,5 +103,35 @@ describe('share data requests', () => {
     expect(() => parseGenericRequestSession(request.toBuffer().toString('hex'))).toThrow(
       'genericRequest.rejected.unsupportedDetail'
     );
+  });
+});
+
+describe('legacy links', () => {
+  const legacy = vectors.legacy;
+
+  it('opens a legacy login as a sign in that answers to its redirect address', () => {
+    const session = parseGenericRequestSession(legacy.login.link);
+    expect(session.legacy).toBe('login');
+    expect(session.requestHex).toBe(legacy.login.link);
+    expect(session.signer).toEqual({
+      isSigned: true,
+      systemId: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq',
+      identityId: legacy.login.signingId,
+    });
+    expect(session.details).toEqual([
+      expect.objectContaining({ type: 'authentication', requestId: legacy.login.challengeId }),
+    ]);
+    // A redirect address wins over a webhook, as on mobile.
+    expect(session.responseUris).toEqual([{ mode: 'redirect', uri: legacy.login.redirect }]);
+  });
+
+  it('opens legacy invoices at versions 3 and 4 as an invoice', () => {
+    for (const invoice of legacy.invoices) {
+      const session = parseGenericRequestSession(invoice.link);
+      expect(session.legacy).toBe('invoice');
+      expect(session.details).toEqual([{ index: 0, type: 'invoice', acceptsAnyAmount: false }]);
+      expect(session.signer.isSigned).toBe(invoice.signed);
+      expect(session.responseUris).toEqual([]);
+    }
   });
 });

@@ -96,17 +96,24 @@ export async function sendGenericInvoicePayment(
   });
 }
 
+/**
+ * Delivers the signed response by POST. A legacy login's webhook takes
+ * `bodyJson`, the response object as JSON; Rust checks it against the
+ * response.
+ */
 export async function postGenericResponseCallback(
   requestHex: string,
   callbackUri: string,
   responseHex: string,
-  sessionId: string
+  sessionId: string,
+  bodyJson: string | null = null
 ): Promise<void> {
   return invokeWalletCommand<void>('post_generic_response_callback', {
     request_hex: requestHex,
     callback_uri: callbackUri,
     response_hex: responseHex,
     session_id: sessionId,
+    body_json: bodyJson,
   });
 }
 

@@ -706,6 +706,10 @@ export const de: Record<string, string> = {
     'Diese Anfrage fragt nach Nachweisen, nennt aber keine Adresse zum Verschlüsseln. Sie werden daher nicht gesendet.',
   'genericRequest.rejected.credentialAddress':
     'Die private Adresse dieser VerusID stammt nicht aus dieser Wallet, daher können darauf keine Nachweise gespeichert werden.',
+  'genericRequest.rejected.loginContext':
+    'Diese Anmeldeanfrage möchte zusätzliche Sitzungsdaten teilen. Diese Wallet unterstützt das nicht.',
+  'genericRequest.rejected.loginPermission':
+    'Diese Anmeldeanfrage fragt nach mehr als Name und ID deiner VerusID. Diese Wallet teilt nur diese.',
   'genericRequest.rejected.unknownDetail':
     'Diese Anfrage enthält einen Teil, den diese Wallet nicht erkennt.',
   'genericRequest.rejected.detailOrder':

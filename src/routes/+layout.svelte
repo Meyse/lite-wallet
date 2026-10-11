@@ -18,6 +18,12 @@
   const { children } = $props();
   const settings = $derived($settingsStore);
 
+  /**
+   * The wallet scheme of legacy links (`WALLET_VDXF_KEY` in lower case), which
+   * Verus Mobile also registers. Its logins and invoices open as requests.
+   */
+  const LEGACY_WALLET_SCHEME = 'i5jtwbp6zymeay9llnraglgjqgdrffsau4:';
+
   function findLatestVerusDeepLink(urls: string[] | null | undefined): string | null {
     if (!urls?.length) {
       return null;
@@ -27,7 +33,8 @@
       const candidate = urls[index]?.trim();
       if (!candidate) continue;
 
-      if (candidate.toLowerCase().startsWith('verus:')) {
+      const lower = candidate.toLowerCase();
+      if (lower.startsWith('verus:') || lower.startsWith(LEGACY_WALLET_SCHEME)) {
         return candidate;
       }
 

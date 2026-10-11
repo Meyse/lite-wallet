@@ -41,7 +41,17 @@ is hidden behind an experimental setting.
 
 Wallet backup details are rejected with "Wallet backups to NFC cards need Verus
 Mobile." A legacy sign-in request is accepted only when its sole permission is
-identity view.
+identity view and it shares no context, as on mobile.
+
+- **Legacy links** use the form `<wallet scheme>://x-callback-url/<key>/...`,
+  where the wallet scheme is `i5jtwbp6zymeay9llnraglgjqgdrffsau4`. A `verus://`
+  link is always a request.
+- **Legacy sign in** checks the requester's signature over its challenge. The
+  response is a signed `LoginConsentResponse` that embeds the request. It goes
+  to the request's redirect address when it has one, else to its webhook as
+  JSON, as on mobile.
+- **Legacy invoices** pay as invoices do. A signed invoice must verify for its
+  signer. No response is sent.
 
 ## Acceptance rules
 
@@ -64,9 +74,9 @@ identity view.
 
 ## Intake
 
-- **Sources:** an OS `verus://` link, or a paste into Open request. Paste
-  accepts a `verus://` link, the raw QR text string, or hex. There is no QR
-  image intake; websites offer a copy-link option.
+- **Sources:** an OS `verus://` or legacy link, or a paste into Open request.
+  Paste accepts a `verus://` link, a legacy link, the raw QR text string, or
+  hex. There is no QR image intake; websites offer a copy-link option.
 - **One request at a time, in memory only.** Nothing about an unopened request
   is written to disk.
 - **When it opens:** as soon as the wallet is unlocked, Help is closed, and no

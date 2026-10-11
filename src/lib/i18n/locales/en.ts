@@ -411,6 +411,10 @@ export const en: Record<string, string> = {
     'This request asks for credentials but gives no address to encrypt them to, so they are not sent.',
   'genericRequest.rejected.credentialAddress':
     'The private address of this VerusID does not come from this wallet, so credentials cannot be stored on it.',
+  'genericRequest.rejected.loginContext':
+    'This sign-in request asks to share extra session data, which this wallet does not support.',
+  'genericRequest.rejected.loginPermission':
+    'This sign-in request asks for more than your VerusID name and ID. This wallet shares only those.',
   'genericRequest.rejected.unknownDetail':
     'This request contains a part that this wallet does not recognize.',
   'genericRequest.rejected.detailOrder':

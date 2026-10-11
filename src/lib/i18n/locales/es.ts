@@ -705,6 +705,10 @@ export const es: Record<string, string> = {
     'Esta solicitud pide credenciales, pero no indica una dirección para cifrarlas, así que no se envían.',
   'genericRequest.rejected.credentialAddress':
     'La dirección privada de esta VerusID no proviene de esta cartera, así que no se pueden guardar credenciales en ella.',
+  'genericRequest.rejected.loginContext':
+    'Esta solicitud de inicio de sesión pide compartir datos de sesión adicionales, algo que esta cartera no admite.',
+  'genericRequest.rejected.loginPermission':
+    'Esta solicitud de inicio de sesión pide más que el nombre y el ID de tu VerusID. Esta cartera solo comparte esos datos.',
   'genericRequest.rejected.unknownDetail':
     'Esta solicitud contiene una parte que esta cartera no reconoce.',
   'genericRequest.rejected.detailOrder':

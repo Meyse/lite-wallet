@@ -605,9 +605,115 @@ const responses = [
   },
 ];
 
+// Legacy links that Verus Mobile still answers (`src/sagas/deeplink.js`): a
+// login consent request and VerusPay invoices v3 and v4. Signatures are
+// placeholders; the hashes are what a requester and a responder sign.
+const LEGACY_HEIGHT = 1_270_000;
+const LEGACY_SIGNATURE = Buffer.alloc(73, 5).toString('base64');
+const LEGACY_WEBHOOK = 'https://lumen.example/verus/login';
+const LEGACY_REDIRECT = 'https://lumen.example/verus/login-return';
+const CHALLENGE_ID = vectorId('legacy-challenge');
+function legacyLogin({
+  permissions = [p.IDENTITY_VIEW.vdxfid],
+  redirects = [
+    [p.LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid, LEGACY_WEBHOOK],
+    [p.LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid, LEGACY_REDIRECT],
+  ],
+  context,
+} = {}) {
+  return new p.LoginConsentRequest({
+    system_id: TESTNET,
+    signing_id: REQUESTER,
+    signature: { signature: LEGACY_SIGNATURE },
+    challenge: new p.LoginConsentChallenge({
+      challenge_id: CHALLENGE_ID,
+      created_at: CREATED_AT,
+      session_id: vectorId('legacy-session'),
+      requested_access: permissions.map((key) => new p.RequestedPermission(key)),
+      redirect_uris: redirects.map(([key, uri]) => new p.RedirectUri(uri, key)),
+      context: context ? new p.Context(context) : undefined,
+    }),
+  });
+}
+// `LoginRequestIdentity.js`: the decision echoes the challenge ID and embeds
+// the request; the response is signed by the chosen identity.
+function legacyLoginResponse(request) {
+  return new p.LoginConsentResponse({
+    system_id: request.system_id,
+    signing_id: TARGET,
+    signature: { signature: LEGACY_SIGNATURE },
+    decision: new p.LoginConsentDecision({
+      decision_id: request.challenge.challenge_id,
+      request,
+      created_at: RESPONSE_CREATED_AT,
+    }),
+  });
+}
+function legacyInvoice(version, signed) {
+  const details = new p.VerusPayInvoiceDetails(
+    {
+      amount: new BN(1_000_000),
+      destination: new p.TransferDestination({
+        type: p.DEST_PKH,
+        destinationBytes: p.fromBase58Check(R_ADDRESS).hash,
+      }),
+      requestedcurrencyid: TESTNET,
+      expiryheight: new BN(1_270_600),
+    },
+    version
+  );
+  details.setFlags({ expires: true, isTestnet: true });
+  const invoice = new p.VerusPayInvoice({
+    details,
+    version,
+    system_id: signed ? TESTNET : undefined,
+    signing_id: signed ? REQUESTER : undefined,
+    signature: signed ? { signature: LEGACY_SIGNATURE } : undefined,
+  });
+  if (signed) invoice.setSigned();
+  return invoice;
+}
+const loginRequest = legacyLogin();
+const legacy = {
+  height: LEGACY_HEIGHT,
+  signature: Buffer.from(LEGACY_SIGNATURE, 'base64').toString('hex'),
+  login: {
+    link: loginRequest.toWalletDeeplinkUri(),
+    challengeId: CHALLENGE_ID,
+    signingId: REQUESTER,
+    challengeHash: loginRequest.getChallengeHash(LEGACY_HEIGHT).toString('hex'),
+    webhook: LEGACY_WEBHOOK,
+    redirect: LEGACY_REDIRECT,
+    responder: TARGET,
+    responseCreatedAt: RESPONSE_CREATED_AT,
+    responseHex: legacyLoginResponse(loginRequest).toBuffer().toString('hex'),
+    decisionHash: legacyLoginResponse(loginRequest).getDecisionHash(LEGACY_HEIGHT).toString('hex'),
+  },
+  loginWithContext: legacyLogin({ context: { [APP]: 'session data' } }).toWalletDeeplinkUri(),
+  loginOtherPermission: legacyLogin({
+    permissions: [p.IDENTITY_VIEW.vdxfid, 'i3fMEsmYzGbd8s7EM9uKZ28fUf9LZAMnEe'],
+  }).toWalletDeeplinkUri(),
+  invoices: [
+    [p.VERUSPAY_VERSION_3, false],
+    [p.VERUSPAY_VERSION_4, false],
+    [p.VERUSPAY_VERSION_4, true],
+  ].map(([version, signed]) => {
+    const invoice = legacyInvoice(version, signed);
+    const v4 = legacyInvoice(p.VERUSPAY_VERSION_4, false);
+    return {
+      version: version.toNumber(),
+      signed,
+      link: invoice.toWalletDeeplinkUri(),
+      // The same invoice as a request's detail carries it (version 4).
+      detailsV4: v4.details.toBuffer().toString('hex'),
+      detailsHash: invoice.getDetailsHash(LEGACY_HEIGHT).toString('hex'),
+    };
+  }),
+};
+
 process.stdout.write(
   `${JSON.stringify(
-    { generatedBy: 'scripts/generate-request-vectors.mjs', cases, responses, credentials },
+    { generatedBy: 'scripts/generate-request-vectors.mjs', cases, responses, credentials, legacy },
     null,
     2
   )}\n`

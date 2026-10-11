@@ -43,13 +43,15 @@ use crate::core::crypto::verus_id_signature::{
     extract_primary_addresses, get_raw_envelope_sha256, parse_generic_envelope_hex,
     parse_identity_signature, sign_identity_hash_with_private_bytes,
     validate_identity_control_for_active_wallet, verify_generic_request_signature_with_provider,
-    verify_identity_signature_against_addresses,
+    verify_identity_hash_with_provider, verify_identity_signature_against_addresses,
 };
 use crate::core::crypto::Network;
 use crate::core::generic_request::details::{self, DetailKind};
-use crate::core::generic_request::request::{parse_request_hex, ParsedRequest, ResponseUriKind};
+use crate::core::generic_request::request::{
+    parse_request_hex, ParsedRequest, RequestDetail, ResponseUri, ResponseUriKind, FLAG_IS_TESTNET,
+};
 use crate::core::generic_request::store::{GenericRequestStore, OpenRequest};
-use crate::core::generic_request::{acceptance, credentials, names, response};
+use crate::core::generic_request::{acceptance, credentials, legacy, names, response};
 use crate::core::{AccountStateStore, PreflightStore};
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
@@ -143,6 +145,7 @@ fn parse_generic_response_redirect_uri(uri: &str) -> Result<reqwest::Url, Wallet
 fn build_generic_response_redirect_url(
     callback_uri: &str,
     response_hex: &str,
+    parameter: &str,
 ) -> Result<reqwest::Url, WalletError> {
     let mut redirect_url = parse_generic_response_redirect_uri(callback_uri)?;
     let response_bytes =
@@ -150,7 +153,7 @@ fn build_generic_response_redirect_url(
     let encoded_response = URL_SAFE_NO_PAD.encode(response_bytes);
     redirect_url
         .query_pairs_mut()
-        .append_pair(GENERIC_RESPONSE_DEEPLINK_VDXF_ID, &encoded_response);
+        .append_pair(parameter, &encoded_response);
     Ok(redirect_url)
 }
 
@@ -773,6 +776,48 @@ fn sign_unsigned_response(
     Ok(signed_response_hex)
 }
 
+/// `LoginConsentResponse` for a legacy login (`LoginRequestIdentity.js`,
+/// `signLoginConsentResponse`): the decision echoes the challenge and embeds
+/// the request, and the responder signs its version 2 hash. The signature is
+/// verified against the responder before it leaves Rust.
+fn sign_legacy_login_response(
+    login: &legacy::LoginConsentRequest,
+    signer: &crate::types::GenericResponseSignerInput,
+    network: Network,
+    active_wallet_primary_address: &str,
+    allowed_primary_addresses: &[String],
+    signed_block_height: u32,
+    private_key: &[u8; 32],
+) -> Result<String, WalletError> {
+    ensure_active_wallet_controls_signer(allowed_primary_addresses, active_wallet_primary_address)?;
+    if !signer
+        .system_id
+        .eq_ignore_ascii_case(&names::i_address(&login.system_id))
+    {
+        return Err(WalletError::GenericRequestRejected("responder".to_string()));
+    }
+    let responder =
+        names::decode_i_address(&signer.identity_id).ok_or(WalletError::InvalidAddress)?;
+    let decision = login.decision(now_unix_seconds())?;
+    let hash = legacy::decision_hash(login.system_id, responder, signed_block_height, &decision);
+    let signature = sign_identity_hash_with_private_bytes(hash, signed_block_height, private_key)?;
+    let parsed_signature = parse_identity_signature(&signature)?;
+    if !verify_identity_signature_against_addresses(
+        hash,
+        &parsed_signature,
+        allowed_primary_addresses,
+        network,
+    ) {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(hex::encode(legacy::login_response(
+        login.system_id,
+        responder,
+        &signature,
+        &decision,
+    )?))
+}
+
 /// The wallet's private account key, which encryption channels derive from.
 async fn private_account_key(
     context: &crate::core::auth::session::ActiveWalletAccessContext,
@@ -1137,6 +1182,17 @@ pub async fn open_generic_request(
     let network = context.wallet_network;
     let wallet_is_testnet = matches!(network, WalletNetwork::Testnet);
 
+    if legacy::is_legacy_link(&request_hex) {
+        return open_legacy_request(
+            request_hex.trim(),
+            &context,
+            session_manager.inner(),
+            vrpc_provider_pool.inner(),
+            request_store.inner(),
+        )
+        .await;
+    }
+
     let parsed = parse_request_hex(&request_hex)?;
     let kinds = acceptance::check_request(&parsed, wallet_is_testnet)?;
     let guard = context.session_submission_guard();
@@ -1202,6 +1258,156 @@ pub async fn open_generic_request(
         kinds,
         broadcast_txid: None,
         reviewed_credentials: None,
+        legacy_login: None,
+    });
+    Ok(opened)
+}
+
+/// A request with no envelope: a legacy link is held as one, without a
+/// signature, request ID, or creation time.
+fn legacy_envelope(
+    is_testnet: bool,
+    details: Vec<RequestDetail>,
+    response_uris: Vec<ResponseUri>,
+    request_hash: [u8; 32],
+) -> ParsedRequest {
+    ParsedRequest {
+        flags: if is_testnet { FLAG_IS_TESTNET } else { 0 },
+        is_testnet,
+        signature: None,
+        request_id: None,
+        created_at: None,
+        app_or_delegated_id: None,
+        details,
+        response_uris,
+        encrypt_response_to: None,
+        preferred_handler: None,
+        request_hash,
+    }
+}
+
+/// Opens a legacy link as Verus Mobile does (`src/sagas/deeplink.js`,
+/// `DeepLink.js`). A legacy invoice is held as a request with one invoice
+/// detail (version 4), so the invoice commands pay it. A login consent request
+/// keeps its own fields; its one response address is the one mobile uses.
+async fn open_legacy_request(
+    link: &str,
+    context: &crate::core::auth::session::ActiveWalletAccessContext,
+    session_manager: &Arc<Mutex<SessionManager>>,
+    vrpc_provider_pool: &VrpcProviderPool,
+    request_store: &GenericRequestStore,
+) -> Result<OpenedGenericRequest, WalletError> {
+    let network = context.wallet_network;
+    let wallet_is_testnet = matches!(network, WalletNetwork::Testnet);
+    let guard = context.session_submission_guard();
+    let root_provider =
+        vrpc_provider_pool.for_system(network, names::root_system_id(wallet_is_testnet));
+    let crypto_network = wallet_network_to_crypto_network(network);
+
+    let (parsed, kinds, legacy_login, signer, signature_block_height) =
+        match legacy::parse_legacy_link(link)? {
+            legacy::LegacyLink::Invoice(payload) => {
+                let invoice = legacy::parse_legacy_invoice(&payload)?;
+                let is_testnet = details::parse_invoice(&invoice.details_v4)?.flags
+                    & details::INVOICE_IS_TESTNET
+                    != 0;
+                if is_testnet != wallet_is_testnet {
+                    return Err(acceptance::Rejection::Network.into());
+                }
+                let parsed = legacy_envelope(
+                    is_testnet,
+                    vec![RequestDetail {
+                        ordinal: details::ORDINAL_INVOICE,
+                        data: invoice.details_v4.clone(),
+                    }],
+                    Vec::new(),
+                    names::sha256(&payload),
+                );
+                let kinds = acceptance::check_request(&parsed, wallet_is_testnet)?;
+                check_request_expiry(&parsed, &kinds, root_provider, &guard).await?;
+                let mut signer = None;
+                let mut height = None;
+                if let Some(legacy_signer) = &invoice.signer {
+                    let signer_id = names::i_address(&legacy_signer.signing_id);
+                    let valid = guard
+                        .run(verify_identity_hash_with_provider(
+                            root_provider,
+                            &signer_id,
+                            &legacy_signer.signature,
+                            None,
+                            crypto_network,
+                            |height, version| invoice.details_hash(height, version),
+                        ))
+                        .await
+                        .map_err(map_generic_session_change)?;
+                    if !valid {
+                        return Err(acceptance::Rejection::Signature.into());
+                    }
+                    height = Some(parse_identity_signature(&legacy_signer.signature)?.block_height);
+                    signer = Some((names::i_address(&legacy_signer.system_id), signer_id));
+                }
+                (parsed, kinds, None, signer, height)
+            }
+            legacy::LegacyLink::Login(bytes) => {
+                let login = legacy::parse_login_consent(&bytes)?;
+                legacy::check_login_consent(&login, wallet_is_testnet)?;
+                let signer_id = names::i_address(&login.signing_id);
+                let valid = guard
+                    .run(verify_identity_hash_with_provider(
+                        root_provider,
+                        &signer_id,
+                        &login.signature,
+                        Some(login.created_at),
+                        crypto_network,
+                        |height, _| login.challenge_hash(height),
+                    ))
+                    .await
+                    .map_err(map_generic_session_change)?;
+                if !valid {
+                    return Err(acceptance::Rejection::Signature.into());
+                }
+                let height = parse_identity_signature(&login.signature)?.block_height;
+                let response_uris = login
+                    .delivery()
+                    .map(|(kind, uri)| ResponseUri {
+                        kind: if kind == legacy::LOGIN_CONSENT_REDIRECT_KEY {
+                            ResponseUriKind::Redirect
+                        } else {
+                            ResponseUriKind::Post
+                        },
+                        uri: uri.to_string(),
+                    })
+                    .into_iter()
+                    .collect();
+                let parsed = legacy_envelope(
+                    wallet_is_testnet,
+                    Vec::new(),
+                    response_uris,
+                    names::sha256(&bytes),
+                );
+                let signer = Some((names::i_address(&login.system_id), signer_id));
+                (parsed, Vec::new(), Some(login), signer, Some(height))
+            }
+        };
+
+    ensure_active_wallet_session(session_manager, &context.session_id)
+        .await
+        .map_err(map_generic_session_change)?;
+    let opened = OpenedGenericRequest {
+        request_hash: hex::encode(parsed.request_hash),
+        signed: signer.is_some(),
+        signer_system_id: signer.as_ref().map(|(system, _)| system.clone()),
+        signer_identity_id: signer.map(|(_, identity)| identity),
+        signature_block_height,
+    };
+    request_store.open(OpenRequest {
+        session_id: context.session_id.clone(),
+        request_hex: link.to_string(),
+        parsed,
+        kinds,
+        broadcast_txid: None,
+        reviewed_credentials: None,
+        legacy_login,
     });
     Ok(opened)
 }
@@ -1330,6 +1536,25 @@ async fn build_and_sign_generic_response_for_session(
         .map_err(map_generic_session_change)?;
     let signed_block_height = extract_chain_height(&info)?;
 
+    if let Some(login) = &open.legacy_login {
+        let signed_response_hex = sign_legacy_login_response(
+            login,
+            signer,
+            wallet_network_to_crypto_network(network),
+            &active_wallet_primary_address,
+            &allowed_primary_addresses,
+            signed_block_height,
+            &private_key,
+        )?;
+        ensure_active_wallet_session(session_manager, &context.session_id)
+            .await
+            .map_err(map_generic_session_change)?;
+        return Ok(BuildAndSignGenericResponseResult {
+            signed_response_hex,
+            session_id: context.session_id,
+        });
+    }
+
     let response_signer = response::ResponseSigner {
         system_id: &signer.system_id,
         identity_id: &signer.identity_id,
@@ -1388,18 +1613,40 @@ pub async fn post_generic_response_callback(
     callback_uri: String,
     response_hex: String,
     session_id: String,
+    body_json: Option<String>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     request_store: State<'_, GenericRequestStore>,
 ) -> Result<(), WalletError> {
     let open = request_store.get(&session_id, &request_hex)?;
     ensure_request_response_uri(&open, ResponseUriKind::Post, &callback_uri)?;
+    let body = match open.legacy_login {
+        // A legacy login's webhook takes the response object as JSON.
+        Some(_) => {
+            let json = body_json.ok_or(WalletError::OperationFailed)?;
+            let value: Value =
+                serde_json::from_str(&json).map_err(|_| WalletError::OperationFailed)?;
+            let response_bytes =
+                hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
+            legacy::check_webhook_body(&legacy::parse_login_response(&response_bytes)?, &value)?;
+            CallbackBody::Json(json)
+        }
+        None => CallbackBody::Bytes(
+            hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?,
+        ),
+    };
     post_generic_response_callback_for_session(
         callback_uri,
-        response_hex,
+        body,
         session_id,
         session_manager.inner(),
     )
     .await
+}
+
+/// What a POST delivery sends: the response bytes, or a legacy login's JSON.
+enum CallbackBody {
+    Bytes(Vec<u8>),
+    Json(String),
 }
 
 fn ensure_request_response_uri(
@@ -1423,7 +1670,7 @@ fn ensure_request_response_uri(
 
 async fn post_generic_response_callback_for_session(
     callback_uri: String,
-    response_hex: String,
+    body: CallbackBody,
     session_id: String,
     session_manager: &Arc<Mutex<SessionManager>>,
 ) -> Result<(), WalletError> {
@@ -1433,10 +1680,7 @@ async fn post_generic_response_callback_for_session(
     }
     context
         .session_submission_guard()
-        .run(post_generic_response_callback_request(
-            callback_uri,
-            response_hex,
-        ))
+        .run(post_generic_response_callback_request(callback_uri, body))
         .await
         .map_err(map_generic_session_change)?;
 
@@ -1449,18 +1693,20 @@ async fn post_generic_response_callback_for_session(
 
 async fn post_generic_response_callback_request(
     callback_uri: String,
-    response_hex: String,
+    body: CallbackBody,
 ) -> Result<(), WalletError> {
     let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
-    let response_bytes =
-        hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
+    let (content_type, body) = match body {
+        CallbackBody::Bytes(bytes) => ("application/octet-stream", bytes),
+        CallbackBody::Json(json) => ("application/json", json.into_bytes()),
+    };
     let response = reqwest::Client::builder()
         .timeout(DELIVERY_TIMEOUT)
         .build()
         .map_err(|_| WalletError::NetworkError)?
         .post(callback_uri)
-        .header(CONTENT_TYPE, "application/octet-stream")
-        .body(response_bytes)
+        .header(CONTENT_TYPE, content_type)
+        .body(body)
         .send()
         .await
         .map_err(|_| WalletError::NetworkError)?;
@@ -1489,7 +1735,14 @@ pub async fn open_generic_request_callback(
     }
     let open = request_store.get(&session_id, &request_hex)?;
     ensure_request_response_uri(&open, ResponseUriKind::Redirect, &callback_uri)?;
-    let redirect_url = build_generic_response_redirect_url(&callback_uri, &response_hex)?;
+    // A legacy login's response travels under its own key (`handleRedirect.js`).
+    let parameter = if open.legacy_login.is_some() {
+        legacy::LOGIN_CONSENT_RESPONSE_KEY
+    } else {
+        GENERIC_RESPONSE_DEEPLINK_VDXF_ID
+    };
+    let redirect_url =
+        build_generic_response_redirect_url(&callback_uri, &response_hex, parameter)?;
     match context.session_submission_guard().poll_admitted(|| {
         std::task::Poll::Ready(
             app.opener()
@@ -3110,8 +3363,9 @@ mod tests {
         parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
         post_generic_response_callback_for_session, post_generic_response_callback_request,
         resolve_signer_cmm_key_labels_from_identity, sign_unsigned_response,
-        validate_generic_request_funding_source, wallet_network_to_crypto_network, WalletNetwork,
-        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID, MAINNET_VERUS_CHAIN_ID,
+        validate_generic_request_funding_source, wallet_network_to_crypto_network, CallbackBody,
+        WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
+        MAINNET_VERUS_CHAIN_ID,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
@@ -3196,6 +3450,7 @@ mod tests {
             kinds,
             broadcast_txid: None,
             reviewed_credentials: None,
+            legacy_login: None,
         };
         store.open(open.clone());
         open
@@ -3404,6 +3659,68 @@ mod tests {
             super::shared_credentials(&open, "iGHXn8mvh9kutBNotJ2LCNz3zDxvemEb2i"),
             Err(WalletError::GenericRequestRejected(code)) if code == "responder"
         ));
+    }
+
+    #[test]
+    fn a_legacy_login_response_verifies_for_the_responder() {
+        let link = vectors()["legacy"]["login"]["link"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        use crate::core::generic_request::{legacy, names};
+        let login = match legacy::parse_legacy_link(&link).unwrap() {
+            legacy::LegacyLink::Login(bytes) => legacy::parse_login_consent(&bytes).unwrap(),
+            other => panic!("expected a login link, got {other:?}"),
+        };
+        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let (private_key, address) = test_signing_context(network, 7);
+        let responder = "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk";
+        let signer = crate::types::GenericResponseSignerInput {
+            system_id: TEST_SYSTEM_ID.to_string(),
+            identity_id: responder.to_string(),
+        };
+        let response_hex = super::sign_legacy_login_response(
+            &login,
+            &signer,
+            network,
+            &address,
+            std::slice::from_ref(&address),
+            FIXED_SIGNED_BLOCK_HEIGHT,
+            &private_key,
+        )
+        .unwrap();
+
+        let fields = legacy::parse_login_response(&hex::decode(&response_hex).unwrap()).unwrap();
+        assert_eq!(fields.decision_id, login.challenge_id);
+        let decision = login.decision(fields.created_at).unwrap();
+        let hash = legacy::decision_hash(
+            login.system_id,
+            names::decode_i_address(responder).unwrap(),
+            FIXED_SIGNED_BLOCK_HEIGHT,
+            &decision,
+        );
+        assert!(verify_identity_signature_against_addresses(
+            hash,
+            &parse_identity_signature(&fields.signature).unwrap(),
+            std::slice::from_ref(&address),
+            network,
+        ));
+
+        // A responder on another system cannot answer.
+        let other_system = crate::types::GenericResponseSignerInput {
+            system_id: "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV".to_string(),
+            identity_id: responder.to_string(),
+        };
+        assert!(super::sign_legacy_login_response(
+            &login,
+            &other_system,
+            network,
+            &address,
+            std::slice::from_ref(&address),
+            FIXED_SIGNED_BLOCK_HEIGHT,
+            &private_key,
+        )
+        .is_err());
     }
 
     #[test]
@@ -3907,9 +4224,12 @@ mod tests {
 
     #[test]
     fn generic_response_redirect_url_allows_custom_schemes() {
-        let redirect_url =
-            build_generic_response_redirect_url("valu://callback/finish", "deadbeef")
-                .expect("redirect url");
+        let redirect_url = build_generic_response_redirect_url(
+            "valu://callback/finish",
+            "deadbeef",
+            GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
+        )
+        .expect("redirect url");
 
         assert_eq!(redirect_url.scheme(), "valu");
         assert_eq!(redirect_url.host_str(), Some("callback"));
@@ -4028,7 +4348,7 @@ mod tests {
 
         post_generic_response_callback_request(
             format!("http://{}/callback", address),
-            expected_hex,
+            CallbackBody::Bytes(hex::decode(&expected_hex).unwrap()),
         )
         .await
         .expect("callback post succeeds");
@@ -4054,7 +4374,7 @@ mod tests {
 
         let error = post_generic_response_callback_request(
             format!("http://{}/callback", address),
-            "deadbeef".to_string(),
+            CallbackBody::Bytes(vec![0xde, 0xad, 0xbe, 0xef]),
         )
         .await
         .expect_err("non-success callback status must fail");
@@ -4091,7 +4411,7 @@ mod tests {
 
         let error = post_generic_response_callback_for_session(
             format!("http://{address}/callback"),
-            "deadbeef".to_string(),
+            CallbackBody::Bytes(vec![0xde, 0xad, 0xbe, 0xef]),
             context.session_id,
             &session,
         )
@@ -4139,7 +4459,7 @@ mod tests {
             async move {
                 post_generic_response_callback_for_session(
                     format!("http://{address}/callback"),
-                    "deadbeef".to_string(),
+                    CallbackBody::Bytes(vec![0xde, 0xad, 0xbe, 0xef]),
                     session_id,
                     &session,
                 )
@@ -4211,8 +4531,12 @@ mod tests {
 
     #[test]
     fn generic_response_redirect_url_appends_base64url_response_param() {
-        let redirect_url = build_generic_response_redirect_url("https://www.verus.io", "deadbeef")
-            .expect("redirect url");
+        let redirect_url = build_generic_response_redirect_url(
+            "https://www.verus.io",
+            "deadbeef",
+            GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
+        )
+        .expect("redirect url");
 
         assert_eq!(redirect_url.scheme(), "https");
         assert_eq!(redirect_url.host_str(), Some("www.verus.io"));

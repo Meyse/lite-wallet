@@ -37,7 +37,7 @@ const VERIFIABLE_SIGNATURE_VERSION_V2: u64 = 2;
 const I_ADDRESS_VERSION: u16 = 102;
 const X_ADDRESS_VERSION: u16 = 137;
 const SIGNATURE_TIME_DIFF_THRESHOLD_SECS: i64 = 3600;
-const VERUS_DATA_SIGNATURE_PREFIX: &[u8] = b"\x13Verus signed data:\n";
+pub(crate) const VERUS_DATA_SIGNATURE_PREFIX: &[u8] = b"\x13Verus signed data:\n";
 
 #[derive(Debug, Clone)]
 pub struct ParsedGenericEnvelope {
@@ -378,6 +378,42 @@ pub async fn verify_generic_request_signature_with_provider(
 
     Ok(verify_identity_signature_against_addresses(
         identity_hash,
+        &identity_signature,
+        &primary_addresses,
+        network,
+    ))
+}
+
+/// Verifies an identity signature over the hash that `hash_for` builds from the
+/// signing height and the signature version, against the signer's primary
+/// addresses. Only single-signature identities verify. With `created_at`, the
+/// signing block must be within an hour of it, as for requests.
+pub async fn verify_identity_hash_with_provider(
+    provider: &VrpcProvider,
+    signer_identity_id: &str,
+    signature: &[u8],
+    created_at: Option<u64>,
+    network: Network,
+    hash_for: impl Fn(u32, u8) -> [u8; 32],
+) -> Result<bool, WalletError> {
+    let identity_signature = parse_identity_signature(signature)?;
+    let block_raw = provider
+        .getblock(&identity_signature.block_height.to_string())
+        .await?;
+    let block_time = extract_block_time(&block_raw)?;
+    if let Some(created_at) = created_at {
+        if (block_time as i64 - created_at as i64).abs() > SIGNATURE_TIME_DIFF_THRESHOLD_SECS {
+            return Ok(false);
+        }
+    }
+    let signer_identity = provider.getidentity(signer_identity_id).await?;
+    let primary_addresses = extract_primary_addresses(&signer_identity);
+    if extract_minimum_signatures(&signer_identity).unwrap_or(1) != 1 {
+        return Ok(false);
+    }
+    let hash = hash_for(identity_signature.block_height, identity_signature.version);
+    Ok(verify_identity_signature_against_addresses(
+        hash,
         &identity_signature,
         &primary_addresses,
         network,

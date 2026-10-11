@@ -423,6 +423,10 @@ export const nl: Record<string, string> = {
     'Dit verzoek vraagt om referenties, maar geeft geen adres om ze naar te versleutelen. Ze worden dus niet verstuurd.',
   'genericRequest.rejected.credentialAddress':
     'Het privéadres van deze VerusID komt niet uit deze wallet, dus er kunnen geen referenties op worden opgeslagen.',
+  'genericRequest.rejected.loginContext':
+    'Dit inlogverzoek vraagt om extra sessiegegevens te delen. Deze wallet ondersteunt dat niet.',
+  'genericRequest.rejected.loginPermission':
+    'Dit inlogverzoek vraagt om meer dan de naam en ID van je VerusID. Deze wallet deelt alleen die.',
   'genericRequest.rejected.unknownDetail':
     'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
   'genericRequest.rejected.detailOrder':

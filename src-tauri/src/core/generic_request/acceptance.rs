@@ -68,6 +68,10 @@ pub(crate) enum Rejection {
     /// An update writes credentials to an identity whose private address
     /// does not come from this wallet's seed.
     CredentialAddress,
+    /// A legacy login asks to share context, which Verus Mobile refuses.
+    LoginContext,
+    /// A legacy login asks for more than the identity view permission.
+    LoginPermission,
 }
 
 impl Rejection {
@@ -98,6 +102,8 @@ impl Rejection {
             Self::CredentialsOnly => "credentialsOnly",
             Self::CredentialsNotEncrypted => "credentialsNotEncrypted",
             Self::CredentialAddress => "credentialAddress",
+            Self::LoginContext => "loginContext",
+            Self::LoginPermission => "loginPermission",
         }
     }
 }

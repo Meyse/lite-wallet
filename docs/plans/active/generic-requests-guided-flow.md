@@ -5,7 +5,7 @@ last_reviewed: 2026-10-11
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phases 1 to 4 in progress)
+- Status: active (phase 0 done; phases 1 to 4 and 6 in progress)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-11
 
@@ -368,6 +368,27 @@ guided flow defined by the
    [storage policy](../../references/storage-policy.md).
 
 ### Phase 6: legacy adapters
+
+**Progress on 2026-10-11.**
+
+- **Done:** `core/generic_request/legacy.rs` reads legacy links
+  (`<wallet scheme>://x-callback-url/...`). A login consent request is checked
+  as mobile checks it: identity view only, no context, the open wallet's
+  network, and the requester's signature over its challenge. Its response is
+  byte for byte what mobile builds (vector test) and goes to the redirect
+  address first, else to the webhook as JSON. A v3 or v4 invoice is held as a
+  request's invoice detail, so the invoice commands pay it; a signed invoice
+  must verify. The wallet registers the legacy scheme for OS links.
+- **Verified on testnet, 2026-10-11:** links built with the libraries and signed
+  by the daemon's `signdata`, since Deep Link Sim has no legacy generator.
+  - Legacy login answered by webhook as `player7@`: the receiver rebuilt the
+    response from the JSON and the daemon verified the signature.
+  - v3 invoice, unsigned, 0.01 VRSCTEST: txid
+    `a8f3acd53d0fea8687708427ad82b2e5423084089526280942a4bd48dab44d68`.
+  - v4 invoice, signed, 0.011 VRSCTEST: txid
+    `f4d447d22fec241ee2da38c1e55f79cfb2425d4be8320c769c7dae6eb2f78485`.
+- **Not done:** a legacy login that offers provisioning instead of a redirect
+  address (mobile's "Request VerusID") is answered as a plain sign in.
 
 1. **Legacy sign in.** A request with only the identity-view permission goes to
    the Sign in module. Its response follows the legacy delivery rules.

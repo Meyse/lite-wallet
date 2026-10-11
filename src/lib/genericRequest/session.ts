@@ -10,6 +10,10 @@ import {
   DataPacketRequestOrdinalVDXFObject,
   GenericRequest,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY,
+  LOGIN_CONSENT_REDIRECT_VDXF_KEY,
+  LOGIN_CONSENT_REQUEST_VDXF_KEY,
+  LOGIN_CONSENT_WEBHOOK_VDXF_KEY,
+  LoginConsentRequest,
   IdentityUpdateRequestOrdinalVDXFObject,
   PROVISION_IDENTITY_DETAILS_VDXF_KEY,
   ProvisionIdentityDetailsOrdinalVDXFObject,
@@ -18,6 +22,8 @@ import {
   USER_DATA_REQUEST_VDXF_KEY,
   UserDataRequestOrdinalVDXFObject,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
+  VERUSPAY_INVOICE_VDXF_KEY,
+  VerusPayInvoice,
   VerusPayInvoiceDetailsOrdinalVDXFObject,
 } from 'verus-typescript-primitives';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -51,7 +57,8 @@ export type AuthenticationDetailSession = {
   requestId: string | null;
   expiryTime: number | null;
   constraints: AuthenticationConstraint[];
-  raw: InstanceType<typeof AuthenticationRequestOrdinalVDXFObject>;
+  /** Null for a legacy login, which has no sign-in detail. */
+  raw: InstanceType<typeof AuthenticationRequestOrdinalVDXFObject> | null;
 };
 
 export type ProvisionIdentityDetailSession = {
@@ -135,8 +142,12 @@ export type SupportedGenericRequestDetail =
   | AppEncryptionDetailSession
   | UserDataDetailSession;
 
+/** A legacy link that Verus Mobile still answers (`src/sagas/deeplink.js`). */
+export type LegacyRequestKind = 'login' | 'invoice';
+
 export type GenericRequestFlowSession = {
-  request: GenericRequest;
+  /** Null for a legacy link. */
+  request: GenericRequest | null;
   requestHex: string;
   requestId: string | null;
   testnet: boolean;
@@ -144,6 +155,8 @@ export type GenericRequestFlowSession = {
   signer: GenericRequestSigner;
   details: SupportedGenericRequestDetail[];
   passthroughAutoLinkFqn: string | null;
+  /** A legacy link: a login consent request or a VerusPay invoice. */
+  legacy?: LegacyRequestKind | null;
 };
 
 /** Every request detail type that Verus Mobile knows. */
@@ -353,10 +366,91 @@ function parseIdentityUpdateDetail(
   };
 }
 
+const TESTNET_SYSTEM_ID = 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq';
+
+/**
+ * A link in the legacy form, `<scheme>://x-callback-url/<key>/...`. A
+ * `verus://` link is always a request, as on mobile.
+ */
+export function isLegacyLink(input: string): boolean {
+  const trimmed = input.trim();
+  const scheme = trimmed.split('://')[0];
+  return trimmed.includes('://x-callback-url/') && scheme !== 'verus' && scheme !== 'verus0';
+}
+
+/**
+ * A legacy login or invoice, for review. Rust verifies the link and holds it
+ * as the open request under the link itself. A legacy login answers to the
+ * one address mobile uses: a redirect when the request has one, else a
+ * webhook (`LoginRequestComplete.js`).
+ */
+function parseLegacySession(
+  link: string,
+  passthroughAutoLinkFqn: string | null
+): GenericRequestFlowSession {
+  if (link.length >= MAX_REQUEST_LINK_LENGTH) throw rejectionError('tooLong');
+  const key = link.split('://')[1]?.split('/')[1]?.split('?')[0];
+  const base = {
+    request: null,
+    requestHex: link,
+    requestId: null,
+    passthroughAutoLinkFqn: passthroughAutoLinkFqn?.trim() || null,
+  };
+  if (key === LOGIN_CONSENT_REQUEST_VDXF_KEY.vdxfid) {
+    const request = LoginConsentRequest.fromWalletDeeplinkUri(link);
+    const lastOf = (kind: string) =>
+      [...(request.challenge.redirect_uris ?? [])].reverse().find((uri) => uri.vdxfkey === kind);
+    const redirect = lastOf(LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid);
+    const webhook = lastOf(LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid);
+    return {
+      ...base,
+      testnet: request.system_id === TESTNET_SYSTEM_ID,
+      responseUris: redirect
+        ? [{ mode: 'redirect', uri: redirect.uri }]
+        : webhook
+          ? [{ mode: 'post', uri: webhook.uri }]
+          : [],
+      signer: { isSigned: true, systemId: request.system_id, identityId: request.signing_id },
+      details: [
+        {
+          index: 0,
+          type: 'authentication',
+          requestId: request.challenge.challenge_id ?? null,
+          expiryTime: null,
+          constraints: [],
+          raw: null,
+        },
+      ],
+      legacy: 'login',
+    };
+  }
+  if (key === VERUSPAY_INVOICE_VDXF_KEY.vdxfid) {
+    const invoice = VerusPayInvoice.fromWalletDeeplinkUri(link);
+    const signed = invoice.isSigned();
+    return {
+      ...base,
+      testnet: invoice.details.isTestnet(),
+      responseUris: [],
+      signer: {
+        isSigned: signed,
+        systemId: signed ? (invoice.system_id ?? null) : null,
+        identityId: signed ? (invoice.signing_id ?? null) : null,
+      },
+      details: [
+        { index: 0, type: 'invoice', acceptsAnyAmount: invoice.details.acceptsAnyAmount() },
+      ],
+      legacy: 'invoice',
+    };
+  }
+  throw rejectionError('unknownDetail');
+}
+
 export function parseGenericRequestSession(
   input: string,
   passthroughAutoLinkFqn: string | null = null
 ): GenericRequestFlowSession {
+  if (isLegacyLink(input)) return parseLegacySession(input.trim(), passthroughAutoLinkFqn);
+
   // Rust decides whether the request is acceptable (order, signature, network,
   // expiry). This parse is for review, and it stops at detail types the
   // desktop flow cannot show yet.
