@@ -432,11 +432,17 @@ export interface PendingIdentityProfileUpdate {
   proposedProfile: IdentityProfileSnapshot;
 }
 
-export interface GenericRequestVerificationResult {
-  valid: boolean;
-  signerSystemId: string;
-  signerIdentityId: string;
-  signatureBlockHeight: number;
+/** A request that Rust accepted and, when signed, verified. */
+export interface OpenedGenericRequest {
+  requestHash: string;
+  signed: boolean;
+  signerSystemId: string | null;
+  signerIdentityId: string | null;
+  signatureBlockHeight: number | null;
+}
+
+export interface GenericRequestTransactionResult {
+  txid: string;
 }
 
 export interface GenericResponseSignerInput {
@@ -444,33 +450,9 @@ export interface GenericResponseSignerInput {
   identityId: string;
 }
 
-export interface GenericAuthenticationResponseInput {
-  requestId?: string | null;
-}
-
-export interface GenericIdentityUpdateResponseInput {
-  requestId?: string | null;
-  txid: string;
-}
-
-export interface BuildAndSignGenericResponseRequest {
-  requestHex: string;
-  signer: GenericResponseSignerInput;
-  authentication?: GenericAuthenticationResponseInput | null;
-  identityUpdate?: GenericIdentityUpdateResponseInput | null;
-}
-
 export interface BuildAndSignGenericResponseResult {
   signedResponseHex: string;
   sessionId: string;
-}
-
-export interface GenericIdentityUpdateRequestMeta {
-  requestId?: string | null;
-  signerSystemId?: string | null;
-  signerIdentityId?: string | null;
-  expiryHeight?: number | null;
-  requestSystemId?: string | null;
 }
 
 export interface GenericIdentityPrimaryAddressEntry {

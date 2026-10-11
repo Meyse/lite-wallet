@@ -297,6 +297,36 @@ export const nl: Record<string, string> = {
   'genericRequest.flow.stageError.delivery': '{app} heeft het antwoord niet aangenomen.',
   'genericRequest.flow.stageError.webhook': '{issuer} heeft het verzoek niet aangenomen.',
   'genericRequest.flow.noChanges': 'Deze update wijzigt niets wat de wallet kan tonen.',
+  'genericRequest.flow.secondLinkIgnored':
+    'Rond het huidige verzoek af en open daarna de nieuwe link opnieuw.',
+  'genericRequest.rejected.unknownDetail':
+    'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
+  'genericRequest.rejected.detailOrder':
+    'Dit verzoek is niet goed opgebouwd. Vraag de website om een nieuwe link.',
+  'genericRequest.rejected.unsigned':
+    'Dit verzoek is niet ondertekend. Alleen betalingen en cadeaukaarten mogen zonder handtekening.',
+  'genericRequest.rejected.walletBackup':
+    'Voor walletback-ups op NFC-kaarten heb je Verus Mobile nodig.',
+  'genericRequest.rejected.network':
+    'Dit verzoek is voor een ander netwerk dan de geopende wallet.',
+  'genericRequest.rejected.encryptedDetails':
+    'Dit verzoek is versleuteld, dus deze wallet kan het niet lezen.',
+  'genericRequest.rejected.tooLong': 'Deze link is te lang. Vraag de website om een kortere link.',
+  'genericRequest.rejected.expired':
+    'Dit verzoek is verlopen. Vraag de website om een nieuw verzoek.',
+  'genericRequest.rejected.delegatedSigner':
+    'Dit verzoek is voor een andere app ondertekend door een VerusID die deze wallet niet beheert.',
+  'genericRequest.rejected.signature':
+    'De handtekening van het verzoek kon niet worden gecontroleerd.',
+  'genericRequest.rejected.notOpen': 'Dit verzoek is niet meer open. Open de link opnieuw.',
+  'genericRequest.rejected.responder':
+    'De gekozen VerusID voldoet niet aan de eisen van dit verzoek.',
+  'genericRequest.rejected.unsupportedDetail':
+    'Een deel van dit verzoek werkt op desktop nog niet.',
+  'genericRequest.rejected.responseAddress':
+    'Het antwoord kan alleen naar een adres gaan dat in het verzoek staat.',
+  'genericRequest.rejected.insecureDelivery':
+    'De website bood geen beveiligde verbinding, dus het antwoord is niet verstuurd.',
   'genericRequest.flow.error.expired': 'Dit verzoek is verlopen. Begin opnieuw op de site.',
   'genericRequest.update.privateAddressChange.title': 'Privéadres wijzigen',
   'genericRequest.update.privateAddressChange.description':
@@ -313,18 +343,7 @@ export const nl: Record<string, string> = {
   'genericRequest.import.submit': 'Open',
   'genericRequest.import.error.empty': 'Paste a request to continue.',
   'genericRequest.import.error.invalid': 'This request could not be parsed.',
-  'genericRequest.import.error.networkMismatch':
-    'This request is for a different network than the active wallet.',
-  'genericRequest.unsupported.detail':
-    'This request contains detail types that are not supported on desktop yet.',
-  'genericRequest.unsupported.empty': 'This request does not contain any supported actions.',
-  'genericRequest.unsupported.invalidGrouping':
-    'This request combines actions in a way that desktop does not support.',
-  'genericRequest.unsupported.provisioningNeedsAuth':
-    'Provisioning requests must be attached to an authentication request.',
-  'genericRequest.unsupported.unsigned': 'This request is not signed.',
   'genericRequest.error.generic': 'This request could not be opened right now.',
-  'genericRequest.error.invalidSignature': 'The request signature could not be verified.',
   'genericRequest.error.walletLocked': 'Wallet is locked. Unlock and try again.',
   'genericRequest.error.identityOwnershipMismatch':
     'This wallet cannot satisfy the ownership requirements for this request.',
@@ -342,8 +361,6 @@ export const nl: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
-  'genericRequest.error.unsupportedPostCallback':
-    'This app requested a POST callback that is not supported on desktop.',
   'genericRequest.summary.toggle': 'Show summary',
   'genericRequest.summary.provisioningRequested':
     'A new VerusID can be provisioned from this request.',

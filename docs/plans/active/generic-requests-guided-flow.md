@@ -120,6 +120,45 @@ guided flow defined by the
   - The Changes step shows content values as raw JSON.
   - "Connected to" stays hidden: no website-connection check exists yet.
 
+**Progress on 2026-10-11.**
+
+- **Done:**
+  - Step 1: the four libraries use the commits that mobile locks, including
+    `@bitgo/utxo-lib` `2d324042`. See the
+    [dependency plan](./verus-dependency-upgrade.md#pin-update-on-2026-10-11).
+  - Step 2: `src-tauri/src/core/generic_request` parses every request, signed or
+    unsigned, and applies the library's order rules, the unsigned rule, the
+    network rule (flag and signature system), the delegated-signer rule, and
+    expiry when the request opens. Signer names resolve as the library resolves
+    them.
+  - Step 3, for Sign in and Update identity: Rust holds the one open request. It
+    reads the request IDs, the target, the expiry, and every control field of
+    the update from the verified bytes. The UI's identity JSON supplies only
+    content values under the keys that the request names.
+  - Step 4: the response carries the request ID, request hash, creation time,
+    handled-by `0`, and the testnet flag. The sign-in response echoes the
+    request ID when present. Rust builds it byte for byte as mobile does (vector
+    test).
+  - Step 5: delivery goes only to a response address the request names. POST
+    needs HTTPS in release builds and times out after 30 seconds.
+  - Step 6, in part: the waiting request is in memory only, and the old
+    `localStorage` key is removed once. Paste accepts the raw QR text. Links of
+    2046 characters or more are refused. A second link replaces the request
+    before Approval and is ignored after it.
+  - The unused `sign_generic_response` command, which signed any response the UI
+    passed, is removed.
+- **Fixed:** `namespace::name` content keys. The daemon resolves them
+  (`getvdxfid`), and the library's own hash differs from the daemon's. The
+  Changes step shows the key label and the text of a string value.
+- **Verified on testnet, 2026-10-11:** sign in alone, and sign in plus a
+  `namespace::name` content update
+  (`68ad35c6c9241375b5f90381071a22bd4fd77f3e4ee9884622f8d82ac17c751c`). Deep
+  Link Sim verified both responses, with the envelope ID echoed. All six
+  negative cases are refused with their own message.
+- **Not done yet:** the provisioning timeout in TypeScript, keeping a request
+  across a lock, the auto-lock pause, warning-code copy, the locale test, and
+  Help.
+
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`
    - `verusid-ts-client` `933e8f8d`

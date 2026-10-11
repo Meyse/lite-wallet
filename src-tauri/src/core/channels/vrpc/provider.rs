@@ -1078,6 +1078,17 @@ impl VrpcProvider {
     /// Ask the public node to verify a supplied signature without giving it any
     /// signing authority. Used as a compatibility check for locally produced
     /// VerusID data signatures before requesting a transaction template.
+    /// The VDXF key a name resolves to, as the daemon resolves it. Identity
+    /// content keys written as names (`ns@::key`) are stored under this key.
+    pub async fn getvdxfid(&self, name: &str) -> Result<Value, WalletError> {
+        self.call(
+            "getvdxfid",
+            Value::Array(vec![Value::String(name.to_string())]),
+            3600,
+        )
+        .await
+    }
+
     pub async fn verifysignature(&self, request: &Value) -> Result<Value, WalletError> {
         self.call_without_cache_with_error_mapping(
             "verifysignature",

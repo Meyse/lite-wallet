@@ -39,22 +39,26 @@ use crate::core::channels::vrpc::identity::validate::{
 use crate::core::channels::vrpc::VrpcProviderPool;
 use crate::core::channels::PreflightRecord;
 use crate::core::crypto::verus_id_signature::{
-    compute_identity_signature_hash, decode_compact_address_at, encode_compact_i_address,
-    extract_chain_height, extract_primary_addresses, get_raw_envelope_sha256,
-    parse_generic_envelope_hex, parse_identity_signature, sign_identity_hash_with_private_bytes,
+    compute_identity_signature_hash, decode_compact_address_at, extract_chain_height,
+    extract_primary_addresses, get_raw_envelope_sha256, parse_generic_envelope_hex,
+    parse_identity_signature, sign_identity_hash_with_private_bytes,
     validate_identity_control_for_active_wallet, verify_generic_request_signature_with_provider,
-    verify_identity_signature_against_addresses, write_compact_size, write_var_slice, write_varint,
+    verify_identity_signature_against_addresses,
 };
 use crate::core::crypto::Network;
+use crate::core::generic_request::details::{self, DetailKind};
+use crate::core::generic_request::request::{parse_request_hex, ParsedRequest, ResponseUriKind};
+use crate::core::generic_request::store::{GenericRequestStore, OpenRequest};
+use crate::core::generic_request::{acceptance, names, response};
 use crate::core::{AccountStateStore, PreflightStore};
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
-    BuildAndSignGenericResponseRequest, BuildAndSignGenericResponseResult,
-    GenericIdentityAuthorities, GenericIdentityPrimaryAddressEntry,
-    GenericIdentityPrimaryAddressInfo, GenericIdentityUpdatePreflightResult,
-    GenericIdentityUpdateRequestMeta, GenericIdentityUpdateReviewResult,
-    GenericRequestVerificationResult, IdentityOperation, IdentityWarning,
-    LinkReadyProvisioningJobResult, LinkedIdentity, ProvisioningJobRecord, WalletError,
+    BuildAndSignGenericResponseResult, GenericIdentityAuthorities,
+    GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
+    GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
+    GenericIdentityUpdateReviewResult, GenericRequestTransactionResult, IdentityOperation,
+    IdentityWarning, LinkReadyProvisioningJobResult, LinkedIdentity, OpenedGenericRequest,
+    ProvisioningJobRecord, WalletError,
 };
 use uuid::Uuid;
 
@@ -65,21 +69,7 @@ const PROVISIONING_JOB_STATUS_LINKED: &str = "linked";
 const PROVISIONING_JOB_STATUS_EXPIRED: &str = "expired";
 const PROVISIONING_JOB_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const VDXF_ORDINAL_AUTHENTICATION_REQUEST: u64 = 2;
-const VDXF_ORDINAL_AUTHENTICATION_RESPONSE: u64 = 3;
-const VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST: u64 = 4;
-const VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE: u64 = 5;
 const VDXF_ORDINAL_PROVISION_IDENTITY: u64 = 6;
-const VERIFIABLE_SIGNATURE_VERSION_V2: u64 = 2;
-const HASH_TYPE_SHA256: u64 = 5;
-const GENERIC_RESPONSE_FLAG_SIGNED: u64 = 1;
-const GENERIC_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 2;
-const GENERIC_RESPONSE_FLAG_HAS_CREATED_AT: u64 = 4;
-const GENERIC_RESPONSE_FLAG_MULTI_DETAILS: u64 = 8;
-const GENERIC_RESPONSE_FLAG_IS_TESTNET: u64 = 16;
-const GENERIC_RESPONSE_FLAG_HAS_REQUEST_HASH: u64 = 128;
-const AUTHENTICATION_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
-const IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_TXID: u64 = 1;
-const IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_REQUEST_ID: u64 = 2;
 const GENERIC_RESPONSE_DEEPLINK_VDXF_ID: &str = "i9JzVt59mAVHqjc8WAQJx7bEFAQ4ffuhrC";
 const DATA_TYPE_DEFINEDKEY_VDXF_ID: &str = "iD3yzD6KnrSG75d8RzirMD6SyvrAS2HxjH";
 const I_ADDRESS_VERSION: u8 = 102;
@@ -124,13 +114,22 @@ fn now_unix_seconds() -> u64 {
         .unwrap_or(0)
 }
 
+/// POST delivery uses HTTPS. Debug builds also allow plain HTTP, for local
+/// test receivers such as Deep Link Sim.
 fn parse_generic_response_post_callback_uri(uri: &str) -> Result<reqwest::Url, WalletError> {
     let parsed = reqwest::Url::parse(uri.trim()).map_err(|_| WalletError::OperationFailed)?;
     match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
+        "https" => Ok(parsed),
+        "http" if cfg!(debug_assertions) => Ok(parsed),
+        "http" => Err(WalletError::GenericRequestRejected(
+            "insecureDelivery".to_string(),
+        )),
         _ => Err(WalletError::OperationFailed),
     }
 }
+
+/// A response POST and a provisioning call give up after 30 seconds.
+const DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn parse_generic_response_redirect_uri(uri: &str) -> Result<reqwest::Url, WalletError> {
     let parsed = reqwest::Url::parse(uri.trim()).map_err(|_| WalletError::OperationFailed)?;
@@ -710,218 +709,19 @@ fn resolve_signer_cmm_key_labels_from_identity(
     labels
 }
 
-fn validate_supported_request_grouping(
-    detail_ordinals: &[u64],
-) -> Result<(bool, bool), WalletError> {
-    let auth_count = detail_ordinals
-        .iter()
-        .filter(|ordinal| **ordinal == VDXF_ORDINAL_AUTHENTICATION_REQUEST)
-        .count();
-    let update_count = detail_ordinals
-        .iter()
-        .filter(|ordinal| **ordinal == VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST)
-        .count();
-    let provisioning_count = detail_ordinals
-        .iter()
-        .filter(|ordinal| **ordinal == VDXF_ORDINAL_PROVISION_IDENTITY)
-        .count();
-
-    if auth_count > 1 || update_count > 1 || provisioning_count > 1 {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    if auth_count == 0 && update_count == 0 && provisioning_count == 0 {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    if provisioning_count > 0 && auth_count == 0 {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    let has_auth = auth_count == 1;
-    let has_update = update_count == 1;
-
-    if detail_ordinals.iter().any(|ordinal| {
-        !matches!(
-            *ordinal,
-            VDXF_ORDINAL_AUTHENTICATION_REQUEST
-                | VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST
-                | VDXF_ORDINAL_PROVISION_IDENTITY
-        )
-    }) {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    Ok((has_auth, has_update))
-}
-
-fn validate_response_inputs_for_request(
-    has_auth_request: bool,
-    has_update_request: bool,
-    request: &BuildAndSignGenericResponseRequest,
-) -> Result<(), WalletError> {
-    let has_auth_response = request.authentication.is_some();
-    let has_update_response = request.identity_update.is_some();
-
-    if has_auth_request != has_auth_response || has_update_request != has_update_response {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    if !has_auth_response && !has_update_response {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    Ok(())
-}
-
-fn build_authentication_response_detail(request_id: Option<&str>) -> Result<Vec<u8>, WalletError> {
-    let mut detail_data = Vec::new();
-    let flags = if request_id.is_some() {
-        AUTHENTICATION_RESPONSE_FLAG_HAS_REQUEST_ID
-    } else {
-        0
-    };
-    write_varint(&mut detail_data, flags);
-    if let Some(request_id) = request_id {
-        detail_data.extend_from_slice(&encode_compact_i_address(request_id)?);
-    }
-
-    let mut detail = Vec::new();
-    write_compact_size(&mut detail, VDXF_ORDINAL_AUTHENTICATION_RESPONSE as usize);
-    write_varint(&mut detail, 1);
-    write_var_slice(&mut detail, &detail_data);
-    Ok(detail)
-}
-
-fn build_identity_update_response_detail(
-    request_id: Option<&str>,
-    txid_hex: &str,
-) -> Result<Vec<u8>, WalletError> {
-    let mut detail_data = Vec::new();
-    let mut flags = IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_TXID;
-    if request_id.is_some() {
-        flags |= IDENTITY_UPDATE_RESPONSE_FLAG_CONTAINS_REQUEST_ID;
-    }
-
-    write_varint(&mut detail_data, flags);
-    if let Some(request_id) = request_id {
-        detail_data.extend_from_slice(&encode_compact_i_address(request_id)?);
-    }
-
-    let mut txid = hex::decode(txid_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
-    if txid.len() != 32 {
-        return Err(WalletError::OperationFailed);
-    }
-    txid.reverse();
-    detail_data.extend_from_slice(&txid);
-
-    let mut detail = Vec::new();
-    write_compact_size(&mut detail, VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE as usize);
-    write_varint(&mut detail, 1);
-    write_var_slice(&mut detail, &detail_data);
-    Ok(detail)
-}
-
-fn build_unsigned_generic_response_hex(
-    request: &BuildAndSignGenericResponseRequest,
-    created_at: u64,
-) -> Result<String, WalletError> {
-    let parsed_request = parse_generic_envelope_hex(&request.request_hex)?;
-    let detail_ordinals = parsed_request
-        .details
-        .iter()
-        .map(|detail| detail.ordinal)
-        .collect::<Vec<_>>();
-    let (has_auth_request, has_update_request) =
-        validate_supported_request_grouping(&detail_ordinals)?;
-    validate_response_inputs_for_request(has_auth_request, has_update_request, request)?;
-
-    let mut details = Vec::new();
-    if let Some(authentication) = request.authentication.as_ref() {
-        details.push(build_authentication_response_detail(
-            authentication.request_id.as_deref(),
-        )?);
-    }
-    if let Some(identity_update) = request.identity_update.as_ref() {
-        details.push(build_identity_update_response_detail(
-            identity_update.request_id.as_deref(),
-            &identity_update.txid,
-        )?);
-    }
-
-    if details.is_empty() {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-
-    let mut flags = GENERIC_RESPONSE_FLAG_SIGNED
-        | GENERIC_RESPONSE_FLAG_HAS_CREATED_AT
-        | GENERIC_RESPONSE_FLAG_HAS_REQUEST_HASH;
-    if parsed_request.is_testnet {
-        flags |= GENERIC_RESPONSE_FLAG_IS_TESTNET;
-    }
-    if parsed_request.request_id.is_some() {
-        flags |= GENERIC_RESPONSE_FLAG_HAS_REQUEST_ID;
-    }
-    if details.len() > 1 {
-        flags |= GENERIC_RESPONSE_FLAG_MULTI_DETAILS;
-    }
-
-    let mut response = Vec::new();
-    write_compact_size(&mut response, 1);
-    write_compact_size(&mut response, flags as usize);
-
-    write_varint(&mut response, 0);
-    write_compact_size(
-        &mut response,
-        crate::core::crypto::verus_id_signature::VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM as usize,
-    );
-    write_compact_size(&mut response, VERIFIABLE_SIGNATURE_VERSION_V2 as usize);
-    write_compact_size(&mut response, HASH_TYPE_SHA256 as usize);
-    response.extend_from_slice(&encode_compact_i_address(&request.signer.system_id)?);
-    response.extend_from_slice(&encode_compact_i_address(&request.signer.identity_id)?);
-    write_var_slice(&mut response, &[]);
-
-    if let Some(request_id) = parsed_request.request_id.as_deref() {
-        response.extend_from_slice(&encode_compact_i_address(request_id)?);
-    }
-    write_compact_size(&mut response, created_at as usize);
-
-    if details.len() > 1 {
-        write_compact_size(&mut response, details.len());
-        for detail in details {
-            response.extend_from_slice(&detail);
-        }
-    } else {
-        response.extend_from_slice(&details[0]);
-    }
-
-    write_compact_size(&mut response, HASH_TYPE_SHA256 as usize);
-    let request_hash = get_raw_envelope_sha256(&parsed_request);
-    write_var_slice(&mut response, &request_hash);
-
-    Ok(hex::encode(response))
-}
-
-fn build_and_sign_generic_response_internal(
-    request: &BuildAndSignGenericResponseRequest,
+/// Signs an unsigned response for `signed_block_height`, then verifies the
+/// result against the signer's primary addresses before it leaves Rust.
+fn sign_unsigned_response(
+    unsigned_response: &[u8],
     network: Network,
     active_wallet_primary_address: &str,
     allowed_primary_addresses: &[String],
     signed_block_height: u32,
     private_key: &[u8; 32],
-    created_at: u64,
 ) -> Result<String, WalletError> {
-    let parsed_request = parse_generic_envelope_hex(&request.request_hex)?;
-    let request_is_testnet = parsed_request.is_testnet;
-    let active_is_testnet = matches!(network, Network::Testnet);
-    if request_is_testnet != active_is_testnet {
-        return Err(WalletError::UnsupportedNetwork);
-    }
-
     ensure_active_wallet_controls_signer(allowed_primary_addresses, active_wallet_primary_address)?;
 
-    let unsigned_response_hex = build_unsigned_generic_response_hex(request, created_at)?;
-    let parsed_response = parse_generic_envelope_hex(&unsigned_response_hex)?;
+    let parsed_response = parse_generic_envelope_hex(&hex::encode(unsigned_response))?;
     if parsed_response.created_at.is_none() {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
@@ -970,6 +770,46 @@ fn build_and_sign_generic_response_internal(
     }
 
     Ok(signed_response_hex)
+}
+
+/// The responder must meet the sign-in rules: a required VerusID, system,
+/// or parent. Verus Mobile applies them in its identity picker.
+fn check_responder_constraints(
+    open: &OpenRequest,
+    signer: &crate::types::GenericResponseSignerInput,
+    signer_identity: &Value,
+) -> Result<(), WalletError> {
+    for (detail, kind) in open.parsed.details.iter().zip(&open.kinds) {
+        if *kind != DetailKind::Authentication {
+            continue;
+        }
+        let auth = details::parse_authentication(&detail.data, open.parsed.is_testnet)?;
+        if auth
+            .expiry_time
+            .is_some_and(|expiry| expiry <= now_unix_seconds())
+        {
+            return Err(acceptance::Rejection::Expired.into());
+        }
+        let parent = signer_identity
+            .get("identity")
+            .and_then(|identity| identity.get("parent"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        for constraint in &auth.constraints {
+            let meets = match constraint.kind {
+                1 => constraint
+                    .identity
+                    .eq_ignore_ascii_case(&signer.identity_id),
+                2 => constraint.identity.eq_ignore_ascii_case(&signer.system_id),
+                3 => constraint.identity.eq_ignore_ascii_case(parent),
+                _ => false,
+            };
+            if !meets {
+                return Err(WalletError::GenericRequestRejected("responder".to_string()));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn expire_provisioning_jobs(jobs: &mut [ProvisioningJobRecord], now: u64) -> bool {
@@ -1080,185 +920,162 @@ async fn refresh_provisioning_jobs_for_context(
     Ok(changed)
 }
 
+/// Opens a request: Rust checks the detail order, the unsigned rule, the
+/// network, the signature, expiry, and the app identity rule, then holds the
+/// request as the one open request for this session.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn verify_generic_request_signature(
+pub async fn open_generic_request(
     request_hex: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
-) -> Result<GenericRequestVerificationResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
-    }
-
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
-
-    let parsed = parse_generic_envelope_hex(&request_hex)?;
-    let identity_signature = parse_identity_signature(&parsed.signature_data.signature_as_vch)?;
-    let provider = vrpc_provider_pool.for_system(network, &parsed.signature_data.signer_system_id);
-    let valid = verify_generic_request_signature_with_provider(
-        provider,
-        &parsed,
-        wallet_network_to_crypto_network(network),
-    )
-    .await?;
-
-    Ok(GenericRequestVerificationResult {
-        valid,
-        signer_system_id: parsed.signature_data.signer_system_id,
-        signer_identity_id: parsed.signature_data.signer_identity_id,
-        signature_block_height: identity_signature.block_height,
-    })
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub async fn sign_generic_response(
-    response_hex: String,
-    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
-) -> Result<String, WalletError> {
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<OpenedGenericRequest, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
-    let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
-    let active_wallet_primary_address = context.vrsc_address.clone();
-    let private_key = load_primary_private_scalar_for_context(&context)
-        .await
-        .map_err(map_generic_session_change)?;
+    let wallet_is_testnet = matches!(network, WalletNetwork::Testnet);
 
-    let parsed = parse_generic_envelope_hex(&response_hex)?;
-    if parsed.created_at.is_none() {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
-    if !parsed.signature_data.extra_hash_data.is_empty() {
-        return Err(WalletError::GenericRequestUnsupportedSignature);
-    }
+    let parsed = parse_request_hex(&request_hex)?;
+    let kinds = acceptance::check_request(&parsed, wallet_is_testnet)?;
+    let guard = context.session_submission_guard();
+    let root_provider =
+        vrpc_provider_pool.for_system(network, names::root_system_id(parsed.is_testnet));
 
-    let provider = vrpc_provider_pool.for_system(network, &parsed.signature_data.signer_system_id);
-    submission_guard
-        .run(validate_identity_control_for_active_wallet(
-            provider,
-            &parsed.signature_data.signer_identity_id,
-            &active_wallet_primary_address,
-        ))
-        .await
-        .map_err(map_generic_session_change)?;
+    check_request_expiry(&parsed, &kinds, root_provider, &guard).await?;
 
-    let info = submission_guard
-        .run(provider.getinfo())
-        .await
-        .map_err(map_generic_session_change)?;
-    let signed_block_height = extract_chain_height(&info)?;
-    let raw_envelope_sha256 = get_raw_envelope_sha256(&parsed);
-    let identity_hash = compute_identity_signature_hash(
-        &parsed.signature_data,
-        signed_block_height,
-        raw_envelope_sha256,
-    )?;
-    let signature_as_vch = match submission_guard.poll_admitted(|| {
-        std::task::Poll::Ready(sign_identity_hash_with_private_bytes(
-            identity_hash,
-            signed_block_height,
-            &private_key,
-        ))
-    }) {
-        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change)?,
-        std::task::Poll::Pending => return Err(WalletError::OperationFailed),
-    };
-
-    let signed_signature_data = parsed
-        .signature_data
-        .to_buffer_with_signature(&signature_as_vch);
-
-    let mut signed_envelope = Vec::with_capacity(
-        parsed.prefix_without_signature.len()
-            + signed_signature_data.len()
-            + parsed.tail_after_signature.len(),
-    );
-    signed_envelope.extend_from_slice(&parsed.prefix_without_signature);
-    signed_envelope.extend_from_slice(&signed_signature_data);
-    signed_envelope.extend_from_slice(&parsed.tail_after_signature);
-
-    let parsed_signed = parse_generic_envelope_hex(&hex::encode(&signed_envelope))?;
-    let parsed_identity_signature =
-        parse_identity_signature(&parsed_signed.signature_data.signature_as_vch)?;
-    let signer_identity = submission_guard
-        .run(provider.getidentity(&parsed_signed.signature_data.signer_identity_id))
-        .await
-        .map_err(map_generic_session_change)?;
-    let allowed_addresses = signer_identity
-        .get("identity")
-        .and_then(|identity| {
-            identity
-                .get("primaryaddresses")
-                .or_else(|| identity.get("primaryAddresses"))
-        })
-        .and_then(|value| value.as_array())
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| entry.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let verify_hash = compute_identity_signature_hash(
-        &parsed_signed.signature_data,
-        parsed_identity_signature.block_height,
-        get_raw_envelope_sha256(&parsed_signed),
-    )?;
-    let valid = verify_identity_signature_against_addresses(
-        verify_hash,
-        &parsed_identity_signature,
-        &allowed_addresses,
-        wallet_network_to_crypto_network(network),
-    );
-    if !valid {
-        return Err(WalletError::OperationFailed);
+    let mut signature_block_height = None;
+    if let Some(signature) = parsed.signature.as_ref() {
+        let envelope = parse_generic_envelope_hex(&request_hex)?;
+        let identity_signature = parse_identity_signature(&signature.signature_as_vch)?;
+        let provider = vrpc_provider_pool.for_system(network, &signature.signer_system_id);
+        let valid = guard
+            .run(verify_generic_request_signature_with_provider(
+                provider,
+                &envelope,
+                wallet_network_to_crypto_network(network),
+            ))
+            .await
+            .map_err(map_generic_session_change)?;
+        if !valid {
+            return Err(acceptance::Rejection::Signature.into());
+        }
+        if acceptance::names_delegated_app(&parsed) {
+            guard
+                .run(validate_identity_control_for_active_wallet(
+                    provider,
+                    &signature.signer_identity_id,
+                    &context.vrsc_address,
+                ))
+                .await
+                .map_err(|error| match error {
+                    WalletError::IdentityUnsupportedAuthority => {
+                        acceptance::Rejection::DelegatedSigner.into()
+                    }
+                    other => map_generic_session_change(other),
+                })?;
+        }
+        signature_block_height = Some(identity_signature.block_height);
     }
 
     ensure_active_wallet_session(session_manager.inner(), &context.session_id)
         .await
         .map_err(map_generic_session_change)?;
-    match submission_guard
-        .poll_admitted(|| std::task::Poll::Ready(Ok(hex::encode(signed_envelope))))
-    {
-        std::task::Poll::Ready(result) => result.map_err(map_generic_session_change),
-        std::task::Poll::Pending => Err(WalletError::OperationFailed),
-    }
+    let opened = OpenedGenericRequest {
+        request_hash: hex::encode(parsed.request_hash),
+        signed: parsed.is_signed(),
+        signer_system_id: parsed
+            .signature
+            .as_ref()
+            .map(|signature| signature.signer_system_id.clone()),
+        signer_identity_id: parsed
+            .signature
+            .as_ref()
+            .map(|signature| signature.signer_identity_id.clone()),
+        signature_block_height,
+    };
+    request_store.open(OpenRequest {
+        session_id: context.session_id,
+        request_hex: request_hex.trim().to_ascii_lowercase(),
+        parsed,
+        kinds,
+        broadcast_txid: None,
+    });
+    Ok(opened)
 }
 
+/// Closes the open request after Done, Decline, or a replacement link.
+#[tauri::command(rename_all = "snake_case")]
+pub fn close_generic_request(request_store: State<'_, GenericRequestStore>) {
+    request_store.close();
+}
+
+/// Rejects a request whose sign in has passed its expiry time, or whose
+/// invoice or identity update has passed its expiry height.
+async fn check_request_expiry(
+    parsed: &ParsedRequest,
+    kinds: &[DetailKind],
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    guard: &crate::core::auth::SessionSubmissionGuard,
+) -> Result<(), WalletError> {
+    let now = now_unix_seconds();
+    let mut expiry_height = None;
+    for (detail, kind) in parsed.details.iter().zip(kinds) {
+        match kind {
+            DetailKind::Authentication => {
+                let auth = details::parse_authentication(&detail.data, parsed.is_testnet)?;
+                if auth.expiry_time.is_some_and(|expiry| expiry <= now) {
+                    return Err(acceptance::Rejection::Expired.into());
+                }
+            }
+            DetailKind::IdentityUpdate => {
+                let update = details::parse_identity_update(&detail.data, parsed.is_testnet)?;
+                expiry_height = update.expiry_height.or(expiry_height);
+            }
+            _ => {}
+        }
+    }
+    if let Some(expiry_height) = expiry_height {
+        let info = guard
+            .run(provider.getinfo())
+            .await
+            .map_err(map_generic_session_change)?;
+        if u64::from(extract_chain_height(&info)?) > expiry_height {
+            return Err(acceptance::Rejection::Expired.into());
+        }
+    }
+    Ok(())
+}
+
+/// Builds and signs the response to the open request. Rust takes every
+/// request ID, the transaction ID, and the request hash from the verified
+/// request and from what it did after Approval; the UI names only the
+/// responder.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn build_and_sign_generic_response(
     request_hex: String,
     signer: crate::types::GenericResponseSignerInput,
-    authentication: Option<crate::types::GenericAuthenticationResponseInput>,
-    identity_update: Option<crate::types::GenericIdentityUpdateResponseInput>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
 ) -> Result<BuildAndSignGenericResponseResult, WalletError> {
-    let request = BuildAndSignGenericResponseRequest {
-        request_hex,
-        signer,
-        authentication,
-        identity_update,
-    };
     build_and_sign_generic_response_for_session(
-        request,
+        &request_hex,
+        &signer,
         session_manager.inner(),
         vrpc_provider_pool.inner(),
+        request_store.inner(),
     )
     .await
 }
 
 async fn build_and_sign_generic_response_for_session(
-    request: BuildAndSignGenericResponseRequest,
+    request_hex: &str,
+    signer: &crate::types::GenericResponseSignerInput,
     session_manager: &Arc<Mutex<SessionManager>>,
     vrpc_provider_pool: &VrpcProviderPool,
+    request_store: &GenericRequestStore,
 ) -> Result<BuildAndSignGenericResponseResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager).await?;
+    let open = request_store.get(&context.session_id, request_hex)?;
     let submission_guard = context.session_submission_guard();
     let network = context.wallet_network;
     let active_wallet_primary_address = context.vrsc_address.clone();
@@ -1266,40 +1083,49 @@ async fn build_and_sign_generic_response_for_session(
         .await
         .map_err(map_generic_session_change)?;
 
-    let parsed_request = parse_generic_envelope_hex(&request.request_hex)?;
-    if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
-        return Err(WalletError::UnsupportedNetwork);
-    }
-
-    let provider = vrpc_provider_pool.for_system(network, &request.signer.system_id);
+    let provider = vrpc_provider_pool.for_system(network, &signer.system_id);
     submission_guard
         .run(validate_identity_control_for_active_wallet(
             provider,
-            &request.signer.identity_id,
+            &signer.identity_id,
             &active_wallet_primary_address,
         ))
         .await
         .map_err(map_generic_session_change)?;
 
     let signer_identity = submission_guard
-        .run(provider.getidentity(&request.signer.identity_id))
+        .run(provider.getidentity(&signer.identity_id))
         .await
         .map_err(map_generic_session_change)?;
+    check_responder_constraints(&open, signer, &signer_identity)?;
     let allowed_primary_addresses = extract_primary_addresses(&signer_identity);
     let info = submission_guard
         .run(provider.getinfo())
         .await
         .map_err(map_generic_session_change)?;
     let signed_block_height = extract_chain_height(&info)?;
+
+    let outcome = response::ResponseOutcome {
+        txid: open.broadcast_txid.clone(),
+    };
+    let response_details = response::response_details(&open.parsed, &open.kinds, &outcome)?;
+    let unsigned = response::build_unsigned_response(
+        &open.parsed,
+        response_details,
+        &response::ResponseSigner {
+            system_id: &signer.system_id,
+            identity_id: &signer.identity_id,
+        },
+        now_unix_seconds(),
+    )?;
     let signed_response_hex = match submission_guard.poll_admitted(|| {
-        std::task::Poll::Ready(build_and_sign_generic_response_internal(
-            &request,
+        std::task::Poll::Ready(sign_unsigned_response(
+            &unsigned,
             wallet_network_to_crypto_network(network),
             &active_wallet_primary_address,
             &allowed_primary_addresses,
             signed_block_height,
             &private_key,
-            now_unix_seconds(),
         ))
     }) {
         std::task::Poll::Ready(result) => result.map_err(map_generic_session_change)?,
@@ -1321,13 +1147,19 @@ async fn build_and_sign_generic_response_for_session(
     }
 }
 
+/// Delivers the signed response by POST. The address must be one of the open
+/// request's POST response addresses.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn post_generic_response_callback(
+    request_hex: String,
     callback_uri: String,
     response_hex: String,
     session_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    request_store: State<'_, GenericRequestStore>,
 ) -> Result<(), WalletError> {
+    let open = request_store.get(&session_id, &request_hex)?;
+    ensure_request_response_uri(&open, ResponseUriKind::Post, &callback_uri)?;
     post_generic_response_callback_for_session(
         callback_uri,
         response_hex,
@@ -1335,6 +1167,25 @@ pub async fn post_generic_response_callback(
         session_manager.inner(),
     )
     .await
+}
+
+fn ensure_request_response_uri(
+    open: &OpenRequest,
+    kind: ResponseUriKind,
+    uri: &str,
+) -> Result<(), WalletError> {
+    if open
+        .parsed
+        .response_uris
+        .iter()
+        .any(|candidate| candidate.kind == kind && candidate.uri == uri)
+    {
+        Ok(())
+    } else {
+        Err(WalletError::GenericRequestRejected(
+            "responseAddress".to_string(),
+        ))
+    }
 }
 
 async fn post_generic_response_callback_for_session(
@@ -1370,7 +1221,10 @@ async fn post_generic_response_callback_request(
     let callback_uri = parse_generic_response_post_callback_uri(&callback_uri)?;
     let response_bytes =
         hex::decode(response_hex.trim()).map_err(|_| WalletError::OperationFailed)?;
-    let response = reqwest::Client::new()
+    let response = reqwest::Client::builder()
+        .timeout(DELIVERY_TIMEOUT)
+        .build()
+        .map_err(|_| WalletError::NetworkError)?
         .post(callback_uri)
         .header(CONTENT_TYPE, "application/octet-stream")
         .body(response_bytes)
@@ -1385,18 +1239,23 @@ async fn post_generic_response_callback_request(
     Ok(())
 }
 
+/// Delivers the signed response by opening the request's redirect address.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_generic_request_callback(
+    request_hex: String,
     callback_uri: String,
     response_hex: String,
     session_id: String,
     app: AppHandle,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    request_store: State<'_, GenericRequestStore>,
 ) -> Result<(), WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     if context.session_id != session_id {
         return Err(WalletError::WalletSessionChanged);
     }
+    let open = request_store.get(&session_id, &request_hex)?;
+    ensure_request_response_uri(&open, ResponseUriKind::Redirect, &callback_uri)?;
     let redirect_url = build_generic_response_redirect_url(&callback_uri, &response_hex)?;
     match context.session_submission_guard().poll_admitted(|| {
         std::task::Poll::Ready(
@@ -1440,12 +1299,9 @@ pub async fn prepare_provisioning_signature(
     if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
         return Err(WalletError::UnsupportedNetwork);
     }
-    validate_supported_request_grouping(
-        &parsed_request
-            .details
-            .iter()
-            .map(|detail| detail.ordinal)
-            .collect::<Vec<_>>(),
+    acceptance::check_request(
+        &parse_request_hex(request_hex.trim())?,
+        matches!(network, WalletNetwork::Testnet),
     )?;
 
     let request_provider =
@@ -1790,40 +1646,172 @@ async fn inspect_generic_identity_update(
     })
 }
 
-#[tauri::command(rename_all = "snake_case")]
-pub async fn review_generic_identity_update(
-    requested_identity_json: Value,
-    target_identity_address: String,
+/// The update detail of the open request, the identity JSON Rust built from
+/// it, and the metadata the review needs, all read from the verified bytes.
+struct OpenIdentityUpdate {
+    update: details::IdentityUpdateRequest,
+    target_identity: String,
     system_id: String,
-    request_meta: Option<GenericIdentityUpdateRequestMeta>,
-    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
-) -> Result<GenericIdentityUpdateReviewResult, WalletError> {
-    let session = session_manager.lock().await;
-    if !session.is_unlocked() {
-        return Err(WalletError::WalletLocked);
+    meta: GenericIdentityUpdateRequestMeta,
+    requested_identity_json: Value,
+    /// Labels for content keys the request writes as names, keyed by the
+    /// resolved key.
+    content_key_labels: HashMap<String, String>,
+}
+
+async fn open_identity_update(
+    open: &OpenRequest,
+    ui_json: &Value,
+    network: WalletNetwork,
+    vrpc_provider_pool: &VrpcProviderPool,
+) -> Result<OpenIdentityUpdate, WalletError> {
+    let detail = open
+        .parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::IdentityUpdate)
+        .map(|(detail, _)| detail)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let update = details::parse_identity_update(&detail.data, open.parsed.is_testnet)?;
+    if update.contains_sign_data {
+        // Credentials written by an update arrive with phase 4.
+        return Err(WalletError::GenericRequestRejected(
+            "unsupportedDetail".to_string(),
+        ));
     }
-
-    let (session_vrpc_address, _, _) = session.get_addresses()?;
-    let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    drop(session);
-
-    if !requested_identity_json.is_object() {
-        return Err(WalletError::IdentityBuildFailed);
-    }
-
-    let provider = vrpc_provider_pool.for_system(network, system_id.trim());
-    ensure_identity_update_request_not_expired(&provider, request_meta.as_ref()).await?;
-
-    let inspection = inspect_generic_identity_update(
-        &provider,
-        network,
-        &requested_identity_json,
-        &target_identity_address,
-        &session_vrpc_address,
-        request_meta.as_ref(),
+    let target_identity = update
+        .target_identity(open.parsed.is_testnet)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let system_id = update
+        .system_id
+        .clone()
+        .unwrap_or_else(|| names::root_system_id(open.parsed.is_testnet).to_string());
+    let provider = vrpc_provider_pool.for_system(network, &system_id);
+    let (requested_identity_json, content_key_labels) = resolve_content_keys(
+        provider,
+        details::requested_identity_json(&update, ui_json)?,
     )
     .await?;
+    let meta = GenericIdentityUpdateRequestMeta {
+        request_id: update.request_id.clone(),
+        signer_system_id: open
+            .parsed
+            .signature
+            .as_ref()
+            .map(|signature| signature.signer_system_id.clone()),
+        signer_identity_id: open
+            .parsed
+            .signature
+            .as_ref()
+            .map(|signature| signature.signer_identity_id.clone()),
+        expiry_height: update
+            .expiry_height
+            .map(|height| u32::try_from(height).unwrap_or(u32::MAX)),
+        request_system_id: update.system_id.clone(),
+    };
+    Ok(OpenIdentityUpdate {
+        update,
+        target_identity,
+        system_id,
+        meta,
+        requested_identity_json,
+        content_key_labels,
+    })
+}
+
+/// Content keys written as names (`ns@::key`) resolve to the VDXF key the
+/// daemon stores them under. The library's own hashing of such names differs
+/// from the daemon's, so the daemon decides (`getvdxfid`).
+async fn resolve_content_keys(
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    mut identity_json: Value,
+) -> Result<(Value, HashMap<String, String>), WalletError> {
+    let mut labels = HashMap::new();
+    let Some(content) = identity_json
+        .get_mut("contentmultimap")
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok((identity_json, labels));
+    };
+    let mut resolved = serde_json::Map::new();
+    for (key, values) in std::mem::take(content) {
+        let key = if names::decode_i_address(&key).is_some() {
+            key
+        } else {
+            let vdxfid = provider
+                .getvdxfid(&key)
+                .await
+                .map_err(|_| WalletError::IdentityBuildFailed)?
+                .get("vdxfid")
+                .and_then(Value::as_str)
+                .filter(|vdxfid| names::decode_i_address(vdxfid).is_some())
+                .ok_or(WalletError::IdentityBuildFailed)?
+                .to_string();
+            if let Some(label) = content_key_label(&key) {
+                labels.insert(vdxfid.clone(), label);
+            }
+            vdxfid
+        };
+        if resolved.insert(key, values).is_some() {
+            return Err(WalletError::IdentityBuildFailed);
+        }
+    }
+    *content = resolved;
+    Ok((identity_json, labels))
+}
+
+/// Verus Mobile labels a key written as `ns::key.name` "Key name".
+fn content_key_label(key: &str) -> Option<String> {
+    let name = key.split("::").nth(1)?.trim();
+    let words = name
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if words.is_empty() {
+        return None;
+    }
+    Some(capitalize_label(&words.join(" ")))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_generic_identity_update(
+    request_hex: String,
+    requested_identity_json: Value,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericIdentityUpdateReviewResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    let network = context.wallet_network;
+    let update = open_identity_update(
+        &open,
+        &requested_identity_json,
+        network,
+        vrpc_provider_pool.inner(),
+    )
+    .await?;
+
+    let provider = vrpc_provider_pool.for_system(network, &update.system_id);
+    ensure_identity_update_request_not_expired(provider, Some(&update.meta)).await?;
+
+    let mut inspection = inspect_generic_identity_update(
+        provider,
+        network,
+        &update.requested_identity_json,
+        &update.target_identity,
+        &context.vrsc_address,
+        Some(&update.meta),
+    )
+    .await?;
+    for (key, label) in update.content_key_labels {
+        inspection
+            .review
+            .signer_cmm_key_labels
+            .entry(key)
+            .or_insert(label);
+    }
 
     Ok(inspection.review)
 }
@@ -1849,14 +1837,14 @@ async fn load_watched_funding_addresses(
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn preflight_generic_identity_update(
+    request_hex: String,
     requested_identity_json: Value,
-    target_identity_address: String,
     source_channel_id: String,
-    request_meta: Option<GenericIdentityUpdateRequestMeta>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     account_state_store: State<'_, AccountStateStore>,
     preflight_store: State<'_, PreflightStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
 ) -> Result<GenericIdentityUpdatePreflightResult, WalletError> {
     let context =
         identity_session_context(session_manager.inner(), account_state_store.inner()).await?;
@@ -1864,9 +1852,21 @@ pub async fn preflight_generic_identity_update(
     let session_vrpc_address = context.primary_address.clone();
     let network = context.network;
 
-    if !requested_identity_json.is_object() {
-        return Err(WalletError::IdentityBuildFailed);
-    }
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    let OpenIdentityUpdate {
+        target_identity: target_identity_address,
+        meta,
+        requested_identity_json,
+        content_key_labels,
+        ..
+    } = open_identity_update(
+        &open,
+        &requested_identity_json,
+        network,
+        vrpc_provider_pool.inner(),
+    )
+    .await?;
+    let request_meta = Some(meta);
 
     let resolved = vrpc::parse_vrpc_channel_id(&source_channel_id, Some(&session_vrpc_address))?;
     let linked_identities = load_linked_for_context(&context).await?;
@@ -2025,10 +2025,68 @@ pub async fn preflight_generic_identity_update(
         requested_identity: review.requested_identity,
         fully_qualified_name: review.fully_qualified_name,
         friendly_names: review.friendly_names,
-        signer_cmm_key_labels: review.signer_cmm_key_labels,
+        signer_cmm_key_labels: {
+            let mut labels = review.signer_cmm_key_labels;
+            for (key, label) in content_key_labels {
+                labels.entry(key).or_insert(label);
+            }
+            labels
+        },
         primary_address_after_update_info: review.primary_address_after_update_info,
         current_authorities: review.current_authorities,
     })
+}
+
+/// Broadcasts the open request's identity update after Approval. When a later
+/// stage failed and the user tries again, it returns the first transaction
+/// instead of sending a second one (ADR 0001).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn send_generic_identity_update(
+    request_hex: String,
+    preflight_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericRequestTransactionResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    if let Some(txid) = open.broadcast_txid.clone() {
+        return Ok(GenericRequestTransactionResult { txid });
+    }
+
+    let target_identity = open
+        .parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::IdentityUpdate)
+        .map(|(detail, _)| details::parse_identity_update(&detail.data, open.parsed.is_testnet))
+        .transpose()?
+        .and_then(|update| update.target_identity(open.parsed.is_testnet))
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let record = preflight_store
+        .get(&preflight_id, &context.session_id)
+        .ok_or(WalletError::InvalidPreflight)?;
+    let payload: IdentityPreflightPayload =
+        serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
+    if payload.operation != IdentityOperation::Update
+        || !payload
+            .target_identity
+            .eq_ignore_ascii_case(&target_identity)
+    {
+        return Err(WalletError::InvalidPreflight);
+    }
+
+    let result = crate::core::channels::vrpc::identity::send(
+        &preflight_id,
+        preflight_store.inner(),
+        session_manager.inner(),
+        vrpc_provider_pool.inner(),
+    )
+    .await?;
+    request_store.record_broadcast(&context.session_id, &open.parsed.request_hash, &result.txid);
+    Ok(GenericRequestTransactionResult { txid: result.txid })
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -2421,34 +2479,30 @@ async fn resolve_identity_friendly_names(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_and_sign_generic_response_for_session, build_and_sign_generic_response_internal,
-        build_generic_response_redirect_url, build_unsigned_generic_response_hex,
+        build_and_sign_generic_response_for_session, build_generic_response_redirect_url,
         decode_defined_key_label, map_generic_session_change, merge_identity_update_patch,
         parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
         post_generic_response_callback_for_session, post_generic_response_callback_request,
-        resolve_signer_cmm_key_labels_from_identity, validate_generic_request_funding_source,
-        wallet_network_to_crypto_network, BuildAndSignGenericResponseRequest, WalletNetwork,
-        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
-        GENERIC_RESPONSE_FLAG_HAS_CREATED_AT, GENERIC_RESPONSE_FLAG_IS_TESTNET,
-        GENERIC_RESPONSE_FLAG_MULTI_DETAILS, GENERIC_RESPONSE_FLAG_SIGNED, HASH_TYPE_SHA256,
-        MAINNET_VERUS_CHAIN_ID, VDXF_ORDINAL_AUTHENTICATION_REQUEST,
-        VDXF_ORDINAL_AUTHENTICATION_RESPONSE, VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST,
-        VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE, VDXF_ORDINAL_PROVISION_IDENTITY,
-        VERIFIABLE_SIGNATURE_VERSION_V2,
+        resolve_signer_cmm_key_labels_from_identity, sign_unsigned_response,
+        validate_generic_request_funding_source, wallet_network_to_crypto_network, WalletNetwork,
+        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID, MAINNET_VERUS_CHAIN_ID,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
-        compute_identity_signature_hash, encode_compact_i_address, get_raw_envelope_sha256,
-        parse_generic_envelope_hex, parse_identity_signature,
-        verify_identity_signature_against_addresses, write_compact_size, write_var_slice,
-        write_varint,
+        compute_identity_signature_hash, get_raw_envelope_sha256, parse_generic_envelope_hex,
+        parse_identity_signature, verify_identity_signature_against_addresses,
     };
     use crate::core::crypto::wif_encoding::generate_p2pkh_address;
     use crate::core::crypto::{derive_public_profile_from_material, Network};
+    use crate::core::generic_request::acceptance::check_request;
+    use crate::core::generic_request::request::parse_request_hex;
+    use crate::core::generic_request::response::{
+        build_unsigned_response, response_details, ResponseOutcome, ResponseSigner,
+    };
+    use crate::core::generic_request::store::{GenericRequestStore, OpenRequest};
     use crate::core::wallet::AccountStateStore;
     use crate::core::StrongholdStore;
     use crate::types::{
-        GenericAuthenticationResponseInput, GenericIdentityUpdateResponseInput,
         GenericResponseSignerInput, LinkedIdentity, WalletError, WatchlistEntry,
         WatchlistTargetKind,
     };
@@ -2460,8 +2514,6 @@ mod tests {
     use zeroize::Zeroizing;
 
     const TEST_SYSTEM_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
-    const TEST_SIGNER_ID: &str = "i89UVSuN6vfWg1mWpXMuc6dsJBdeYTi7bX";
-    const TEST_AUTH_REQUEST_ID: &str = "iBxsUePVWyf4QuM1b8wP7Np1SUJhszwyin";
     const FIXED_CREATED_AT: u64 = 1_700_000_000;
     const FIXED_SIGNED_BLOCK_HEIGHT: u32 = 965_771;
 
@@ -2483,65 +2535,195 @@ mod tests {
         );
     }
 
-    fn build_test_request_detail(ordinal: u64, payload: &[u8]) -> Vec<u8> {
-        let mut detail = Vec::new();
-        write_compact_size(&mut detail, ordinal as usize);
-        write_varint(&mut detail, 1);
-        write_var_slice(&mut detail, payload);
-        detail
+    fn vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!(
+            "../../../src/lib/genericRequest/fixtures/request-vectors.json"
+        ))
+        .expect("request vectors")
     }
 
-    fn build_test_request_hex(detail_ordinals: &[u64], testnet: bool) -> String {
-        let mut flags = GENERIC_RESPONSE_FLAG_SIGNED | GENERIC_RESPONSE_FLAG_HAS_CREATED_AT;
-        if testnet {
-            flags |= GENERIC_RESPONSE_FLAG_IS_TESTNET;
-        }
-        if detail_ordinals.len() > 1 {
-            flags |= GENERIC_RESPONSE_FLAG_MULTI_DETAILS;
-        }
+    fn vector_request_hex(name: &str) -> String {
+        vectors()["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == name)
+            .unwrap()["hex"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
 
-        let mut request = Vec::new();
-        write_compact_size(&mut request, 1);
-        write_compact_size(&mut request, flags as usize);
-        write_varint(&mut request, 0);
-        write_compact_size(
-            &mut request,
-            crate::core::crypto::verus_id_signature::VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM as usize,
+    fn open_vector_request(
+        store: &GenericRequestStore,
+        session_id: &str,
+        request_hex: &str,
+        testnet: bool,
+    ) -> OpenRequest {
+        let parsed = parse_request_hex(request_hex).expect("vector parses");
+        let kinds = check_request(&parsed, testnet).expect("vector is accepted");
+        let open = OpenRequest {
+            session_id: session_id.to_string(),
+            request_hex: request_hex.to_string(),
+            parsed,
+            kinds,
+            broadcast_txid: None,
+        };
+        store.open(open.clone());
+        open
+    }
+
+    fn unsigned_vector_response(
+        request: &str,
+        txid: Option<&str>,
+        signer: &str,
+        created_at: u64,
+    ) -> Vec<u8> {
+        let open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex(request),
+            true,
         );
-        write_compact_size(&mut request, VERIFIABLE_SIGNATURE_VERSION_V2 as usize);
-        write_compact_size(&mut request, HASH_TYPE_SHA256 as usize);
-        request.extend_from_slice(&encode_compact_i_address(TEST_SYSTEM_ID).expect("system id"));
-        request.extend_from_slice(&encode_compact_i_address(TEST_SIGNER_ID).expect("signer id"));
-        write_var_slice(&mut request, &[]);
-        write_compact_size(&mut request, FIXED_CREATED_AT as usize);
-
-        if detail_ordinals.len() > 1 {
-            write_compact_size(&mut request, detail_ordinals.len());
-        }
-        for ordinal in detail_ordinals {
-            request.extend_from_slice(&build_test_request_detail(*ordinal, &[*ordinal as u8]));
-        }
-
-        hex::encode(request)
+        let details = response_details(
+            &open.parsed,
+            &open.kinds,
+            &ResponseOutcome {
+                txid: txid.map(ToString::to_string),
+            },
+        )
+        .expect("response details");
+        build_unsigned_response(
+            &open.parsed,
+            details,
+            &ResponseSigner {
+                system_id: TEST_SYSTEM_ID,
+                identity_id: signer,
+            },
+            created_at,
+        )
+        .expect("unsigned response")
     }
 
     #[test]
-    fn response_system_flag_and_bytes_match_typescript_candidate() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../src/lib/genericRequest/fixtures/unsigned-response.json"
-        ))
-        .expect("public response fixture");
-        let request = test_request(
-            fixture["requestHex"].as_str().unwrap().to_string(),
-            Some(GenericAuthenticationResponseInput {
-                request_id: Some(fixture["authId"].as_str().unwrap().to_string()),
-            }),
-            None,
+    fn name_form_content_keys_get_mobile_labels() {
+        assert_eq!(
+            super::content_key_label("TestBob.antafri::deeplinksim.qa.note").as_deref(),
+            Some("Deeplinksim qa note")
         );
-        let response =
-            build_unsigned_generic_response_hex(&request, fixture["createdAt"].as_u64().unwrap())
-                .expect("unsigned response");
-        assert_eq!(response, fixture["responseHex"].as_str().unwrap());
+        assert_eq!(
+            super::content_key_label("iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"),
+            None
+        );
+    }
+
+    #[test]
+    fn responses_match_the_bytes_verus_mobile_builds() {
+        for expected in vectors()["responses"].as_array().unwrap() {
+            let unsigned = unsigned_vector_response(
+                expected["request"].as_str().unwrap(),
+                expected["txid"].as_str(),
+                expected["signer"].as_str().unwrap(),
+                expected["createdAt"].as_u64().unwrap(),
+            );
+            assert_eq!(
+                hex::encode(unsigned),
+                expected["hex"].as_str().unwrap(),
+                "{} response differs from Verus Mobile",
+                expected["request"]
+            );
+        }
+    }
+
+    #[test]
+    fn an_update_response_needs_the_broadcast_txid() {
+        let open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex("auth-update"),
+            true,
+        );
+        assert!(response_details(&open.parsed, &open.kinds, &ResponseOutcome::default()).is_err());
+        let malformed = ResponseOutcome {
+            txid: Some("1234".to_string()),
+        };
+        assert!(matches!(
+            response_details(&open.parsed, &open.kinds, &malformed),
+            Err(WalletError::OperationFailed)
+        ));
+    }
+
+    #[test]
+    fn a_signed_response_verifies_against_the_responder() {
+        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let (private_key, address) = test_signing_context(network, 7);
+        let unsigned = unsigned_vector_response(
+            "auth",
+            None,
+            "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
+            FIXED_CREATED_AT,
+        );
+        let signed = sign_unsigned_response(
+            &unsigned,
+            network,
+            &address,
+            std::slice::from_ref(&address),
+            FIXED_SIGNED_BLOCK_HEIGHT,
+            &private_key,
+        )
+        .expect("signed response");
+
+        let parsed = parse_generic_envelope_hex(&signed).expect("parsed response");
+        let identity_signature =
+            parse_identity_signature(&parsed.signature_data.signature_as_vch).unwrap();
+        let hash = compute_identity_signature_hash(
+            &parsed.signature_data,
+            identity_signature.block_height,
+            get_raw_envelope_sha256(&parsed),
+        )
+        .unwrap();
+        assert!(verify_identity_signature_against_addresses(
+            hash,
+            &identity_signature,
+            std::slice::from_ref(&address),
+            network,
+        ));
+    }
+
+    #[test]
+    fn a_responder_this_wallet_does_not_control_is_rejected() {
+        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let (private_key, address) = test_signing_context(network, 7);
+        let (_, foreign_address) = test_signing_context(network, 8);
+        let unsigned = unsigned_vector_response(
+            "auth",
+            None,
+            "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
+            FIXED_CREATED_AT,
+        );
+        let error = sign_unsigned_response(
+            &unsigned,
+            network,
+            &address,
+            std::slice::from_ref(&foreign_address),
+            FIXED_SIGNED_BLOCK_HEIGHT,
+            &private_key,
+        )
+        .expect_err("control check");
+        assert!(matches!(error, WalletError::IdentityUnsupportedAuthority));
+    }
+
+    #[test]
+    fn a_request_the_store_does_not_hold_is_refused() {
+        let store = GenericRequestStore::new();
+        let request_hex = vector_request_hex("auth");
+        assert!(store.get("session", &request_hex).is_err());
+        open_vector_request(&store, "session", &request_hex, true);
+        assert!(store.get("session", &request_hex).is_ok());
+        assert!(store.get("other-session", &request_hex).is_err());
+        assert!(store
+            .get("session", &vector_request_hex("auth-update"))
+            .is_err());
     }
 
     fn test_signing_context(network: crate::core::crypto::Network, seed: u8) -> ([u8; 32], String) {
@@ -2551,22 +2733,6 @@ mod tests {
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
         let address = generate_p2pkh_address(&public_key, network).expect("address");
         (private_key, address)
-    }
-
-    fn test_request(
-        request_hex: String,
-        authentication: Option<GenericAuthenticationResponseInput>,
-        identity_update: Option<GenericIdentityUpdateResponseInput>,
-    ) -> BuildAndSignGenericResponseRequest {
-        BuildAndSignGenericResponseRequest {
-            request_hex,
-            signer: GenericResponseSignerInput {
-                system_id: TEST_SYSTEM_ID.to_string(),
-                identity_id: TEST_SIGNER_ID.to_string(),
-            },
-            authentication,
-            identity_update,
-        }
     }
 
     fn linked_identity(identity_address: &str) -> LinkedIdentity {
@@ -2728,20 +2894,23 @@ mod tests {
         let pool = Arc::new(crate::core::channels::vrpc::VrpcProviderPool::for_tests(
             &format!("http://{address}"),
         ));
+        let request_hex = vector_request_hex("mainnet-auth");
+        let request_store = Arc::new(GenericRequestStore::new());
+        open_vector_request(&request_store, &context.session_id, &request_hex, false);
         let operation = tokio::spawn({
             let session = Arc::clone(&session);
             let pool = Arc::clone(&pool);
+            let request_store = Arc::clone(&request_store);
             async move {
                 build_and_sign_generic_response_for_session(
-                    test_request(
-                        build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], false),
-                        Some(GenericAuthenticationResponseInput {
-                            request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-                        }),
-                        None,
-                    ),
+                    &request_hex,
+                    &GenericResponseSignerInput {
+                        system_id: MAINNET_VERUS_CHAIN_ID.to_string(),
+                        identity_id: "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk".to_string(),
+                    },
                     &session,
                     &pool,
+                    &request_store,
                 )
                 .await
             }
@@ -2762,217 +2931,6 @@ mod tests {
             .expect("replacement wallet remains active");
         assert_ne!(replacement.session_id, context.session_id);
         server.await.expect("server completes");
-    }
-
-    #[test]
-    fn auth_only_request_builds_and_signs_a_valid_response() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
-        let request = test_request(
-            build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], true),
-            Some(GenericAuthenticationResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-            }),
-            None,
-        );
-
-        let signed_response_hex = build_and_sign_generic_response_internal(
-            &request,
-            network,
-            &active_wallet_primary_address,
-            std::slice::from_ref(&active_wallet_primary_address),
-            FIXED_SIGNED_BLOCK_HEIGHT,
-            &private_key,
-            FIXED_CREATED_AT,
-        )
-        .expect("auth-only response");
-
-        let parsed = parse_generic_envelope_hex(&signed_response_hex).expect("parsed response");
-        assert_eq!(parsed.created_at, Some(FIXED_CREATED_AT));
-        assert!(parsed.is_testnet);
-        assert_eq!(
-            parsed
-                .details
-                .iter()
-                .map(|detail| detail.ordinal)
-                .collect::<Vec<_>>(),
-            vec![VDXF_ORDINAL_AUTHENTICATION_RESPONSE]
-        );
-
-        let parsed_identity_signature =
-            parse_identity_signature(&parsed.signature_data.signature_as_vch)
-                .expect("identity signature");
-        let verify_hash = compute_identity_signature_hash(
-            &parsed.signature_data,
-            parsed_identity_signature.block_height,
-            get_raw_envelope_sha256(&parsed),
-        )
-        .expect("verify hash");
-        assert!(verify_identity_signature_against_addresses(
-            verify_hash,
-            &parsed_identity_signature,
-            std::slice::from_ref(&active_wallet_primary_address),
-            network,
-        ));
-    }
-
-    #[test]
-    fn auth_and_update_request_builds_response_details_in_stable_order() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
-        let request = test_request(
-            build_test_request_hex(
-                &[
-                    VDXF_ORDINAL_AUTHENTICATION_REQUEST,
-                    VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST,
-                ],
-                true,
-            ),
-            Some(GenericAuthenticationResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-            }),
-            Some(GenericIdentityUpdateResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-                txid: "11".repeat(32),
-            }),
-        );
-
-        let signed_response_hex = build_and_sign_generic_response_internal(
-            &request,
-            network,
-            &active_wallet_primary_address,
-            std::slice::from_ref(&active_wallet_primary_address),
-            FIXED_SIGNED_BLOCK_HEIGHT,
-            &private_key,
-            FIXED_CREATED_AT,
-        )
-        .expect("auth+update response");
-
-        let parsed = parse_generic_envelope_hex(&signed_response_hex).expect("parsed response");
-        assert_eq!(
-            parsed
-                .details
-                .iter()
-                .map(|detail| detail.ordinal)
-                .collect::<Vec<_>>(),
-            vec![
-                VDXF_ORDINAL_AUTHENTICATION_RESPONSE,
-                VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE,
-            ]
-        );
-    }
-
-    #[test]
-    fn update_only_request_signs_with_the_explicit_signer() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
-        let request = test_request(
-            build_test_request_hex(&[VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST], true),
-            None,
-            Some(GenericIdentityUpdateResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-                txid: "22".repeat(32),
-            }),
-        );
-
-        let signed_response_hex = build_and_sign_generic_response_internal(
-            &request,
-            network,
-            &active_wallet_primary_address,
-            std::slice::from_ref(&active_wallet_primary_address),
-            FIXED_SIGNED_BLOCK_HEIGHT,
-            &private_key,
-            FIXED_CREATED_AT,
-        )
-        .expect("update-only response");
-
-        let parsed = parse_generic_envelope_hex(&signed_response_hex).expect("parsed response");
-        assert_eq!(parsed.signature_data.signer_system_id, TEST_SYSTEM_ID);
-        assert_eq!(parsed.signature_data.signer_identity_id, TEST_SIGNER_ID);
-        assert_eq!(
-            parsed
-                .details
-                .iter()
-                .map(|detail| detail.ordinal)
-                .collect::<Vec<_>>(),
-            vec![VDXF_ORDINAL_IDENTITY_UPDATE_RESPONSE]
-        );
-    }
-
-    #[test]
-    fn malformed_txid_is_rejected() {
-        let request = test_request(
-            build_test_request_hex(&[VDXF_ORDINAL_IDENTITY_UPDATE_REQUEST], true),
-            None,
-            Some(GenericIdentityUpdateResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-                txid: "1234".to_string(),
-            }),
-        );
-
-        let error = build_unsigned_generic_response_hex(&request, FIXED_CREATED_AT)
-            .expect_err("txid should fail");
-        assert!(matches!(error, WalletError::OperationFailed));
-    }
-
-    #[test]
-    fn unsupported_grouping_is_rejected() {
-        let request = test_request(
-            build_test_request_hex(
-                &[
-                    VDXF_ORDINAL_AUTHENTICATION_REQUEST,
-                    VDXF_ORDINAL_AUTHENTICATION_REQUEST,
-                ],
-                true,
-            ),
-            Some(GenericAuthenticationResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-            }),
-            None,
-        );
-
-        let error = build_unsigned_generic_response_hex(&request, FIXED_CREATED_AT)
-            .expect_err("grouping should fail");
-        assert!(matches!(error, WalletError::GenericRequestInvalidEnvelope));
-    }
-
-    #[test]
-    fn signer_not_controlled_by_the_active_wallet_is_rejected() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
-        let (private_key, active_wallet_primary_address) = test_signing_context(network, 7);
-        let (_, foreign_address) = test_signing_context(network, 8);
-        let request = test_request(
-            build_test_request_hex(&[VDXF_ORDINAL_AUTHENTICATION_REQUEST], true),
-            Some(GenericAuthenticationResponseInput {
-                request_id: Some(TEST_AUTH_REQUEST_ID.to_string()),
-            }),
-            None,
-        );
-
-        let error = build_and_sign_generic_response_internal(
-            &request,
-            network,
-            &active_wallet_primary_address,
-            std::slice::from_ref(&foreign_address),
-            FIXED_SIGNED_BLOCK_HEIGHT,
-            &private_key,
-            FIXED_CREATED_AT,
-        )
-        .expect_err("control check should fail");
-        assert!(matches!(error, WalletError::IdentityUnsupportedAuthority));
-    }
-
-    #[test]
-    fn provisioning_without_auth_request_is_rejected() {
-        let request = test_request(
-            build_test_request_hex(&[VDXF_ORDINAL_PROVISION_IDENTITY], true),
-            None,
-            None,
-        );
-
-        let error = build_unsigned_generic_response_hex(&request, FIXED_CREATED_AT)
-            .expect_err("grouping should fail");
-        assert!(matches!(error, WalletError::GenericRequestInvalidEnvelope));
     }
 
     #[test]

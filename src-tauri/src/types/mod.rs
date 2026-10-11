@@ -27,13 +27,11 @@ pub use bridge::{
 };
 pub use errors::WalletError;
 pub use generic_request::{
-    BuildAndSignGenericResponseRequest, BuildAndSignGenericResponseResult,
-    GenericAuthenticationResponseInput, GenericIdentityAuthorities,
+    BuildAndSignGenericResponseResult, GenericIdentityAuthorities,
     GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
     GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
-    GenericIdentityUpdateResponseInput, GenericIdentityUpdateReviewResult,
-    GenericRequestVerificationResult, GenericResponseSignerInput, LinkReadyProvisioningJobResult,
-    ProvisioningJobRecord,
+    GenericIdentityUpdateReviewResult, GenericRequestTransactionResult, GenericResponseSignerInput,
+    LinkReadyProvisioningJobResult, OpenedGenericRequest, ProvisioningJobRecord,
 };
 pub use guard::{
     BeginGuardSessionRequest, BeginGuardSessionResult, EndGuardSessionRequest,

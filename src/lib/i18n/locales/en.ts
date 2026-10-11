@@ -292,6 +292,33 @@ export const en: Record<string, string> = {
   'genericRequest.flow.stageError.delivery': '{app} did not accept the response.',
   'genericRequest.flow.stageError.webhook': '{issuer} did not accept the request.',
   'genericRequest.flow.noChanges': 'This update does not change anything that the wallet can show.',
+  'genericRequest.flow.secondLinkIgnored':
+    'Finish the current request, then open the new link again.',
+  'genericRequest.rejected.unknownDetail':
+    'This request contains a part that this wallet does not recognize.',
+  'genericRequest.rejected.detailOrder':
+    'This request is not put together correctly. Ask the website for a new link.',
+  'genericRequest.rejected.unsigned':
+    'This request is not signed. Only payments and gift card claims can be unsigned.',
+  'genericRequest.rejected.walletBackup': 'Wallet backups to NFC cards need Verus Mobile.',
+  'genericRequest.rejected.network':
+    'This request is for a different network than the open wallet.',
+  'genericRequest.rejected.encryptedDetails':
+    'This request is encrypted, so this wallet cannot read it.',
+  'genericRequest.rejected.tooLong': 'This link is too long. Ask the website for a shorter one.',
+  'genericRequest.rejected.expired': 'This request has expired. Ask the website for a new one.',
+  'genericRequest.rejected.delegatedSigner':
+    'This request was signed for another app by a VerusID that this wallet does not control.',
+  'genericRequest.rejected.signature': 'The request signature could not be verified.',
+  'genericRequest.rejected.notOpen': 'This request is no longer open. Open the link again.',
+  'genericRequest.rejected.responder':
+    "The chosen VerusID does not meet this request's requirements.",
+  'genericRequest.rejected.unsupportedDetail':
+    'Part of this request is not supported on desktop yet.',
+  'genericRequest.rejected.responseAddress':
+    'The response can go only to an address that the request names.',
+  'genericRequest.rejected.insecureDelivery':
+    'The website did not offer a secure connection, so the response was not sent.',
   'genericRequest.flow.error.expired': 'This request expired. Start again on the site.',
   'genericRequest.update.privateAddressChange.title': 'Change private address',
   'genericRequest.update.privateAddressChange.description':
@@ -308,18 +335,7 @@ export const en: Record<string, string> = {
   'genericRequest.import.submit': 'Open',
   'genericRequest.import.error.empty': 'Paste a request to continue.',
   'genericRequest.import.error.invalid': 'This request could not be parsed.',
-  'genericRequest.import.error.networkMismatch':
-    'This request is for a different network than the active wallet.',
-  'genericRequest.unsupported.detail':
-    'This request contains detail types that are not supported on desktop yet.',
-  'genericRequest.unsupported.empty': 'This request does not contain any supported actions.',
-  'genericRequest.unsupported.invalidGrouping':
-    'This request combines actions in a way that desktop does not support.',
-  'genericRequest.unsupported.provisioningNeedsAuth':
-    'Provisioning requests must be attached to an authentication request.',
-  'genericRequest.unsupported.unsigned': 'This request is not signed.',
   'genericRequest.error.generic': 'This request could not be opened right now.',
-  'genericRequest.error.invalidSignature': 'The request signature could not be verified.',
   'genericRequest.error.walletLocked': 'Wallet is locked. Unlock and try again.',
   'genericRequest.error.identityOwnershipMismatch':
     'This wallet cannot satisfy the ownership requirements for this request.',
@@ -337,8 +353,6 @@ export const en: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
-  'genericRequest.error.unsupportedPostCallback':
-    'This app requested a POST callback that is not supported on desktop.',
   'genericRequest.summary.toggle': 'Show summary',
   'genericRequest.summary.provisioningRequested':
     'A new VerusID can be provisioned from this request.',

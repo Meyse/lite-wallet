@@ -159,6 +159,31 @@ function stablePreview(value: unknown, maxLength = 120): string | null {
   return collapsed.length > maxLength ? `${collapsed.slice(0, maxLength - 3)}...` : collapsed;
 }
 
+/**
+ * Text a person can read from a content value: plain values, and the value of
+ * a single-key VDXF object such as `{ "<string type>": "text" }`. Anything
+ * else falls back to compact JSON.
+ */
+function readableContentPreview(value: unknown, maxLength = 160): string | null {
+  const parts: string[] = [];
+  const visit = (entry: unknown): boolean => {
+    if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+      parts.push(String(entry));
+      return true;
+    }
+    if (Array.isArray(entry)) return entry.every(visit);
+    if (entry && typeof entry === 'object') {
+      const values = Object.values(entry as Record<string, unknown>);
+      return values.length === 1 && visit(values[0]);
+    }
+    return false;
+  };
+  if (!visit(value) || parts.length === 0) return stablePreview(value, maxLength);
+  const text = parts.join(', ').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
 function normalizeString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -511,11 +536,11 @@ function buildContentChanges(
             ),
           ],
           currentLabel: hasExistingValue ? t('genericRequest.update.content.existingLabel') : null,
-          currentPreview: hasExistingValue ? stablePreview(beforeEntry) : null,
+          currentPreview: hasExistingValue ? readableContentPreview(beforeEntry) : null,
           nextLabel: hasExistingValue
             ? t('genericRequest.update.content.addingLabel')
             : t('genericRequest.update.content.newLabel'),
-          nextPreview: stablePreview(requestedPreviewSource),
+          nextPreview: readableContentPreview(requestedPreviewSource),
           rawCurrentValue: beforeEntry,
           rawRequestedValue: requestedPreviewSource,
           inspectTitle: t('genericRequest.update.content.inspectTitle', { label: contentLabel }),

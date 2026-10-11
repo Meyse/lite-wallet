@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-generic-request"
+description = "Enables the close_generic_request command without any pre-configured scope."
+commands.allow = ["close_generic_request"]
+
+[[permission]]
+identifier = "deny-close-generic-request"
+description = "Denies the close_generic_request command without any pre-configured scope."
+commands.deny = ["close_generic_request"]

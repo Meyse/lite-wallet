@@ -108,18 +108,16 @@ pub fn parse_generic_envelope_bytes(bytes: &[u8]) -> Result<ParsedGenericEnvelop
     if (flags & GENERIC_ENVELOPE_FLAG_SIGNED) == 0 {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
+    let is_testnet = (flags & GENERIC_ENVELOPE_FLAG_IS_TESTNET) != 0;
 
     let prefix_without_signature = bytes[..offset].to_vec();
-    let (signature_data, signature_end) = parse_verifiable_signature_data(
-        bytes,
-        offset,
-        (flags & GENERIC_ENVELOPE_FLAG_IS_TESTNET) != 0,
-    )?;
+    let (signature_data, signature_end) =
+        parse_verifiable_signature_data(bytes, offset, is_testnet)?;
     let tail_after_signature = bytes[signature_end..].to_vec();
 
     let mut scan = signature_end;
     let request_id = if (flags & GENERIC_ENVELOPE_FLAG_HAS_REQUEST_ID) != 0 {
-        let (value, next) = parse_compact_address(bytes, scan)?;
+        let (value, next) = parse_compact_address(bytes, scan, is_testnet)?;
         scan = next;
         Some(value.address)
     } else {
@@ -140,7 +138,7 @@ pub fn parse_generic_envelope_bytes(bytes: &[u8]) -> Result<ParsedGenericEnvelop
     }
 
     let app_or_delegated_id = if (flags & GENERIC_ENVELOPE_FLAG_HAS_APP_OR_DELEGATED_ID) != 0 {
-        let (value, next) = parse_compact_address(bytes, scan)?;
+        let (value, next) = parse_compact_address(bytes, scan, is_testnet)?;
         scan = next;
         Some(value.address)
     } else {
@@ -173,7 +171,7 @@ pub fn parse_generic_envelope_bytes(bytes: &[u8]) -> Result<ParsedGenericEnvelop
         signature_data,
         request_id,
         created_at,
-        is_testnet: (flags & GENERIC_ENVELOPE_FLAG_IS_TESTNET) != 0,
+        is_testnet,
         app_or_delegated_id,
         details,
     })
@@ -405,7 +403,7 @@ pub async fn validate_identity_control_for_active_wallet(
     Ok(())
 }
 
-fn parse_verifiable_signature_data(
+pub(crate) fn parse_verifiable_signature_data(
     bytes: &[u8],
     offset: usize,
     is_testnet: bool,
@@ -426,7 +424,7 @@ fn parse_verifiable_signature_data(
     cursor += hash_type_len;
 
     let signer_system = if (flags & VERIFIABLE_SIGNATURE_FLAG_HAS_SYSTEM) != 0 {
-        let (system, next) = parse_compact_address(bytes, cursor)?;
+        let (system, next) = parse_compact_address(bytes, cursor, is_testnet)?;
         cursor = next;
         system
     } else {
@@ -449,7 +447,7 @@ fn parse_verifiable_signature_data(
             raw_bytes: Vec::new(),
         }
     };
-    let (signer_identity, next) = parse_compact_address(bytes, cursor)?;
+    let (signer_identity, next) = parse_compact_address(bytes, cursor, is_testnet)?;
     cursor = next;
 
     // The wire representation retains its original order. IdentitySignatureHash
@@ -523,6 +521,7 @@ fn parse_verifiable_signature_data(
 fn parse_compact_address(
     bytes: &[u8],
     offset: usize,
+    is_testnet: bool,
 ) -> Result<(ParsedCompactAddress, usize), WalletError> {
     let start = offset;
     let mut cursor = offset;
@@ -543,7 +542,23 @@ fn parse_compact_address(
             (to_base58_check(&hash, X_ADDRESS_VERSION), hash)
         }
         COMPACT_ADDRESS_TYPE_FQN => {
-            return Err(WalletError::GenericRequestUnsupportedSignature);
+            // A fully qualified identity name resolves the way
+            // `CompactIAddressObject.toIAddress()` does: the root system is
+            // implied by the envelope's network. Data keys ("::") never name
+            // an identity here.
+            let (raw, next) = read_var_slice(bytes, cursor)?;
+            cursor = next;
+            let name =
+                std::str::from_utf8(raw).map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+            if name.contains("::") {
+                return Err(WalletError::GenericRequestInvalidEnvelope);
+            }
+            let hash = crate::core::generic_request::names::fqn_to_id(
+                name,
+                crate::core::generic_request::names::root_system_name(is_testnet),
+            )
+            .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+            (to_base58_check(&hash, I_ADDRESS_VERSION), hash)
         }
         _ => return Err(WalletError::GenericRequestInvalidEnvelope),
     };
@@ -985,16 +1000,35 @@ mod tests {
     }
 
     #[test]
-    fn compact_signer_names_remain_explicitly_unsupported() {
+    fn compact_signer_names_resolve_like_the_library() {
         let fixtures: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../src/lib/genericRequest/fixtures/signature-parity.json"
         ))
         .expect("public protocol fixtures");
-        for hex in fixtures["unsupportedNames"].as_array().unwrap() {
-            assert!(matches!(
-                parse_generic_envelope_hex(hex.as_str().unwrap()),
-                Err(crate::types::WalletError::GenericRequestUnsupportedSignature)
-            ));
+        // `identityID.toIAddress()` and `getDetailsIdentitySignatureHash(965771)`
+        // from verus-typescript-primitives 3ffa9d77 for the same envelopes.
+        let expected = [
+            (
+                "i5ULg5wze6A1uWGiXSoLjc9KBF1Ea6ZuGd",
+                "d1650355521c156add68a7af01179cf392daebb14b7eccad0bf96d2b695a4d91",
+            ),
+            (
+                "i5f5njYtso65186mo5WHMkRme9YG6hrZE2",
+                "98d4d465af1294cda8d10810e564dec5d384e49b966cdf507316f75790a90624",
+            ),
+        ];
+        let names = fixtures["unsupportedNames"].as_array().unwrap();
+        assert_eq!(names.len(), expected.len());
+        for (hex, (identity, hash)) in names.iter().zip(expected) {
+            let parsed = parse_generic_envelope_hex(hex.as_str().unwrap()).expect("name parses");
+            assert_eq!(parsed.signature_data.signer_identity_id, identity);
+            let identity_hash = compute_identity_signature_hash(
+                &parsed.signature_data,
+                SIGNED_BLOCK_HEIGHT,
+                get_raw_envelope_sha256(&parsed),
+            )
+            .expect("identity hash");
+            assert_eq!(hex::encode(identity_hash), hash);
         }
     }
 

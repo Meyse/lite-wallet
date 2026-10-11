@@ -5,13 +5,15 @@ use serde_json::Value;
 
 use crate::types::{HighRiskChange, IdentityWarning};
 
+/// A request that passed acceptance and, when signed, signature verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenericRequestVerificationResult {
-    pub valid: bool,
-    pub signer_system_id: String,
-    pub signer_identity_id: String,
-    pub signature_block_height: u32,
+pub struct OpenedGenericRequest {
+    pub request_hash: String,
+    pub signed: bool,
+    pub signer_system_id: Option<String>,
+    pub signer_identity_id: Option<String>,
+    pub signature_block_height: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,26 +23,11 @@ pub struct GenericResponseSignerInput {
     pub identity_id: String,
 }
 
+/// The transaction a request's Approval broadcast.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenericAuthenticationResponseInput {
-    pub request_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GenericIdentityUpdateResponseInput {
-    pub request_id: Option<String>,
+pub struct GenericRequestTransactionResult {
     pub txid: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BuildAndSignGenericResponseRequest {
-    pub request_hex: String,
-    pub signer: GenericResponseSignerInput,
-    pub authentication: Option<GenericAuthenticationResponseInput>,
-    pub identity_update: Option<GenericIdentityUpdateResponseInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

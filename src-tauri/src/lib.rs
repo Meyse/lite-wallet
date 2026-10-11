@@ -189,6 +189,7 @@ pub fn run() {
             println!("[APP] Preflight store initialized");
 
             app.manage(ProvisioningSignatureStore::new());
+            app.manage(crate::core::generic_request::store::GenericRequestStore::new());
             println!("[APP] Provisioning signature store initialized");
 
             let guard_session_manager = Arc::new(Mutex::new(GuardSessionManager::new()));
@@ -294,8 +295,8 @@ pub fn run() {
             identity::confirm_identity_profile_update,
             identity::review_identity_profile_publication,
             identity::discard_identity_profile_publication,
-            generic_request::verify_generic_request_signature,
-            generic_request::sign_generic_response,
+            generic_request::open_generic_request,
+            generic_request::close_generic_request,
             generic_request::build_and_sign_generic_response,
             generic_request::post_generic_response_callback,
             generic_request::open_generic_request_callback,
@@ -304,6 +305,7 @@ pub fn run() {
             generic_request::verify_identity_signature_hash,
             generic_request::review_generic_identity_update,
             generic_request::preflight_generic_identity_update,
+            generic_request::send_generic_identity_update,
             generic_request::store_generic_provisioning_job,
             generic_request::list_identity_provisioning_jobs,
             generic_request::refresh_identity_provisioning_jobs,

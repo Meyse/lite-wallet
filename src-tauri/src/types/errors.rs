@@ -212,6 +212,11 @@ pub enum WalletError {
     #[error("Generic request signature is unsupported")]
     GenericRequestUnsupportedSignature,
 
+    /// A request the wallet refuses. The code names the rule, for example
+    /// `detailOrder` or `walletBackup`; the UI shows translated copy for it.
+    #[error("The request is not accepted: {0}")]
+    GenericRequestRejected(String),
+
     #[error("Guard session not found or expired")]
     GuardSessionNotFound,
 

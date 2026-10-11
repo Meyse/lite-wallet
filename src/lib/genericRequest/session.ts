@@ -3,6 +3,7 @@ import {
   APP_ENCRYPTION_REQUEST_VDXF_KEY,
   AUTHENTICATION_REQUEST_VDXF_KEY,
   AuthenticationRequestOrdinalVDXFObject,
+  CREATE_WALLET_BACKUP_DETAILS_VDXF_KEY,
   DATA_PACKET_REQUEST_VDXF_KEY,
   GenericRequest,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY,
@@ -10,10 +11,12 @@ import {
   PROVISION_IDENTITY_DETAILS_VDXF_KEY,
   ProvisionIdentityDetailsOrdinalVDXFObject,
   ResponseURI,
+  SPENDABLE_KEY_DETAILS_VDXF_KEY,
   USER_DATA_REQUEST_VDXF_KEY,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
 } from 'verus-typescript-primitives';
 import { bytesToHex, hexToBytes } from '$lib/utils/bytes.js';
+import { rejectionError } from './rejections';
 
 export type GenericRequestDetailType = 'authentication' | 'identityUpdate' | 'provisionIdentity';
 
@@ -80,6 +83,20 @@ export type GenericRequestFlowSession = {
   passthroughAutoLinkFqn: string | null;
 };
 
+/** Every request detail type that Verus Mobile knows. */
+const REQUEST_DETAIL_KEYS = new Set([
+  AUTHENTICATION_REQUEST_VDXF_KEY.vdxfid,
+  IDENTITY_UPDATE_REQUEST_VDXF_KEY.vdxfid,
+  PROVISION_IDENTITY_DETAILS_VDXF_KEY.vdxfid,
+  VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid,
+  APP_ENCRYPTION_REQUEST_VDXF_KEY.vdxfid,
+  DATA_PACKET_REQUEST_VDXF_KEY.vdxfid,
+  USER_DATA_REQUEST_VDXF_KEY.vdxfid,
+  SPENDABLE_KEY_DETAILS_VDXF_KEY.vdxfid,
+  CREATE_WALLET_BACKUP_DETAILS_VDXF_KEY.vdxfid,
+]);
+
+/** The detail types the desktop flow can show today. */
 const SUPPORTED_DETAIL_KEYS = new Set([
   AUTHENTICATION_REQUEST_VDXF_KEY.vdxfid,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY.vdxfid,
@@ -107,6 +124,23 @@ function normalizeHex(input: string): string | null {
   return candidate.toLowerCase();
 }
 
+/** Verus Mobile refuses deep links of this length or longer. */
+export const MAX_REQUEST_LINK_LENGTH = 2046;
+
+function exactRequest(bytes: Buffer): ParsedRequestEnvelope {
+  const request = new GenericRequest();
+  const consumed = request.fromBuffer(bytes, 0);
+  // Do not let trailing or noncanonical bytes disappear before Rust verifies them.
+  if (consumed !== bytes.length || !bytes.equals(request.toBuffer())) {
+    throw new Error('genericRequest.import.error.invalid');
+  }
+  return { request, requestHex: bytesToHex(bytes) };
+}
+
+/**
+ * Paste and OS links accept a `verus://` link, the raw QR text (the request
+ * in base64url), or hex.
+ */
 function parseRequestEnvelope(input: string): ParsedRequestEnvelope {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -114,32 +148,23 @@ function parseRequestEnvelope(input: string): ParsedRequestEnvelope {
   }
 
   if (trimmed.includes('://') || trimmed.startsWith('verus:')) {
-    const request = GenericRequest.fromWalletDeeplinkUri(trimmed);
-    // The upstream URI parser discards the consumed offset. Do not let trailing
-    // or noncanonical bytes disappear before backend signature verification.
+    if (trimmed.length >= MAX_REQUEST_LINK_LENGTH) throw rejectionError('tooLong');
+    // Validates the scheme and the protocol version.
+    GenericRequest.fromWalletDeeplinkUri(trimmed);
     const encoded = trimmed.split('/')[3];
-    const original = Buffer.from(encoded.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-    if (!original.equals(request.toBuffer())) {
-      throw new Error('genericRequest.import.error.invalid');
-    }
-    return {
-      request,
-      requestHex: bytesToHex(request.toBuffer()),
-    };
+    return exactRequest(Buffer.from(encoded.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
   }
 
   const normalizedHex = normalizeHex(trimmed);
-  if (!normalizedHex) {
-    throw new Error('genericRequest.import.error.invalid');
+  if (normalizedHex) {
+    return exactRequest(asBuffer(hexToBytes(normalizedHex)));
   }
 
-  const request = new GenericRequest();
-  const bytes = asBuffer(hexToBytes(normalizedHex));
-  const consumed = request.fromBuffer(bytes, 0);
-  if (consumed !== bytes.length || !bytes.equals(request.toBuffer())) {
-    throw new Error('genericRequest.import.error.invalid');
+  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    return exactRequest(Buffer.from(trimmed.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
   }
-  return { request, requestHex: normalizedHex };
+
+  throw new Error('genericRequest.import.error.invalid');
 }
 
 function responseUriMode(uri: ResponseURI): GenericRequestDeliveryMode {
@@ -214,65 +239,19 @@ function parseIdentityUpdateDetail(
   };
 }
 
-function validateSupportedGrouping(details: SupportedGenericRequestDetail[]): void {
-  const authCount = details.filter((detail) => detail.type === 'authentication').length;
-  const updateCount = details.filter((detail) => detail.type === 'identityUpdate').length;
-  const provisioningCount = details.filter((detail) => detail.type === 'provisionIdentity').length;
-
-  if (authCount > 1 || updateCount > 1 || provisioningCount > 1) {
-    throw new Error('genericRequest.unsupported.invalidGrouping');
-  }
-
-  if (details.length === 0) {
-    throw new Error('genericRequest.unsupported.empty');
-  }
-
-  if (details.some((detail) => detail.type === 'provisionIdentity') && authCount === 0) {
-    throw new Error('genericRequest.unsupported.provisioningNeedsAuth');
-  }
-
-  const supportedCombinations = new Set([
-    'authentication',
-    'authentication+identityUpdate',
-    'authentication+provisionIdentity',
-    'authentication+identityUpdate+provisionIdentity',
-    'identityUpdate',
-  ]);
-
-  const combination = details
-    .map((detail) => detail.type)
-    .sort()
-    .join('+');
-
-  if (!supportedCombinations.has(combination)) {
-    throw new Error('genericRequest.unsupported.invalidGrouping');
-  }
-}
-
 export function parseGenericRequestSession(
   input: string,
   passthroughAutoLinkFqn: string | null = null
 ): GenericRequestFlowSession {
+  // Rust decides whether the request is acceptable (order, signature, network,
+  // expiry). This parse is for review, and it stops at detail types the
+  // desktop flow cannot show yet.
   const { request, requestHex } = parseRequestEnvelope(input);
-  if (!request.isSigned()) {
-    throw new Error('genericRequest.unsupported.unsigned');
-  }
-
-  const unsupportedDetail = request.details.find(
-    (detail) => !SUPPORTED_DETAIL_KEYS.has(detail.getIAddressKey())
-  );
-  if (unsupportedDetail) {
-    const key = unsupportedDetail.getIAddressKey();
-    if (
-      key === VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid ||
-      key === APP_ENCRYPTION_REQUEST_VDXF_KEY.vdxfid ||
-      key === DATA_PACKET_REQUEST_VDXF_KEY.vdxfid ||
-      key === USER_DATA_REQUEST_VDXF_KEY.vdxfid
-    ) {
-      throw new Error('genericRequest.unsupported.detail');
-    }
-
-    throw new Error('genericRequest.unsupported.detail');
+  for (const detail of request.details) {
+    const key = detail.getIAddressKey();
+    if (SUPPORTED_DETAIL_KEYS.has(key)) continue;
+    if (key === CREATE_WALLET_BACKUP_DETAILS_VDXF_KEY.vdxfid) throw rejectionError('walletBackup');
+    throw rejectionError(REQUEST_DETAIL_KEYS.has(key) ? 'unsupportedDetail' : 'unknownDetail');
   }
 
   const details = request.details.map((detail, index) => {
@@ -286,10 +265,8 @@ export function parseGenericRequestSession(
       return parseProvisionIdentityDetail(detail, index);
     }
 
-    throw new Error('genericRequest.unsupported.detail');
+    throw rejectionError('unsupportedDetail');
   });
-
-  validateSupportedGrouping(details);
 
   return {
     request,

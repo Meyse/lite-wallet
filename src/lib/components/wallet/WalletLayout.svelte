@@ -53,6 +53,7 @@
   } from '$lib/stores/genericRequest.js';
   import { i18nStore } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
+  import { rejectionCode } from '$lib/genericRequest/rejections';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import type {
     TransferEntryContext,
@@ -132,6 +133,7 @@
   let genericRequestImportBusy = $state(false);
   let genericRequestImportError = $state('');
   let genericRequestFlowOpen = $state(false);
+  let genericRequestApproved = $state(false);
   let genericRequestSession = $state<GenericRequestFlowSession | null>(null);
   let identitySectionSession = $state<IdentitySectionSessionState>(
     createIdentitySectionSessionState()
@@ -352,14 +354,15 @@
   });
 
   $effect(() => {
-    if (
-      !queuedGenericRequest ||
-      helpOpen ||
-      genericRequestImportBusy ||
-      genericRequestFlowOpen ||
-      navigationLocked
-    )
+    if (!queuedGenericRequest || helpOpen || genericRequestImportBusy) return;
+    // A second link replaces the open request before Approval. After Approval
+    // it is ignored, so the stages of the first request finish (spec "Intake").
+    if (genericRequestFlowOpen && genericRequestApproved) {
+      consumeQueuedGenericRequest();
+      pushWalletError(i18n.t('genericRequest.flow.secondLinkIgnored'));
       return;
+    }
+    if (!genericRequestFlowOpen && navigationLocked) return;
 
     const queued = consumeQueuedGenericRequest();
     if (!queued) return;
@@ -389,11 +392,13 @@
 
     const errorType = extractWalletErrorType(errorValue);
 
+    const rejection = rejectionCode(errorValue);
+    if (rejection) return i18n.t(`genericRequest.rejected.${rejection}`);
     switch (errorType) {
       case 'GenericRequestInvalidEnvelope':
         return i18n.t('genericRequest.import.error.invalid');
       case 'GenericRequestUnsupportedSignature':
-        return i18n.t('genericRequest.error.invalidSignature');
+        return i18n.t('genericRequest.rejected.signature');
       default:
         break;
     }
@@ -445,17 +450,9 @@
       GenericRequestFlowHostComponent = flowHostModule.default;
 
       const nextSession = parseGenericRequestSession(input, passthroughAutoLinkFqn);
-      const requestNetwork = nextSession.testnet ? 'testnet' : 'mainnet';
-      if ((walletData.network ?? 'mainnet') !== requestNetwork) {
-        throw new Error('genericRequest.import.error.networkMismatch');
-      }
-
-      const verification = await genericRequestService.verifyGenericRequestSignature(
-        nextSession.requestHex
-      );
-      if (!verification.valid) {
-        throw new Error('genericRequest.error.invalidSignature');
-      }
+      // Rust checks the order, signature, network, and expiry, and holds the
+      // request as the one open request.
+      await genericRequestService.openGenericRequest(nextSession.requestHex);
 
       genericRequestSession = nextSession;
       genericRequestFlowOpen = true;
@@ -478,7 +475,9 @@
 
   function closeGenericRequestFlow(): void {
     genericRequestFlowOpen = false;
+    genericRequestApproved = false;
     genericRequestSession = null;
+    void genericRequestService.closeGenericRequest().catch(() => {});
   }
 </script>
 
@@ -766,6 +765,7 @@
   {#if GenericRequestFlowHostComponent}
     <GenericRequestFlowHostComponent
       bind:isOpen={genericRequestFlowOpen}
+      bind:approved={genericRequestApproved}
       session={genericRequestSession}
       onClose={closeGenericRequestFlow}
     />

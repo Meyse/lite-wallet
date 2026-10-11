@@ -32,6 +32,19 @@ describe('identity content review compatibility', () => {
     expect(currentIdentity.contentmultimap[unrelated]).toEqual(['cafe']);
   });
 
+  it('shows the text of a string content value instead of its JSON', () => {
+    const stringType = 'iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c';
+    const review = buildGenericIdentityUpdateReview({
+      ...defaults,
+      currentIdentity: { contentmultimap: {} },
+      requestedIdentity: { contentmultimap: { [key]: [{ [stringType]: 'Disposable QA note' }] } },
+      rawRequestedIdentity: {
+        contentmultimap: { [key]: [{ [stringType]: 'Disposable QA note' }] },
+      },
+    });
+    expect(review.contentChanges[0].nextPreview).toBe('Disposable QA note');
+  });
+
   it('treats a private address change as high risk, as Verus Mobile does', () => {
     const next = 'zs13akhfdhypx9a8t2efkfgxpd5d9h3glz7d5pug2ys65mrzt4mw5vjqx0vw29gx82y3e0xjjuhrwn';
     const review = buildGenericIdentityUpdateReview({

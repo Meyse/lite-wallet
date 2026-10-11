@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 
-export type QueuedGenericRequestSource = 'manual' | 'deep-link' | 'provisioning';
+export type QueuedGenericRequestSource = 'manual' | 'deep-link' | 'provisioning' | 'lock';
 
 export interface QueuedGenericRequestPayload {
   input: string;
@@ -9,62 +9,17 @@ export interface QueuedGenericRequestPayload {
   enqueuedAt: number;
 }
 
-const STORAGE_KEY = 'lite_wallet_generic_request_queue_v1';
-
-function readPersistedQueue(): QueuedGenericRequestPayload | null {
-  if (typeof globalThis.localStorage === 'undefined') return null;
-
-  try {
-    const raw = globalThis.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as Partial<QueuedGenericRequestPayload> | null;
-    if (!parsed || typeof parsed.input !== 'string') {
-      return null;
-    }
-
-    return {
-      input: parsed.input,
-      passthroughAutoLinkFqn:
-        typeof parsed.passthroughAutoLinkFqn === 'string' && parsed.passthroughAutoLinkFqn.trim()
-          ? parsed.passthroughAutoLinkFqn.trim()
-          : null,
-      source:
-        parsed.source === 'deep-link' || parsed.source === 'provisioning' || parsed.source === 'manual'
-          ? parsed.source
-          : 'manual',
-      enqueuedAt:
-        typeof parsed.enqueuedAt === 'number' && Number.isFinite(parsed.enqueuedAt)
-          ? parsed.enqueuedAt
-          : Date.now()
-    };
-  } catch {
-    return null;
-  }
+// Earlier versions kept the waiting request in plain-text localStorage. A
+// request now waits in memory only (spec "Intake"); remove the old copy once.
+const LEGACY_STORAGE_KEY = 'lite_wallet_generic_request_queue_v1';
+try {
+  globalThis.localStorage?.removeItem(LEGACY_STORAGE_KEY);
+} catch {
+  // Storage can be unavailable; there is then nothing to remove.
 }
 
-function persistQueuedRequest(payload: QueuedGenericRequestPayload | null): void {
-  if (typeof globalThis.localStorage === 'undefined') return;
-
-  try {
-    if (!payload) {
-      globalThis.localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
-
-    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-const initialValue = readPersistedQueue();
-
-export const genericRequestQueueStore = writable<QueuedGenericRequestPayload | null>(initialValue);
-
-genericRequestQueueStore.subscribe((payload) => {
-  persistQueuedRequest(payload);
-});
+/** The one request that waits to open: memory only, never written to disk. */
+export const genericRequestQueueStore = writable<QueuedGenericRequestPayload | null>(null);
 
 export function queueGenericRequest(
   payload: Omit<QueuedGenericRequestPayload, 'enqueuedAt'> & { enqueuedAt?: number }
@@ -73,7 +28,7 @@ export function queueGenericRequest(
     input: payload.input,
     passthroughAutoLinkFqn: payload.passthroughAutoLinkFqn?.trim() || null,
     source: payload.source,
-    enqueuedAt: payload.enqueuedAt ?? Date.now()
+    enqueuedAt: payload.enqueuedAt ?? Date.now(),
   });
 }
 
@@ -86,8 +41,4 @@ export function consumeQueuedGenericRequest(): QueuedGenericRequestPayload | nul
   if (!current) return null;
   clearQueuedGenericRequest();
   return current;
-}
-
-export function hydrateQueuedGenericRequest(): void {
-  genericRequestQueueStore.set(readPersistedQueue());
 }

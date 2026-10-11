@@ -1,11 +1,11 @@
 import type {
-  BuildAndSignGenericResponseRequest,
   BuildAndSignGenericResponseResult,
   GenericIdentityUpdatePreflightResult,
-  GenericIdentityUpdateRequestMeta,
   GenericIdentityUpdateReviewResult,
-  GenericRequestVerificationResult,
+  GenericRequestTransactionResult,
+  GenericResponseSignerInput,
   LinkReadyProvisioningJobResult,
+  OpenedGenericRequest,
   ProvisioningJobRecord,
   StoreGenericProvisioningJobRequest,
 } from '$lib/types/wallet.js';
@@ -15,31 +15,49 @@ import {
   invalidateWalletDisplayScopes,
 } from './walletDisplayService.js';
 
-export async function verifyGenericRequestSignature(
-  requestHex: string
-): Promise<GenericRequestVerificationResult> {
-  return invokeWalletCommand<GenericRequestVerificationResult>('verify_generic_request_signature', {
+/**
+ * Rust checks the request (order, signature, network, expiry) and holds it as
+ * the one open request. Later commands act only on that request.
+ */
+export async function openGenericRequest(requestHex: string): Promise<OpenedGenericRequest> {
+  return invokeWalletCommand<OpenedGenericRequest>('open_generic_request', {
     request_hex: requestHex,
   });
 }
 
+export async function closeGenericRequest(): Promise<void> {
+  return invokeWalletCommand<void>('close_generic_request');
+}
+
+/** Rust builds the response from the open request; the UI names only the responder. */
 export async function buildAndSignGenericResponse(
-  request: BuildAndSignGenericResponseRequest
+  requestHex: string,
+  signer: GenericResponseSignerInput
 ): Promise<BuildAndSignGenericResponseResult> {
   return invokeWalletCommand<BuildAndSignGenericResponseResult>('build_and_sign_generic_response', {
-    request_hex: request.requestHex,
-    signer: request.signer,
-    authentication: request.authentication ?? null,
-    identity_update: request.identityUpdate ?? null,
+    request_hex: requestHex,
+    signer,
+  });
+}
+
+export async function sendGenericIdentityUpdate(
+  requestHex: string,
+  preflightId: string
+): Promise<GenericRequestTransactionResult> {
+  return invokeWalletCommand<GenericRequestTransactionResult>('send_generic_identity_update', {
+    request_hex: requestHex,
+    preflight_id: preflightId,
   });
 }
 
 export async function postGenericResponseCallback(
+  requestHex: string,
   callbackUri: string,
   responseHex: string,
   sessionId: string
 ): Promise<void> {
   return invokeWalletCommand<void>('post_generic_response_callback', {
+    request_hex: requestHex,
     callback_uri: callbackUri,
     response_hex: responseHex,
     session_id: sessionId,
@@ -47,11 +65,13 @@ export async function postGenericResponseCallback(
 }
 
 export async function openGenericRequestCallback(
+  requestHex: string,
   callbackUri: string,
   responseHex: string,
   sessionId: string
 ): Promise<void> {
   return invokeWalletCommand<void>('open_generic_request_callback', {
+    request_hex: requestHex,
     callback_uri: callbackUri,
     response_hex: responseHex,
     session_id: sessionId,
@@ -92,34 +112,33 @@ export async function verifyIdentitySignatureHash(
   });
 }
 
+/**
+ * Rust takes the target, expiry, and every control field from the open
+ * request. The identity JSON supplies only content values under the keys the
+ * request names.
+ */
 export async function preflightGenericIdentityUpdate(
+  requestHex: string,
   requestedIdentityJson: Record<string, unknown>,
-  targetIdentityAddress: string,
-  sourceChannelId: string,
-  requestMeta?: GenericIdentityUpdateRequestMeta | null
+  sourceChannelId: string
 ): Promise<GenericIdentityUpdatePreflightResult> {
   return invokeWalletCommand<GenericIdentityUpdatePreflightResult>(
     'preflight_generic_identity_update',
     {
+      request_hex: requestHex,
       requested_identity_json: requestedIdentityJson,
-      target_identity_address: targetIdentityAddress,
       source_channel_id: sourceChannelId,
-      request_meta: requestMeta ?? null,
     }
   );
 }
 
 export async function reviewGenericIdentityUpdate(
-  requestedIdentityJson: Record<string, unknown>,
-  targetIdentityAddress: string,
-  systemId: string,
-  requestMeta?: GenericIdentityUpdateRequestMeta | null
+  requestHex: string,
+  requestedIdentityJson: Record<string, unknown>
 ): Promise<GenericIdentityUpdateReviewResult> {
   return invokeWalletCommand<GenericIdentityUpdateReviewResult>('review_generic_identity_update', {
+    request_hex: requestHex,
     requested_identity_json: requestedIdentityJson,
-    target_identity_address: targetIdentityAddress,
-    system_id: systemId,
-    request_meta: requestMeta ?? null,
   });
 }
 

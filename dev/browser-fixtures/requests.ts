@@ -199,7 +199,7 @@ window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
       };
     case 'get_balances':
       return { confirmed: '2.63337', pending: '0', total: '2.63337' };
-    case 'send_identity_update':
+    case 'send_generic_identity_update':
       await once('transaction');
       return { txid: '08dc8363d710607560f48471bbfc4ea88c34e22ab3d5e9e42f66b545fa759bd4' };
     case 'build_and_sign_generic_response':

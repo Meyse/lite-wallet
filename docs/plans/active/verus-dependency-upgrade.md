@@ -58,6 +58,23 @@ changes, inspect its additional diff before adopting it.
 - Do not introduce a wallet-storage migration unless evidence requires one; a
   discovered persistence incompatibility is a separate design decision.
 
+### Pin update on 2026-10-11
+
+The [requests plan](./generic-requests-guided-flow.md), phase 1 step 1, moved
+the four packages to the set that Verus Mobile `dev-asf-parent` locks:
+
+| Package                        | Commit                                     |
+| ------------------------------ | ------------------------------------------ |
+| `verus-typescript-primitives`  | `3ffa9d77a3dd98c23fe4f66cf4368946906de780` |
+| `verusd-rpc-ts-client`         | `e8ea8c21f8a3d845e20189440dcd820d16f00891` |
+| `verusid-ts-client`            | `933e8f8da1a51b99ba7533701dddb9914b7a06b7` |
+| `@bitgo/utxo-lib` (Verus fork) | `2d3240429b7664fb01ca3f0f9e1c2b6da803f68d` |
+
+The primitives diff fixes two parser offsets (`VdxfUniValue` empty values and
+`DataResponseDetails`). The RPC and ID clients only move their pins. The BitGo
+fork adds `validateCurrencyTransferIntent`. The table above records the earlier
+upgrade.
+
 ## Evidence and limits
 
 The initial review compared upstream source and distributed JavaScript, mapped

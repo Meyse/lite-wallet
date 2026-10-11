@@ -28,7 +28,6 @@
   import { i18nStore, networkLocaleKey } from '$lib/i18n';
   import * as genericRequestService from '$lib/services/genericRequestService.js';
   import * as identityLinkService from '$lib/services/identityLinkService.js';
-  import * as identityService from '$lib/services/identityService.js';
   import { isForcedWalletLockError } from '$lib/services/walletLockCoordinator.js';
   import * as walletService from '$lib/services/walletService.js';
   import { coinsStore } from '$lib/stores/coins.js';
@@ -50,6 +49,7 @@
     formatIdentityFullyQualifiedName,
   } from '$lib/utils/identityDisplay.js';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
+  import { rejectionCode } from '$lib/genericRequest/rejections';
   import ConfirmPlan from './ConfirmPlan.svelte';
   import DeliveryLine from './DeliveryLine.svelte';
   import NetworkFeePicker from './NetworkFeePicker.svelte';
@@ -82,10 +82,13 @@
 
   let {
     isOpen = $bindable(false),
+    approved = $bindable(false),
     session,
     onClose = () => {},
   }: {
     isOpen?: boolean;
+    /** True from Approval until the request closes; a second link then waits. */
+    approved?: boolean;
     session: GenericRequestFlowSession | null;
     onClose?: () => void;
   } = $props();
@@ -282,6 +285,7 @@
     stepIndex = 0;
     flowError = '';
     phase = 'review';
+    approved = false;
     run = null;
     txid = '';
     signed = null;
@@ -297,6 +301,8 @@
     fallbackParams: Record<string, string> = {}
   ): string {
     if (isForcedWalletLockError(error)) return '';
+    const rejection = rejectionCode(error);
+    if (rejection) return i18n.t(`genericRequest.rejected.${rejection}`);
     switch (extractWalletErrorType(error)) {
       case 'IdentityOwnershipMismatch':
         return i18n.t('genericRequest.error.identityOwnershipMismatch');
@@ -521,15 +527,8 @@
     updateAnalysisLoading = true;
     try {
       updateAnalysis = await genericRequestService.reviewGenericIdentityUpdate(
-        updateDetail.requestedIdentityJson,
-        updateDetail.targetIdentityAddress,
-        reviewSystemId(),
-        {
-          requestId: updateDetail.requestId,
-          signerSystemId: session.signer.systemId,
-          signerIdentityId: session.signer.identityId,
-          expiryHeight: updateDetail.expiryHeight,
-        }
+        session.requestHex,
+        updateDetail.requestedIdentityJson
       );
     } catch (error) {
       updateAnalysis = null;
@@ -632,16 +631,9 @@
     flowError = '';
     try {
       const preflight = await genericRequestService.preflightGenericIdentityUpdate(
+        session.requestHex,
         updateDetail.requestedIdentityJson,
-        updateDetail.targetIdentityAddress,
-        channelId,
-        {
-          requestId: updateDetail.requestId,
-          signerSystemId: session.signer.systemId,
-          signerIdentityId: session.signer.identityId,
-          expiryHeight: updateDetail.expiryHeight,
-          requestSystemId: reviewSystemId(),
-        }
+        channelId
       );
       if (sequence !== updatePreflightRequestSequence) return;
       updatePreflight = preflight;
@@ -931,10 +923,8 @@
     const post = activeSession.responseUris.find((item) => item.mode === 'post')?.uri;
     const redirect = activeSession.responseUris.find((item) => item.mode === 'redirect')?.uri;
     if (post) {
-      const scheme = new URL(post).protocol;
-      if (scheme !== 'http:' && scheme !== 'https:')
-        throw new Error('genericRequest.error.unsupportedPostCallback');
       await genericRequestService.postGenericResponseCallback(
+        activeSession.requestHex,
         post,
         response.signedResponseHex,
         response.sessionId
@@ -943,6 +933,7 @@
     }
     if (redirect) {
       await genericRequestService.openGenericRequestCallback(
+        activeSession.requestHex,
         redirect,
         response.signedResponseHex,
         response.sessionId
@@ -988,9 +979,6 @@
       const signer = responseSigner();
       if (!signer) return;
       const preflightId = updatePreflight?.preflightId ?? '';
-      const authentication = authDetail
-        ? { requestId: authDetail.requestId || activeSession.requestId }
-        : null;
       run = new ApprovalRun(
         approvalStages({
           hasTransaction: !!updateDetail,
@@ -999,17 +987,19 @@
         }),
         {
           transaction: async () => {
-            const result = await identityService.sendIdentityUpdate({ preflightId });
+            // Rust records the broadcast for the open request and reuses it.
+            const result = await genericRequestService.sendGenericIdentityUpdate(
+              activeSession.requestHex,
+              preflightId
+            );
             txid = result.txid;
           },
           signing: async () => {
             assertNotExpired();
-            signed = await genericRequestService.buildAndSignGenericResponse({
-              requestHex: activeSession.requestHex,
-              signer,
-              authentication,
-              identityUpdate: updateDetail ? { requestId: updateDetail.requestId, txid } : null,
-            });
+            signed = await genericRequestService.buildAndSignGenericResponse(
+              activeSession.requestHex,
+              signer
+            );
           },
           delivery: async () => {
             if (!signed) throw new Error('genericRequest.error.complete');
@@ -1022,6 +1012,7 @@
     }
 
     phase = 'working';
+    approved = true;
     const ok = await run.run();
     if (!live()) return;
     phase = ok ? 'done' : 'failed';
@@ -1038,10 +1029,11 @@
   }
 
   async function openSiteInstead() {
-    if (!signed || !redirectUri || !run || openingSite) return;
+    if (!session || !signed || !redirectUri || !run || openingSite) return;
     openingSite = true;
     try {
       await genericRequestService.openGenericRequestCallback(
+        session.requestHex,
         redirectUri,
         signed.signedResponseHex,
         signed.sessionId

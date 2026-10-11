@@ -95,18 +95,7 @@ export const es: Record<string, string> = {
   'genericRequest.import.submit': 'Abrir',
   'genericRequest.import.error.empty': 'Paste a request to continue.',
   'genericRequest.import.error.invalid': 'This request could not be parsed.',
-  'genericRequest.import.error.networkMismatch':
-    'This request is for a different network than the active wallet.',
-  'genericRequest.unsupported.detail':
-    'This request contains detail types that are not supported on desktop yet.',
-  'genericRequest.unsupported.empty': 'This request does not contain any supported actions.',
-  'genericRequest.unsupported.invalidGrouping':
-    'This request combines actions in a way that desktop does not support.',
-  'genericRequest.unsupported.provisioningNeedsAuth':
-    'Provisioning requests must be attached to an authentication request.',
-  'genericRequest.unsupported.unsigned': 'This request is not signed.',
   'genericRequest.error.generic': 'This request could not be opened right now.',
-  'genericRequest.error.invalidSignature': 'The request signature could not be verified.',
   'genericRequest.error.walletLocked': 'Wallet is locked. Unlock and try again.',
   'genericRequest.error.identityOwnershipMismatch':
     'This wallet cannot satisfy the ownership requirements for this request.',
@@ -124,8 +113,6 @@ export const es: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
-  'genericRequest.error.unsupportedPostCallback':
-    'This app requested a POST callback that is not supported on desktop.',
   'genericRequest.summary.toggle': 'Show summary',
   'genericRequest.summary.provisioningRequested':
     'A new VerusID can be provisioned from this request.',
@@ -590,7 +577,36 @@ export const es: Record<string, string> = {
   'genericRequest.flow.stageError.delivery': '{app} no aceptó la respuesta.',
   'genericRequest.flow.stageError.webhook': '{issuer} no aceptó la solicitud.',
   'genericRequest.flow.noChanges':
-    'Esta actualización no cambia nada que la billetera pueda mostrar.',
+    'Esta actualización no cambia nada que la cartera pueda mostrar.',
+  'genericRequest.flow.secondLinkIgnored':
+    'Termina la solicitud actual y luego abre el enlace nuevo otra vez.',
+  'genericRequest.rejected.unknownDetail':
+    'Esta solicitud contiene una parte que esta cartera no reconoce.',
+  'genericRequest.rejected.detailOrder':
+    'Esta solicitud no está bien construida. Pide al sitio web un enlace nuevo.',
+  'genericRequest.rejected.unsigned':
+    'Esta solicitud no está firmada. Solo los pagos y las tarjetas regalo pueden ir sin firma.',
+  'genericRequest.rejected.walletBackup':
+    'Las copias de seguridad de la cartera en tarjetas NFC necesitan Verus Mobile.',
+  'genericRequest.rejected.network':
+    'Esta solicitud es para una red distinta a la de la cartera abierta.',
+  'genericRequest.rejected.encryptedDetails':
+    'Esta solicitud está cifrada, así que esta cartera no puede leerla.',
+  'genericRequest.rejected.tooLong':
+    'Este enlace es demasiado largo. Pide al sitio web uno más corto.',
+  'genericRequest.rejected.expired': 'Esta solicitud ha caducado. Pide al sitio web una nueva.',
+  'genericRequest.rejected.delegatedSigner':
+    'Esta solicitud la firmó para otra app una VerusID que esta cartera no controla.',
+  'genericRequest.rejected.signature': 'No se pudo verificar la firma de la solicitud.',
+  'genericRequest.rejected.notOpen': 'Esta solicitud ya no está abierta. Abre el enlace de nuevo.',
+  'genericRequest.rejected.responder':
+    'La VerusID elegida no cumple los requisitos de esta solicitud.',
+  'genericRequest.rejected.unsupportedDetail':
+    'Una parte de esta solicitud aún no funciona en escritorio.',
+  'genericRequest.rejected.responseAddress':
+    'La respuesta solo puede ir a una dirección que indique la solicitud.',
+  'genericRequest.rejected.insecureDelivery':
+    'El sitio web no ofreció una conexión segura, así que la respuesta no se envió.',
   'genericRequest.flow.error.expired': 'Esta solicitud caducó. Empieza de nuevo en el sitio.',
   'genericRequest.update.privateAddressChange.title': 'Cambiar la dirección privada',
   'genericRequest.update.privateAddressChange.description':

@@ -166,7 +166,7 @@ describe('request flow approval', () => {
           };
         case 'get_balances':
           return { confirmed: '2', pending: '0', total: '2' };
-        case 'send_identity_update':
+        case 'send_generic_identity_update':
           return { txid: TXID };
         case 'build_and_sign_generic_response':
           return { signedResponseHex: '0001', sessionId: 'session-1' };
@@ -208,7 +208,7 @@ describe('request flow approval', () => {
     await settle();
     expect(document.body.textContent).toContain('0.0001 VRSCTEST');
     await press('Continue');
-    expect(commandsCalled('send_identity_update')).toBe(0);
+    expect(commandsCalled('send_generic_identity_update')).toBe(0);
     expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
 
     await press('Sign in and update');
@@ -216,15 +216,15 @@ describe('request flow approval', () => {
     await press('Try again');
 
     expect(document.body.textContent).toContain('player7@ is updated');
-    expect(commandsCalled('send_identity_update')).toBe(1);
+    expect(commandsCalled('send_generic_identity_update')).toBe(1);
     expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
     expect(commandsCalled('post_generic_response_callback')).toBe(2);
     const signCall = wallet.invoke.mock.calls.find(
       ([command]) => command === 'build_and_sign_generic_response'
     );
-    expect(signCall?.[1]).toMatchObject({
-      authentication: { requestId: 'iAuthRequest' },
-      identity_update: { requestId: 'iUpdateRequest', txid: TXID },
+    // Rust reads the request IDs and the txid itself; the UI names the responder.
+    expect(signCall?.[1]).toEqual({
+      request_hex: '00',
       signer: { systemId: TESTNET, identityId: TARGET },
     });
   });
@@ -239,7 +239,7 @@ describe('request flow approval', () => {
 
     expect(document.body.textContent).toContain('Nothing was signed or sent.');
     for (const command of [
-      'send_identity_update',
+      'send_generic_identity_update',
       'build_and_sign_generic_response',
       'post_generic_response_callback',
     ]) {

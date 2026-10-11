@@ -35,6 +35,19 @@ describe('persisted request compatibility', () => {
     });
   }
 
+  it('accepts the raw QR text that websites offer to copy', () => {
+    const hex = fixtures.rustSignedRequest;
+    const qrText = Buffer.from(hex, 'hex').toString('base64url');
+    expect(parseGenericRequestSession(qrText).requestHex).toBe(hex);
+  });
+
+  it('refuses links of 2046 characters or more, as Verus Mobile does', () => {
+    const link = `verus://1/${Buffer.from(fixtures.rustSignedRequest, 'hex').toString('base64url')}`;
+    const padded = `${link}${'A'.repeat(2046 - link.length)}`;
+    expect(padded).toHaveLength(2046);
+    expect(() => parseGenericRequestSession(padded)).toThrow('genericRequest.rejected.tooLong');
+  });
+
   it('uses fresh parsers after failed imports', () => {
     for (const input of ['', 'xx', fixtures.rustSignedRequest.slice(0, -20)]) {
       expect(() => parseGenericRequestSession(input)).toThrow();
