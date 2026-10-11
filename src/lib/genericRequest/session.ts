@@ -14,11 +14,13 @@ import {
   SPENDABLE_KEY_DETAILS_VDXF_KEY,
   USER_DATA_REQUEST_VDXF_KEY,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
+  VerusPayInvoiceDetailsOrdinalVDXFObject,
 } from 'verus-typescript-primitives';
 import { bytesToHex, hexToBytes } from '$lib/utils/bytes.js';
 import { rejectionError } from './rejections';
 
-export type GenericRequestDetailType = 'authentication' | 'identityUpdate' | 'provisionIdentity';
+export type GenericRequestDetailType =
+  'authentication' | 'identityUpdate' | 'provisionIdentity' | 'invoice';
 
 export type GenericRequestDeliveryMode = 'post' | 'redirect' | 'unknown';
 
@@ -69,8 +71,21 @@ export type IdentityUpdateDetailSession = {
   raw: InstanceType<typeof IdentityUpdateRequestOrdinalVDXFObject>;
 };
 
+/**
+ * Pay invoice. Rust reads the amount, currency, and destination from the
+ * verified request (`review_generic_invoice`); the session only marks the step.
+ */
+export type InvoiceDetailSession = {
+  index: number;
+  type: 'invoice';
+  acceptsAnyAmount: boolean;
+};
+
 export type SupportedGenericRequestDetail =
-  AuthenticationDetailSession | ProvisionIdentityDetailSession | IdentityUpdateDetailSession;
+  | AuthenticationDetailSession
+  | ProvisionIdentityDetailSession
+  | IdentityUpdateDetailSession
+  | InvoiceDetailSession;
 
 export type GenericRequestFlowSession = {
   request: GenericRequest;
@@ -98,6 +113,7 @@ const REQUEST_DETAIL_KEYS = new Set([
 
 /** The detail types the desktop flow can show today. */
 const SUPPORTED_DETAIL_KEYS = new Set([
+  VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid,
   AUTHENTICATION_REQUEST_VDXF_KEY.vdxfid,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY.vdxfid,
   PROVISION_IDENTITY_DETAILS_VDXF_KEY.vdxfid,
@@ -263,6 +279,13 @@ export function parseGenericRequestSession(
     }
     if (detail instanceof ProvisionIdentityDetailsOrdinalVDXFObject) {
       return parseProvisionIdentityDetail(detail, index);
+    }
+    if (detail instanceof VerusPayInvoiceDetailsOrdinalVDXFObject) {
+      return {
+        index,
+        type: 'invoice' as const,
+        acceptsAnyAmount: detail.data.acceptsAnyAmount(),
+      };
     }
 
     throw rejectionError('unsupportedDetail');

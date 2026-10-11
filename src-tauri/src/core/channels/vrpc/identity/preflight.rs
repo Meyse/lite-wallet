@@ -363,7 +363,7 @@ pub async fn preflight(
     // before touching transaction-template parsing, which may fail for unsupported tx formats.
     let funding_candidates = parse_funding_utxos(
         &provider
-            .getaddressutxos(&[from_address.to_string()])
+            .funding_utxos(&[from_address.to_string()])
             .await
             .map_err(|_| WalletError::IdentityBuildFailed)?,
     );

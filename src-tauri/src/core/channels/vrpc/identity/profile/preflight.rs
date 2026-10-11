@@ -979,11 +979,8 @@ pub(crate) async fn finish_preflight(
         return Err(WalletError::InvalidPreflight);
     }
     let fee_sats = prepared.fee_sats;
-    let funding_candidates = parse_funding_utxos(
-        &provider
-            .getaddressutxos(&[from_address.to_string()])
-            .await?,
-    );
+    let funding_candidates =
+        parse_funding_utxos(&provider.funding_utxos(&[from_address.to_string()]).await?);
     if total_satoshis(&funding_candidates) < fee_sats {
         return Err(WalletError::InsufficientFunds);
     }

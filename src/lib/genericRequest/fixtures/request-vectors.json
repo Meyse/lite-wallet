@@ -99,7 +99,13 @@
       "libraryAccepts": true,
       "expect": {
         "ordinals": [1],
-        "signed": false
+        "signed": false,
+        "invoice": {
+          "amount": 1000000,
+          "destination": "RFWcHcpnFh57ovrV1hmzN8o8wmMZjyqCSh",
+          "currency": "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+          "expiryHeight": 1270600
+        }
       }
     },
     {

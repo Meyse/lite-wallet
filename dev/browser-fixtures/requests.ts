@@ -8,6 +8,7 @@ import type {
   AuthenticationDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
+  InvoiceDetailSession,
   ProvisionIdentityDetailSession,
 } from '$lib/genericRequest/session';
 import Fixture from './RequestsFixture.svelte';
@@ -62,6 +63,12 @@ const provision: ProvisionIdentityDetailSession = {
   raw: {} as ProvisionIdentityDetailSession['raw'],
 };
 
+const invoice: InvoiceDetailSession = {
+  index: 1,
+  type: 'invoice',
+  acceptsAnyAmount: scenario === 'invoiceAny',
+};
+
 const details =
   scenario === 'update'
     ? [auth, update]
@@ -69,7 +76,11 @@ const details =
       ? [{ ...update, index: 0 }]
       : scenario === 'newid'
         ? [auth, provision]
-        : [auth];
+        : scenario === 'invoice'
+          ? [auth, invoice]
+          : scenario === 'invoiceOnly' || scenario === 'invoiceAny' || scenario === 'invoicePaid'
+            ? [{ ...invoice, index: 0 }]
+            : [auth];
 const session: GenericRequestFlowSession = {
   request: {} as GenericRequestFlowSession['request'],
   requestHex: '00',
@@ -197,6 +208,30 @@ window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
           },
         ],
       };
+    case 'review_generic_invoice':
+      return {
+        amount: scenario === 'invoiceAny' ? null : '0.01000000',
+        currencyId: TESTNET,
+        currencyName: 'VRSCTEST',
+        destination: REQUESTER,
+        destinationName: 'TestBob.antafri.VRSCTEST@',
+        expiryHeight: 1270600,
+        blocksLeft: 55,
+        alreadyPaid: scenario === 'invoicePaid',
+      };
+    case 'preflight_generic_invoice':
+      return {
+        preflightId: 'fixture-invoice-preflight',
+        amount: String(args?.amount ?? '0.01000000'),
+        fee: '0.00010000',
+        currencyId: TESTNET,
+        feeCurrencyId: TESTNET,
+        fromAddress: WALLET_ADDRESS,
+        toAddress: REQUESTER,
+      };
+    case 'send_generic_invoice_payment':
+      await once('transaction');
+      return { txid: '0600eba8a139873d6c3dba0a2dd6ebb8589ffb44a5ac9386102c123b776773f7' };
     case 'get_balances':
       return { confirmed: '2.63337', pending: '0', total: '2.63337' };
     case 'send_generic_identity_update':

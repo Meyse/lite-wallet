@@ -580,6 +580,44 @@ export const es: Record<string, string> = {
     'Esta actualización no cambia nada que la cartera pueda mostrar.',
   'genericRequest.flow.secondLinkIgnored':
     'Termina la solicitud actual y luego abre el enlace nuevo otra vez.',
+  'genericRequest.flow.step.payInvoice': 'Pagar factura',
+  'genericRequest.flow.title.payInvoice': 'Pagar a {app}',
+  'genericRequest.flow.plan.pay': 'Pagar {amount} a {to}',
+  'genericRequest.flow.action.pay': 'Pagar {amount}',
+  'genericRequest.flow.action.signInAndPay': 'Iniciar sesión y pagar',
+  'genericRequest.flow.working.pay': 'Enviando pago…',
+  'genericRequest.flow.stage.payment.pending': 'Enviar pago',
+  'genericRequest.flow.stage.payment.running': 'Enviando pago…',
+  'genericRequest.flow.stage.payment.done': 'Pago enviado',
+  'genericRequest.flow.stage.payment.failed': 'Pago no enviado',
+  'genericRequest.flow.outcome.paid': 'Pagaste {amount} a {to}',
+  'genericRequest.flow.invoice.amount': 'Importe',
+  'genericRequest.flow.invoice.to': 'Para',
+  'genericRequest.flow.invoice.amountInput': 'Importe en {currency}',
+  'genericRequest.flow.invoice.payFrom': 'Pagar desde',
+  'genericRequest.flow.invoice.noSource': 'Ninguna dirección de esta cartera tiene {currency}.',
+  'genericRequest.flow.invoice.total': 'Total',
+  'genericRequest.flow.invoice.totalSplit': '{amount} y {fee}',
+  'genericRequest.flow.invoice.paidTo': 'Pagado a',
+  'genericRequest.flow.invoice.loading': 'Leyendo la factura…',
+  'genericRequest.flow.invoice.error.review': 'No se pudo leer esta factura.',
+  'genericRequest.flow.invoice.error.funds':
+    'No hay suficiente {currency} para pagar esta factura y su comisión. Un pago aún sin confirmar puede retener parte de tu saldo durante un minuto aproximadamente.',
+  'genericRequest.flow.invoice.error.preflight': 'No se pudo preparar este pago.',
+  'genericRequest.rejected.invoiceTagged':
+    'Esta factura pide un pago con etiqueta, que esta cartera no envía.',
+  'genericRequest.rejected.invoiceUnpayable': 'Esta factura no se puede pagar en la cadena Verus.',
+  'genericRequest.rejected.invoicePrivate':
+    'Esta factura pide un pago privado, que esta cartera no envía.',
+  'genericRequest.rejected.invoiceNoDestination':
+    'Esta factura no indica ninguna dirección de pago.',
+  'genericRequest.rejected.invoiceCurrency':
+    'La moneda de esta factura es desconocida en esta red.',
+  'genericRequest.rejected.invoiceCurrencyMissing':
+    'Añade la moneda de esta factura a tu cartera para pagarla.',
+  'genericRequest.rejected.invoicePreconvertLaunched':
+    'Esta factura preconvierte a una moneda que ya se lanzó.',
+  'genericRequest.rejected.alreadyPaid': 'Ya pagaste esta factura.',
   'genericRequest.rejected.unknownDetail':
     'Esta solicitud contiene una parte que esta cartera no reconoce.',
   'genericRequest.rejected.detailOrder':

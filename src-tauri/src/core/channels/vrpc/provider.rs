@@ -77,6 +77,46 @@ fn params_getaddressmempool(addresses: &[String]) -> Value {
     }
 }
 
+/// Drops UTXOs that a mempool entry spends (`spending: true`, with
+/// `prevtxid` and `prevout`).
+fn exclude_mempool_spends(utxos: Value, mempool: &Value) -> Value {
+    let spent = mempool
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let txid = entry.get("prevtxid")?.as_str()?;
+                    let vout = entry.get("prevout")?.as_u64()?;
+                    Some((txid.to_ascii_lowercase(), vout))
+                })
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    match utxos {
+        Value::Array(entries) => Value::Array(
+            entries
+                .into_iter()
+                .filter(|entry| {
+                    let txid = entry
+                        .get("txid")
+                        .and_then(Value::as_str)
+                        .map(str::to_ascii_lowercase);
+                    let vout = entry
+                        .get("outputIndex")
+                        .or_else(|| entry.get("vout"))
+                        .and_then(Value::as_u64);
+                    match (txid, vout) {
+                        (Some(txid), Some(vout)) => !spent.contains(&(txid, vout)),
+                        _ => true,
+                    }
+                })
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 fn params_getidentitieswithaddress(address: &str, unspent: bool) -> Result<Value, WalletError> {
     let normalized = address.trim();
     if normalized.is_empty() {
@@ -705,6 +745,24 @@ impl VrpcProvider {
         self.call("getaddressutxos", params, TTL_UTXOS).await
     }
 
+    /// UTXOs that can fund a new transaction: `getaddressutxos` without the
+    /// outputs that an unconfirmed transaction already spends. Without this, a
+    /// second payment made before the first confirms reuses the same input and
+    /// conflicts with, or even duplicates, the first transaction. Both reads
+    /// skip the cache, so a transaction sent a moment ago is seen.
+    pub async fn funding_utxos(&self, addresses: &[String]) -> Result<Value, WalletError> {
+        let params = if addresses.is_empty() {
+            return Err(WalletError::InvalidAddress);
+        } else {
+            serde_json::json!([{ "addresses": addresses }])
+        };
+        let utxos = self.call_without_cache("getaddressutxos", params).await?;
+        let mempool = self
+            .call_without_cache("getaddressmempool", params_getaddressmempool(addresses))
+            .await?;
+        Ok(exclude_mempool_spends(utxos, &mempool))
+    }
+
     /// createrawtransaction: inputs (array), outputs (object address -> amount)
     pub async fn createrawtransaction(
         &self,
@@ -1268,6 +1326,27 @@ impl Default for VrpcProviderPool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn funding_skips_outputs_that_an_unconfirmed_transaction_spends() {
+        let utxos = serde_json::json!([
+            { "txid": "AA", "outputIndex": 1, "satoshis": 5 },
+            { "txid": "aa", "outputIndex": 0, "satoshis": 7 },
+            { "txid": "bb", "vout": 2, "satoshis": 9 }
+        ]);
+        let mempool = serde_json::json!([
+            { "txid": "cc", "spending": false, "satoshis": 4 },
+            { "txid": "cc", "spending": true, "prevtxid": "aa", "prevout": 1 }
+        ]);
+        let kept = super::exclude_mempool_spends(utxos, &mempool);
+        let kept = kept
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["satoshis"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(kept, vec![7, 9]);
+    }
+
     use super::*;
     use crate::types::wallet::WalletNetwork;
     use std::sync::atomic::{AtomicUsize, Ordering};

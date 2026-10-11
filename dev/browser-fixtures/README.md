@@ -52,7 +52,8 @@ Open either page on `http://127.0.0.1:1428`:
   no wallet is accessed.
 - `/dev/browser-fixtures/requests.html`: the guided flow for requests from
   websites and apps, against synthetic wallet commands. Use `?scenario=signin`,
-  `update` (the default), `updateOnly`, `newid` or `expired`.
+  `update` (the default), `updateOnly`, `newid`, `expired`, `invoice` (sign in
+  and pay), `invoiceOnly`, `invoiceAny` (any amount) or `invoicePaid`.
   `fail=transaction`, `signing` or `delivery` fails that stage once;
   `stall=<stage>` holds it. `redirect` adds a redirect address. Supports
   `theme=dark` and `locale=nl`, `de` or `es`. Nothing is signed, broadcast or

@@ -4,7 +4,17 @@ import type { SupportedGenericRequestDetail } from './session';
 export type RequestImpact = 'signs' | 'shares' | 'spends' | 'control';
 
 /** One screen in the guided flow. Update identity takes two (spec "Steps per detail"). */
-export type RequestStepId = 'signIn' | 'newIdentity' | 'updateChanges' | 'networkFee' | 'confirm';
+export type RequestStepId =
+  | 'signIn'
+  | 'newIdentity'
+  | 'updateChanges'
+  | 'networkFee'
+  | 'payInvoice'
+  | 'signData'
+  | 'encryptionKey'
+  | 'shareData'
+  | 'giftCard'
+  | 'confirm';
 
 export type RequestFlowPlan = {
   /** Single screen for one detail that only signs as the user; otherwise the rail. */
@@ -19,6 +29,12 @@ export const DETAIL_IMPACT: Record<SupportedGenericRequestDetail['type'], Reques
   authentication: 'signs',
   provisionIdentity: 'signs',
   identityUpdate: 'control',
+  invoice: 'spends',
+};
+
+/** The step each module detail adds (spec "Steps per detail"). */
+const MODULE_STEP: Partial<Record<SupportedGenericRequestDetail['type'], RequestStepId>> = {
+  invoice: 'payInvoice',
 };
 
 /**
@@ -44,6 +60,12 @@ export function planRequestFlow(
     } else if (detail.type === 'identityUpdate') {
       steps.push('updateChanges', 'networkFee');
       answered.push(detail);
+    } else {
+      const step = MODULE_STEP[detail.type];
+      if (step) {
+        steps.push(step);
+        answered.push(detail);
+      }
     }
   }
 

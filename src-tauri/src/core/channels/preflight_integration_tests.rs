@@ -227,6 +227,7 @@ async fn start_vrpc_fixture(
                             "satoshis": 20_000,
                             "scriptPubKey": hex::encode(&state.previous_script)
                         }]),
+                        "getaddressmempool" => json!([]),
                         "getcurrency" => json!({ "currencyid": state.resolved_currency_id }),
                         "sendcurrency" => {
                             state.requested_output = request["params"][1][0]

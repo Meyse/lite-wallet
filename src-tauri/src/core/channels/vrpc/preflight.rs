@@ -77,7 +77,7 @@ pub async fn preflight(
     let submitted_sat = parse_positive_amount_sat(&params.amount)?;
 
     let addresses = vec![from_address.to_string()];
-    let utxos_raw = provider.getaddressutxos(&addresses).await?;
+    let utxos_raw = provider.funding_utxos(&addresses).await?;
 
     let utxos = parse_utxos(&utxos_raw)?;
     if utxos.is_empty() {

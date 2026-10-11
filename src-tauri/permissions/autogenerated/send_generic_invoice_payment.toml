@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-send-generic-invoice-payment"
+description = "Enables the send_generic_invoice_payment command without any pre-configured scope."
+commands.allow = ["send_generic_invoice_payment"]
+
+[[permission]]
+identifier = "deny-send-generic-invoice-payment"
+description = "Denies the send_generic_invoice_payment command without any pre-configured scope."
+commands.deny = ["send_generic_invoice_payment"]

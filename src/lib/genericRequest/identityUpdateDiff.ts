@@ -9,7 +9,7 @@ const HIGH_RISK_ROOT_KEYS = new Set([
   'recoveryauthority',
   'revocationauthority',
   'flags',
-  'minimumsignatures'
+  'minimumsignatures',
 ]);
 
 const SKIPPED_ROOT_KEYS = new Set([
@@ -20,7 +20,7 @@ const SKIPPED_ROOT_KEYS = new Set([
   'systemid',
   'timelock',
   'txid',
-  'vout'
+  'vout',
 ]);
 
 function stableStringify(value: unknown): string | null {
@@ -63,7 +63,7 @@ function walkDiff(
   output.push({
     path,
     beforeValue: stableStringify(currentValue),
-    afterValue: stableStringify(requestedValue)
+    afterValue: stableStringify(requestedValue),
   });
 }
 

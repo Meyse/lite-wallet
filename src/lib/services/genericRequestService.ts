@@ -2,6 +2,8 @@ import type {
   BuildAndSignGenericResponseResult,
   GenericIdentityUpdatePreflightResult,
   GenericIdentityUpdateReviewResult,
+  GenericInvoicePreflightResult,
+  GenericInvoiceReview,
   GenericRequestTransactionResult,
   GenericResponseSignerInput,
   LinkReadyProvisioningJobResult,
@@ -45,6 +47,35 @@ export async function sendGenericIdentityUpdate(
   preflightId: string
 ): Promise<GenericRequestTransactionResult> {
   return invokeWalletCommand<GenericRequestTransactionResult>('send_generic_identity_update', {
+    request_hex: requestHex,
+    preflight_id: preflightId,
+  });
+}
+
+export async function reviewGenericInvoice(requestHex: string): Promise<GenericInvoiceReview> {
+  return invokeWalletCommand<GenericInvoiceReview>('review_generic_invoice', {
+    request_hex: requestHex,
+  });
+}
+
+/** Rust pays exactly the invoice amount, or `amount` when the invoice accepts any amount. */
+export async function preflightGenericInvoice(
+  requestHex: string,
+  sourceChannelId: string,
+  amount: string | null
+): Promise<GenericInvoicePreflightResult> {
+  return invokeWalletCommand<GenericInvoicePreflightResult>('preflight_generic_invoice', {
+    request_hex: requestHex,
+    source_channel_id: sourceChannelId,
+    amount,
+  });
+}
+
+export async function sendGenericInvoicePayment(
+  requestHex: string,
+  preflightId: string
+): Promise<GenericRequestTransactionResult> {
+  return invokeWalletCommand<GenericRequestTransactionResult>('send_generic_invoice_payment', {
     request_hex: requestHex,
     preflight_id: preflightId,
   });

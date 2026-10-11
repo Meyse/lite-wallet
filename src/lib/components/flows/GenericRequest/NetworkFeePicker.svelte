@@ -8,15 +8,21 @@
   import { Spinner } from '$lib/components/ui/spinner';
   import { i18nStore } from '$lib/i18n';
   import RequestFacts from './RequestFacts.svelte';
-  import type { FundingSource } from './types';
+  import type { FundingSource, RequestFact } from './types';
 
-  /** Update identity, step 2: who pays. Nothing is preselected; the fee shows after the choice. */
+  /**
+   * Who pays: the fee of an update, or an invoice and its fee. Nothing is
+   * preselected; the fee shows after the choice (spec "Network fee").
+   */
   let {
     sources,
     selectedChannelId,
     loading = false,
     feeLoading = false,
     feeLabel = '',
+    heading = '',
+    emptyText = '',
+    extraRows = [],
     disabled = false,
     networkLabel,
     onSelect,
@@ -26,10 +32,17 @@
     loading?: boolean;
     feeLoading?: boolean;
     feeLabel?: string;
+    /** The picker's heading; "Pay the fee from" when empty. */
+    heading?: string;
+    emptyText?: string;
+    /** Rows after the fee, such as a total, once the fee is known. */
+    extraRows?: RequestFact[];
     disabled?: boolean;
     networkLabel: (source: FundingSource) => string;
     onSelect: (channelId: string) => void;
   } = $props();
+
+  const pickerLabel = $derived(heading || $i18nStore.t('genericRequest.flow.payFeeFrom'));
 
   const i18n = $derived($i18nStore);
   let sheetOpen = $state(false);
@@ -66,9 +79,7 @@
 {/snippet}
 
 <div class="flex flex-col gap-1.5">
-  <span class="text-xs font-medium text-muted-foreground"
-    >{i18n.t('genericRequest.flow.payFeeFrom')}</span
-  >
+  <span class="text-xs font-medium text-muted-foreground">{pickerLabel}</span>
   {#if loading}
     <div
       class="flex min-h-[52px] items-center gap-2 rounded-lg bg-muted/60 px-3 text-sm text-muted-foreground"
@@ -80,7 +91,7 @@
     <p
       class="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground"
     >
-      {i18n.t('genericRequest.update.fundingEmpty')}
+      {emptyText || i18n.t('genericRequest.update.fundingEmpty')}
     </p>
   {:else}
     <button
@@ -111,7 +122,7 @@
   {/if}
 </div>
 
-{#if selected}
+{#if selected && (feeLoading || feeLabel)}
   {#snippet feeValue()}
     {#if feeLoading}
       <span class="inline-flex items-center gap-1.5 font-normal text-muted-foreground">
@@ -122,10 +133,15 @@
       {feeLabel}
     {/if}
   {/snippet}
-  <RequestFacts rows={[{ label: i18n.t('genericRequest.flow.networkFee'), content: feeValue }]} />
+  <RequestFacts
+    rows={[
+      { label: i18n.t('genericRequest.flow.networkFee'), content: feeValue },
+      ...(feeLoading ? [] : extraRows),
+    ]}
+  />
 {/if}
 
-<StandardRightSheet bind:isOpen={sheetOpen} title={i18n.t('genericRequest.flow.payFeeFrom')}>
+<StandardRightSheet bind:isOpen={sheetOpen} title={pickerLabel}>
   <ScrollArea.Root class="min-h-0 flex-1">
     <ScrollArea.Viewport class="h-full pr-1">
       <ul class="space-y-1.5 pb-4">

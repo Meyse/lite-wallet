@@ -23,6 +23,34 @@ pub struct GenericResponseSignerInput {
     pub identity_id: String,
 }
 
+/// An invoice as Rust will pay it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericInvoiceReview {
+    /// `None` when the invoice accepts any amount.
+    pub amount: Option<String>,
+    pub currency_id: String,
+    pub currency_name: Option<String>,
+    pub destination: String,
+    pub destination_name: Option<String>,
+    pub expiry_height: Option<u64>,
+    /// Blocks until the invoice expires, from the chain height at review.
+    pub blocks_left: Option<u64>,
+    pub already_paid: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericInvoicePreflightResult {
+    pub preflight_id: String,
+    pub amount: String,
+    pub fee: String,
+    pub currency_id: String,
+    pub fee_currency_id: String,
+    pub from_address: String,
+    pub to_address: String,
+}
+
 /// The transaction a request's Approval broadcast.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -4,6 +4,12 @@
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import UserCogIcon from '@lucide/svelte/icons/user-cog';
   import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+  import GiftIcon from '@lucide/svelte/icons/gift';
+  import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+  import ReceiptIcon from '@lucide/svelte/icons/receipt';
+  import Share2Icon from '@lucide/svelte/icons/share-2';
+  import SignatureIcon from '@lucide/svelte/icons/signature';
+  import type { RequestStepId } from '$lib/genericRequest/flowPlan';
   import DeliveryLine from './DeliveryLine.svelte';
   import ImpactChip from './ImpactChip.svelte';
   import RequestFacts from './RequestFacts.svelte';
@@ -20,11 +26,16 @@
     delivery: { text: string; sends: boolean };
   } = $props();
 
-  const icons = {
+  const icons: Record<RequestStepId, typeof LogInIcon> = {
     signIn: LogInIcon,
     newIdentity: BadgePlusIcon,
     updateChanges: UserCogIcon,
     networkFee: CoinsIcon,
+    payInvoice: ReceiptIcon,
+    signData: SignatureIcon,
+    encryptionKey: KeyRoundIcon,
+    shareData: Share2Icon,
+    giftCard: GiftIcon,
     confirm: CircleCheckIcon,
   };
 </script>

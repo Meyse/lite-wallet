@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -68,6 +68,9 @@
     StageView,
   } from './types';
   import UpdateChanges from './UpdateChanges.svelte';
+  import PayInvoiceStep from './PayInvoiceStep.svelte';
+  import { PayInvoiceModule } from './modules/PayInvoiceModule.svelte';
+  import type { DetailModule, RequestContext } from './modules/types';
 
   type Phase = 'review' | 'working' | 'done' | 'failed' | 'declined';
 
@@ -133,6 +136,13 @@
   let fundingSourceLoadSequence = 0;
   let updatePreflightRequestSequence = 0;
 
+  // Detail modules: each new detail type plugs into the shell (plan step 7).
+  let invoiceModule = $state.raw<PayInvoiceModule | null>(null);
+  const modules = $derived<DetailModule[]>(invoiceModule ? [invoiceModule] : []);
+  const transactionModule = $derived(modules.find((module) => module.transaction) ?? null);
+  /** The response carries a detail; invoices and New VerusID add none, as on mobile. */
+  const respondsWithDetails = $derived(!!authDetail || !!updateDetail);
+
   // Approval state.
   let phase = $state<Phase>('review');
   let run = $state<ApprovalRun | null>(null);
@@ -188,9 +198,8 @@
     formatIdentityFullyQualifiedName(provisioningDetail?.requestedFqn) ||
       i18n.t('genericRequest.summary.provisioningRequested')
   );
-  const expiry = $derived(
-    authDetail?.expiryTime ? timeLeft(authDetail.expiryTime, nowSeconds) : null
-  );
+  const expiresAt = $derived(authDetail?.expiryTime ?? invoiceModule?.expiresAt() ?? null);
+  const expiry = $derived(expiresAt ? timeLeft(expiresAt, nowSeconds) : null);
   const expired = $derived(expiry?.kind === 'expired');
   const timeLeftLabel = $derived(formatTimeLeft());
   const failedStage = $derived.by(() => {
@@ -212,7 +221,33 @@
     resetFlowState();
     void hydrateLinkedIdentities();
     if (updateDetail) void hydrateUpdateReview();
+    // Create the modules without reading them back, so this effect does not
+    // depend on the state it sets.
+    const activeSession = session;
+    untrack(() => {
+      if (activeSession.details.some((detail) => detail.type === 'invoice')) {
+        const module = new PayInvoiceModule(moduleContext(activeSession));
+        invoiceModule = module;
+        void module.load();
+      }
+    });
   });
+
+  function moduleContext(activeSession: GenericRequestFlowSession): RequestContext {
+    return {
+      session: activeSession,
+      t: (key, params) => i18n.t(key, params),
+      formatNumber: (value, options) => i18n.formatNumber(value, options),
+      appLabel: () => appLabel,
+      responder: () => responder,
+      coins: () => coins,
+      errorMessage: (error, fallbackKey) => errorMessage(error, fallbackKey),
+    };
+  }
+
+  function moduleFor(step: RequestStepId | null): DetailModule | null {
+    return step ? (modules.find((module) => module.steps.includes(step)) ?? null) : null;
+  }
 
   $effect(() => {
     if (!isOpen || !session) return undefined;
@@ -266,6 +301,7 @@
 
   function resetFlowState() {
     openGeneration += 1;
+    invoiceModule = null;
     linkedIdentities = [];
     identityDetailsByAddress = {};
     loadingLinkedIdentities = false;
@@ -678,7 +714,7 @@
       case 'confirm':
         return !!plan && plan.steps.every((item) => item === 'confirm' || stepReady(item));
       default:
-        return false;
+        return step ? (moduleFor(step)?.ready(step) ?? false) : false;
     }
   }
 
@@ -687,6 +723,8 @@
   }
 
   function stepTitle(step: RequestStepId): string {
+    const module = moduleFor(step);
+    if (module) return module.title(step);
     switch (step) {
       case 'signIn':
         return i18n.t('genericRequest.flow.title.signIn', { app: appLabel });
@@ -697,7 +735,7 @@
       case 'networkFee':
         return i18n.t('genericRequest.flow.title.networkFee');
       default:
-        return session?.responseUris.length || newIdentity
+        return (session?.responseUris.length && respondsWithDetails) || newIdentity
           ? i18n.t('genericRequest.flow.title.confirm')
           : i18n.t('genericRequest.flow.title.confirmNoDelivery');
     }
@@ -721,13 +759,11 @@
     if (!plan || !stepReady(currentStep)) return;
     flowError = '';
     stepIndex = Math.min(stepIndex + 1, plan.steps.length - 1);
-    if (
-      plan.steps[stepIndex] === 'confirm' &&
-      updatePreflight &&
-      Date.now() - preflightAt > PREFLIGHT_REFRESH_MS
-    ) {
+    if (plan.steps[stepIndex] !== 'confirm') return;
+    if (updatePreflight && Date.now() - preflightAt > PREFLIGHT_REFRESH_MS) {
       await hydrateUpdatePreflight(selectedSourceChannelId);
     }
+    await Promise.all(modules.map((module) => module.beforeConfirm?.()));
   }
 
   function goBack() {
@@ -796,6 +832,7 @@
               },
             ];
           }
+          if (detail.type === 'invoice') return invoiceModule?.planLines() ?? [];
           if (detail.type === 'identityUpdate') {
             return [
               {
@@ -813,6 +850,8 @@
   );
 
   function buildDeliveryLine(): { text: string; sends: boolean } {
+    if (!respondsWithDetails && !newIdentity)
+      return { text: i18n.t('genericRequest.flow.delivery.none'), sends: false };
     if (newIdentity)
       return {
         text: i18n.t('genericRequest.flow.delivery.webhook', {
@@ -845,6 +884,12 @@
         working: i18n.t('genericRequest.flow.working.update'),
       };
     }
+    if (invoiceModule) {
+      return {
+        idle: invoiceModule.actionLabel(!!authDetail),
+        working: i18n.t('genericRequest.flow.working.pay'),
+      };
+    }
     return {
       idle: i18n.t('genericRequest.flow.action.signIn'),
       working: i18n.t('genericRequest.flow.working.signIn'),
@@ -860,6 +905,9 @@
       if (openedSite || (!postUri && redirectUri)) {
         return i18n.t(`genericRequest.flow.stage.redirect.${status}`, { app: appLabel });
       }
+    }
+    if (id === 'transaction' && invoiceModule) {
+      return i18n.t(`genericRequest.flow.stage.payment.${status}`);
     }
     return i18n.t(`genericRequest.flow.stage.${id}.${status}`, { app: appLabel });
   }
@@ -893,7 +941,9 @@
         ? i18n.t('genericRequest.flow.outcome.newIdentity', { name: requestedFqn })
         : updateDetail
           ? i18n.t('genericRequest.flow.outcome.updated', { identity: targetName })
-          : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
+          : invoiceModule
+            ? invoiceModule.outcomeTitle()
+            : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
   );
 
   // Approval ----------------------------------------------------------------------
@@ -977,25 +1027,31 @@
       );
     } else {
       const signer = responseSigner();
-      if (!signer) return;
+      if (!signer && respondsWithDetails) return;
       const preflightId = updatePreflight?.preflightId ?? '';
+      const paying = transactionModule;
       run = new ApprovalRun(
         approvalStages({
-          hasTransaction: !!updateDetail,
-          signsResponse: true,
+          hasTransaction: !!updateDetail || !!paying,
+          signsResponse: respondsWithDetails,
           delivers: activeSession.responseUris.length > 0,
         }),
         {
           transaction: async () => {
             // Rust records the broadcast for the open request and reuses it.
-            const result = await genericRequestService.sendGenericIdentityUpdate(
-              activeSession.requestHex,
-              preflightId
-            );
-            txid = result.txid;
+            if (updateDetail) {
+              const result = await genericRequestService.sendGenericIdentityUpdate(
+                activeSession.requestHex,
+                preflightId
+              );
+              txid = result.txid;
+            } else if (paying?.transaction) {
+              txid = await paying.transaction();
+            }
           },
           signing: async () => {
             assertNotExpired();
+            if (!signer) throw new Error('genericRequest.error.complete');
             signed = await genericRequestService.buildAndSignGenericResponse(
               activeSession.requestHex,
               signer
@@ -1062,6 +1118,7 @@
         value: formatIdentityDisplayName(responder),
       });
     }
+    if (invoiceModule && phase === 'done') rows.push(...invoiceModule.receiptFacts());
     if (txid) rows.push({ label: i18n.t('genericRequest.complete.txidLabel'), content: txidValue });
     return rows;
   });
@@ -1094,9 +1151,12 @@
     },
   ]);
 
-  const confirmFacts = $derived<RequestFact[]>(
-    updatePreflight ? [{ label: i18n.t('genericRequest.flow.networkFee'), value: feeLabel }] : []
-  );
+  const confirmFacts = $derived<RequestFact[]>([
+    ...(updatePreflight
+      ? [{ label: i18n.t('genericRequest.flow.networkFee'), value: feeLabel }]
+      : []),
+    ...modules.flatMap((module) => module.confirmFacts()),
+  ]);
 
   function constraintLabel(type: number): string {
     if (type === AUTH_REQUIRED_ID) return i18n.t('genericRequest.auth.requiredId');
@@ -1197,6 +1257,8 @@
       networkLabel={(source) => systemDisplayLabel(source.systemId)}
       onSelect={(channelId) => void chooseFundingSource(channelId)}
     />
+  {:else if step === 'payInvoice' && invoiceModule}
+    <PayInvoiceStep module={invoiceModule} networkLabel={systemDisplayLabel} />
   {:else if step === 'confirm'}
     <ConfirmPlan lines={planLines} facts={confirmFacts} delivery={deliveryView} />
   {/if}

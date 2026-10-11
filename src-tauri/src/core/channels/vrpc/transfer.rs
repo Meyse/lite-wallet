@@ -509,6 +509,7 @@ fn derive_amount_plan(
     submitted_sat: i64,
     available_sat: i64,
     route_context: &TransferRouteContext,
+    exact_amount: bool,
 ) -> Result<TransferAmountPlan, WalletError> {
     let (send_value_sat, amount_was_adjusted) = if route_context.source_is_native {
         resolve_send_value_for_native_fee(
@@ -519,6 +520,11 @@ fn derive_amount_plan(
     } else {
         (submitted_sat, false)
     };
+    // An invoice amount is never lowered to cover the fee; the fee is added
+    // to it, and too little balance fails instead (Verus Mobile STRICT_AMOUNT).
+    if exact_amount && amount_was_adjusted {
+        return Err(WalletError::InsufficientFunds);
+    }
 
     Ok(TransferAmountPlan {
         send_value_sat,
@@ -609,14 +615,68 @@ pub async fn preflight_transfer(
     selected_source_currency_id: &str,
     provider: &VrpcProvider,
 ) -> Result<VrpcTransferPreflightResult, WalletError> {
+    preflight_transfer_with_amount_rule(
+        params,
+        preflight_store,
+        account_id,
+        session_id,
+        from_address,
+        channel_id,
+        system_id,
+        selected_source_currency_id,
+        provider,
+        false,
+    )
+    .await
+}
+
+/// A transfer that sends exactly `params.amount`: the fee is added on top,
+/// and too little balance fails instead of lowering the amount.
+#[allow(clippy::too_many_arguments)]
+pub async fn preflight_exact_transfer(
+    params: VrpcTransferPreflightParams,
+    preflight_store: &PreflightStore,
+    account_id: &str,
+    session_id: &str,
+    from_address: &str,
+    channel_id: &str,
+    system_id: &str,
+    selected_source_currency_id: &str,
+    provider: &VrpcProvider,
+) -> Result<VrpcTransferPreflightResult, WalletError> {
+    preflight_transfer_with_amount_rule(
+        params,
+        preflight_store,
+        account_id,
+        session_id,
+        from_address,
+        channel_id,
+        system_id,
+        selected_source_currency_id,
+        provider,
+        true,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn preflight_transfer_with_amount_rule(
+    params: VrpcTransferPreflightParams,
+    preflight_store: &PreflightStore,
+    account_id: &str,
+    session_id: &str,
+    from_address: &str,
+    channel_id: &str,
+    system_id: &str,
+    selected_source_currency_id: &str,
+    provider: &VrpcProvider,
+    exact_amount: bool,
+) -> Result<VrpcTransferPreflightResult, WalletError> {
     let submitted_sat = parse_positive_amount_sat(&params.amount)?;
     let (normalized_destination, mut warnings) =
         normalize_destination(provider, &params.destination).await?;
-    let available_utxos = parse_funding_utxos(
-        &provider
-            .getaddressutxos(&[from_address.to_string()])
-            .await?,
-    );
+    let available_utxos =
+        parse_funding_utxos(&provider.funding_utxos(&[from_address.to_string()]).await?);
     if available_utxos.is_empty() {
         return Err(WalletError::InsufficientFunds);
     }
@@ -634,6 +694,7 @@ pub async fn preflight_transfer(
         submitted_sat,
         total_available_satoshis(&available_utxos),
         &route_context,
+        exact_amount,
     )?;
     let send_amount = amount_plan.send_value_sat as f64 / SATOSHIS_PER_COIN as f64;
     let output = build_sendcurrency_output(
@@ -737,6 +798,31 @@ mod tests {
             vdxf_tag: None,
             memo: None,
         }
+    }
+
+    #[test]
+    fn an_exact_amount_fails_instead_of_paying_less() {
+        let context = TransferRouteContext {
+            source_is_native: true,
+            source_currency_id: "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq".to_string(),
+            effective_fee_currency_id: None,
+            transfer_fee_sat: 0,
+            parent_fee_coin: 0.0001,
+            parent_fee_sat: 10_000,
+            native_required_fee_sat: 10_000,
+        };
+        // 1 coin requested, 1 coin available: the fee does not fit on top.
+        assert!(
+            derive_amount_plan(100_000_000, 100_000_000, &context, false)
+                .unwrap()
+                .amount_adjusted
+                .is_some()
+        );
+        assert!(matches!(
+            derive_amount_plan(100_000_000, 100_000_000, &context, true),
+            Err(WalletError::InsufficientFunds)
+        ));
+        assert!(derive_amount_plan(100_000_000, 100_010_000, &context, true).is_ok());
     }
 
     #[test]

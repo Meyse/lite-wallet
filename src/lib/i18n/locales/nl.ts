@@ -299,6 +299,45 @@ export const nl: Record<string, string> = {
   'genericRequest.flow.noChanges': 'Deze update wijzigt niets wat de wallet kan tonen.',
   'genericRequest.flow.secondLinkIgnored':
     'Rond het huidige verzoek af en open daarna de nieuwe link opnieuw.',
+  'genericRequest.flow.step.payInvoice': 'Factuur betalen',
+  'genericRequest.flow.title.payInvoice': '{app} betalen',
+  'genericRequest.flow.plan.pay': '{amount} betalen aan {to}',
+  'genericRequest.flow.action.pay': '{amount} betalen',
+  'genericRequest.flow.action.signInAndPay': 'Inloggen en betalen',
+  'genericRequest.flow.working.pay': 'Betaling versturen…',
+  'genericRequest.flow.stage.payment.pending': 'Betaling versturen',
+  'genericRequest.flow.stage.payment.running': 'Betaling versturen…',
+  'genericRequest.flow.stage.payment.done': 'Betaling verstuurd',
+  'genericRequest.flow.stage.payment.failed': 'Betaling niet verstuurd',
+  'genericRequest.flow.outcome.paid': 'Je hebt {amount} betaald aan {to}',
+  'genericRequest.flow.invoice.amount': 'Bedrag',
+  'genericRequest.flow.invoice.to': 'Aan',
+  'genericRequest.flow.invoice.amountInput': 'Bedrag in {currency}',
+  'genericRequest.flow.invoice.payFrom': 'Betalen vanaf',
+  'genericRequest.flow.invoice.noSource': 'Geen adres in deze wallet heeft {currency}.',
+  'genericRequest.flow.invoice.total': 'Totaal',
+  'genericRequest.flow.invoice.totalSplit': '{amount} en {fee}',
+  'genericRequest.flow.invoice.paidTo': 'Betaald aan',
+  'genericRequest.flow.invoice.loading': 'Factuur lezen…',
+  'genericRequest.flow.invoice.error.review': 'Deze factuur kon niet worden gelezen.',
+  'genericRequest.flow.invoice.error.funds':
+    'Niet genoeg {currency} voor deze factuur en de kosten. Een betaling die nog niet is bevestigd, kan een deel van je saldo ongeveer een minuut vasthouden.',
+  'genericRequest.flow.invoice.error.preflight': 'Deze betaling kon niet worden voorbereid.',
+  'genericRequest.rejected.invoiceTagged':
+    'Deze factuur vraagt een betaling met tag, en die verstuurt deze wallet niet.',
+  'genericRequest.rejected.invoiceUnpayable':
+    'Deze factuur kan niet op de Verus-chain worden betaald.',
+  'genericRequest.rejected.invoicePrivate':
+    'Deze factuur vraagt een privébetaling, en die verstuurt deze wallet niet.',
+  'genericRequest.rejected.invoiceNoDestination':
+    'Deze factuur noemt geen adres om aan te betalen.',
+  'genericRequest.rejected.invoiceCurrency':
+    'De valuta van deze factuur is onbekend op dit netwerk.',
+  'genericRequest.rejected.invoiceCurrencyMissing':
+    'Voeg de valuta van deze factuur toe aan je wallet om te betalen.',
+  'genericRequest.rejected.invoicePreconvertLaunched':
+    'Deze factuur zet vooraf om naar een valuta die al gelanceerd is.',
+  'genericRequest.rejected.alreadyPaid': 'Je hebt deze factuur al betaald.',
   'genericRequest.rejected.unknownDetail':
     'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
   'genericRequest.rejected.detailOrder':

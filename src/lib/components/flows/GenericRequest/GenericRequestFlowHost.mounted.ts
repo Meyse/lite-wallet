@@ -7,6 +7,7 @@ import type {
   AuthenticationDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
+  InvoiceDetailSession,
 } from '$lib/genericRequest/session';
 import GenericRequestFlowHost from './GenericRequestFlowHost.svelte';
 
@@ -170,6 +171,29 @@ describe('request flow approval', () => {
           return { txid: TXID };
         case 'build_and_sign_generic_response':
           return { signedResponseHex: '0001', sessionId: 'session-1' };
+        case 'review_generic_invoice':
+          return {
+            amount: '0.01000000',
+            currencyId: TESTNET,
+            currencyName: 'VRSCTEST',
+            destination: 'iGHXn8mvh9kutBNotJ2LCNz3zDxvemEb2i',
+            destinationName: 'TestBob.antafri.VRSCTEST@',
+            expiryHeight: 1270600,
+            blocksLeft: 50,
+            alreadyPaid: false,
+          };
+        case 'preflight_generic_invoice':
+          return {
+            preflightId: 'invoice-preflight',
+            amount: '0.01000000',
+            fee: '0.00010000',
+            currencyId: TESTNET,
+            feeCurrencyId: TESTNET,
+            fromAddress: ADDRESS,
+            toAddress: 'iGHXn8mvh9kutBNotJ2LCNz3zDxvemEb2i',
+          };
+        case 'send_generic_invoice_payment':
+          return { txid: TXID };
         case 'post_generic_response_callback':
           if (deliveryFailures > 0) {
             deliveryFailures -= 1;
@@ -245,5 +269,36 @@ describe('request flow approval', () => {
     ]) {
       expect(commandsCalled(command)).toBe(0);
     }
+  });
+
+  it('pays an invoice once, with the fee on top, and sends no response for it alone', async () => {
+    const invoice: InvoiceDetailSession = { index: 0, type: 'invoice', acceptsAnyAmount: false };
+    component = mount(GenericRequestFlowHost, {
+      target: document.body,
+      props: {
+        isOpen: true,
+        session: { ...session, signer: { ...session.signer }, details: [invoice] },
+      },
+    });
+    await settle();
+
+    expect(document.body.textContent).toContain('0.01 VRSCTEST');
+    expect(button('Continue').disabled).toBe(true);
+    [...document.querySelectorAll('button')]
+      .find((element) => element.textContent?.includes('Choose a source'))
+      ?.click();
+    await settle();
+    (document.querySelector('[role="dialog"] li button') as HTMLButtonElement).click();
+    await settle();
+    expect(document.body.textContent).toContain('0.0101 VRSCTEST');
+    await press('Continue');
+    expect(commandsCalled('send_generic_invoice_payment')).toBe(0);
+
+    await press('Pay 0.01 VRSCTEST');
+    expect(document.body.textContent).toContain('You paid 0.01 VRSCTEST');
+    expect(commandsCalled('send_generic_invoice_payment')).toBe(1);
+    // An invoice alone adds no response detail, so nothing is signed or sent.
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
+    expect(commandsCalled('post_generic_response_callback')).toBe(0);
   });
 });

@@ -581,6 +581,45 @@ export const de: Record<string, string> = {
   'genericRequest.flow.noChanges': 'Dieses Update ändert nichts, was die Wallet anzeigen kann.',
   'genericRequest.flow.secondLinkIgnored':
     'Schließe die aktuelle Anfrage ab und öffne den neuen Link dann erneut.',
+  'genericRequest.flow.step.payInvoice': 'Rechnung bezahlen',
+  'genericRequest.flow.title.payInvoice': '{app} bezahlen',
+  'genericRequest.flow.plan.pay': '{amount} an {to} zahlen',
+  'genericRequest.flow.action.pay': '{amount} zahlen',
+  'genericRequest.flow.action.signInAndPay': 'Anmelden und zahlen',
+  'genericRequest.flow.working.pay': 'Zahlung wird gesendet…',
+  'genericRequest.flow.stage.payment.pending': 'Zahlung senden',
+  'genericRequest.flow.stage.payment.running': 'Zahlung wird gesendet…',
+  'genericRequest.flow.stage.payment.done': 'Zahlung gesendet',
+  'genericRequest.flow.stage.payment.failed': 'Zahlung nicht gesendet',
+  'genericRequest.flow.outcome.paid': 'Du hast {amount} an {to} gezahlt',
+  'genericRequest.flow.invoice.amount': 'Betrag',
+  'genericRequest.flow.invoice.to': 'An',
+  'genericRequest.flow.invoice.amountInput': 'Betrag in {currency}',
+  'genericRequest.flow.invoice.payFrom': 'Zahlen von',
+  'genericRequest.flow.invoice.noSource': 'Keine Adresse in dieser Wallet hat {currency}.',
+  'genericRequest.flow.invoice.total': 'Gesamt',
+  'genericRequest.flow.invoice.totalSplit': '{amount} und {fee}',
+  'genericRequest.flow.invoice.paidTo': 'Gezahlt an',
+  'genericRequest.flow.invoice.loading': 'Rechnung wird gelesen…',
+  'genericRequest.flow.invoice.error.review': 'Diese Rechnung konnte nicht gelesen werden.',
+  'genericRequest.flow.invoice.error.funds':
+    'Nicht genug {currency} für diese Rechnung und die Gebühr. Eine noch nicht bestätigte Zahlung kann einen Teil deines Guthabens etwa eine Minute lang binden.',
+  'genericRequest.flow.invoice.error.preflight': 'Diese Zahlung konnte nicht vorbereitet werden.',
+  'genericRequest.rejected.invoiceTagged':
+    'Diese Rechnung verlangt eine Zahlung mit Tag, die diese Wallet nicht sendet.',
+  'genericRequest.rejected.invoiceUnpayable':
+    'Diese Rechnung kann nicht auf der Verus-Chain bezahlt werden.',
+  'genericRequest.rejected.invoicePrivate':
+    'Diese Rechnung verlangt eine private Zahlung, die diese Wallet nicht sendet.',
+  'genericRequest.rejected.invoiceNoDestination':
+    'Diese Rechnung nennt keine Adresse für die Zahlung.',
+  'genericRequest.rejected.invoiceCurrency':
+    'Die Währung dieser Rechnung ist in diesem Netzwerk unbekannt.',
+  'genericRequest.rejected.invoiceCurrencyMissing':
+    'Füge die Währung dieser Rechnung deiner Wallet hinzu, um sie zu bezahlen.',
+  'genericRequest.rejected.invoicePreconvertLaunched':
+    'Diese Rechnung konvertiert vorab in eine Währung, die bereits gestartet ist.',
+  'genericRequest.rejected.alreadyPaid': 'Du hast diese Rechnung bereits bezahlt.',
   'genericRequest.rejected.unknownDetail':
     'Diese Anfrage enthält einen Teil, den diese Wallet nicht erkennt.',
   'genericRequest.rejected.detailOrder':

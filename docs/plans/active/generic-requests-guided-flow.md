@@ -5,7 +5,7 @@ last_reviewed: 2026-10-10
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phase 1 in progress)
+- Status: active (phase 0 done; phases 1 and 2 in progress)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-10
 
@@ -231,6 +231,36 @@ guided flow defined by the
     declined, and expired.
 
 ### Phase 2: pay invoice
+
+**Progress on 2026-10-11.**
+
+- **Done:**
+  - Rust reads the invoice from the verified request: amount, destination,
+    currency, expiry, and flags. It refuses tagged invoices, private-address
+    destinations, invoices that exclude the Verus chain, missing destinations,
+    unknown currencies, expired invoices, preconvert invoices after launch, and
+    invoices for the other network. Burn invoices and preconvert before launch
+    wait for the conversion release.
+  - The exact-amount preflight adds the fee on top and fails rather than
+    lowering the amount. The payment command checks that the prepared
+    transaction pays the invoice's currency, amount, and destination, and pays
+    one request once per wallet session.
+  - The module contract: `modules/types.ts`, with Pay invoice as the first
+    module. Sign in plus invoice, invoice alone (no response, as on mobile), and
+    invoices that accept any amount.
+  - **Found and fixed (all sends):** funding ignored outputs that an unconfirmed
+    transaction already spends. A second identical payment before the first
+    confirmed produced the same transaction ID, and the wallet reported a
+    payment it did not make. `funding_utxos` now skips mempool spends.
+- **Verified on testnet, 2026-10-11:** sign in plus a 0.01 VRSCTEST invoice to
+  `TestBob.antafri@`
+  (`0600eba8a139873d6c3dba0a2dd6ebb8589ffb44a5ac9386102c123b776773f7`, Deep Link
+  Sim received the response), an invoice alone to an R-address
+  (`b639110edeb442d72249b8629a485faf2fb63b83a848168a84e6433d0a1a5d2c`), and two
+  identical invoices paid back to back as two transactions (`652d7aa0…db35a9`,
+  `57580d48…dfd02b`). An invoice opened while the wallet's only output was
+  unconfirmed showed the funds message and paid nothing.
+- **Not done:** conversion (second release), Help, and the spec status.
 
 1. **Rust.**
    - Re-check the invoice fields from the verified bytes.

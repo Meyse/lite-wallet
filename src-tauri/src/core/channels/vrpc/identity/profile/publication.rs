@@ -264,7 +264,7 @@ pub(crate) async fn prepare(
     let mut quoted = quote(&request, &context, private_key, provider).await?;
     let available = total_satoshis(&parse_funding_utxos(
         &provider
-            .getaddressutxos(&[access.vrsc_address.clone()])
+            .funding_utxos(&[access.vrsc_address.clone()])
             .await?,
     ));
     let mut optimization = None;

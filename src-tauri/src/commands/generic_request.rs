@@ -56,9 +56,10 @@ use crate::types::{
     BuildAndSignGenericResponseResult, GenericIdentityAuthorities,
     GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
     GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
-    GenericIdentityUpdateReviewResult, GenericRequestTransactionResult, IdentityOperation,
-    IdentityWarning, LinkReadyProvisioningJobResult, LinkedIdentity, OpenedGenericRequest,
-    ProvisioningJobRecord, WalletError,
+    GenericIdentityUpdateReviewResult, GenericInvoicePreflightResult, GenericInvoiceReview,
+    GenericRequestTransactionResult, IdentityOperation, IdentityWarning,
+    LinkReadyProvisioningJobResult, LinkedIdentity, OpenedGenericRequest, ProvisioningJobRecord,
+    WalletError,
 };
 use uuid::Uuid;
 
@@ -1008,8 +1009,9 @@ pub fn close_generic_request(request_store: State<'_, GenericRequestStore>) {
     request_store.close();
 }
 
-/// Rejects a request whose sign in has passed its expiry time, or whose
-/// invoice or identity update has passed its expiry height.
+/// Rejects a request whose sign in has passed its expiry time, whose invoice
+/// or identity update has passed its expiry height, or whose invoice desktop
+/// cannot pay.
 async fn check_request_expiry(
     parsed: &ParsedRequest,
     kinds: &[DetailKind],
@@ -1029,6 +1031,11 @@ async fn check_request_expiry(
             DetailKind::IdentityUpdate => {
                 let update = details::parse_identity_update(&detail.data, parsed.is_testnet)?;
                 expiry_height = update.expiry_height.or(expiry_height);
+            }
+            DetailKind::Invoice => {
+                let invoice = details::parse_invoice(&detail.data)?;
+                acceptance::check_invoice(&invoice, parsed.is_testnet)?;
+                expiry_height = invoice.expiry_height.or(expiry_height);
             }
             _ => {}
         }
@@ -1912,7 +1919,7 @@ pub async fn preflight_generic_identity_update(
 
     let funding_candidates = parse_funding_utxos(
         &provider
-            .getaddressutxos(&[resolved.address.clone()])
+            .funding_utxos(&[resolved.address.clone()])
             .await
             .map_err(|_| WalletError::IdentityBuildFailed)?,
     );
@@ -2087,6 +2094,295 @@ pub async fn send_generic_identity_update(
     .await?;
     request_store.record_broadcast(&context.session_id, &open.parsed.request_hash, &result.txid);
     Ok(GenericRequestTransactionResult { txid: result.txid })
+}
+
+// --- Pay invoice ----------------------------------------------------------------
+
+fn open_invoice(open: &OpenRequest) -> Result<details::InvoiceRequest, WalletError> {
+    let detail = open
+        .parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::Invoice)
+        .map(|(detail, _)| detail)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let invoice = details::parse_invoice(&detail.data)?;
+    acceptance::check_invoice(&invoice, open.parsed.is_testnet)?;
+    Ok(invoice)
+}
+
+/// The invoice rules that need the chain: expiry, a known currency, and the
+/// preconvert window. Returns the currency's `getcurrency` result and the
+/// chain height.
+async fn check_invoice_on_chain(
+    invoice: &details::InvoiceRequest,
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    guard: &crate::core::auth::SessionSubmissionGuard,
+) -> Result<(Value, u64), WalletError> {
+    let info = guard
+        .run(provider.getinfo())
+        .await
+        .map_err(map_generic_session_change)?;
+    let height = u64::from(extract_chain_height(&info)?);
+    if invoice.expiry_height.is_some_and(|expiry| expiry < height) {
+        return Err(acceptance::Rejection::Expired.into());
+    }
+    let currency = guard
+        .run(provider.getcurrency(&invoice.requested_currency_id))
+        .await
+        .map_err(|error| match error {
+            WalletError::WalletLocked | WalletError::WalletSessionChanged => {
+                WalletError::WalletSessionChanged
+            }
+            _ => acceptance::Rejection::InvoiceCurrency.into(),
+        })?;
+    if invoice.has(details::INVOICE_IS_PRECONVERT) {
+        let start_block = currency
+            .get("startblock")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        return Err(if start_block <= height {
+            acceptance::Rejection::InvoicePreconvertLaunched.into()
+        } else {
+            acceptance::Rejection::UnsupportedDetail.into()
+        });
+    }
+    Ok((currency, height))
+}
+
+fn invoice_destination(invoice: &details::InvoiceRequest) -> Result<&str, WalletError> {
+    match &invoice.destination {
+        Some(details::InvoiceDestination::Transparent(address)) => Ok(address),
+        _ => Err(acceptance::Rejection::InvoiceNoDestination.into()),
+    }
+}
+
+/// What the invoice asks for, as Rust will pay it.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_generic_invoice(
+    request_hex: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericInvoiceReview, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    let invoice = open_invoice(&open)?;
+    let provider = vrpc_provider_pool.for_system(
+        context.wallet_network,
+        names::root_system_id(open.parsed.is_testnet),
+    );
+    let guard = context.session_submission_guard();
+    let (currency, height) = check_invoice_on_chain(&invoice, provider, &guard).await?;
+    let destination = invoice_destination(&invoice)?.to_string();
+    let destination_name = if names::decode_i_address(&destination).is_some() {
+        guard
+            .run(provider.getidentity(&destination))
+            .await
+            .ok()
+            .and_then(|identity| {
+                first_non_empty_field(&identity, &["fullyqualifiedname", "friendlyname"])
+            })
+    } else {
+        None
+    };
+    Ok(GenericInvoiceReview {
+        amount: invoice
+            .amount
+            .map(|amount| vrpc::sat_to_decimal_string(amount as i64)),
+        currency_id: invoice.requested_currency_id.clone(),
+        currency_name: first_non_empty_field(&currency, &["fullyqualifiedname", "name"]),
+        destination,
+        destination_name,
+        expiry_height: invoice.expiry_height,
+        blocks_left: invoice
+            .expiry_height
+            .map(|expiry| expiry.saturating_sub(height)),
+        already_paid: request_store.is_paid(&context.session_id, &open.parsed.request_hash),
+    })
+}
+
+/// Prepares the payment from the chosen source. The amount is exactly the
+/// invoice's; the fee is added on top. An invoice that accepts any amount
+/// takes `amount` from the user.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn preflight_generic_invoice(
+    request_hex: String,
+    source_channel_id: String,
+    amount: Option<String>,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    coin_registry: State<'_, Arc<crate::core::CoinRegistry>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericInvoicePreflightResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    if request_store.is_paid(&context.session_id, &open.parsed.request_hash) {
+        return Err(acceptance::Rejection::AlreadyPaid.into());
+    }
+    let invoice = open_invoice(&open)?;
+    let network = context.wallet_network;
+    let root_system = names::root_system_id(open.parsed.is_testnet);
+    let provider = vrpc_provider_pool.for_system(network, root_system);
+    let guard = context.session_submission_guard();
+    check_invoice_on_chain(&invoice, provider, &guard).await?;
+    let destination = invoice_destination(&invoice)?.to_string();
+
+    let amount_sat = match invoice.amount {
+        Some(amount) => i64::try_from(amount).map_err(|_| WalletError::InvalidAmount)?,
+        None => vrpc::parse_positive_amount_sat(amount.as_deref().unwrap_or_default())?,
+    };
+
+    // Payments leave from the wallet's own address on the Verus chain, never
+    // from a watched address.
+    let resolved = vrpc::parse_vrpc_channel_id(&source_channel_id, Some(&context.vrsc_address))?;
+    if !resolved.address.eq_ignore_ascii_case(&context.vrsc_address)
+        || !resolved.system_id.eq_ignore_ascii_case(root_system)
+    {
+        return Err(WalletError::InvalidAddress);
+    }
+    let coin = coin_registry
+        .get_all()
+        .into_iter()
+        .find(|coin| {
+            coin.is_testnet == open.parsed.is_testnet
+                && coin
+                    .currency_id
+                    .eq_ignore_ascii_case(&invoice.requested_currency_id)
+        })
+        .ok_or(WalletError::GenericRequestRejected(
+            "invoiceCurrencyMissing".to_string(),
+        ))?;
+
+    let params = crate::types::VrpcTransferPreflightParams {
+        coin_id: coin.id.clone(),
+        channel_id: resolved.canonical_channel_id(),
+        source_address: None,
+        destination: destination.clone(),
+        amount: vrpc::sat_to_decimal_string(amount_sat),
+        convert_to: None,
+        export_to: None,
+        via: None,
+        fee_currency: None,
+        fee_satoshis: None,
+        preconvert: None,
+        map_to: None,
+        vdxf_tag: None,
+        memo: None,
+    };
+    let result = guard
+        .run(vrpc::preflight_exact_transfer(
+            params,
+            preflight_store.inner(),
+            &context.account_id,
+            &context.session_id,
+            &context.vrsc_address,
+            &resolved.canonical_channel_id(),
+            &resolved.system_id,
+            &coin.currency_id,
+            provider,
+        ))
+        .await
+        .map_err(map_generic_session_change)?;
+    Ok(GenericInvoicePreflightResult {
+        preflight_id: result.preflight_id,
+        amount: result.value,
+        fee: result.fee,
+        currency_id: invoice.requested_currency_id,
+        fee_currency_id: root_system.to_string(),
+        from_address: result.from_address,
+        to_address: result.to_address,
+    })
+}
+
+/// Pays the open request's invoice after Approval, once per request in this
+/// session.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn send_generic_invoice_payment(
+    request_hex: String,
+    preflight_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    preflight_store: State<'_, PreflightStore>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericRequestTransactionResult, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    if let Some(txid) = open.broadcast_txid.clone() {
+        return Ok(GenericRequestTransactionResult { txid });
+    }
+    if request_store.is_paid(&context.session_id, &open.parsed.request_hash) {
+        return Err(acceptance::Rejection::AlreadyPaid.into());
+    }
+    let invoice = open_invoice(&open)?;
+    let record = preflight_store
+        .get(&preflight_id, &context.session_id)
+        .ok_or(WalletError::InvalidPreflight)?;
+    let payload: vrpc::VrpcPreflightPayload =
+        serde_json::from_value(record.payload).map_err(|_| WalletError::InvalidPreflight)?;
+    ensure_payment_matches_invoice(
+        &payload,
+        &invoice,
+        names::root_system_id(open.parsed.is_testnet),
+    )?;
+
+    let result = vrpc::send(
+        &preflight_id,
+        preflight_store.inner(),
+        session_manager.inner(),
+        vrpc_provider_pool.inner(),
+    )
+    .await?;
+    request_store.record_payment(&context.session_id, &open.parsed.request_hash);
+    request_store.record_broadcast(&context.session_id, &open.parsed.request_hash, &result.txid);
+    Ok(GenericRequestTransactionResult { txid: result.txid })
+}
+
+/// The prepared transaction pays the invoice's currency, amount, and
+/// destination, and nothing else.
+fn ensure_payment_matches_invoice(
+    payload: &vrpc::VrpcPreflightPayload,
+    invoice: &details::InvoiceRequest,
+    root_system_id: &str,
+) -> Result<(), WalletError> {
+    use crate::core::channels::vrpc::intent::VrpcOutputIntent;
+    let wanted_destination = invoice_destination(invoice)?;
+    let (destination, amount, currency) = match &payload.intent {
+        VrpcOutputIntent::NativePayment {
+            destination,
+            amount_sats,
+        } => (destination, *amount_sats, root_system_id.to_string()),
+        VrpcOutputIntent::TokenPayment {
+            destination,
+            currency_id,
+            amount_sats,
+            ..
+        } => {
+            let hash: [u8; 20] = currency_id
+                .as_slice()
+                .try_into()
+                .map_err(|_| WalletError::InvalidPreflight)?;
+            (destination, *amount_sats, names::i_address(&hash))
+        }
+        VrpcOutputIntent::ReserveTransfer { .. } => return Err(WalletError::InvalidPreflight),
+    };
+    let (version, hash) =
+        names::decode_base58_check(wanted_destination).ok_or(WalletError::InvalidPreflight)?;
+    let wanted_type = if version == names::I_ADDRESS_VERSION {
+        4
+    } else {
+        2
+    };
+    if destination.destination_type != wanted_type
+        || destination.destination_bytes != hash
+        || !currency.eq_ignore_ascii_case(&invoice.requested_currency_id)
+        || invoice.amount.is_some_and(|wanted| wanted != amount)
+    {
+        return Err(WalletError::InvalidPreflight);
+    }
+    Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]

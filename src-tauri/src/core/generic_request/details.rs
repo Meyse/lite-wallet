@@ -540,3 +540,127 @@ mod tests {
         assert!(requested_identity_json(&update, &ui_json(extra_value)).is_err());
     }
 }
+
+// --- Pay invoice -------------------------------------------------------------
+
+pub(crate) const INVOICE_ACCEPTS_CONVERSION: u64 = 2;
+pub(crate) const INVOICE_ACCEPTS_NON_VERUS_SYSTEMS: u64 = 4;
+pub(crate) const INVOICE_EXPIRES: u64 = 8;
+pub(crate) const INVOICE_ACCEPTS_ANY_DESTINATION: u64 = 16;
+pub(crate) const INVOICE_ACCEPTS_ANY_AMOUNT: u64 = 32;
+pub(crate) const INVOICE_EXCLUDES_VERUS_BLOCKCHAIN: u64 = 64;
+pub(crate) const INVOICE_IS_TESTNET: u64 = 128;
+pub(crate) const INVOICE_IS_PRECONVERT: u64 = 256;
+pub(crate) const INVOICE_DESTINATION_IS_SAPLING: u64 = 512;
+pub(crate) const INVOICE_IS_TAGGED: u64 = 1024;
+pub(crate) const INVOICE_IS_BURN_CHANGE_PRICE: u64 = 2048;
+
+const DEST_PKH: u8 = 2;
+const DEST_ID: u8 = 4;
+const FLAG_DEST_AUX: u8 = 64;
+const FLAG_DEST_GATEWAY: u8 = 128;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InvoiceDestination {
+    /// An R-address or a VerusID, as a transparent payment can reach it.
+    Transparent(String),
+    /// A private (Sapling) address.
+    Private(String),
+    /// A destination type the wallet does not pay to (gateways, keys, raw).
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InvoiceRequest {
+    pub flags: u64,
+    /// In satoshis. `None` when the invoice accepts any amount.
+    pub amount: Option<u64>,
+    /// `None` when the invoice accepts any destination.
+    pub destination: Option<InvoiceDestination>,
+    pub requested_currency_id: String,
+    pub expiry_height: Option<u64>,
+    pub accepted_systems: Vec<String>,
+}
+
+impl InvoiceRequest {
+    pub(crate) fn has(&self, flag: u64) -> bool {
+        self.flags & flag != 0
+    }
+}
+
+fn read_transfer_destination(reader: &mut Reader<'_>) -> Result<InvoiceDestination, WalletError> {
+    let kind = reader.u8()?;
+    let bytes = reader.var_slice()?;
+    let mut supported = true;
+    if kind & FLAG_DEST_GATEWAY != 0 {
+        reader.hash160()?;
+        reader.hash160()?;
+        reader.i64_le()?;
+        supported = false;
+    }
+    if kind & FLAG_DEST_AUX != 0 {
+        let count = reader.count()?;
+        for _ in 0..count {
+            reader.var_slice()?;
+        }
+        supported = false;
+    }
+    let hash: Option<[u8; 20]> = bytes.try_into().ok();
+    Ok(match (supported, kind, hash) {
+        (true, DEST_PKH, Some(hash)) => {
+            InvoiceDestination::Transparent(base58_check(R_ADDRESS_VERSION, &hash))
+        }
+        (true, DEST_ID, Some(hash)) => InvoiceDestination::Transparent(i_address(&hash)),
+        _ => InvoiceDestination::Unsupported,
+    })
+}
+
+/// `VerusPayInvoiceDetails` at VerusPay version 4, which generic requests use:
+/// numbers are CompactSize values.
+pub(crate) fn parse_invoice(data: &[u8]) -> Result<InvoiceRequest, WalletError> {
+    let mut reader = Reader::new(data);
+    let flags = reader.compact_size()?;
+    let amount = if flags & INVOICE_ACCEPTS_ANY_AMOUNT == 0 {
+        Some(reader.compact_size()?)
+    } else {
+        None
+    };
+    let destination = if flags & INVOICE_ACCEPTS_ANY_DESTINATION == 0 {
+        Some(if flags & INVOICE_DESTINATION_IS_SAPLING != 0 {
+            let raw: [u8; 43] = reader.take(43)?.try_into().map_err(|_| invalid())?;
+            InvoiceDestination::Private(sapling_address(&raw).ok_or_else(invalid)?)
+        } else {
+            read_transfer_destination(&mut reader)?
+        })
+    } else {
+        None
+    };
+    let requested_currency_id = i_address(&reader.hash160()?);
+    let expiry_height = if flags & INVOICE_EXPIRES != 0 {
+        Some(reader.compact_size()?)
+    } else {
+        None
+    };
+    if flags & INVOICE_ACCEPTS_CONVERSION != 0 {
+        let _max_estimated_slippage = reader.compact_size()?;
+    }
+    let mut accepted_systems = Vec::new();
+    if flags & INVOICE_ACCEPTS_NON_VERUS_SYSTEMS != 0 {
+        let count = reader.count()?;
+        for _ in 0..count {
+            accepted_systems.push(i_address(&reader.hash160()?));
+        }
+    }
+    if flags & INVOICE_IS_TAGGED != 0 {
+        CompactAddress::read(&mut reader)?;
+    }
+    reader.finish()?;
+    Ok(InvoiceRequest {
+        flags,
+        amount,
+        destination,
+        requested_currency_id,
+        expiry_height,
+        accepted_systems,
+    })
+}

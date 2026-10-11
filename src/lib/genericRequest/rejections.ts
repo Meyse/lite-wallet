@@ -21,6 +21,14 @@ export const REJECTION_CODES = [
   'unsupportedDetail',
   'responseAddress',
   'insecureDelivery',
+  'invoiceTagged',
+  'invoiceUnpayable',
+  'invoicePrivate',
+  'invoiceNoDestination',
+  'invoiceCurrency',
+  'invoiceCurrencyMissing',
+  'invoicePreconvertLaunched',
+  'alreadyPaid',
 ] as const;
 
 export type RejectionCode = (typeof REJECTION_CODES)[number];

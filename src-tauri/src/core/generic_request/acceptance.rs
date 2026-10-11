@@ -9,10 +9,6 @@ use super::details::DetailKind;
 use super::names::root_system_id;
 use super::request::{ParsedRequest, FLAG_DETAILS_ARE_ENCRYPTED};
 
-/// Mobile refuses deep links of this length or longer
-/// (`utils/constants/deeplink.js`).
-pub(crate) const MAX_LINK_LENGTH: usize = 2046;
-
 /// Why a request is refused. The code reaches the UI, which shows translated
 /// copy for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,13 +26,27 @@ pub(crate) enum Rejection {
     Network,
     /// The details are encrypted, so the wallet cannot read them.
     EncryptedDetails,
-    TooLong,
     Expired,
     /// The request names an app identity, and its signer is not a
     /// single-signature VerusID that this wallet controls.
     DelegatedSigner,
     /// The requester's signature does not verify.
     Signature,
+    /// A detail type that desktop cannot answer yet.
+    UnsupportedDetail,
+    InvoiceTagged,
+    /// The invoice can be paid only outside the Verus chain.
+    InvoiceUnpayable,
+    /// The invoice pays a private address.
+    InvoicePrivate,
+    /// The invoice names no address the wallet can pay.
+    InvoiceNoDestination,
+    /// The invoice's currency is unknown on this network.
+    InvoiceCurrency,
+    /// The invoice preconverts to a currency that has launched.
+    InvoicePreconvertLaunched,
+    /// This invoice was already paid in this wallet session.
+    AlreadyPaid,
 }
 
 impl Rejection {
@@ -48,10 +58,17 @@ impl Rejection {
             Self::WalletBackup => "walletBackup",
             Self::Network => "network",
             Self::EncryptedDetails => "encryptedDetails",
-            Self::TooLong => "tooLong",
             Self::Expired => "expired",
             Self::DelegatedSigner => "delegatedSigner",
             Self::Signature => "signature",
+            Self::UnsupportedDetail => "unsupportedDetail",
+            Self::InvoiceTagged => "invoiceTagged",
+            Self::InvoiceUnpayable => "invoiceUnpayable",
+            Self::InvoicePrivate => "invoicePrivate",
+            Self::InvoiceNoDestination => "invoiceNoDestination",
+            Self::InvoiceCurrency => "invoiceCurrency",
+            Self::InvoicePreconvertLaunched => "invoicePreconvertLaunched",
+            Self::AlreadyPaid => "alreadyPaid",
         }
     }
 }
@@ -227,5 +244,107 @@ mod tests {
     fn wallet_backups_are_refused_even_when_well_ordered() {
         let kinds = [DetailKind::CreateWalletBackup, DetailKind::SpendableKey];
         assert!(check_order(&kinds).is_ok());
+    }
+}
+
+/// The invoice rules that need only the invoice: what the desktop wallet can
+/// pay. Expiry, the currency, and the preconvert window need the chain.
+pub(crate) fn check_invoice(
+    invoice: &super::details::InvoiceRequest,
+    request_is_testnet: bool,
+) -> Result<(), Rejection> {
+    use super::details::*;
+    if invoice.has(INVOICE_IS_TESTNET) != request_is_testnet {
+        return Err(Rejection::Network);
+    }
+    if invoice.has(INVOICE_IS_TAGGED) {
+        return Err(Rejection::InvoiceTagged);
+    }
+    // The desktop wallet pays on the Verus chain only.
+    if invoice.has(INVOICE_EXCLUDES_VERUS_BLOCKCHAIN) {
+        return Err(Rejection::InvoiceUnpayable);
+    }
+    // Burning to change a currency's price and preconverting to a currency
+    // before launch arrive with conversion.
+    if invoice.has(INVOICE_IS_BURN_CHANGE_PRICE) {
+        return Err(Rejection::UnsupportedDetail);
+    }
+    match &invoice.destination {
+        Some(InvoiceDestination::Transparent(_)) => Ok(()),
+        Some(InvoiceDestination::Private(_)) => Err(Rejection::InvoicePrivate),
+        Some(InvoiceDestination::Unsupported) | None => Err(Rejection::InvoiceNoDestination),
+    }
+}
+
+#[cfg(test)]
+mod invoice_tests {
+    use super::*;
+    use crate::core::generic_request::details::{
+        parse_invoice, InvoiceDestination, INVOICE_IS_TAGGED, INVOICE_IS_TESTNET,
+    };
+    use crate::core::generic_request::request::parse_request_hex;
+    use serde_json::Value;
+
+    fn invoice_vector() -> (super::super::details::InvoiceRequest, Value) {
+        let raw = include_str!("../../../../src/lib/genericRequest/fixtures/request-vectors.json");
+        let parsed: Value = serde_json::from_str(raw).unwrap();
+        let case = parsed["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == "invoice-unsigned")
+            .unwrap()
+            .clone();
+        let request = parse_request_hex(case["hex"].as_str().unwrap()).unwrap();
+        (
+            parse_invoice(&request.details[0].data).unwrap(),
+            case["expect"]["invoice"].clone(),
+        )
+    }
+
+    #[test]
+    fn invoice_fields_match_the_library() {
+        let (invoice, expected) = invoice_vector();
+        assert_eq!(invoice.amount, expected["amount"].as_u64());
+        assert_eq!(
+            invoice.destination,
+            Some(InvoiceDestination::Transparent(
+                expected["destination"].as_str().unwrap().to_string()
+            ))
+        );
+        assert_eq!(
+            invoice.requested_currency_id,
+            expected["currency"].as_str().unwrap()
+        );
+        assert_eq!(invoice.expiry_height, expected["expiryHeight"].as_u64());
+        assert!(check_invoice(&invoice, true).is_ok());
+    }
+
+    #[test]
+    fn invoices_desktop_cannot_pay_are_refused() {
+        let (invoice, _) = invoice_vector();
+        assert_eq!(check_invoice(&invoice, false), Err(Rejection::Network));
+
+        let mut tagged = invoice.clone();
+        tagged.flags |= INVOICE_IS_TAGGED;
+        assert_eq!(check_invoice(&tagged, true), Err(Rejection::InvoiceTagged));
+
+        let mut private = invoice.clone();
+        private.destination = Some(InvoiceDestination::Private("zs1".to_string()));
+        assert_eq!(
+            check_invoice(&private, true),
+            Err(Rejection::InvoicePrivate)
+        );
+
+        let mut anywhere = invoice.clone();
+        anywhere.destination = None;
+        assert_eq!(
+            check_invoice(&anywhere, true),
+            Err(Rejection::InvoiceNoDestination)
+        );
+
+        let mut mainnet = invoice;
+        mainnet.flags &= !INVOICE_IS_TESTNET;
+        assert_eq!(check_invoice(&mainnet, true), Err(Rejection::Network));
     }
 }

@@ -445,6 +445,29 @@ export interface GenericRequestTransactionResult {
   txid: string;
 }
 
+/** An invoice as Rust will pay it, read from the verified request. */
+export interface GenericInvoiceReview {
+  /** Null when the invoice accepts any amount. */
+  amount: string | null;
+  currencyId: string;
+  currencyName: string | null;
+  destination: string;
+  destinationName: string | null;
+  expiryHeight: number | null;
+  blocksLeft: number | null;
+  alreadyPaid: boolean;
+}
+
+export interface GenericInvoicePreflightResult {
+  preflightId: string;
+  amount: string;
+  fee: string;
+  currencyId: string;
+  feeCurrencyId: string;
+  fromAddress: string;
+  toAddress: string;
+}
+
 export interface GenericResponseSignerInput {
   systemId: string;
   identityId: string;

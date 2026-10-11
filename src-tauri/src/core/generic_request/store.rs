@@ -24,6 +24,9 @@ pub(crate) struct OpenRequest {
 #[derive(Default)]
 pub struct GenericRequestStore {
     open: Mutex<Option<OpenRequest>>,
+    /// Invoices paid in a wallet session, by session and request hash. The
+    /// wallet refuses to pay the same request twice in one session.
+    paid: Mutex<Vec<(String, [u8; 32])>>,
 }
 
 impl GenericRequestStore {
@@ -57,6 +60,21 @@ impl GenericRequestStore {
             return Err(WalletError::GenericRequestRejected("notOpen".to_string()));
         }
         Ok(open.clone())
+    }
+
+    pub(crate) fn is_paid(&self, session_id: &str, request_hash: &[u8; 32]) -> bool {
+        self.paid
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .any(|(session, hash)| session == session_id && hash == request_hash)
+    }
+
+    pub(crate) fn record_payment(&self, session_id: &str, request_hash: &[u8; 32]) {
+        let mut paid = self.paid.lock().unwrap_or_else(|error| error.into_inner());
+        // Only the current session's payments matter; drop older sessions.
+        paid.retain(|(session, _)| session == session_id);
+        paid.push((session_id.to_string(), *request_hash));
     }
 
     pub(crate) fn record_broadcast(&self, session_id: &str, request_hash: &[u8; 32], txid: &str) {

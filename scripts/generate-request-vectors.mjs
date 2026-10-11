@@ -236,6 +236,12 @@ add('encrypt-to', envelope({ details: [auth(), dataPacket()], encryptTo: SHIELDE
 add('invoice-unsigned', envelope({ details: [invoice()], signed: false, requestID: null }), {
   ordinals: [1],
   signed: false,
+  invoice: {
+    amount: 1_000_000,
+    destination: R_ADDRESS,
+    currency: TESTNET,
+    expiryHeight: 1_270_600,
+  },
 });
 add('auth-invoice', envelope({ details: [auth(), invoice()] }), { ordinals: [2, 1] });
 add('auth-app-encryption', envelope({ details: [auth(), appEncryption()] }), { ordinals: [2, 7] });

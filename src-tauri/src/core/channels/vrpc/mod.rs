@@ -14,11 +14,12 @@ mod transfer;
 use crate::types::WalletError;
 
 pub use balance::get_balances;
+pub(crate) use common::{parse_positive_amount_sat, sat_to_decimal_string, VrpcPreflightPayload};
 pub use preflight::preflight;
 pub use provider::{ConfiguredVrpcSystem, VrpcProvider, VrpcProviderPool};
 pub use send::send;
 pub use transactions::{get_transactions, get_transactions_page, VrpcHistoryCursor};
-pub use transfer::preflight_transfer;
+pub use transfer::{preflight_exact_transfer, preflight_transfer};
 
 #[derive(Debug, Clone)]
 pub struct VrpcCoinContext {
