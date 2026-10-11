@@ -66,12 +66,13 @@ struct VrpcSystemDescriptor {
     is_root: bool,
 }
 
+/// An owned VRPC address scope. Watched addresses are public Watchlist data and
+/// are never wallet scopes, so they cannot enter balances, discovery or totals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VrpcScopeAddress {
     address: String,
     address_label: String,
     is_primary_address: bool,
-    is_read_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -360,7 +361,6 @@ fn normalize_identity_scope_label(linked_identity: &LinkedIdentity) -> String {
 fn collect_vrpc_scope_addresses(
     primary_vrpc_address: &str,
     linked_identities: &[LinkedIdentity],
-    watched_addresses: &[String],
     network: WalletNetwork,
 ) -> Vec<VrpcScopeAddress> {
     let mut scope_addresses = Vec::<VrpcScopeAddress>::new();
@@ -373,7 +373,6 @@ fn collect_vrpc_scope_addresses(
         address: normalized_primary.clone(),
         address_label: normalized_primary.clone(),
         is_primary_address: true,
-        is_read_only: false,
     });
 
     let mut linked_scope_candidates = linked_identities
@@ -408,29 +407,6 @@ fn collect_vrpc_scope_addresses(
             address: address.clone(),
             address_label: label,
             is_primary_address: false,
-            is_read_only: false,
-        });
-    }
-
-    let mut watched = dedupe_preserve_order(
-        watched_addresses
-            .iter()
-            .filter_map(|address| normalize_watched_vrpc_address(address, network))
-            .filter(|address| !address.eq_ignore_ascii_case(&normalized_primary))
-            .collect(),
-    );
-    watched.sort_by(|left, right| left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()));
-
-    for address in watched {
-        let key = address.to_ascii_lowercase();
-        if !seen.insert(key) {
-            continue;
-        }
-        scope_addresses.push(VrpcScopeAddress {
-            address: address.clone(),
-            address_label: address,
-            is_primary_address: false,
-            is_read_only: true,
         });
     }
 
@@ -650,7 +626,6 @@ fn collect_vrpc_system_descriptors(
 struct DiscoveredVrpcAmount {
     currency_id: String,
     amount: f64,
-    includes_read_only: bool,
     partial: bool,
 }
 
@@ -665,7 +640,19 @@ fn numeric_value(value: &Value) -> Option<f64> {
 
 fn vrpc_balance_entries(raw: &Value, system_id: &str) -> HashMap<String, (String, f64)> {
     let mut entries = HashMap::<String, (String, f64)>::new();
-    if let Some(native_satoshis) = raw.get("balance").and_then(numeric_value) {
+    let currency_balances = raw.get("currencybalance").and_then(Value::as_object);
+    // `getaddressbalance` reports the native coin in both `balance` (satoshis) and
+    // `currencybalance[system]`. Use the satoshi field only when the map omits it.
+    let native_in_currency_balances = currency_balances.is_some_and(|balances| {
+        balances
+            .keys()
+            .any(|currency_id| currency_id.eq_ignore_ascii_case(system_id))
+    });
+    if let Some(native_satoshis) = raw
+        .get("balance")
+        .and_then(numeric_value)
+        .filter(|_| !native_in_currency_balances)
+    {
         let amount = native_satoshis / 100_000_000.0;
         if amount > 0.0 {
             entries.insert(
@@ -675,7 +662,7 @@ fn vrpc_balance_entries(raw: &Value, system_id: &str) -> HashMap<String, (String
         }
     }
 
-    if let Some(currency_balances) = raw.get("currencybalance").and_then(Value::as_object) {
+    if let Some(currency_balances) = currency_balances {
         for (currency_id, value) in currency_balances {
             let Some(amount) = numeric_value(value) else {
                 continue;
@@ -705,7 +692,6 @@ fn format_discovered_amount(amount: f64) -> String {
 fn merge_discovered_vrpc_amounts(
     target: &mut HashMap<String, DiscoveredVrpcAmount>,
     entries: HashMap<String, (String, f64)>,
-    includes_read_only: bool,
     partial: bool,
 ) {
     for (key, (currency_id, amount)) in entries {
@@ -713,13 +699,11 @@ fn merge_discovered_vrpc_amounts(
             .entry(key)
             .and_modify(|entry| {
                 entry.amount += amount;
-                entry.includes_read_only |= includes_read_only;
                 entry.partial |= partial;
             })
             .or_insert(DiscoveredVrpcAmount {
                 currency_id,
                 amount,
-                includes_read_only,
                 partial,
             });
     }
@@ -1529,13 +1513,12 @@ pub async fn set_asset_preferences(
 }
 
 /// Discover positive PBaaS holdings through the wallet's configured VRPC providers.
-/// This is an on-demand read. It checks transparent wallet, linked identity, and watched
-/// address scopes without enabling background polling or returning any addresses.
+/// This is an on-demand read. It checks only owned transparent wallet and linked identity
+/// scopes, without enabling background polling or returning any addresses.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn discover_vrpc_assets(
     system_ids: Option<Vec<String>>,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<AssetDiscoveryResult, WalletError> {
@@ -1544,22 +1527,14 @@ pub async fn discover_vrpc_assets(
     let network = context.wallet_network;
     coin_registry.set_active_account(Some(account_id.clone()));
 
-    let watched = load_watched_scope_addresses(&context, account_state_store.inner()).await?;
     let linked_identities_result = context.load_linked_identities_cached().await;
     let scope_metadata_complete = linked_identities_result.is_ok();
     let linked_identities = linked_identities_result.unwrap_or_default();
-    let scope_addresses =
-        collect_vrpc_scope_addresses(&context.vrsc_address, &linked_identities, &watched, network);
-    let owned_addresses = scope_addresses
-        .iter()
-        .filter(|scope| !scope.is_read_only)
-        .map(|scope| scope.address.clone())
-        .collect::<Vec<_>>();
-    let read_only_addresses = scope_addresses
-        .iter()
-        .filter(|scope| scope.is_read_only)
-        .map(|scope| scope.address.clone())
-        .collect::<Vec<_>>();
+    let owned_addresses =
+        collect_vrpc_scope_addresses(&context.vrsc_address, &linked_identities, network)
+            .into_iter()
+            .map(|scope| scope.address)
+            .collect::<Vec<_>>();
 
     let root_coin_id = if matches!(network, WalletNetwork::Testnet) {
         "VRSCTEST"
@@ -1591,37 +1566,17 @@ pub async fn discover_vrpc_assets(
     for system in systems {
         let provider = vrpc_provider_pool.for_system(network, &system.system_id);
         let owned_result = provider.getaddressbalance(&owned_addresses).await;
-        let read_only_result = if read_only_addresses.is_empty() {
-            None
-        } else {
-            Some(provider.getaddressbalance(&read_only_addresses).await)
-        };
         let owned_ok = owned_result.is_ok();
-        let read_only_ok = read_only_result.as_ref().map(Result::is_ok).unwrap_or(true);
-        let any_ok = owned_ok
-            || read_only_result
-                .as_ref()
-                .map(Result::is_ok)
-                .unwrap_or(false);
-        let all_ok = owned_ok && read_only_ok && scope_metadata_complete;
+        let all_ok = owned_ok && scope_metadata_complete;
         let source_status = if all_ok {
             "available"
-        } else if any_ok {
+        } else if owned_ok {
             "partial"
         } else {
             "unavailable"
         };
-        let checked_scope_count = if owned_ok { owned_addresses.len() } else { 0 }
-            + if read_only_result
-                .as_ref()
-                .map(Result::is_ok)
-                .unwrap_or(false)
-            {
-                read_only_addresses.len()
-            } else {
-                0
-            };
-        let unchecked_scope_count = scope_addresses.len().saturating_sub(checked_scope_count);
+        let checked_scope_count = if owned_ok { owned_addresses.len() } else { 0 };
+        let unchecked_scope_count = owned_addresses.len() - checked_scope_count;
 
         sources.push(AssetDiscoverySource {
             system_id: system.system_id.clone(),
@@ -1630,7 +1585,8 @@ pub async fn discover_vrpc_assets(
             status: source_status.to_string(),
             checked_scope_count,
             unchecked_scope_count,
-            includes_read_only: !read_only_addresses.is_empty(),
+            // Discovery is owned-only; the field stays for response compatibility.
+            includes_read_only: false,
             private_scope_checked: false,
         });
 
@@ -1640,15 +1596,6 @@ pub async fn discover_vrpc_assets(
             merge_discovered_vrpc_amounts(
                 &mut discovered,
                 vrpc_balance_entries(&raw, &system.system_id),
-                false,
-                partial,
-            );
-        }
-        if let Some(Ok(raw)) = read_only_result {
-            merge_discovered_vrpc_amounts(
-                &mut discovered,
-                vrpc_balance_entries(&raw, &system.system_id),
-                true,
                 partial,
             );
         }
@@ -1680,7 +1627,7 @@ pub async fn discover_vrpc_assets(
                 system_ticker: system.system_ticker.clone(),
                 system_display_name: system.system_display_name.clone(),
                 balance: format_discovered_amount(discovered_amount.amount),
-                includes_read_only: discovered_amount.includes_read_only,
+                includes_read_only: false,
                 balance_status: if discovered_amount.partial {
                     "partial".to_string()
                 } else {
@@ -1972,12 +1919,11 @@ pub async fn get_dlight_prover_status() -> Result<DlightProverStatusResult, Wall
     })
 }
 
-/// Get available subwallet scopes for a coin.
+/// Get the owned subwallet scopes for a coin. Watched addresses are never scopes.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_coin_scopes(
     coin_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
-    account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<CoinScopesResult, WalletError> {
@@ -1996,7 +1942,8 @@ pub async fn get_coin_scopes(
         .ok_or(WalletError::UnsupportedChannel)?;
 
     if coin_supports_channel(&coin, Channel::Vrpc) {
-        let watched = load_watched_scope_addresses(&context, account_state_store.inner()).await?;
+        let scopes_started_at = Instant::now();
+        let linked_started_at = Instant::now();
         let linked_identities = context
             .load_linked_identities_cached()
             .await
@@ -2007,12 +1954,13 @@ pub async fn get_coin_scopes(
                 );
                 vec![]
             });
-        let scope_addresses = collect_vrpc_scope_addresses(
-            &primary_vrpc_address,
-            &linked_identities,
-            &watched,
-            network,
+        println!(
+            "[WALLET_PERF] coin_scopes coin={} phase=linked_identities_load elapsed_ms={}",
+            coin.id,
+            linked_started_at.elapsed().as_millis()
         );
+        let scope_addresses =
+            collect_vrpc_scope_addresses(&primary_vrpc_address, &linked_identities, network);
 
         let configured_systems = vrpc_provider_pool.configured_systems(network);
         let systems = collect_vrpc_system_descriptors(
@@ -2037,14 +1985,20 @@ pub async fn get_coin_scopes(
                     system_ticker: system.system_ticker.clone(),
                     system_display_name: system.system_display_name.clone(),
                     is_primary_address: address_scope.is_primary_address,
-                    is_read_only: address_scope.is_read_only,
+                    is_read_only: false,
                     scope_kind: ScopeKind::Transparent,
                 });
             }
         }
 
         if coin_supports_channel(&coin, Channel::DlightPrivate) {
+            let dlight_started_at = Instant::now();
             let dlight = context.load_dlight_public_metadata_cached().await?;
+            println!(
+                "[WALLET_PERF] coin_scopes coin={} phase=dlight_metadata_load elapsed_ms={}",
+                coin.id,
+                dlight_started_at.elapsed().as_millis()
+            );
             if let Some(shielded_address) = dlight.shielded_address {
                 if let Some(system) = systems.iter().find(|system| system.is_root) {
                     scopes.push(CoinScope {
@@ -2066,6 +2020,12 @@ pub async fn get_coin_scopes(
             }
         }
 
+        println!(
+            "[WALLET_PERF] coin_scopes coin={} phase=total scopes={} elapsed_ms={}",
+            coin.id,
+            scopes.len(),
+            scopes_started_at.elapsed().as_millis()
+        );
         return Ok(CoinScopesResult {
             coin_id: coin.id,
             scopes,
@@ -2184,7 +2144,28 @@ mod tests {
     }
 
     #[test]
-    fn discovery_merge_keeps_scope_and_partial_provenance() {
+    fn discovery_balance_parser_counts_native_reported_in_both_fields_once() {
+        // Shape returned by getaddressbalance: the native coin is in both fields.
+        let entries = vrpc_balance_entries(
+            &serde_json::json!({
+                "balance": 10_263_337_000_u64,
+                "currencybalance": {
+                    VRSC_SYSTEM_ID: 102.63337,
+                    "iCurrency": 1000.0
+                }
+            }),
+            VRSC_SYSTEM_ID,
+        );
+
+        assert_eq!(
+            format_discovered_amount(entries[&VRSC_SYSTEM_ID.to_ascii_lowercase()].1),
+            "102.63337"
+        );
+        assert_eq!(format_discovered_amount(entries["icurrency"].1), "1000");
+    }
+
+    #[test]
+    fn discovery_merge_keeps_partial_provenance() {
         let mut discovered = std::collections::HashMap::<String, DiscoveredVrpcAmount>::new();
         merge_discovered_vrpc_amounts(
             &mut discovered,
@@ -2192,7 +2173,6 @@ mod tests {
                 "icurrency".to_string(),
                 ("iCurrency".to_string(), 1.25),
             )]),
-            false,
             false,
         );
         merge_discovered_vrpc_amounts(
@@ -2202,12 +2182,10 @@ mod tests {
                 ("iCurrency".to_string(), 0.75),
             )]),
             true,
-            true,
         );
 
         let amount = &discovered["icurrency"];
         assert_eq!(format_discovered_amount(amount.amount), "2");
-        assert!(amount.includes_read_only);
         assert!(amount.partial);
     }
 
@@ -2418,7 +2396,7 @@ mod tests {
     }
 
     #[test]
-    fn vrpc_scope_addresses_include_primary_linked_and_watched_with_expected_priority() {
+    fn vrpc_scope_addresses_include_only_owned_primary_and_linked_identities() {
         let scope_addresses = collect_vrpc_scope_addresses(
             "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka",
             &[
@@ -2439,20 +2417,15 @@ mod tests {
                     favorite: false,
                 },
             ],
-            &[
-                "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka".to_string(),
-                "RWatchedAddr1111111111111111111111".to_string(),
-            ],
             WalletNetwork::Mainnet,
         );
 
-        assert_eq!(scope_addresses.len(), 3);
+        assert_eq!(scope_addresses.len(), 2);
         assert_eq!(
             scope_addresses[0].address,
             "RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka"
         );
         assert_eq!(scope_addresses[0].is_primary_address, true);
-        assert_eq!(scope_addresses[0].is_read_only, false);
 
         assert_eq!(
             scope_addresses[1].address,
@@ -2460,14 +2433,6 @@ mod tests {
         );
         assert_eq!(scope_addresses[1].address_label, "scam@");
         assert_eq!(scope_addresses[1].is_primary_address, false);
-        assert_eq!(scope_addresses[1].is_read_only, false);
-
-        assert_eq!(
-            scope_addresses[2].address,
-            "RWatchedAddr1111111111111111111111"
-        );
-        assert_eq!(scope_addresses[2].is_primary_address, false);
-        assert_eq!(scope_addresses[2].is_read_only, true);
     }
 
     #[test]

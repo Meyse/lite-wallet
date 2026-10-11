@@ -807,6 +807,11 @@
                 <p class="mt-1 text-[30px] leading-9 font-semibold tracking-tight">
                   {selectedView.publicValueDisplay}
                 </p>
+                {#if selectedView.hasPartialFiatValue}
+                  <p class="mt-1 text-xs text-settings-muted-foreground">
+                    {i18n.t('wallet.watchlist.partialValue')}
+                  </p>
+                {/if}
               {/if}
             </section>
             {#if detailBalancePending}
@@ -849,6 +854,7 @@
                     class="flex min-h-[70px] items-center gap-3 px-4 py-3 {index > 0
                       ? 'border-t border-border/60'
                       : ''}"
+                    data-testid="watchlist-holding-row"
                   >
                     <CoinIcon
                       coinId={holding.coinId}
@@ -863,10 +869,15 @@
                         {holding.ticker}
                       </p>
                     </div>
-                    <p class="shrink-0 text-sm font-medium tabular-nums">
-                      {holding.balanceDisplay}
-                      {holding.ticker}
-                    </p>
+                    <div class="shrink-0 text-right tabular-nums">
+                      <p class="text-sm font-medium">
+                        {holding.balanceDisplay}
+                        {holding.ticker}
+                      </p>
+                      <p class="mt-0.5 text-xs text-settings-muted-foreground">
+                        {holding.fiatDisplay}
+                      </p>
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -973,6 +984,9 @@
                     </p>
                     {#if showsCurrencyCount(row.record.snapshot)}
                       <p class="mt-0.5 text-xs text-settings-muted-foreground">
+                        {#if row.view.hasPartialFiatValue}
+                          {i18n.t('wallet.overview.partialTotalLabel')} ·
+                        {/if}
                         {currencyCountLabel(row.view.currencyCount)}
                       </p>
                     {/if}

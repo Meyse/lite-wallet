@@ -1803,6 +1803,7 @@ export const en: Record<string, string> = {
   'wallet.watchlist.refreshing': 'Refreshing…',
   'wallet.watchlist.readOnly': 'Read only',
   'wallet.watchlist.publicValue': 'Public value',
+  'wallet.watchlist.partialValue': 'Some currencies have no fiat rate.',
   'wallet.watchlist.currencyCount': '{count} currencies',
   'wallet.watchlist.currencyCountOne': '1 currency',
   'wallet.watchlist.noCurrencies': 'No public balances found',

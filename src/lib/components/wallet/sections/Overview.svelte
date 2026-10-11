@@ -543,7 +543,10 @@
 
     try {
       const scopeResult = await walletDisplayService.getDisplayCoinScopes(coin.id);
-      const scopes = scopeResult.scopes.filter((scope) => scope.scopeKind === 'transparent');
+      // Portfolio rows are owned-only; watched balances belong to Watchlist.
+      const scopes = scopeResult.scopes.filter(
+        (scope) => scope.scopeKind === 'transparent' && !scope.isReadOnly
+      );
       transparentScopeChannelIdsByCoinId = {
         ...transparentScopeChannelIdsByCoinId,
         [coin.id]: Array.from(new Set(scopes.map((scope) => scope.channelId))),

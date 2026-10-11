@@ -226,4 +226,45 @@ describe('wallet overview filtering and balances', () => {
     expect(keys(filterWalletOverviewRows(model.rows, 'Ethereum', true))).toEqual(['ETH']);
     expect(model.heroFiatValueDisplay).toBe('20.00');
   });
+
+  it('never sums a balance for an address outside the owned scopes into rows or the total', () => {
+    const vrsc = coin('VRSC');
+    const coins = [vrsc, { ...coin('TOKEN'), systemId: vrsc.systemId }];
+    const channels = buildWalletChannels(coins, 'Rowned');
+    const primary = channels.byCoinId.VRSC;
+    const linked = `vrpc.iLinked.${vrsc.systemId}`;
+    const watched = `vrpc.iWatched.${vrsc.systemId}`;
+    const balances = Object.fromEntries(
+      [primary, linked, watched].map((id, index) => [
+        id,
+        Object.fromEntries(
+          coins.map((c) => [c.id, { ...zero, total: String([2, 3, 100][index]) }])
+        ),
+      ])
+    );
+    const build = (scopeChannelIdsByCoinId?: Record<string, string[]>) =>
+      buildWalletOverviewViewModel({
+        coins,
+        walletChannels: channels,
+        balances,
+        scopeChannelIdsByCoinId,
+        rates: { VRSC: { rates: { EUR: 10 }, usdChange24hPct: null } },
+        intlLocale: 'en-US',
+        displayCurrency: 'EUR',
+        network: 'mainnet',
+      });
+    const amount = (model: ReturnType<typeof build>, coinId: string) =>
+      model.rows.find((row) => row.coinId === coinId)?.amountSortValue;
+
+    const beforeScopes = build();
+    expect(amount(beforeScopes, 'VRSC')).toBe(2);
+    expect(amount(beforeScopes, 'TOKEN')).toBe(2);
+    expect(beforeScopes.heroFiatValueDisplay).toBe('20.00');
+
+    // VRSC scopes are known; TOKEN still uses the owned-address fallback.
+    const vrscScopesLoaded = build({ VRSC: [primary, linked] });
+    expect(amount(vrscScopesLoaded, 'VRSC')).toBe(5);
+    expect(amount(vrscScopesLoaded, 'TOKEN')).toBe(5);
+    expect(vrscScopesLoaded.heroFiatValueDisplay).toBe('50.00');
+  });
 });

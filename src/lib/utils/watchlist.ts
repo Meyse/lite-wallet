@@ -33,6 +33,7 @@ export interface WatchlistEntryViewModel {
   stale: boolean;
   holdings: WatchlistHoldingViewModel[];
   publicValueDisplay: string;
+  hasPartialFiatValue: boolean;
   currencyCount: number;
   refreshedAt: number;
 }
@@ -109,8 +110,10 @@ export function buildWatchlistEntryViewModel(
   const knownFiatValues = holdings
     .map((holding) => holding.fiatValue)
     .filter((value): value is number => value !== null);
+  const hasPartialFiatValue =
+    knownFiatValues.length > 0 && knownFiatValues.length < holdings.length;
   const publicValueDisplay =
-    (record.stale && holdings.length === 0) || knownFiatValues.length !== holdings.length
+    (record.stale && holdings.length === 0) || (holdings.length > 0 && knownFiatValues.length === 0)
       ? unavailableDisplay
       : formatFiatAmount(
           knownFiatValues.reduce((sum, value) => sum + value, 0),
@@ -127,6 +130,7 @@ export function buildWatchlistEntryViewModel(
     stale: record.stale,
     holdings,
     publicValueDisplay,
+    hasPartialFiatValue,
     currencyCount: holdings.length,
     refreshedAt: record.snapshot.refreshedAt,
   };

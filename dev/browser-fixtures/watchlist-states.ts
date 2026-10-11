@@ -60,6 +60,25 @@ function snapshot(entry: WatchlistEntry): WatchlistEntrySnapshot {
               balance: entry.id === 'mom' ? '4.25' : '20',
               coin,
             },
+            ...(state === 'detail-partial'
+              ? [
+                  {
+                    assetKey: `${entry.id}-unpriced`,
+                    currencyId: 'unpriced-currency',
+                    systemId: coin.systemId,
+                    systemTicker: 'VRSC',
+                    systemDisplayName: 'Verus',
+                    balance: '3',
+                    coin: {
+                      ...coin,
+                      id: 'unpriced-currency',
+                      currencyId: 'unpriced-currency',
+                      displayTicker: 'NEW',
+                      displayName: 'Unpriced coin',
+                    },
+                  },
+                ]
+              : []),
           ],
     sources: [],
     availability:
@@ -147,6 +166,7 @@ async function advance(): Promise<void> {
       'preview-id',
       'preview-address',
       'detail',
+      'detail-partial',
       'detail-stale',
       'detail-unavailable',
       'detail-loading',
