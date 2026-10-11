@@ -5,7 +5,7 @@ last_reviewed: 2026-10-10
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phases 1 and 2 in progress)
+- Status: active (phase 0 done; phases 1 to 3 in progress)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-10
 
@@ -275,6 +275,21 @@ guided flow defined by the
 4. **Help and spec status.** Update both.
 
 ### Phase 3: sign data
+
+**Progress on 2026-10-11.**
+
+- **Done:** Rust reads each object and statement from the verified data packet,
+  refuses transmittal packets and packets that ask for no signature, hashes each
+  signed item with SHA-256, and signs the height-bound identity hash of each
+  one. The data response is byte for byte what mobile builds (vector test), and
+  each signature verifies for the responder (unit test). The Sign data module
+  asks for consent per item and per statement; a data packet alone is a single
+  screen with the responder picker. One data packet per request is shown; a
+  second one is refused as not supported yet.
+- **Verified on testnet, 2026-10-11:** sign in plus a data packet, and a data
+  packet alone, from Deep Link Sim's data lab. Deep Link Sim verified four
+  signatures each time.
+- **Not done:** Help and the spec status.
 
 1. **Rust command.** It builds each item's and each statement's hash from the
    verified request. It then signs the height-bound identity hash, reusing

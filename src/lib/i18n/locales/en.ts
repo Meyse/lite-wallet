@@ -330,6 +330,29 @@ export const en: Record<string, string> = {
   'genericRequest.rejected.invoicePreconvertLaunched':
     'This invoice preconverts to a currency that has already launched.',
   'genericRequest.rejected.alreadyPaid': 'You already paid this invoice.',
+  'genericRequest.flow.step.signData': 'Sign data',
+  'genericRequest.flow.title.signData': 'Sign for {app}',
+  'genericRequest.flow.signData.intro':
+    '{app} asks you to sign each item below. Each signature shows that you agree to that item.',
+  'genericRequest.flow.signData.message': 'Message',
+  'genericRequest.flow.signData.data': 'Data',
+  'genericRequest.flow.signData.statement': 'Statement',
+  'genericRequest.flow.signData.size': '{size} bytes',
+  'genericRequest.flow.signData.bytes': 'Bytes',
+  'genericRequest.flow.signData.hash': 'SHA-256 that you sign',
+  'genericRequest.flow.signData.consent': 'Sign {item}',
+  'genericRequest.flow.signData.allNeeded': 'Check every item to continue.',
+  'genericRequest.flow.plan.signData.one': 'Sign {count} item for {app} as {identity}',
+  'genericRequest.flow.plan.signData.other': 'Sign {count} items for {app} as {identity}',
+  'genericRequest.flow.action.sign': 'Sign',
+  'genericRequest.flow.action.signInAndSign': 'Sign in and sign',
+  'genericRequest.flow.working.sign': 'Signing…',
+  'genericRequest.flow.outcome.signedData.one': 'You signed {count} item for {app}',
+  'genericRequest.flow.outcome.signedData.other': 'You signed {count} items for {app}',
+  'genericRequest.flow.receipt.signedAs': 'Signed as',
+  'genericRequest.rejected.dataTransmittal':
+    'This request sends data to you instead of asking for a signature. This wallet does not accept that.',
+  'genericRequest.rejected.dataNotForSignature': 'This request does not ask you to sign anything.',
   'genericRequest.rejected.unknownDetail':
     'This request contains a part that this wallet does not recognize.',
   'genericRequest.rejected.detailOrder':

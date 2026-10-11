@@ -5,6 +5,7 @@ import { setLocale } from '$lib/i18n';
 import { coinsStore } from '$lib/stores/coins';
 import type {
   AuthenticationDetailSession,
+  DataPacketDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
@@ -300,5 +301,46 @@ describe('request flow approval', () => {
     // An invoice alone adds no response detail, so nothing is signed or sent.
     expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
     expect(commandsCalled('post_generic_response_callback')).toBe(0);
+  });
+
+  it('signs data only after every item and statement has consent and Approval', async () => {
+    deliveryFailures = 0;
+    const packet: DataPacketDetailSession = {
+      index: 0,
+      type: 'dataPacket',
+      items: [
+        {
+          kind: 'text',
+          label: null,
+          mimeType: null,
+          text: 'I agree to the test terms',
+          hex: '',
+          size: 25,
+          sha256: '00',
+        },
+      ],
+      statements: ['This is a test.'],
+    };
+    component = mount(GenericRequestFlowHost, {
+      target: document.body,
+      props: { isOpen: true, session: { ...session, details: [packet] } },
+    });
+    await settle();
+
+    // One detail that signs as you: a single screen with the responder picker.
+    expect(document.body.textContent).toContain('I agree to the test terms');
+    expect(button('Sign').disabled).toBe(true);
+    const boxes = [...document.querySelectorAll('[role="checkbox"]')] as HTMLButtonElement[];
+    expect(boxes).toHaveLength(2);
+    boxes[0].click();
+    await settle();
+    expect(button('Sign').disabled).toBe(true);
+    boxes[1].click();
+    await settle();
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
+
+    await press('Sign');
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
+    expect(document.body.textContent).toContain('You signed 2 items for');
   });
 });

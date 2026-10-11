@@ -30,11 +30,13 @@ export const DETAIL_IMPACT: Record<SupportedGenericRequestDetail['type'], Reques
   provisionIdentity: 'signs',
   identityUpdate: 'control',
   invoice: 'spends',
+  dataPacket: 'signs',
 };
 
 /** The step each module detail adds (spec "Steps per detail"). */
 const MODULE_STEP: Partial<Record<SupportedGenericRequestDetail['type'], RequestStepId>> = {
   invoice: 'payInvoice',
+  dataPacket: 'signData',
 };
 
 /**

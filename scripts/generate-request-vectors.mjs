@@ -6,6 +6,8 @@
 // Usage: node scripts/generate-request-vectors.mjs > src/lib/genericRequest/fixtures/request-vectors.json
 import { createRequire } from 'node:module';
 
+import { createHash } from 'node:crypto';
+
 const require = createRequire(import.meta.url);
 const p = require('verus-typescript-primitives');
 const { BN } = require('bn.js');
@@ -118,6 +120,39 @@ function dataPacket() {
     signableObjects: [new p.DataDescriptor({ objectdata: Buffer.from('hello'), label: 'Message' })],
     statements: ['I agree'],
     requestID: compact(REQUEST_ID),
+  });
+  return new p.DataPacketRequestOrdinalVDXFObject({ data: details });
+}
+
+// The data packet Deep Link Sim's data lab sends (`packetFixture`).
+function signDataPacket() {
+  const details = new p.DataPacketRequestDetails({
+    flags: p.DataPacketRequestDetails.FLAG_FOR_USERS_SIGNATURE,
+    signableObjects: [
+      'I am signing this disposable test message for Mobile redesign QA.',
+      new p.DataDescriptor({
+        label: 'Sample JSON',
+        mimeType: 'application/json',
+        objectdata: Buffer.from('{"test":"mobile-review","approved":true}', 'utf8'),
+      }),
+      new p.DataDescriptor({
+        label: 'Opaque test bytes',
+        mimeType: 'application/octet-stream',
+        objectdata: Buffer.from([0, 255, 128, 1, 2, 3]),
+      }),
+    ],
+    statements: [
+      'These signatures are for a disposable test and do not authenticate a production account.',
+    ],
+    requestID: compact(REQUEST_ID),
+  });
+  return new p.DataPacketRequestOrdinalVDXFObject({ data: details });
+}
+
+function transmittalPacket() {
+  const details = new p.DataPacketRequestDetails({
+    flags: p.DataPacketRequestDetails.FLAG_FOR_TRANSMITTAL_TO_USER,
+    signableObjects: ['A file for you'],
   });
   return new p.DataPacketRequestOrdinalVDXFObject({ data: details });
 }
@@ -247,6 +282,28 @@ add('auth-invoice', envelope({ details: [auth(), invoice()] }), { ordinals: [2, 
 add('auth-app-encryption', envelope({ details: [auth(), appEncryption()] }), { ordinals: [2, 7] });
 add('mainnet-auth', envelope({ details: [auth()], testnet: false }), { testnet: false });
 
+add('auth-sign-data', envelope({ details: [auth(), signDataPacket()] }), {
+  ordinals: [2, 9],
+  dataPacket: {
+    requestId: REQUEST_ID,
+    // SHA-256 of each signable object, then each statement, as mobile hashes
+    // them (`signDataPacket.js`).
+    hashes: [
+      ...signDataPacket().data.signableObjects.map((item) =>
+        createHash('sha256')
+          .update(typeof item === 'string' ? Buffer.from(item, 'utf8') : item.toBuffer())
+          .digest('hex')
+      ),
+      ...signDataPacket().data.statements.map((statement) =>
+        createHash('sha256').update(Buffer.from(statement, 'utf8')).digest('hex')
+      ),
+    ],
+  },
+});
+add('sign-data-transmittal', envelope({ details: [transmittalPacket()] }), {
+  reject: 'dataTransmittal',
+});
+
 // Ordering cases from verusid-ts-client validateUnsignedGenericRequest.
 add('update-before-auth', envelope({ details: [update(), auth()] }), { reject: 'order' });
 add('two-auths', envelope({ details: [auth(), auth()] }), { reject: 'order' });
@@ -302,6 +359,31 @@ const updateResponse = (requestID, txid) =>
     }),
   });
 const byName = (name) => cases.find((entry) => entry.name === name);
+// The signatures in a data response are placeholders here; Rust signs, and its
+// signature format is covered by the signature parity vectors.
+const PLACEHOLDER_ITEM_SIGNATURE = Buffer.alloc(73, 9);
+function dataResponse(hashes) {
+  const values = hashes.map((hash) => ({
+    [p.SignatureDataKey.vdxfid]: new p.SignatureData({
+      version: new BN(1),
+      systemID: TESTNET,
+      hashType: new BN(p.EHashTypes.HASH_SHA256),
+      signatureHash: Buffer.from(hash, 'hex'),
+      identityID: TARGET,
+      sigType: p.SignatureData.TYPE_VERUSID_DEFAULT,
+      signatureAsVch: PLACEHOLDER_ITEM_SIGNATURE,
+    }),
+  }));
+  return new p.DataResponseOrdinalVDXFObject({
+    data: new p.DataResponseDetails({
+      requestID: compact(REQUEST_ID),
+      data: new p.DataDescriptor({
+        version: p.DataDescriptor.DEFAULT_VERSION,
+        objectdata: new p.VdxfUniValue({ values }).toBuffer(),
+      }),
+    }),
+  });
+}
 const responses = [
   {
     request: 'auth',
@@ -317,6 +399,17 @@ const responses = [
     hex: mobileResponse(
       byName('auth-update').hex,
       [authResponse(REQUEST_ID), updateResponse(UPDATE_ID, TXID)],
+      TARGET
+    ),
+  },
+  {
+    request: 'auth-sign-data',
+    signer: TARGET,
+    createdAt: RESPONSE_CREATED_AT,
+    itemSignature: PLACEHOLDER_ITEM_SIGNATURE.toString('hex'),
+    hex: mobileResponse(
+      byName('auth-sign-data').hex,
+      [authResponse(REQUEST_ID), dataResponse(byName('auth-sign-data').expect.dataPacket.hashes)],
       TARGET
     ),
   },

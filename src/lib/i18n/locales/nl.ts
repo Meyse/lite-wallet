@@ -338,6 +338,32 @@ export const nl: Record<string, string> = {
   'genericRequest.rejected.invoicePreconvertLaunched':
     'Deze factuur zet vooraf om naar een valuta die al gelanceerd is.',
   'genericRequest.rejected.alreadyPaid': 'Je hebt deze factuur al betaald.',
+  'genericRequest.flow.step.signData': 'Gegevens ondertekenen',
+  'genericRequest.flow.title.signData': 'Ondertekenen voor {app}',
+  'genericRequest.flow.signData.intro':
+    '{app} vraagt je om elk onderdeel hieronder te ondertekenen. Elke handtekening laat zien dat je met dat onderdeel instemt.',
+  'genericRequest.flow.signData.message': 'Bericht',
+  'genericRequest.flow.signData.data': 'Gegevens',
+  'genericRequest.flow.signData.statement': 'Verklaring',
+  'genericRequest.flow.signData.size': '{size} bytes',
+  'genericRequest.flow.signData.bytes': 'Bytes',
+  'genericRequest.flow.signData.hash': 'SHA-256 die je ondertekent',
+  'genericRequest.flow.signData.consent': '{item} ondertekenen',
+  'genericRequest.flow.signData.allNeeded': 'Vink elk onderdeel aan om verder te gaan.',
+  'genericRequest.flow.plan.signData.one':
+    '{count} onderdeel ondertekenen voor {app} als {identity}',
+  'genericRequest.flow.plan.signData.other':
+    '{count} onderdelen ondertekenen voor {app} als {identity}',
+  'genericRequest.flow.action.sign': 'Ondertekenen',
+  'genericRequest.flow.action.signInAndSign': 'Inloggen en ondertekenen',
+  'genericRequest.flow.working.sign': 'Ondertekenen…',
+  'genericRequest.flow.outcome.signedData.one': 'Je hebt {count} onderdeel ondertekend voor {app}',
+  'genericRequest.flow.outcome.signedData.other':
+    'Je hebt {count} onderdelen ondertekend voor {app}',
+  'genericRequest.flow.receipt.signedAs': 'Ondertekend als',
+  'genericRequest.rejected.dataTransmittal':
+    'Dit verzoek stuurt gegevens naar je in plaats van om een handtekening te vragen. Deze wallet accepteert dat niet.',
+  'genericRequest.rejected.dataNotForSignature': 'Dit verzoek vraagt je niets te ondertekenen.',
   'genericRequest.rejected.unknownDetail':
     'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
   'genericRequest.rejected.detailOrder':

@@ -620,6 +620,30 @@ export const de: Record<string, string> = {
   'genericRequest.rejected.invoicePreconvertLaunched':
     'Diese Rechnung konvertiert vorab in eine Währung, die bereits gestartet ist.',
   'genericRequest.rejected.alreadyPaid': 'Du hast diese Rechnung bereits bezahlt.',
+  'genericRequest.flow.step.signData': 'Daten signieren',
+  'genericRequest.flow.title.signData': 'Für {app} signieren',
+  'genericRequest.flow.signData.intro':
+    '{app} bittet dich, jeden Eintrag unten zu signieren. Jede Signatur zeigt, dass du diesem Eintrag zustimmst.',
+  'genericRequest.flow.signData.message': 'Nachricht',
+  'genericRequest.flow.signData.data': 'Daten',
+  'genericRequest.flow.signData.statement': 'Erklärung',
+  'genericRequest.flow.signData.size': '{size} Bytes',
+  'genericRequest.flow.signData.bytes': 'Bytes',
+  'genericRequest.flow.signData.hash': 'SHA-256, den du signierst',
+  'genericRequest.flow.signData.consent': '{item} signieren',
+  'genericRequest.flow.signData.allNeeded': 'Hake jeden Eintrag an, um fortzufahren.',
+  'genericRequest.flow.plan.signData.one': '{count} Eintrag für {app} als {identity} signieren',
+  'genericRequest.flow.plan.signData.other': '{count} Einträge für {app} als {identity} signieren',
+  'genericRequest.flow.action.sign': 'Signieren',
+  'genericRequest.flow.action.signInAndSign': 'Anmelden und signieren',
+  'genericRequest.flow.working.sign': 'Wird signiert…',
+  'genericRequest.flow.outcome.signedData.one': 'Du hast {count} Eintrag für {app} signiert',
+  'genericRequest.flow.outcome.signedData.other': 'Du hast {count} Einträge für {app} signiert',
+  'genericRequest.flow.receipt.signedAs': 'Signiert als',
+  'genericRequest.rejected.dataTransmittal':
+    'Diese Anfrage sendet dir Daten, statt um eine Signatur zu bitten. Diese Wallet nimmt das nicht an.',
+  'genericRequest.rejected.dataNotForSignature':
+    'Diese Anfrage bittet dich nicht, etwas zu signieren.',
   'genericRequest.rejected.unknownDetail':
     'Diese Anfrage enthält einen Teil, den diese Wallet nicht erkennt.',
   'genericRequest.rejected.detailOrder':

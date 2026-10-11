@@ -17,6 +17,15 @@ use super::wire::invalid;
 
 const ORDINAL_AUTHENTICATION_RESPONSE: usize = 3;
 const ORDINAL_IDENTITY_UPDATE_RESPONSE: usize = 5;
+const ORDINAL_DATA_RESPONSE: usize = 11;
+
+/// `vrsc::data.signaturedata`, the key of each signature in a data response.
+const SIGNATURE_DATA_KEY: &str = "i7PcVF9wwPtQ6p6jDtCVpohX65pTZuP2ah";
+/// `SignatureData.version` of each item signature.
+const ITEM_SIGNATURE_VERSION: u64 = 1;
+const SIGNATURE_TYPE_VERUSID_DEFAULT: u64 = 1;
+const DATA_DESCRIPTOR_VERSION: u64 = 1;
+const DATA_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
 
 const RESPONSE_FLAG_HAS_REQUEST_HASH: u64 = 128;
 const RESPONSE_FLAG_HAS_HANDLED_BY: u64 = 256;
@@ -24,6 +33,7 @@ const AUTH_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
 const UPDATE_RESPONSE_FLAG_CONTAINS_TXID: u64 = 1;
 const UPDATE_RESPONSE_FLAG_CONTAINS_REQUEST_ID: u64 = 2;
 
+/// `VerifiableSignatureData.version` of the envelope signature.
 const SIGNATURE_DATA_VERSION: u64 = 0;
 const SIGNATURE_VERSION_V2: usize = 2;
 const HASH_TYPE_SHA256: usize = 5;
@@ -31,11 +41,99 @@ const HASH_TYPE_SHA256: usize = 5;
 /// wallet, so it reports the same handler as Verus Mobile.
 const HANDLED_BY_VERUS: usize = 0;
 
+/// One signature over a data item or statement.
+#[derive(Debug, Clone)]
+pub(crate) struct ItemSignature {
+    /// SHA-256 of the signed bytes.
+    pub hash: [u8; 32],
+    /// The serialized identity signature over the height-bound identity hash.
+    pub signature: Vec<u8>,
+}
+
 /// What the wallet did for the request, as the response reports it.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct ResponseOutcome {
     /// The identity update or invoice payment broadcast after Approval.
     pub txid: Option<String>,
+    /// Per data packet, in request order: the signatures of its objects, then
+    /// of its statements.
+    pub data_signatures: Vec<Vec<ItemSignature>>,
+}
+
+/// For each data packet, in request order: SHA-256 of each object, then of
+/// each statement. These are the hashes the responder signs.
+pub(crate) fn data_packet_hashes(
+    request: &ParsedRequest,
+    kinds: &[DetailKind],
+) -> Result<Vec<Vec<[u8; 32]>>, WalletError> {
+    request
+        .details
+        .iter()
+        .zip(kinds)
+        .filter(|(_, kind)| **kind == DetailKind::DataPacket)
+        .map(|(detail, _)| {
+            let packet = details::parse_data_packet(&detail.data, request.is_testnet)?;
+            Ok(packet
+                .signable
+                .iter()
+                .map(|bytes| super::names::sha256(bytes))
+                .collect())
+        })
+        .collect()
+}
+
+/// `SignatureData`, as `VerifiableSignatureData.toSignatureData` builds it.
+fn signature_data(
+    signer: &ResponseSigner<'_>,
+    item: &ItemSignature,
+) -> Result<Vec<u8>, WalletError> {
+    let system = super::names::decode_i_address(signer.system_id).ok_or_else(invalid)?;
+    let identity = super::names::decode_i_address(signer.identity_id).ok_or_else(invalid)?;
+    let mut out = Vec::new();
+    write_varint(&mut out, ITEM_SIGNATURE_VERSION);
+    out.extend_from_slice(&system);
+    write_varint(&mut out, HASH_TYPE_SHA256 as u64);
+    write_var_slice(&mut out, &item.hash);
+    out.extend_from_slice(&identity);
+    write_varint(&mut out, SIGNATURE_TYPE_VERUSID_DEFAULT);
+    write_compact_size(&mut out, 0); // VDXF keys
+    write_compact_size(&mut out, 0); // VDXF key names
+    write_compact_size(&mut out, 0); // bound hashes
+    write_var_slice(&mut out, &item.signature);
+    Ok(out)
+}
+
+/// `DataResponseDetails` holding a data descriptor whose object is a
+/// `VdxfUniValue` of signatures (`signDataPacket.js`).
+fn data_response(
+    request_id: Option<&str>,
+    signer: &ResponseSigner<'_>,
+    signatures: &[ItemSignature],
+) -> Result<Vec<u8>, WalletError> {
+    let key = super::names::decode_i_address(SIGNATURE_DATA_KEY).ok_or_else(invalid)?;
+    let mut values = Vec::new();
+    for item in signatures {
+        let data = signature_data(signer, item)?;
+        values.extend_from_slice(&key);
+        write_varint(&mut values, ITEM_SIGNATURE_VERSION);
+        write_compact_size(&mut values, data.len());
+        values.extend_from_slice(&data);
+    }
+    let mut descriptor = Vec::new();
+    write_varint(&mut descriptor, DATA_DESCRIPTOR_VERSION);
+    write_varint(&mut descriptor, 0);
+    write_var_slice(&mut descriptor, &values);
+
+    let mut data = Vec::new();
+    match request_id {
+        Some(request_id) => {
+            write_varint(&mut data, DATA_RESPONSE_FLAG_HAS_REQUEST_ID);
+            data.extend_from_slice(&encode_compact_i_address(request_id)?);
+        }
+        None => write_varint(&mut data, 0),
+    }
+    data.extend_from_slice(&descriptor);
+    Ok(ordinal_detail(ORDINAL_DATA_RESPONSE, &data))
 }
 
 fn ordinal_detail(ordinal: usize, data: &[u8]) -> Vec<u8> {
@@ -85,9 +183,11 @@ pub(crate) fn response_details(
     request: &ParsedRequest,
     kinds: &[DetailKind],
     outcome: &ResponseOutcome,
+    signer: &ResponseSigner<'_>,
 ) -> Result<Vec<Vec<u8>>, WalletError> {
     // Verus Mobile sends no sign-in response next to an encryption key request.
     let has_app_encryption = kinds.contains(&DetailKind::AppEncryption);
+    let mut data_signatures = outcome.data_signatures.iter();
     let mut out = Vec::new();
     for (detail, kind) in request.details.iter().zip(kinds) {
         match kind {
@@ -105,6 +205,19 @@ pub(crate) fn response_details(
                 out.push(identity_update_response(
                     update.request_id.as_deref(),
                     txid,
+                )?);
+            }
+            DetailKind::DataPacket => {
+                // A data response echoes the packet's own request ID.
+                let packet = details::parse_data_packet(&detail.data, request.is_testnet)?;
+                let signatures = data_signatures.next().ok_or_else(invalid)?;
+                if signatures.len() != packet.signable.len() {
+                    return Err(invalid());
+                }
+                out.push(data_response(
+                    packet.request_id.as_deref(),
+                    signer,
+                    signatures,
                 )?);
             }
             // New VerusID and invoices add no response detail, as on mobile.

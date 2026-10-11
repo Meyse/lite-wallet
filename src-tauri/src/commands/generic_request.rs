@@ -773,6 +773,45 @@ fn sign_unsigned_response(
     Ok(signed_response_hex)
 }
 
+/// Signs every object and statement of the open request's data packets, each
+/// over its own height-bound identity hash (`signDataPacket.js`). Rust builds
+/// the hashes from the verified request; it never signs a hash from the UI.
+fn sign_data_packets(
+    open: &OpenRequest,
+    signer: &response::ResponseSigner<'_>,
+    signed_block_height: u32,
+    private_key: &[u8; 32],
+) -> Result<Vec<Vec<response::ItemSignature>>, WalletError> {
+    let system = names::decode_i_address(signer.system_id).ok_or(WalletError::InvalidAddress)?;
+    let identity =
+        names::decode_i_address(signer.identity_id).ok_or(WalletError::InvalidAddress)?;
+    response::data_packet_hashes(&open.parsed, &open.kinds)?
+        .into_iter()
+        .map(|hashes| {
+            hashes
+                .into_iter()
+                .map(|hash| {
+                    let identity_hash =
+                        crate::core::crypto::verus_id_signature::compute_verus_data_identity_hash(
+                            system,
+                            identity,
+                            signed_block_height,
+                            hash,
+                        );
+                    Ok(response::ItemSignature {
+                        hash,
+                        signature: sign_identity_hash_with_private_bytes(
+                            identity_hash,
+                            signed_block_height,
+                            private_key,
+                        )?,
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// The responder must meet the sign-in rules: a required VerusID, system,
 /// or parent. Verus Mobile applies them in its identity picker.
 fn check_responder_constraints(
@@ -1112,17 +1151,22 @@ async fn build_and_sign_generic_response_for_session(
         .map_err(map_generic_session_change)?;
     let signed_block_height = extract_chain_height(&info)?;
 
+    let response_signer = response::ResponseSigner {
+        system_id: &signer.system_id,
+        identity_id: &signer.identity_id,
+    };
+    let data_signatures =
+        sign_data_packets(&open, &response_signer, signed_block_height, &private_key)?;
     let outcome = response::ResponseOutcome {
         txid: open.broadcast_txid.clone(),
+        data_signatures,
     };
-    let response_details = response::response_details(&open.parsed, &open.kinds, &outcome)?;
+    let response_details =
+        response::response_details(&open.parsed, &open.kinds, &outcome, &response_signer)?;
     let unsigned = response::build_unsigned_response(
         &open.parsed,
         response_details,
-        &response::ResponseSigner {
-            system_id: &signer.system_id,
-            identity_id: &signer.identity_id,
-        },
+        &response_signer,
         now_unix_seconds(),
     )?;
     let signed_response_hex = match submission_guard.poll_admitted(|| {
@@ -2793,7 +2837,8 @@ mod tests {
     use crate::core::generic_request::acceptance::check_request;
     use crate::core::generic_request::request::parse_request_hex;
     use crate::core::generic_request::response::{
-        build_unsigned_response, response_details, ResponseOutcome, ResponseSigner,
+        build_unsigned_response, data_packet_hashes, response_details, ItemSignature,
+        ResponseOutcome, ResponseSigner,
     };
     use crate::core::generic_request::store::{GenericRequestStore, OpenRequest};
     use crate::core::wallet::AccountStateStore;
@@ -2874,6 +2919,7 @@ mod tests {
         txid: Option<&str>,
         signer: &str,
         created_at: u64,
+        item_signature: &[u8],
     ) -> Vec<u8> {
         let open = open_vector_request(
             &GenericRequestStore::new(),
@@ -2881,24 +2927,37 @@ mod tests {
             &vector_request_hex(request),
             true,
         );
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: signer,
+        };
+        // Data items carry the vector's placeholder signature; the bytes
+        // around it must match mobile's.
+        let data_signatures = data_packet_hashes(&open.parsed, &open.kinds)
+            .unwrap()
+            .into_iter()
+            .map(|hashes| {
+                hashes
+                    .into_iter()
+                    .map(|hash| ItemSignature {
+                        hash,
+                        signature: item_signature.to_vec(),
+                    })
+                    .collect()
+            })
+            .collect();
         let details = response_details(
             &open.parsed,
             &open.kinds,
             &ResponseOutcome {
                 txid: txid.map(ToString::to_string),
+                data_signatures,
             },
+            &signer,
         )
         .expect("response details");
-        build_unsigned_response(
-            &open.parsed,
-            details,
-            &ResponseSigner {
-                system_id: TEST_SYSTEM_ID,
-                identity_id: signer,
-            },
-            created_at,
-        )
-        .expect("unsigned response")
+        build_unsigned_response(&open.parsed, details, &signer, created_at)
+            .expect("unsigned response")
     }
 
     #[test]
@@ -2916,11 +2975,14 @@ mod tests {
     #[test]
     fn responses_match_the_bytes_verus_mobile_builds() {
         for expected in vectors()["responses"].as_array().unwrap() {
+            let item_signature =
+                hex::decode(expected["itemSignature"].as_str().unwrap_or_default()).unwrap();
             let unsigned = unsigned_vector_response(
                 expected["request"].as_str().unwrap(),
                 expected["txid"].as_str(),
                 expected["signer"].as_str().unwrap(),
                 expected["createdAt"].as_u64().unwrap(),
+                &item_signature,
             );
             assert_eq!(
                 hex::encode(unsigned),
@@ -2939,12 +3001,23 @@ mod tests {
             &vector_request_hex("auth-update"),
             true,
         );
-        assert!(response_details(&open.parsed, &open.kinds, &ResponseOutcome::default()).is_err());
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
+        };
+        assert!(response_details(
+            &open.parsed,
+            &open.kinds,
+            &ResponseOutcome::default(),
+            &signer
+        )
+        .is_err());
         let malformed = ResponseOutcome {
             txid: Some("1234".to_string()),
+            data_signatures: Vec::new(),
         };
         assert!(matches!(
-            response_details(&open.parsed, &open.kinds, &malformed),
+            response_details(&open.parsed, &open.kinds, &malformed, &signer),
             Err(WalletError::OperationFailed)
         ));
     }
@@ -2958,6 +3031,7 @@ mod tests {
             None,
             "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
             FIXED_CREATED_AT,
+            &[],
         );
         let signed = sign_unsigned_response(
             &unsigned,
@@ -2987,6 +3061,65 @@ mod tests {
     }
 
     #[test]
+    fn each_data_item_signature_verifies_for_the_responder() {
+        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let (private_key, address) = test_signing_context(network, 7);
+        let open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex("auth-sign-data"),
+            true,
+        );
+        let identity = "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk";
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: identity,
+        };
+        let signatures =
+            super::sign_data_packets(&open, &signer, FIXED_SIGNED_BLOCK_HEIGHT, &private_key)
+                .unwrap();
+        let expected = vectors()["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == "auth-sign-data")
+            .unwrap()["expect"]["dataPacket"]["hashes"]
+            .clone();
+        assert_eq!(signatures.len(), 1);
+        assert_eq!(
+            signatures[0]
+                .iter()
+                .map(|item| hex::encode(item.hash))
+                .collect::<Vec<_>>(),
+            expected
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|hash| hash.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        );
+        let system = crate::core::generic_request::names::decode_i_address(TEST_SYSTEM_ID).unwrap();
+        let identity_hash =
+            crate::core::generic_request::names::decode_i_address(identity).unwrap();
+        for item in &signatures[0] {
+            let parsed = parse_identity_signature(&item.signature).unwrap();
+            assert_eq!(parsed.block_height, FIXED_SIGNED_BLOCK_HEIGHT);
+            let hash = crate::core::crypto::verus_id_signature::compute_verus_data_identity_hash(
+                system,
+                identity_hash,
+                parsed.block_height,
+                item.hash,
+            );
+            assert!(verify_identity_signature_against_addresses(
+                hash,
+                &parsed,
+                std::slice::from_ref(&address),
+                network,
+            ));
+        }
+    }
+
+    #[test]
     fn a_responder_this_wallet_does_not_control_is_rejected() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
@@ -2996,6 +3129,7 @@ mod tests {
             None,
             "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
             FIXED_CREATED_AT,
+            &[],
         );
         let error = sign_unsigned_response(
             &unsigned,

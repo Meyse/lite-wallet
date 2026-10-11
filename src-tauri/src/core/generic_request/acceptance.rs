@@ -47,6 +47,12 @@ pub(crate) enum Rejection {
     InvoicePreconvertLaunched,
     /// This invoice was already paid in this wallet session.
     AlreadyPaid,
+    /// The data packet sends data to the user instead of asking for a
+    /// signature; Verus Mobile refuses it too.
+    DataTransmittal,
+    /// The data packet does not ask for the user's signature, or names
+    /// nothing to sign.
+    DataNotForSignature,
 }
 
 impl Rejection {
@@ -69,6 +75,8 @@ impl Rejection {
             Self::InvoiceCurrency => "invoiceCurrency",
             Self::InvoicePreconvertLaunched => "invoicePreconvertLaunched",
             Self::AlreadyPaid => "alreadyPaid",
+            Self::DataTransmittal => "dataTransmittal",
+            Self::DataNotForSignature => "dataNotForSignature",
         }
     }
 }
@@ -130,6 +138,21 @@ pub(crate) fn check_order(kinds: &[DetailKind]) -> Result<(), Rejection> {
     Ok(())
 }
 
+/// `dataPacketRequestValidator.js`: a data packet asks for the user's
+/// signature over at least one object, and never sends data to the user.
+pub(crate) fn check_data_packet(
+    packet: &super::details::DataPacketRequest,
+) -> Result<(), Rejection> {
+    use super::details::*;
+    if packet.flags & DATA_PACKET_FLAG_FOR_TRANSMITTAL_TO_USER != 0 {
+        return Err(Rejection::DataTransmittal);
+    }
+    if packet.flags & DATA_PACKET_FLAG_FOR_USERS_SIGNATURE == 0 || packet.object_count == 0 {
+        return Err(Rejection::DataNotForSignature);
+    }
+    Ok(())
+}
+
 /// The checks that need only the request bytes and the open wallet's network.
 pub(crate) fn check_request(
     request: &ParsedRequest,
@@ -157,6 +180,13 @@ pub(crate) fn check_request(
     }
     if kinds.contains(&DetailKind::CreateWalletBackup) {
         return Err(Rejection::WalletBackup);
+    }
+    for (detail, kind) in request.details.iter().zip(&kinds) {
+        if *kind == DetailKind::DataPacket {
+            let packet = super::details::parse_data_packet(&detail.data, request.is_testnet)
+                .map_err(|_| Rejection::DataNotForSignature)?;
+            check_data_packet(&packet)?;
+        }
     }
     if request.is_testnet != wallet_is_testnet {
         return Err(Rejection::Network);
@@ -223,6 +253,9 @@ mod tests {
             match expect["reject"].as_str() {
                 Some("order") => assert_eq!(outcome, Err(Rejection::DetailOrder), "{name}"),
                 Some("unsigned") => assert_eq!(outcome, Err(Rejection::Unsigned), "{name}"),
+                Some("dataTransmittal") => {
+                    assert_eq!(outcome, Err(Rejection::DataTransmittal), "{name}")
+                }
                 Some(other) => panic!("{name}: unknown expectation {other}"),
                 None => assert!(outcome.is_ok(), "{name}: {outcome:?}"),
             }

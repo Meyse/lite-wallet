@@ -618,6 +618,29 @@ export const es: Record<string, string> = {
   'genericRequest.rejected.invoicePreconvertLaunched':
     'Esta factura preconvierte a una moneda que ya se lanzó.',
   'genericRequest.rejected.alreadyPaid': 'Ya pagaste esta factura.',
+  'genericRequest.flow.step.signData': 'Firmar datos',
+  'genericRequest.flow.title.signData': 'Firmar para {app}',
+  'genericRequest.flow.signData.intro':
+    '{app} te pide firmar cada elemento de abajo. Cada firma muestra que estás de acuerdo con ese elemento.',
+  'genericRequest.flow.signData.message': 'Mensaje',
+  'genericRequest.flow.signData.data': 'Datos',
+  'genericRequest.flow.signData.statement': 'Declaración',
+  'genericRequest.flow.signData.size': '{size} bytes',
+  'genericRequest.flow.signData.bytes': 'Bytes',
+  'genericRequest.flow.signData.hash': 'SHA-256 que firmas',
+  'genericRequest.flow.signData.consent': 'Firmar {item}',
+  'genericRequest.flow.signData.allNeeded': 'Marca cada elemento para continuar.',
+  'genericRequest.flow.plan.signData.one': 'Firmar {count} elemento para {app} como {identity}',
+  'genericRequest.flow.plan.signData.other': 'Firmar {count} elementos para {app} como {identity}',
+  'genericRequest.flow.action.sign': 'Firmar',
+  'genericRequest.flow.action.signInAndSign': 'Iniciar sesión y firmar',
+  'genericRequest.flow.working.sign': 'Firmando…',
+  'genericRequest.flow.outcome.signedData.one': 'Firmaste {count} elemento para {app}',
+  'genericRequest.flow.outcome.signedData.other': 'Firmaste {count} elementos para {app}',
+  'genericRequest.flow.receipt.signedAs': 'Firmado como',
+  'genericRequest.rejected.dataTransmittal':
+    'Esta solicitud te envía datos en lugar de pedir una firma. Esta cartera no lo acepta.',
+  'genericRequest.rejected.dataNotForSignature': 'Esta solicitud no te pide firmar nada.',
   'genericRequest.rejected.unknownDetail':
     'Esta solicitud contiene una parte que esta cartera no reconoce.',
   'genericRequest.rejected.detailOrder':

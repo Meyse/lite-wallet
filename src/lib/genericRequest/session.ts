@@ -5,6 +5,8 @@ import {
   AuthenticationRequestOrdinalVDXFObject,
   CREATE_WALLET_BACKUP_DETAILS_VDXF_KEY,
   DATA_PACKET_REQUEST_VDXF_KEY,
+  DataDescriptor,
+  DataPacketRequestOrdinalVDXFObject,
   GenericRequest,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY,
   IdentityUpdateRequestOrdinalVDXFObject,
@@ -16,6 +18,7 @@ import {
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
   VerusPayInvoiceDetailsOrdinalVDXFObject,
 } from 'verus-typescript-primitives';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '$lib/utils/bytes.js';
 import { rejectionError } from './rejections';
 
@@ -81,11 +84,33 @@ export type InvoiceDetailSession = {
   acceptsAnyAmount: boolean;
 };
 
+/** One thing a data packet asks the user to sign, as the review shows it. */
+export type SignableItemView = {
+  kind: 'text' | 'data';
+  label: string | null;
+  mimeType: string | null;
+  /** The text of a message, or of data that is valid UTF-8. */
+  text: string | null;
+  hex: string;
+  size: number;
+  /** SHA-256 of the signed bytes; Rust signs the same hash. */
+  sha256: string;
+};
+
+/** Sign data: Rust signs each item and statement from the verified request. */
+export type DataPacketDetailSession = {
+  index: number;
+  type: 'dataPacket';
+  items: SignableItemView[];
+  statements: string[];
+};
+
 export type SupportedGenericRequestDetail =
   | AuthenticationDetailSession
   | ProvisionIdentityDetailSession
   | IdentityUpdateDetailSession
-  | InvoiceDetailSession;
+  | InvoiceDetailSession
+  | DataPacketDetailSession;
 
 export type GenericRequestFlowSession = {
   request: GenericRequest;
@@ -113,6 +138,7 @@ const REQUEST_DETAIL_KEYS = new Set([
 
 /** The detail types the desktop flow can show today. */
 const SUPPORTED_DETAIL_KEYS = new Set([
+  DATA_PACKET_REQUEST_VDXF_KEY.vdxfid,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid,
   AUTHENTICATION_REQUEST_VDXF_KEY.vdxfid,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY.vdxfid,
@@ -234,6 +260,53 @@ function parseProvisionIdentityDetail(
   };
 }
 
+function utf8Text(bytes: Buffer): string | null {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function signableItem(object: string | DataDescriptor): SignableItemView {
+  const bytes =
+    typeof object === 'string' ? Buffer.from(object, 'utf8') : Buffer.from(object.toBuffer());
+  const base = { hex: '', size: 0, sha256: bytesToHex(sha256(bytes)) };
+  if (typeof object === 'string') {
+    return {
+      ...base,
+      kind: 'text',
+      label: null,
+      mimeType: null,
+      text: object,
+      hex: bytesToHex(bytes),
+      size: bytes.length,
+    };
+  }
+  const data = Buffer.from(object.objectdata ?? []);
+  return {
+    ...base,
+    kind: 'data',
+    label: object.label?.trim() || null,
+    mimeType: object.mimeType?.trim() || null,
+    text: utf8Text(data),
+    hex: bytesToHex(data),
+    size: data.length,
+  };
+}
+
+function parseDataPacketDetail(
+  detail: InstanceType<typeof DataPacketRequestOrdinalVDXFObject>,
+  index: number
+): DataPacketDetailSession {
+  return {
+    index,
+    type: 'dataPacket',
+    items: detail.data.signableObjects.map(signableItem),
+    statements: detail.data.hasStatements() ? [...(detail.data.statements ?? [])] : [],
+  };
+}
+
 function parseIdentityUpdateDetail(
   detail: InstanceType<typeof IdentityUpdateRequestOrdinalVDXFObject>,
   index: number,
@@ -280,6 +353,9 @@ export function parseGenericRequestSession(
     if (detail instanceof ProvisionIdentityDetailsOrdinalVDXFObject) {
       return parseProvisionIdentityDetail(detail, index);
     }
+    if (detail instanceof DataPacketRequestOrdinalVDXFObject) {
+      return parseDataPacketDetail(detail, index);
+    }
     if (detail instanceof VerusPayInvoiceDetailsOrdinalVDXFObject) {
       return {
         index,
@@ -290,6 +366,10 @@ export function parseGenericRequestSession(
 
     throw rejectionError('unsupportedDetail');
   });
+  // One Sign data step per request: a second data packet is not shown yet.
+  if (details.filter((detail) => detail.type === 'dataPacket').length > 1) {
+    throw rejectionError('unsupportedDetail');
+  }
 
   return {
     request,

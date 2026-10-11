@@ -664,3 +664,112 @@ pub(crate) fn parse_invoice(data: &[u8]) -> Result<InvoiceRequest, WalletError> 
         accepted_systems,
     })
 }
+
+// --- Sign data ---------------------------------------------------------------
+
+const DATA_PACKET_FLAG_HAS_REQUEST_ID: u64 = 1;
+const DATA_PACKET_FLAG_HAS_STATEMENTS: u64 = 2;
+const DATA_PACKET_FLAG_HAS_SIGNATURE: u64 = 4;
+pub(crate) const DATA_PACKET_FLAG_FOR_USERS_SIGNATURE: u64 = 8;
+pub(crate) const DATA_PACKET_FLAG_FOR_TRANSMITTAL_TO_USER: u64 = 16;
+const SIGNABLE_OBJECT_TYPE_DATA_DESCRIPTOR: u64 = 0;
+const SIGNABLE_OBJECT_TYPE_STRING: u64 = 1;
+
+const DESCRIPTOR_FLAG_SALT: u64 = 2;
+const DESCRIPTOR_FLAG_EPK: u64 = 4;
+const DESCRIPTOR_FLAG_IVK: u64 = 8;
+const DESCRIPTOR_FLAG_SSK: u64 = 0x10;
+const DESCRIPTOR_FLAG_LABEL: u64 = 0x20;
+const DESCRIPTOR_FLAG_MIME: u64 = 0x40;
+const DESCRIPTOR_FLAG_VDXF_KEY: u64 = 0x80;
+/// `readLimitedString` limits in `DataDescriptor.fromBuffer`.
+const DESCRIPTOR_LABEL_MAX: usize = 64;
+const DESCRIPTOR_MIME_MAX: usize = 128;
+
+/// Reads a `DataDescriptor` and returns its exact bytes.
+pub(crate) fn read_data_descriptor<'a>(reader: &mut Reader<'a>) -> Result<&'a [u8], WalletError> {
+    let start = reader.position();
+    let _version = reader.varint()?;
+    let flags = reader.varint()?;
+    if flags & DESCRIPTOR_FLAG_VDXF_KEY != 0 {
+        reader.hash160()?;
+    }
+    reader.var_slice()?;
+    if flags & DESCRIPTOR_FLAG_LABEL != 0 && reader.var_slice()?.len() > DESCRIPTOR_LABEL_MAX {
+        return Err(invalid());
+    }
+    if flags & DESCRIPTOR_FLAG_MIME != 0 && reader.var_slice()?.len() > DESCRIPTOR_MIME_MAX {
+        return Err(invalid());
+    }
+    for flag in [
+        DESCRIPTOR_FLAG_SALT,
+        DESCRIPTOR_FLAG_EPK,
+        DESCRIPTOR_FLAG_IVK,
+        DESCRIPTOR_FLAG_SSK,
+    ] {
+        if flags & flag != 0 {
+            reader.var_slice()?;
+        }
+    }
+    Ok(reader.since(start))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DataPacketRequest {
+    pub flags: u64,
+    /// The bytes signed for each signable object, then for each statement:
+    /// a text as UTF-8, a data descriptor as serialized (`signDataPacket.js`).
+    pub signable: Vec<Vec<u8>>,
+    pub object_count: usize,
+    pub request_id: Option<String>,
+}
+
+pub(crate) fn parse_data_packet(
+    data: &[u8],
+    is_testnet: bool,
+) -> Result<DataPacketRequest, WalletError> {
+    let mut reader = Reader::new(data);
+    let flags = reader.compact_size()?;
+    let object_count = reader.count()?;
+    let mut signable = Vec::with_capacity(object_count);
+    for _ in 0..object_count {
+        match reader.compact_size()? {
+            SIGNABLE_OBJECT_TYPE_STRING => {
+                let text = reader.var_slice()?;
+                std::str::from_utf8(text).map_err(|_| invalid())?;
+                signable.push(text.to_vec());
+            }
+            SIGNABLE_OBJECT_TYPE_DATA_DESCRIPTOR => {
+                signable.push(read_data_descriptor(&mut reader)?.to_vec());
+            }
+            _ => return Err(invalid()),
+        }
+    }
+    if flags & DATA_PACKET_FLAG_HAS_STATEMENTS != 0 {
+        let count = reader.count()?;
+        for _ in 0..count {
+            let statement = reader.var_slice()?;
+            std::str::from_utf8(statement).map_err(|_| invalid())?;
+            signable.push(statement.to_vec());
+        }
+    }
+    if flags & DATA_PACKET_FLAG_HAS_SIGNATURE != 0 {
+        let start = reader.position();
+        let (_, end) = crate::core::crypto::verus_id_signature::parse_verifiable_signature_data(
+            data, start, is_testnet,
+        )?;
+        reader.take(end - start)?;
+    }
+    let request_id = if flags & DATA_PACKET_FLAG_HAS_REQUEST_ID != 0 {
+        Some(CompactAddress::read(&mut reader)?.identity_address(is_testnet)?)
+    } else {
+        None
+    };
+    reader.finish()?;
+    Ok(DataPacketRequest {
+        flags,
+        signable,
+        object_count,
+        request_id,
+    })
+}

@@ -70,6 +70,8 @@
   import UpdateChanges from './UpdateChanges.svelte';
   import PayInvoiceStep from './PayInvoiceStep.svelte';
   import { PayInvoiceModule } from './modules/PayInvoiceModule.svelte';
+  import { SignDataModule } from './modules/SignDataModule.svelte';
+  import SignDataStep from './SignDataStep.svelte';
   import type { DetailModule, RequestContext } from './modules/types';
 
   type Phase = 'review' | 'working' | 'done' | 'failed' | 'declined';
@@ -138,10 +140,15 @@
 
   // Detail modules: each new detail type plugs into the shell (plan step 7).
   let invoiceModule = $state.raw<PayInvoiceModule | null>(null);
-  const modules = $derived<DetailModule[]>(invoiceModule ? [invoiceModule] : []);
+  let signDataModule = $state.raw<SignDataModule | null>(null);
+  const modules = $derived<DetailModule[]>(
+    [invoiceModule, signDataModule].filter((module) => module !== null)
+  );
   const transactionModule = $derived(modules.find((module) => module.transaction) ?? null);
   /** The response carries a detail; invoices and New VerusID add none, as on mobile. */
-  const respondsWithDetails = $derived(!!authDetail || !!updateDetail);
+  const respondsWithDetails = $derived(!!authDetail || !!updateDetail || !!signDataModule);
+  /** Details that the chosen responder answers: a sign in, or signing data. */
+  const needsResponder = $derived(!!authDetail || !!signDataModule);
 
   // Approval state.
   let phase = $state<Phase>('review');
@@ -230,6 +237,8 @@
         invoiceModule = module;
         void module.load();
       }
+      const dataPacket = activeSession.details.find((detail) => detail.type === 'dataPacket');
+      if (dataPacket) signDataModule = new SignDataModule(moduleContext(activeSession), dataPacket);
     });
   });
 
@@ -258,7 +267,7 @@
   $effect(() => {
     // One eligible VerusID is chosen for the user; a choice that no longer
     // qualifies is cleared.
-    if (!isOpen || !authDetail || newIdentity) return;
+    if (!isOpen || !needsResponder || newIdentity) return;
     if (responderAddress) {
       if (
         !eligibleIdentities.some(
@@ -302,6 +311,7 @@
   function resetFlowState() {
     openGeneration += 1;
     invoiceModule = null;
+    signDataModule = null;
     linkedIdentities = [];
     identityDetailsByAddress = {};
     loadingLinkedIdentities = false;
@@ -833,6 +843,7 @@
             ];
           }
           if (detail.type === 'invoice') return invoiceModule?.planLines() ?? [];
+          if (detail.type === 'dataPacket') return signDataModule?.planLines() ?? [];
           if (detail.type === 'identityUpdate') {
             return [
               {
@@ -890,6 +901,12 @@
         working: i18n.t('genericRequest.flow.working.pay'),
       };
     }
+    if (signDataModule) {
+      return {
+        idle: signDataModule.actionLabel(!!authDetail),
+        working: i18n.t('genericRequest.flow.working.sign'),
+      };
+    }
     return {
       idle: i18n.t('genericRequest.flow.action.signIn'),
       working: i18n.t('genericRequest.flow.working.signIn'),
@@ -943,13 +960,15 @@
           ? i18n.t('genericRequest.flow.outcome.updated', { identity: targetName })
           : invoiceModule
             ? invoiceModule.outcomeTitle()
-            : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
+            : signDataModule
+              ? signDataModule.outcomeTitle()
+              : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
   );
 
   // Approval ----------------------------------------------------------------------
 
   function responseSigner(): { systemId: string; identityId: string } | null {
-    if (authDetail) {
+    if (needsResponder) {
       return responder?.systemId
         ? { systemId: responder.systemId, identityId: responder.identityAddress }
         : null;
@@ -1119,6 +1138,8 @@
       });
     }
     if (invoiceModule && phase === 'done') rows.push(...invoiceModule.receiptFacts());
+    if (signDataModule && !authDetail && phase === 'done')
+      rows.push(...signDataModule.receiptFacts());
     if (txid) rows.push({ label: i18n.t('genericRequest.complete.txidLabel'), content: txidValue });
     return rows;
   });
@@ -1256,6 +1277,12 @@
       {feeLabel}
       networkLabel={(source) => systemDisplayLabel(source.systemId)}
       onSelect={(channelId) => void chooseFundingSource(channelId)}
+    />
+  {:else if step === 'signData' && signDataModule}
+    <SignDataStep
+      module={signDataModule}
+      {appLabel}
+      responder={authDetail ? undefined : responderPicker}
     />
   {:else if step === 'payInvoice' && invoiceModule}
     <PayInvoiceStep module={invoiceModule} networkLabel={systemDisplayLabel} />

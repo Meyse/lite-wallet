@@ -53,11 +53,11 @@ Open either page on `http://127.0.0.1:1428`:
 - `/dev/browser-fixtures/requests.html`: the guided flow for requests from
   websites and apps, against synthetic wallet commands. Use `?scenario=signin`,
   `update` (the default), `updateOnly`, `newid`, `expired`, `invoice` (sign in
-  and pay), `invoiceOnly`, `invoiceAny` (any amount) or `invoicePaid`.
-  `fail=transaction`, `signing` or `delivery` fails that stage once;
-  `stall=<stage>` holds it. `redirect` adds a redirect address. Supports
-  `theme=dark` and `locale=nl`, `de` or `es`. Nothing is signed, broadcast or
-  sent.
+  and pay), `invoiceOnly`, `invoiceAny` (any amount), `invoicePaid`, `signData`
+  or `authSignData`. `fail=transaction`, `signing` or `delivery` fails that
+  stage once; `stall=<stage>` holds it. `redirect` adds a redirect address.
+  Supports `theme=dark` and `locale=nl`, `de` or `es`. Nothing is signed,
+  broadcast or sent.
 - `/dev/browser-fixtures/wallet-loading.html`: Overview with a known Verus
   balance and a pending Ethereum balance. `?screen=details&wait=scopes`
   preserves the detail screen while scopes are pending; `wait=balances` and

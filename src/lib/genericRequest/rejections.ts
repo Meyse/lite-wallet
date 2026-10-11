@@ -29,6 +29,8 @@ export const REJECTION_CODES = [
   'invoiceCurrencyMissing',
   'invoicePreconvertLaunched',
   'alreadyPaid',
+  'dataTransmittal',
+  'dataNotForSignature',
 ] as const;
 
 export type RejectionCode = (typeof REJECTION_CODES)[number];

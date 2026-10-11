@@ -6,6 +6,7 @@ import { coinsStore } from '$lib/stores/coins';
 import { walletChannelsStore } from '$lib/stores/walletChannels';
 import type {
   AuthenticationDetailSession,
+  DataPacketDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
@@ -69,18 +70,59 @@ const invoice: InvoiceDetailSession = {
   acceptsAnyAmount: scenario === 'invoiceAny',
 };
 
+const dataPacket: DataPacketDetailSession = {
+  index: 1,
+  type: 'dataPacket',
+  items: [
+    {
+      kind: 'text',
+      label: null,
+      mimeType: null,
+      text: 'I am signing this disposable test message.',
+      hex: '',
+      size: 42,
+      sha256: '13e625c7c70ab0dec07b148d009af34aad4b6d02b459345d3406236245c9083c',
+    },
+    {
+      kind: 'data',
+      label: 'Sample JSON',
+      mimeType: 'application/json',
+      text: '{"test":"mobile-review","approved":true}',
+      hex: '7b2274657374223a226d6f62696c652d726576696577222c22617070726f766564223a747275657d',
+      size: 40,
+      sha256: 'f7c34af0f91afccef5e64be75ad16f9ddc25ec1fb4d4c458aabcb4b0062895a2',
+    },
+    {
+      kind: 'data',
+      label: 'Opaque test bytes',
+      mimeType: 'application/octet-stream',
+      text: null,
+      hex: '00ff80010203',
+      size: 6,
+      sha256: '88c49f430623685ab229e73e9e555a2700f7801a40020e290b169f8265ac1888',
+    },
+  ],
+  statements: ['These signatures are for a disposable test.'],
+};
+
 const details =
-  scenario === 'update'
-    ? [auth, update]
-    : scenario === 'updateOnly'
-      ? [{ ...update, index: 0 }]
-      : scenario === 'newid'
-        ? [auth, provision]
-        : scenario === 'invoice'
-          ? [auth, invoice]
-          : scenario === 'invoiceOnly' || scenario === 'invoiceAny' || scenario === 'invoicePaid'
-            ? [{ ...invoice, index: 0 }]
-            : [auth];
+  scenario === 'signData'
+    ? [{ ...dataPacket, index: 0 }]
+    : scenario === 'authSignData'
+      ? [auth, dataPacket]
+      : scenario === 'update'
+        ? [auth, update]
+        : scenario === 'updateOnly'
+          ? [{ ...update, index: 0 }]
+          : scenario === 'newid'
+            ? [auth, provision]
+            : scenario === 'invoice'
+              ? [auth, invoice]
+              : scenario === 'invoiceOnly' ||
+                  scenario === 'invoiceAny' ||
+                  scenario === 'invoicePaid'
+                ? [{ ...invoice, index: 0 }]
+                : [auth];
 const session: GenericRequestFlowSession = {
   request: {} as GenericRequestFlowSession['request'],
   requestHex: '00',
