@@ -165,6 +165,7 @@ pub(crate) fn build_unsigned_identity_tx(
     identity_satoshis: i64,
     funding_candidates: &[VrpcUtxo],
     fee_sat: i64,
+    change_script: Option<&[u8]>,
 ) -> Result<(String, Vec<IdentitySignableInput>, bool), WalletError> {
     let identity_txid_le = txid_hex_to_le_bytes(identity_txid)?;
     let identity_input_index = template_tx
@@ -251,13 +252,18 @@ pub(crate) fn build_unsigned_identity_tx(
         .saturating_sub(fee_sat);
     let mut dropped_dust_change = false;
     if change_sat >= DUST_SAT {
-        let change_script = hex::decode(
-            selected[0]
-                .script_pub_key
-                .as_deref()
-                .ok_or(WalletError::IdentityBuildFailed)?,
-        )
-        .map_err(|_| WalletError::IdentityBuildFailed)?;
+        // Change returns to the first funding address unless the caller names
+        // another script.
+        let change_script = match change_script {
+            Some(script) => script.to_vec(),
+            None => hex::decode(
+                selected[0]
+                    .script_pub_key
+                    .as_deref()
+                    .ok_or(WalletError::IdentityBuildFailed)?,
+            )
+            .map_err(|_| WalletError::IdentityBuildFailed)?,
+        };
         template_tx.outputs.push(VerusTxOut {
             value: change_sat as u64,
             script_pub_key: change_script,
@@ -404,6 +410,7 @@ pub async fn preflight(
         identity_input_satoshis,
         &funding_candidates,
         DEFAULT_FEE_SAT,
+        None,
     )?;
     let authenticated_inputs = signable_inputs
         .iter()

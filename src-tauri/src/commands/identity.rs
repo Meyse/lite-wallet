@@ -41,8 +41,8 @@ pub(crate) struct IdentitySessionContext {
 }
 
 #[derive(Clone)]
-struct DiscoveryCandidate {
-    identity_address: String,
+pub(crate) struct DiscoveryCandidate {
+    pub(crate) identity_address: String,
     name: Option<String>,
     fully_qualified_name: Option<String>,
     status: Option<String>,
@@ -561,7 +561,7 @@ fn linkable_sort_key(candidate: &LinkableIdentity) -> String {
         .unwrap_or_else(|| candidate.identity_address.to_ascii_lowercase())
 }
 
-fn parse_discovery_candidates(raw: Value) -> Vec<DiscoveryCandidate> {
+pub(crate) fn parse_discovery_candidates(raw: Value) -> Vec<DiscoveryCandidate> {
     let mut collected = Vec::<DiscoveryCandidate>::new();
     collect_discovery_candidates(&raw, &mut collected);
     dedupe_discovery_candidates(collected)

@@ -998,6 +998,7 @@ pub(crate) async fn finish_preflight(
         identity_satoshis,
         &funding_candidates,
         fee_sats,
+        None,
     )?;
     let authenticated_inputs = signable_inputs
         .iter()

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preflight-gift-card-claim"
+description = "Enables the preflight_gift_card_claim command without any pre-configured scope."
+commands.allow = ["preflight_gift_card_claim"]
+
+[[permission]]
+identifier = "deny-preflight-gift-card-claim"
+description = "Denies the preflight_gift_card_claim command without any pre-configured scope."
+commands.deny = ["preflight_gift_card_claim"]

@@ -32,7 +32,8 @@ pub use generic_request::{
     GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
     GenericIdentityUpdateReviewResult, GenericInvoicePreflightResult, GenericInvoiceReview,
     GenericRequestTransactionResult, GenericResponseSignerInput, GenericSharedCredential,
-    LinkReadyProvisioningJobResult, OpenedGenericRequest, ProvisioningJobRecord,
+    GiftCardClaimPreflight, GiftCardClaimResult, GiftCardCurrency, GiftCardIdentity,
+    GiftCardReview, LinkReadyProvisioningJobResult, OpenedGenericRequest, ProvisioningJobRecord,
 };
 pub use guard::{
     BeginGuardSessionRequest, BeginGuardSessionResult, EndGuardSessionRequest,

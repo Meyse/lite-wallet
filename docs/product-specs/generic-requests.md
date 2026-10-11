@@ -165,9 +165,22 @@ response address, plus a close button. Close declines the request.
     else, nothing can be sent, and the user declines, as on mobile.
   - Only requests for whole credentials are accepted, as on mobile. They must
     name an address to encrypt the answer to.
-- **Gift card claim:** shows what will be claimed and asks for the claim
-  password when there is one. The request is saved encrypted until the claim
-  finishes. The phase 5 design fixes the screen.
+- **Gift card claim:**
+  - Asks for the card's password when it has one. A wrong password is refused.
+  - Rust reads the card's key and shows what it holds on the wallet's chain:
+    each currency, and each VerusID the key controls.
+  - Claiming moves each VerusID to the wallet's primary address, with one
+    signature and the wallet's private address (or none), paid from the card.
+    Then everything else goes to the wallet's primary address in one
+    transaction. Revocation and recovery authorities do not change; a warning
+    says so when they are another VerusID.
+  - A VerusID that the claim cannot move (not active, or more than one
+    signature) blocks the claim, as on mobile.
+  - The key and the signed transactions stay in memory with the open request.
+    Try again sends only the transactions that were not sent yet. After a lock
+    or quit, opening the card again claims what is left. Saving the request
+    encrypted until the claim finishes is not built yet.
+  - No response is sent.
 
 ### Confirm and Approval
 

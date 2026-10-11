@@ -709,6 +709,49 @@ export const es: Record<string, string> = {
     'Esta solicitud de inicio de sesión pide compartir datos de sesión adicionales, algo que esta cartera no admite.',
   'genericRequest.rejected.loginPermission':
     'Esta solicitud de inicio de sesión pide más que el nombre y el ID de tu VerusID. Esta cartera solo comparte esos datos.',
+  'genericRequest.flow.step.giftCard': 'Tarjeta regalo',
+  'genericRequest.flow.title.giftCard': 'Canjear una tarjeta regalo',
+  'genericRequest.flow.giftCard.passwordIntro':
+    'Esta tarjeta regalo tiene contraseña. Escríbela para ver lo que contiene.',
+  'genericRequest.flow.giftCard.password': 'Contraseña de la tarjeta regalo',
+  'genericRequest.flow.giftCard.unlock': 'Abrir tarjeta regalo',
+  'genericRequest.flow.giftCard.loading': 'Leyendo la tarjeta regalo…',
+  'genericRequest.flow.giftCard.empty': 'Esta tarjeta regalo está vacía. No hay nada que canjear.',
+  'genericRequest.flow.giftCard.intro': 'Todo lo de abajo pasa a esta cartera.',
+  'genericRequest.flow.giftCard.holds': 'Esta tarjeta regalo contiene:',
+  'genericRequest.flow.giftCard.cannotMove': 'No puede pasar a esta cartera',
+  'genericRequest.flow.giftCard.moves': 'Su control pasa a esta cartera',
+  'genericRequest.flow.giftCard.blocked':
+    '{identity} necesita más de una firma o no está activa, así que esta tarjeta regalo no se puede canjear aquí.',
+  'genericRequest.flow.giftCard.authorities':
+    '{identity} conserva sus autoridades de revocación y recuperación. Quien las controle aún puede revocarla o recuperarla.',
+  'genericRequest.flow.giftCard.preparing': 'Preparando el canje…',
+  'genericRequest.flow.giftCard.claimed': 'Canjeado',
+  'genericRequest.flow.giftCard.next': 'Siguiente paso',
+  'genericRequest.flow.giftCard.linkAfter':
+    'Vincula la VerusID desde VerusID cuando se confirme el cambio.',
+  'genericRequest.flow.giftCard.error.review': 'No se pudo leer la tarjeta regalo.',
+  'genericRequest.flow.giftCard.error.preflight': 'No se pudo preparar el canje.',
+  'genericRequest.flow.giftCard.error.fee':
+    'La tarjeta regalo no tiene suficiente para pagar la comisión de red.',
+  'genericRequest.flow.plan.giftCard': 'Canjear {items} en esta cartera',
+  'genericRequest.flow.action.claim': 'Canjear',
+  'genericRequest.flow.working.claim': 'Canjeando…',
+  'genericRequest.flow.outcome.claimed': 'Tarjeta regalo canjeada',
+  'genericRequest.flow.stage.claim.pending': 'Enviar canje',
+  'genericRequest.flow.stage.claim.running': 'Enviando canje…',
+  'genericRequest.flow.stage.claim.done': 'Canje enviado',
+  'genericRequest.flow.stage.claim.failed': 'Canje sin terminar',
+  'genericRequest.flow.stageError.claim':
+    'Parte del canje no se envió. Vuelve a intentarlo para enviar el resto.',
+  'genericRequest.rejected.giftCardInvalid':
+    'Esta tarjeta regalo tiene un formato que esta cartera no puede leer.',
+  'genericRequest.rejected.giftCardPassword':
+    'La contraseña no es correcta para esta tarjeta regalo.',
+  'genericRequest.rejected.giftCardEmpty':
+    'Esta tarjeta regalo está vacía. No hay nada que canjear.',
+  'genericRequest.rejected.giftCardIdentity':
+    'Una VerusID de esta tarjeta regalo no se puede mover aquí, así que la tarjeta no se puede canjear.',
   'genericRequest.rejected.unknownDetail':
     'Esta solicitud contiene una parte que esta cartera no reconoce.',
   'genericRequest.rejected.detailOrder':

@@ -103,7 +103,7 @@ pub struct StoreGenericProvisioningJobRequest {
     pub status: Option<String>,
 }
 
-fn wallet_network_to_crypto_network(network: WalletNetwork) -> Network {
+pub(crate) fn wallet_network_to_crypto_network(network: WalletNetwork) -> Network {
     match network {
         WalletNetwork::Mainnet => Network::Mainnet,
         WalletNetwork::Testnet => Network::Testnet,
@@ -819,7 +819,7 @@ fn sign_legacy_login_response(
 }
 
 /// The wallet's private account key, which encryption channels derive from.
-async fn private_account_key(
+pub(crate) async fn private_account_key(
     context: &crate::core::auth::session::ActiveWalletAccessContext,
 ) -> Result<sapling::zip32::ExtendedSpendingKey, WalletError> {
     let (encoded, _) = context
@@ -1259,6 +1259,7 @@ pub async fn open_generic_request(
         broadcast_txid: None,
         reviewed_credentials: None,
         legacy_login: None,
+        claim: None,
     });
     Ok(opened)
 }
@@ -1408,6 +1409,7 @@ async fn open_legacy_request(
         broadcast_txid: None,
         reviewed_credentials: None,
         legacy_login,
+        claim: None,
     });
     Ok(opened)
 }
@@ -2443,6 +2445,7 @@ pub async fn preflight_generic_identity_update(
         identity_input_satoshis,
         &funding_candidates,
         DEFAULT_FEE_SAT,
+        None,
     )?;
     let authenticated_inputs = signable_inputs
         .iter()
@@ -3451,6 +3454,7 @@ mod tests {
             broadcast_txid: None,
             reviewed_credentials: None,
             legacy_login: None,
+            claim: None,
         };
         store.open(open.clone());
         open

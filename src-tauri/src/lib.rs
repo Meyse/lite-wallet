@@ -8,8 +8,8 @@ mod core;
 mod types;
 
 use commands::{
-    address_book, bridge_transfer, clipboard, coins, generic_request, guard, identity, transaction,
-    vrpc_transfer, wallet, watchlist,
+    address_book, bridge_transfer, clipboard, coins, generic_request, gift_card, guard, identity,
+    transaction, vrpc_transfer, wallet, watchlist,
 };
 use core::auth::kdf::derive_current_argon2id;
 use core::channels::btc::BtcProviderPool;
@@ -308,6 +308,9 @@ pub fn run() {
             generic_request::send_generic_identity_update,
             generic_request::review_generic_invoice,
             generic_request::review_generic_credentials,
+            gift_card::review_gift_card,
+            gift_card::preflight_gift_card_claim,
+            gift_card::send_gift_card_claim,
             generic_request::preflight_generic_invoice,
             generic_request::send_generic_invoice_payment,
             generic_request::store_generic_provisioning_job,

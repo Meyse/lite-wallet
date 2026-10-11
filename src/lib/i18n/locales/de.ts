@@ -710,6 +710,48 @@ export const de: Record<string, string> = {
     'Diese Anmeldeanfrage möchte zusätzliche Sitzungsdaten teilen. Diese Wallet unterstützt das nicht.',
   'genericRequest.rejected.loginPermission':
     'Diese Anmeldeanfrage fragt nach mehr als Name und ID deiner VerusID. Diese Wallet teilt nur diese.',
+  'genericRequest.flow.step.giftCard': 'Geschenkkarte',
+  'genericRequest.flow.title.giftCard': 'Eine Geschenkkarte einlösen',
+  'genericRequest.flow.giftCard.passwordIntro':
+    'Diese Geschenkkarte hat ein Passwort. Gib es ein, um zu sehen, was die Karte enthält.',
+  'genericRequest.flow.giftCard.password': 'Passwort der Geschenkkarte',
+  'genericRequest.flow.giftCard.unlock': 'Geschenkkarte öffnen',
+  'genericRequest.flow.giftCard.loading': 'Geschenkkarte wird gelesen…',
+  'genericRequest.flow.giftCard.empty': 'Diese Geschenkkarte ist leer. Es gibt nichts einzulösen.',
+  'genericRequest.flow.giftCard.intro': 'Alles unten geht an diese Wallet.',
+  'genericRequest.flow.giftCard.holds': 'Diese Geschenkkarte enthält:',
+  'genericRequest.flow.giftCard.cannotMove': 'Kann nicht in diese Wallet',
+  'genericRequest.flow.giftCard.moves': 'Die Kontrolle geht an diese Wallet',
+  'genericRequest.flow.giftCard.blocked':
+    '{identity} braucht mehr als eine Signatur oder ist nicht aktiv. Diese Geschenkkarte kann hier daher nicht eingelöst werden.',
+  'genericRequest.flow.giftCard.authorities':
+    '{identity} behält ihre Widerrufs- und Wiederherstellungsautorität. Wer diese kontrolliert, kann sie weiterhin widerrufen oder wiederherstellen.',
+  'genericRequest.flow.giftCard.preparing': 'Einlösung wird vorbereitet…',
+  'genericRequest.flow.giftCard.claimed': 'Eingelöst',
+  'genericRequest.flow.giftCard.next': 'Nächster Schritt',
+  'genericRequest.flow.giftCard.linkAfter':
+    'Verknüpfe die VerusID unter VerusID, nachdem die Änderung bestätigt ist.',
+  'genericRequest.flow.giftCard.error.review': 'Die Geschenkkarte konnte nicht gelesen werden.',
+  'genericRequest.flow.giftCard.error.preflight': 'Die Einlösung konnte nicht vorbereitet werden.',
+  'genericRequest.flow.giftCard.error.fee':
+    'Die Geschenkkarte enthält nicht genug für die Netzwerkgebühr.',
+  'genericRequest.flow.plan.giftCard': '{items} in diese Wallet einlösen',
+  'genericRequest.flow.action.claim': 'Einlösen',
+  'genericRequest.flow.working.claim': 'Wird eingelöst…',
+  'genericRequest.flow.outcome.claimed': 'Geschenkkarte eingelöst',
+  'genericRequest.flow.stage.claim.pending': 'Einlösung senden',
+  'genericRequest.flow.stage.claim.running': 'Einlösung wird gesendet…',
+  'genericRequest.flow.stage.claim.done': 'Einlösung gesendet',
+  'genericRequest.flow.stage.claim.failed': 'Einlösung nicht abgeschlossen',
+  'genericRequest.flow.stageError.claim':
+    'Ein Teil der Einlösung wurde nicht gesendet. Versuche es erneut, um den Rest zu senden.',
+  'genericRequest.rejected.giftCardInvalid':
+    'Diese Geschenkkarte hat ein Format, das diese Wallet nicht lesen kann.',
+  'genericRequest.rejected.giftCardPassword': 'Das Passwort passt nicht zu dieser Geschenkkarte.',
+  'genericRequest.rejected.giftCardEmpty':
+    'Diese Geschenkkarte ist leer. Es gibt nichts einzulösen.',
+  'genericRequest.rejected.giftCardIdentity':
+    'Eine VerusID auf dieser Geschenkkarte kann hier nicht übertragen werden. Die Geschenkkarte kann daher nicht eingelöst werden.',
   'genericRequest.rejected.unknownDetail':
     'Diese Anfrage enthält einen Teil, den diese Wallet nicht erkennt.',
   'genericRequest.rejected.detailOrder':

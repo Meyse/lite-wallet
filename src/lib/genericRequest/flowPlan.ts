@@ -33,6 +33,7 @@ export const DETAIL_IMPACT: Record<SupportedGenericRequestDetail['type'], Reques
   dataPacket: 'signs',
   appEncryption: 'shares',
   userData: 'shares',
+  giftCard: 'spends',
 };
 
 /** The step each module detail adds (spec "Steps per detail"). */
@@ -41,6 +42,7 @@ const MODULE_STEP: Partial<Record<SupportedGenericRequestDetail['type'], Request
   dataPacket: 'signData',
   appEncryption: 'encryptionKey',
   userData: 'shareData',
+  giftCard: 'giftCard',
 };
 
 /**

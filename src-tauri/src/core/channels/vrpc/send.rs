@@ -99,7 +99,7 @@ pub async fn send(
     })
 }
 
-fn sign_payload(
+pub(crate) fn sign_payload(
     payload: &VrpcPreflightPayload,
     secp: &Secp256k1<bitcoin::secp256k1::All>,
     secret_key: &bitcoin::secp256k1::SecretKey,

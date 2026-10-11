@@ -5,7 +5,7 @@ last_reviewed: 2026-10-11
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phases 1 to 4 and 6 in progress)
+- Status: active (phase 0 done; phases 1 to 6 in progress)
 - Owner: lite-wallet-team
 - Last updated: 2026-10-11
 
@@ -358,6 +358,35 @@ guided flow defined by the
 7. **Help and spec status.** Update both.
 
 ### Phase 5: gift card claim
+
+**Progress on 2026-10-11.**
+
+- **Done:**
+  - `core/generic_request/gift_card.rs` reads the spendable key detail and
+    decrypts a password card (PBKDF2-HMAC-SHA256, AES-256-GCM: salt, IV,
+    ciphertext, tag). The 24 words become the key as Verus Mobile derives it
+    (`derive_keys_v1`). Vectors come from the library and Node's crypto.
+  - `core/channels/vrpc/claim.rs` builds the claim. Each VerusID the key
+    controls moves to the wallet's primary address, paid from a plain native
+    output of the key, with the change to the wallet. A sweep then moves every
+    other output, every currency included, to the wallet; a check refuses any
+    output that pays anyone else. The claim key signs; a retry broadcasts the
+    same transactions.
+  - The Gift card module asks for the password, shows what the card holds, warns
+    about kept authorities, and blocks a VerusID it cannot move.
+- **Verified on testnet, 2026-10-11:** a password card built like mobile's,
+  holding 0.06 VRSCTEST in two outputs, 1 AUD, and a disposable VerusID
+  `dlsgiftqa1@`. Deep Link Sim has no gift card generator, so a scratch script
+  built it. The claim moved the VerusID to the wallet (txid
+  `b4ac47621c1cadf9dc14b6dc4dfea125bf39ded15ed3666865dce34864b2875c`) and swept
+  0.0298 VRSCTEST and 1 AUD to it (txid
+  `a41471025603019efd6542b71252cb9df3317a50f9a1021b3da438450be63c32`).
+- **Not done:**
+  - Saving the request encrypted in Stronghold until the claim finishes (step
+    3). Opening the card again claims what is left.
+  - Claims on PBaaS chains other than the wallet's network.
+  - Paying an identity fee from the VerusID's own funds when the key holds no
+    plain native output, as mobile can.
 
 1. **Design.** Read mobile's gift card handler and screen at `dev-asf-parent`,
    and design the step.

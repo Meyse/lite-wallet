@@ -69,6 +69,8 @@ zip32 = { version = "0.2", default-features = false }
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-webpki-roots"] }
 chacha20poly1305 = "0.10.1" # Authenticated encryption for the private wallet cache and request payloads
 zcash_note_encryption = "0.4.2" # Sapling key agreement for request encryption
+aes-gcm = "0.10.3" # Gift card keys from Verus Mobile (salted, tagged AES-256-GCM)
+pbkdf2 = { version = "0.12.2", default-features = false, features = ["hmac"] } # Gift card password keys
 fs2 = "0.4.3" # One writer per private wallet cache, including across app processes
 webp = { version = "=0.3.1", default-features = false }
 

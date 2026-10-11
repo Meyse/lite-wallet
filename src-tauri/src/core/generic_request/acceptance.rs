@@ -72,6 +72,14 @@ pub(crate) enum Rejection {
     LoginContext,
     /// A legacy login asks for more than the identity view permission.
     LoginPermission,
+    /// The gift card is not a supported format.
+    GiftCardInvalid,
+    /// The gift card's password is missing or wrong.
+    GiftCardPassword,
+    /// The gift card holds nothing to claim.
+    GiftCardEmpty,
+    /// The gift card's key controls a VerusID the claim cannot move.
+    GiftCardIdentity,
 }
 
 impl Rejection {
@@ -104,6 +112,10 @@ impl Rejection {
             Self::CredentialAddress => "credentialAddress",
             Self::LoginContext => "loginContext",
             Self::LoginPermission => "loginPermission",
+            Self::GiftCardInvalid => "giftCardInvalid",
+            Self::GiftCardPassword => "giftCardPassword",
+            Self::GiftCardEmpty => "giftCardEmpty",
+            Self::GiftCardIdentity => "giftCardIdentity",
         }
     }
 }

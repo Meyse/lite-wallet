@@ -5,6 +5,9 @@ import type {
   GenericInvoicePreflightResult,
   GenericInvoiceReview,
   GenericCredentialReview,
+  GiftCardClaimPreflight,
+  GiftCardClaimResult,
+  GiftCardReview,
   GenericRequestTransactionResult,
   GenericResponseSignerInput,
   LinkReadyProvisioningJobResult,
@@ -70,6 +73,37 @@ export async function reviewGenericCredentials(
   return invokeWalletCommand<GenericCredentialReview>('review_generic_credentials', {
     request_hex: requestHex,
     identity_id: identityId,
+  });
+}
+
+/**
+ * Rust reads the gift card's key, with `password` when the card has one, and
+ * what the key holds. The password is not stored.
+ */
+export async function reviewGiftCard(
+  requestHex: string,
+  password: string | null
+): Promise<GiftCardReview> {
+  return invokeWalletCommand<GiftCardReview>('review_gift_card', {
+    request_hex: requestHex,
+    password,
+  });
+}
+
+export async function preflightGiftCardClaim(requestHex: string): Promise<GiftCardClaimPreflight> {
+  return invokeWalletCommand<GiftCardClaimPreflight>('preflight_gift_card_claim', {
+    request_hex: requestHex,
+  });
+}
+
+/** Broadcasts the claim; after a failure, the next call sends what is left. */
+export async function sendGiftCardClaim(
+  requestHex: string,
+  preflightId: string
+): Promise<GiftCardClaimResult> {
+  return invokeWalletCommand<GiftCardClaimResult>('send_gift_card_claim', {
+    request_hex: requestHex,
+    preflight_id: preflightId,
   });
 }
 

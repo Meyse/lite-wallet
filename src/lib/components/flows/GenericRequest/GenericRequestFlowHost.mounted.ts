@@ -7,6 +7,7 @@ import type {
   AuthenticationDetailSession,
   DataPacketDetailSession,
   UserDataDetailSession,
+  GiftCardDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
@@ -198,6 +199,21 @@ describe('request flow approval', () => {
           return { txid: TXID };
         case 'get_dlight_seed_status':
           return { configured: true };
+        case 'review_gift_card':
+          return {
+            claimAddress: 'RGiftCard',
+            currencies: [{ currencyId: TESTNET, name: 'VRSCTEST', amount: '0.06' }],
+            identities: [],
+          };
+        case 'preflight_gift_card_claim':
+          return {
+            preflightId: 'gift',
+            fee: '0.0001',
+            feeCurrencyId: TESTNET,
+            transactionCount: 1,
+          };
+        case 'send_gift_card_claim':
+          return { txids: [TXID] };
         case 'review_generic_credentials':
           return {
             credentials: [
@@ -401,5 +417,43 @@ describe('request flow approval', () => {
     expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
     expect(commandsCalled('review_generic_credentials')).toBe(1);
     expect(document.body.textContent).toContain('You shared 2 credentials with');
+  });
+
+  it('claims a gift card once, after its password, and sends nothing back', async () => {
+    const giftCard: GiftCardDetailSession = { index: 0, type: 'giftCard', requiresPassword: true };
+    component = mount(GenericRequestFlowHost, {
+      target: document.body,
+      props: {
+        isOpen: true,
+        session: {
+          ...session,
+          signer: { ...session.signer, isSigned: false },
+          details: [giftCard],
+        },
+      },
+    });
+    await settle();
+
+    // Nothing is read before the password.
+    expect(commandsCalled('review_gift_card')).toBe(0);
+    const field = document.querySelector('#request-gift-card-password') as HTMLInputElement;
+    field.value = 'claim password';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    await press('Open gift card');
+    expect(wallet.invoke).toHaveBeenCalledWith('review_gift_card', {
+      request_hex: '00',
+      password: 'claim password',
+    });
+    expect(commandsCalled('preflight_gift_card_claim')).toBe(1);
+    expect(document.body.textContent).toContain('0.06 VRSCTEST');
+
+    await press('Continue');
+    expect(commandsCalled('send_gift_card_claim')).toBe(0);
+    await press('Claim');
+    expect(commandsCalled('send_gift_card_claim')).toBe(1);
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
+    expect(commandsCalled('post_generic_response_callback')).toBe(0);
+    expect(document.body.textContent).toContain('Gift card claimed');
   });
 });

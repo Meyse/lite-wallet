@@ -73,9 +73,11 @@
   import { SignDataModule } from './modules/SignDataModule.svelte';
   import { EncryptionKeyModule } from './modules/EncryptionKeyModule.svelte';
   import { ShareDataModule } from './modules/ShareDataModule.svelte';
+  import { GiftCardModule } from './modules/GiftCardModule.svelte';
   import { legacyLoginWebhookBody } from '$lib/genericRequest/legacy';
   import EncryptionKeyStep from './EncryptionKeyStep.svelte';
   import ShareDataStep from './ShareDataStep.svelte';
+  import GiftCardStep from './GiftCardStep.svelte';
   import SignDataStep from './SignDataStep.svelte';
   import type { DetailModule, RequestContext } from './modules/types';
 
@@ -151,8 +153,9 @@
   let signDataModule = $state.raw<SignDataModule | null>(null);
   let encryptionKeyModule = $state.raw<EncryptionKeyModule | null>(null);
   let shareDataModule = $state.raw<ShareDataModule | null>(null);
+  let giftCardModule = $state.raw<GiftCardModule | null>(null);
   const modules = $derived<DetailModule[]>(
-    [invoiceModule, signDataModule, encryptionKeyModule, shareDataModule].filter(
+    [invoiceModule, signDataModule, encryptionKeyModule, shareDataModule, giftCardModule].filter(
       (module) => module !== null
     )
   );
@@ -271,6 +274,12 @@
         shareDataModule = module;
         void module.load();
       }
+      const giftCard = activeSession.details.find((detail) => detail.type === 'giftCard');
+      if (giftCard) {
+        const module = new GiftCardModule(moduleContext(activeSession), giftCard);
+        giftCardModule = module;
+        void module.load();
+      }
     });
   });
 
@@ -354,6 +363,7 @@
     signDataModule = null;
     encryptionKeyModule = null;
     shareDataModule = null;
+    giftCardModule = null;
     linkedIdentities = [];
     identityDetailsByAddress = {};
     loadingLinkedIdentities = false;
@@ -896,6 +906,7 @@
           if (detail.type === 'dataPacket') return signDataModule?.planLines() ?? [];
           if (detail.type === 'appEncryption') return encryptionKeyModule?.planLines() ?? [];
           if (detail.type === 'userData') return shareDataModule?.planLines() ?? [];
+          if (detail.type === 'giftCard') return giftCardModule?.planLines() ?? [];
           if (detail.type === 'identityUpdate') {
             return [
               {
@@ -953,6 +964,12 @@
         working: i18n.t('genericRequest.flow.working.pay'),
       };
     }
+    if (giftCardModule) {
+      return {
+        idle: giftCardModule.actionLabel(),
+        working: i18n.t('genericRequest.flow.working.claim'),
+      };
+    }
     if (encryptionKeyModule) {
       return {
         idle: encryptionKeyModule.actionLabel(),
@@ -990,11 +1007,15 @@
     if (id === 'transaction' && invoiceModule) {
       return i18n.t(`genericRequest.flow.stage.payment.${status}`);
     }
+    if (id === 'transaction' && giftCardModule) {
+      return i18n.t(`genericRequest.flow.stage.claim.${status}`);
+    }
     return i18n.t(`genericRequest.flow.stage.${id}.${status}`, { app: appLabel });
   }
 
   function stageErrorKey(id: ApprovalStageId): string {
     if (id === 'delivery' && newIdentity) return 'genericRequest.flow.stageError.webhook';
+    if (id === 'transaction' && giftCardModule) return 'genericRequest.flow.stageError.claim';
     return `genericRequest.flow.stageError.${id}`;
   }
 
@@ -1024,13 +1045,15 @@
           ? i18n.t('genericRequest.flow.outcome.updated', { identity: targetName })
           : invoiceModule
             ? invoiceModule.outcomeTitle()
-            : encryptionKeyModule
-              ? encryptionKeyModule.outcomeTitle()
-              : signDataModule
-                ? signDataModule.outcomeTitle()
-                : shareDataModule && shareDataModule.count > 0
-                  ? shareDataModule.outcomeTitle()
-                  : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
+            : giftCardModule
+              ? giftCardModule.outcomeTitle()
+              : encryptionKeyModule
+                ? encryptionKeyModule.outcomeTitle()
+                : signDataModule
+                  ? signDataModule.outcomeTitle()
+                  : shareDataModule && shareDataModule.count > 0
+                    ? shareDataModule.outcomeTitle()
+                    : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
   );
 
   // Approval ----------------------------------------------------------------------
@@ -1207,6 +1230,7 @@
       });
     }
     if (invoiceModule && phase === 'done') rows.push(...invoiceModule.receiptFacts());
+    if (giftCardModule && phase === 'done') rows.push(...giftCardModule.receiptFacts());
     if (signDataModule && !authDetail && phase === 'done')
       rows.push(...signDataModule.receiptFacts());
     if (encryptionKeyModule && phase === 'done') rows.push(...encryptionKeyModule.receiptFacts());
@@ -1384,6 +1408,8 @@
         if (responder) void module.lookUp(responder.identityAddress, true);
       }}
     />
+  {:else if step === 'giftCard' && giftCardModule}
+    <GiftCardStep module={giftCardModule} />
   {:else if step === 'payInvoice' && invoiceModule}
     <PayInvoiceStep module={invoiceModule} networkLabel={systemDisplayLabel} />
   {:else if step === 'confirm'}

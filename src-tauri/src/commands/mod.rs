@@ -7,6 +7,7 @@ pub mod bridge_transfer;
 pub mod clipboard;
 pub mod coins;
 pub mod generic_request;
+pub mod gift_card;
 pub mod guard;
 pub mod identity;
 pub mod transaction;

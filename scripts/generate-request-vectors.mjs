@@ -711,9 +711,60 @@ const legacy = {
   }),
 };
 
+// Gift cards (`SpendableKeyDetails`) as Verus Mobile writes them
+// (`seedDetails.js`, `crypto.js`): 32 bytes of BIP39 entropy, plain or
+// encrypted with PBKDF2-HMAC-SHA256 and AES-256-GCM as salt, IV, ciphertext,
+// and tag. The salt, the IV, and the iteration count are fixed here.
+const { pbkdf2Sync, createCipheriv } = await import('node:crypto');
+const GIFT_ENTROPY = Buffer.alloc(32, 0);
+const GIFT_PASSWORD = 'claim password';
+const GIFT_ITERATIONS = 1000;
+function giftCard(encrypted) {
+  let data = GIFT_ENTROPY;
+  if (encrypted) {
+    const salt = Buffer.alloc(16, 0x11);
+    const iv = Buffer.alloc(12, 0x22);
+    const key = pbkdf2Sync(Buffer.from(GIFT_PASSWORD, 'utf8'), salt, GIFT_ITERATIONS, 32, 'sha256');
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(GIFT_ENTROPY), cipher.final()]);
+    data = Buffer.concat([salt, iv, ciphertext, cipher.getAuthTag()]);
+  }
+  const details = new p.SpendableKeyDetails({
+    encryptionFormat: new BN(encrypted ? 1 : 0),
+    KDFIters: new BN(encrypted ? GIFT_ITERATIONS : 0),
+    encrypted,
+    containsKDFIters: encrypted,
+    data,
+  });
+  return new p.SpendableKeyDetailsOrdinalVDXFObject({ data: details });
+}
+const giftCards = {
+  // BIP39's vector for 32 zero bytes.
+  mnemonic: `${'abandon '.repeat(23)}art`,
+  password: GIFT_PASSWORD,
+  plain: envelope({ details: [giftCard(false)], signed: false, requestID: null, responseURIs: [] })
+    .toBuffer()
+    .toString('hex'),
+  encrypted: envelope({
+    details: [giftCard(true)],
+    signed: false,
+    requestID: null,
+    responseURIs: [],
+  })
+    .toBuffer()
+    .toString('hex'),
+};
+
 process.stdout.write(
   `${JSON.stringify(
-    { generatedBy: 'scripts/generate-request-vectors.mjs', cases, responses, credentials, legacy },
+    {
+      generatedBy: 'scripts/generate-request-vectors.mjs',
+      cases,
+      responses,
+      credentials,
+      legacy,
+      giftCards,
+    },
     null,
     2
   )}\n`

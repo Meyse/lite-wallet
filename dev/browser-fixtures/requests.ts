@@ -12,6 +12,7 @@ import type {
   InvoiceDetailSession,
   ProvisionIdentityDetailSession,
   UserDataDetailSession,
+  GiftCardDetailSession,
 } from '$lib/genericRequest/session';
 import Fixture from './RequestsFixture.svelte';
 
@@ -118,28 +119,36 @@ const userData: UserDataDetailSession = {
   requiredIdentity: null,
 };
 
+const giftCard: GiftCardDetailSession = {
+  index: 0,
+  type: 'giftCard',
+  requiresPassword: scenario === 'giftCardPassword',
+};
+
 const details =
-  scenario === 'shareData' || scenario === 'shareDataNone' || scenario === 'shareDataError'
-    ? [{ ...userData, index: 0 }]
-    : scenario === 'authShareData'
-      ? [auth, userData]
-      : scenario === 'signData'
-        ? [{ ...dataPacket, index: 0 }]
-        : scenario === 'authSignData'
-          ? [auth, dataPacket]
-          : scenario === 'update'
-            ? [auth, update]
-            : scenario === 'updateOnly'
-              ? [{ ...update, index: 0 }]
-              : scenario === 'newid'
-                ? [auth, provision]
-                : scenario === 'invoice'
-                  ? [auth, invoice]
-                  : scenario === 'invoiceOnly' ||
-                      scenario === 'invoiceAny' ||
-                      scenario === 'invoicePaid'
-                    ? [{ ...invoice, index: 0 }]
-                    : [auth];
+  scenario === 'giftCard' || scenario === 'giftCardPassword' || scenario === 'giftCardBlocked'
+    ? [giftCard]
+    : scenario === 'shareData' || scenario === 'shareDataNone' || scenario === 'shareDataError'
+      ? [{ ...userData, index: 0 }]
+      : scenario === 'authShareData'
+        ? [auth, userData]
+        : scenario === 'signData'
+          ? [{ ...dataPacket, index: 0 }]
+          : scenario === 'authSignData'
+            ? [auth, dataPacket]
+            : scenario === 'update'
+              ? [auth, update]
+              : scenario === 'updateOnly'
+                ? [{ ...update, index: 0 }]
+                : scenario === 'newid'
+                  ? [auth, provision]
+                  : scenario === 'invoice'
+                    ? [auth, invoice]
+                    : scenario === 'invoiceOnly' ||
+                        scenario === 'invoiceAny' ||
+                        scenario === 'invoicePaid'
+                      ? [{ ...invoice, index: 0 }]
+                      : [auth];
 const session: GenericRequestFlowSession = {
   request: {} as GenericRequestFlowSession['request'],
   requestHex: '00',
@@ -291,6 +300,40 @@ window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
     case 'send_generic_invoice_payment':
       await once('transaction');
       return { txid: '0600eba8a139873d6c3dba0a2dd6ebb8589ffb44a5ac9386102c123b776773f7' };
+    case 'review_gift_card':
+      if (scenario === 'giftCardPassword' && args?.password !== 'claim password') {
+        throw { type: 'GenericRequestRejected', message: 'giftCardPassword' };
+      }
+      return {
+        claimAddress: 'RRfU4QLdnsFBTbypXXXYfRw5YabiA55xPN',
+        currencies: [
+          { currencyId: TESTNET, name: 'VRSCTEST', amount: '0.06' },
+          { currencyId: 'iDD6uzji8SpCvHs3hgq9Z4tKqr9CKrL73S', name: 'AUD', amount: '1' },
+        ],
+        identities: [
+          {
+            identityAddress: 'iGiftFixture1111111111111111111111',
+            fullyQualifiedName: 'dlsgiftqa1.VRSCTEST@',
+            claimable: scenario !== 'giftCardBlocked',
+            externalAuthorities: scenario === 'giftCard',
+          },
+        ],
+      };
+    case 'preflight_gift_card_claim':
+      return {
+        preflightId: 'gift-card-preflight',
+        fee: '0.0003',
+        feeCurrencyId: TESTNET,
+        transactionCount: 2,
+      };
+    case 'send_gift_card_claim':
+      await once('transaction');
+      return {
+        txids: [
+          '1111111111111111111111111111111111111111111111111111111111111111',
+          '08dc8363d710607560f48471bbfc4ea88c34e22ab3d5e9e42f66b545fa759bd4',
+        ],
+      };
     case 'get_dlight_seed_status':
       return { configured: true };
     case 'review_generic_credentials':

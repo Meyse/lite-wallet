@@ -473,6 +473,41 @@ export interface GenericCredentialReview {
   missingKeys: string[];
 }
 
+/** One currency a gift card holds. */
+export interface GiftCardCurrency {
+  currencyId: string;
+  name: string | null;
+  amount: string;
+}
+
+/** One VerusID a gift card's key controls. */
+export interface GiftCardIdentity {
+  identityAddress: string;
+  fullyQualifiedName: string | null;
+  /** False when the claim cannot move it; then the card cannot be claimed. */
+  claimable: boolean;
+  /** Its revocation or recovery authority is another VerusID. */
+  externalAuthorities: boolean;
+}
+
+/** What a gift card holds, read with its key. */
+export interface GiftCardReview {
+  claimAddress: string;
+  currencies: GiftCardCurrency[];
+  identities: GiftCardIdentity[];
+}
+
+export interface GiftCardClaimPreflight {
+  preflightId: string;
+  fee: string;
+  feeCurrencyId: string;
+  transactionCount: number;
+}
+
+export interface GiftCardClaimResult {
+  txids: string[];
+}
+
 export interface GenericInvoicePreflightResult {
   preflightId: string;
   amount: string;

@@ -213,7 +213,7 @@ pub async fn send_with_private_key_material(
     })
 }
 
-fn sign_payload(
+pub(crate) fn sign_payload(
     payload: &IdentityPreflightPayload,
     private_key: &[u8; 32],
 ) -> Result<String, WalletError> {

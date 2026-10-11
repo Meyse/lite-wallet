@@ -53,11 +53,14 @@ struct FundedTransfer {
     payload_inputs: Vec<crate::core::channels::vrpc::common::VrpcInputRef>,
 }
 
-fn parse_sendcurrency_hex(raw: Value) -> Result<String, WalletError> {
+pub(crate) fn parse_sendcurrency_hex(raw: Value) -> Result<String, WalletError> {
     parse_result_string(&raw, &["hextx", "hex", "txhex"]).ok_or(WalletError::OperationFailed)
 }
 
-fn parse_fund_result(raw: Value, fallback_fee_sat: i64) -> Result<(String, i64), WalletError> {
+pub(crate) fn parse_fund_result(
+    raw: Value,
+    fallback_fee_sat: i64,
+) -> Result<(String, i64), WalletError> {
     let hex = parse_result_string(&raw, &["hex"]).ok_or(WalletError::OperationFailed)?;
     let fee_sat = parse_fee_sat(raw.get("fee"), fallback_fee_sat);
     Ok((hex, fee_sat))

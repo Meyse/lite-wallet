@@ -8,6 +8,7 @@
 pub(crate) mod acceptance;
 pub(crate) mod credentials;
 pub(crate) mod details;
+pub(crate) mod gift_card;
 pub(crate) mod legacy;
 pub(crate) mod names;
 pub(crate) mod private_crypto;

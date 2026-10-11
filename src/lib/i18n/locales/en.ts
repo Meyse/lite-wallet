@@ -415,6 +415,47 @@ export const en: Record<string, string> = {
     'This sign-in request asks to share extra session data, which this wallet does not support.',
   'genericRequest.rejected.loginPermission':
     'This sign-in request asks for more than your VerusID name and ID. This wallet shares only those.',
+  'genericRequest.flow.step.giftCard': 'Gift card',
+  'genericRequest.flow.title.giftCard': 'Claim a gift card',
+  'genericRequest.flow.giftCard.passwordIntro':
+    'This gift card has a password. Enter it to see what the card holds.',
+  'genericRequest.flow.giftCard.password': 'Gift card password',
+  'genericRequest.flow.giftCard.unlock': 'Open gift card',
+  'genericRequest.flow.giftCard.loading': 'Reading the gift card…',
+  'genericRequest.flow.giftCard.empty': 'This gift card is empty. There is nothing to claim.',
+  'genericRequest.flow.giftCard.intro': 'Everything below moves to this wallet.',
+  'genericRequest.flow.giftCard.holds': 'This gift card holds:',
+  'genericRequest.flow.giftCard.cannotMove': 'Cannot move to this wallet',
+  'genericRequest.flow.giftCard.moves': 'Its control moves to this wallet',
+  'genericRequest.flow.giftCard.blocked':
+    '{identity} needs more than one signature or is not active, so this gift card cannot be claimed here.',
+  'genericRequest.flow.giftCard.authorities':
+    '{identity} keeps its revocation and recovery authorities. Whoever controls them can still revoke or recover it.',
+  'genericRequest.flow.giftCard.preparing': 'Preparing the claim…',
+  'genericRequest.flow.giftCard.claimed': 'Claimed',
+  'genericRequest.flow.giftCard.next': 'Next',
+  'genericRequest.flow.giftCard.linkAfter':
+    'Link the VerusID from VerusID after the update confirms.',
+  'genericRequest.flow.giftCard.error.review': 'The gift card could not be read.',
+  'genericRequest.flow.giftCard.error.preflight': 'The claim could not be prepared.',
+  'genericRequest.flow.giftCard.error.fee':
+    'The gift card does not hold enough to pay the network fee.',
+  'genericRequest.flow.plan.giftCard': 'Claim {items} into this wallet',
+  'genericRequest.flow.action.claim': 'Claim',
+  'genericRequest.flow.working.claim': 'Claiming…',
+  'genericRequest.flow.outcome.claimed': 'Gift card claimed',
+  'genericRequest.flow.stage.claim.pending': 'Broadcast claim',
+  'genericRequest.flow.stage.claim.running': 'Broadcasting claim…',
+  'genericRequest.flow.stage.claim.done': 'Claim broadcast',
+  'genericRequest.flow.stage.claim.failed': 'Claim not finished',
+  'genericRequest.flow.stageError.claim':
+    'Part of the claim was not broadcast. Try again to send the rest.',
+  'genericRequest.rejected.giftCardInvalid':
+    'This gift card is not in a format this wallet can read.',
+  'genericRequest.rejected.giftCardPassword': 'The password is not correct for this gift card.',
+  'genericRequest.rejected.giftCardEmpty': 'This gift card is empty. There is nothing to claim.',
+  'genericRequest.rejected.giftCardIdentity':
+    'A VerusID on this gift card cannot be moved here, so the gift card cannot be claimed.',
   'genericRequest.rejected.unknownDetail':
     'This request contains a part that this wallet does not recognize.',
   'genericRequest.rejected.detailOrder':

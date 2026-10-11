@@ -427,6 +427,47 @@ export const nl: Record<string, string> = {
     'Dit inlogverzoek vraagt om extra sessiegegevens te delen. Deze wallet ondersteunt dat niet.',
   'genericRequest.rejected.loginPermission':
     'Dit inlogverzoek vraagt om meer dan de naam en ID van je VerusID. Deze wallet deelt alleen die.',
+  'genericRequest.flow.step.giftCard': 'Cadeaukaart',
+  'genericRequest.flow.title.giftCard': 'Een cadeaukaart claimen',
+  'genericRequest.flow.giftCard.passwordIntro':
+    'Deze cadeaukaart heeft een wachtwoord. Voer het in om te zien wat de kaart bevat.',
+  'genericRequest.flow.giftCard.password': 'Wachtwoord van de cadeaukaart',
+  'genericRequest.flow.giftCard.unlock': 'Cadeaukaart openen',
+  'genericRequest.flow.giftCard.loading': 'Cadeaukaart lezen…',
+  'genericRequest.flow.giftCard.empty': 'Deze cadeaukaart is leeg. Er valt niets te claimen.',
+  'genericRequest.flow.giftCard.intro': 'Alles hieronder gaat naar deze wallet.',
+  'genericRequest.flow.giftCard.holds': 'Deze cadeaukaart bevat:',
+  'genericRequest.flow.giftCard.cannotMove': 'Kan niet naar deze wallet',
+  'genericRequest.flow.giftCard.moves': 'De controle gaat naar deze wallet',
+  'genericRequest.flow.giftCard.blocked':
+    '{identity} heeft meer dan één handtekening nodig of is niet actief. Deze cadeaukaart kan hier dus niet worden geclaimd.',
+  'genericRequest.flow.giftCard.authorities':
+    '{identity} houdt zijn intrekkings- en herstelautoriteit. Wie die beheert, kan de VerusID nog intrekken of herstellen.',
+  'genericRequest.flow.giftCard.preparing': 'Claim voorbereiden…',
+  'genericRequest.flow.giftCard.claimed': 'Geclaimd',
+  'genericRequest.flow.giftCard.next': 'Volgende stap',
+  'genericRequest.flow.giftCard.linkAfter':
+    'Koppel de VerusID via VerusID nadat de wijziging is bevestigd.',
+  'genericRequest.flow.giftCard.error.review': 'De cadeaukaart kon niet worden gelezen.',
+  'genericRequest.flow.giftCard.error.preflight': 'De claim kon niet worden voorbereid.',
+  'genericRequest.flow.giftCard.error.fee':
+    'De cadeaukaart bevat niet genoeg om de netwerkkosten te betalen.',
+  'genericRequest.flow.plan.giftCard': '{items} naar deze wallet halen',
+  'genericRequest.flow.action.claim': 'Claimen',
+  'genericRequest.flow.working.claim': 'Claimen…',
+  'genericRequest.flow.outcome.claimed': 'Cadeaukaart geclaimd',
+  'genericRequest.flow.stage.claim.pending': 'Claim versturen',
+  'genericRequest.flow.stage.claim.running': 'Claim versturen…',
+  'genericRequest.flow.stage.claim.done': 'Claim verstuurd',
+  'genericRequest.flow.stage.claim.failed': 'Claim niet afgerond',
+  'genericRequest.flow.stageError.claim':
+    'Een deel van de claim is niet verstuurd. Probeer opnieuw om de rest te versturen.',
+  'genericRequest.rejected.giftCardInvalid':
+    'Deze cadeaukaart heeft een vorm die deze wallet niet kan lezen.',
+  'genericRequest.rejected.giftCardPassword': 'Het wachtwoord klopt niet voor deze cadeaukaart.',
+  'genericRequest.rejected.giftCardEmpty': 'Deze cadeaukaart is leeg. Er valt niets te claimen.',
+  'genericRequest.rejected.giftCardIdentity':
+    'Een VerusID op deze cadeaukaart kan hier niet worden overgezet. De cadeaukaart kan dus niet worden geclaimd.',
   'genericRequest.rejected.unknownDetail':
     'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
   'genericRequest.rejected.detailOrder':

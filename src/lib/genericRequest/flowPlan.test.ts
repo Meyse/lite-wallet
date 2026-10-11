@@ -8,6 +8,7 @@ const auth = detail('authentication');
 const update = detail('identityUpdate');
 const provision = detail('provisionIdentity');
 const userData = detail('userData');
+const giftCard = detail('giftCard');
 
 describe('planRequestFlow', () => {
   // Expected layouts and steps follow the requests spec ("Layout", "Steps per detail").
@@ -52,6 +53,15 @@ describe('planRequestFlow share data', () => {
     expect(planRequestFlow([userData], { newIdentity: false })).toEqual({
       layout: 'rail',
       steps: ['shareData', 'confirm'],
+    });
+  });
+});
+
+describe('planRequestFlow gift card', () => {
+  it('puts a gift card claim on the rail with Confirm, since it moves funds', () => {
+    expect(planRequestFlow([giftCard], { newIdentity: false })).toEqual({
+      layout: 'rail',
+      steps: ['giftCard', 'confirm'],
     });
   });
 });

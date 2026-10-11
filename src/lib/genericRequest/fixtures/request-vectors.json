@@ -386,5 +386,11 @@
         "detailsHash": "696c5df151035d5d610b25eff5e3050eb092983f4e8dbdfd4b7aa86556d3cead"
       }
     ]
+  },
+  "giftCards": {
+    "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+    "password": "claim password",
+    "plain": "0194fe0078e7680e012400010020000000000000000000000000000000000000000000000000000000000000000000",
+    "encrypted": "0194fe0078e7680e0153030101fde8034c111111111111111111111111111111112222222222222222222222223a01950366ff3a14d1fe2e5271bd53ecc439ff4e0ea97e5a8e04cd0113e6a782f4ae54451e66ffbb6f7fddd2ccd036ca00"
   }
 }

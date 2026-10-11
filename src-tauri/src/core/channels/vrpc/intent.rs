@@ -217,6 +217,49 @@ pub(crate) fn validate_transaction_intent(
     Ok(())
 }
 
+/// A sweep moves everything to one address: every output pays `destination`
+/// (natively or as a reserve output), every reserve input reaches it, and the
+/// native fee is exactly `expected_fee_sats`.
+pub(crate) fn validate_sweep_transaction(
+    tx_hex: &str,
+    destination: &str,
+    inputs: &[VrpcInputRef],
+    expected_fee_sats: i64,
+) -> Result<(), WalletError> {
+    let outputs = decode_outputs(tx_hex)?;
+    let destination = decode_base58_destination(destination)?;
+    if destination.destination_type != 2 {
+        return Err(WalletError::OperationFailed);
+    }
+    let destination_script = p2pkh_script(&destination.destination_bytes)?;
+    let input_total = inputs
+        .iter()
+        .try_fold(0i64, |total, input| total.checked_add(input.satoshis))
+        .ok_or(WalletError::OperationFailed)?;
+    let input_reserves = reserve_values_from_inputs(inputs)?;
+    let mut output_reserves = BTreeMap::new();
+    let mut output_total = 0u64;
+    for output in outputs {
+        output_total = output_total
+            .checked_add(output.value)
+            .ok_or(WalletError::OperationFailed)?;
+        if output.script == destination_script {
+            continue;
+        }
+        if !add_change_reserve_values(&output, &destination, &mut output_reserves)? {
+            return Err(WalletError::OperationFailed);
+        }
+    }
+    let output_total = i64::try_from(output_total).map_err(|_| WalletError::OperationFailed)?;
+    let fee = input_total
+        .checked_sub(output_total)
+        .ok_or(WalletError::OperationFailed)?;
+    if fee != expected_fee_sats || fee <= 0 || input_reserves != output_reserves {
+        return Err(WalletError::OperationFailed);
+    }
+    Ok(())
+}
+
 /// Bind fields that verusd derives rather than accepting directly from the
 /// user request. The unfunded template must already match every user-selected
 /// reserve-transfer field; after this step, funding and signing validate the

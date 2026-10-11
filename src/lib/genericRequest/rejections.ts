@@ -39,6 +39,10 @@ export const REJECTION_CODES = [
   'credentialAddress',
   'loginContext',
   'loginPermission',
+  'giftCardInvalid',
+  'giftCardPassword',
+  'giftCardEmpty',
+  'giftCardIdentity',
 ] as const;
 
 export type RejectionCode = (typeof REJECTION_CODES)[number];

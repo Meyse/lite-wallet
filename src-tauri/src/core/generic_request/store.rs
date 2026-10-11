@@ -27,6 +27,31 @@ pub(crate) struct OpenRequest {
     /// A legacy login consent request, which has its own response. A legacy
     /// invoice needs nothing here: it is held as the request's invoice.
     pub legacy_login: Option<LoginConsentRequest>,
+    /// A gift card's claim: its key once reviewed, then the signed
+    /// transactions and the IDs of those broadcast so far.
+    pub claim: Option<GiftCardClaim>,
+}
+
+/// The key of a gift card being claimed. It stays in memory, like the open
+/// request, and never prints.
+#[derive(Clone)]
+pub(crate) struct GiftCardClaim {
+    pub address: String,
+    pub private_key: zeroize::Zeroizing<[u8; 32]>,
+    /// The claim's transactions, signed in broadcast order. A retry sends the
+    /// same ones, never new ones.
+    pub signed: Vec<String>,
+    pub broadcast: Vec<String>,
+}
+
+impl std::fmt::Debug for GiftCardClaim {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GiftCardClaim")
+            .field("address", &self.address)
+            .field("broadcast", &self.broadcast)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Default)]
@@ -111,6 +136,21 @@ impl GenericRequestStore {
             open.session_id == session_id && &open.parsed.request_hash == request_hash
         }) {
             open.reviewed_credentials = Some((identity.to_string(), credentials));
+        }
+    }
+
+    /// Updates the open request's gift card claim.
+    pub(crate) fn update_claim(
+        &self,
+        session_id: &str,
+        request_hash: &[u8; 32],
+        update: impl FnOnce(&mut Option<GiftCardClaim>),
+    ) {
+        let mut guard = self.open.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(open) = guard.as_mut().filter(|open| {
+            open.session_id == session_id && &open.parsed.request_hash == request_hash
+        }) {
+            update(&mut open.claim);
         }
     }
 }

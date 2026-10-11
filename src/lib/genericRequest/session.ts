@@ -19,6 +19,7 @@ import {
   ProvisionIdentityDetailsOrdinalVDXFObject,
   ResponseURI,
   SPENDABLE_KEY_DETAILS_VDXF_KEY,
+  SpendableKeyDetailsOrdinalVDXFObject,
   USER_DATA_REQUEST_VDXF_KEY,
   UserDataRequestOrdinalVDXFObject,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
@@ -133,6 +134,13 @@ export type UserDataDetailSession = {
   requiredIdentity: string | null;
 };
 
+/** Gift card claim: Rust reads the key from the verified request. */
+export type GiftCardDetailSession = {
+  index: number;
+  type: 'giftCard';
+  requiresPassword: boolean;
+};
+
 export type SupportedGenericRequestDetail =
   | AuthenticationDetailSession
   | ProvisionIdentityDetailSession
@@ -140,7 +148,8 @@ export type SupportedGenericRequestDetail =
   | InvoiceDetailSession
   | DataPacketDetailSession
   | AppEncryptionDetailSession
-  | UserDataDetailSession;
+  | UserDataDetailSession
+  | GiftCardDetailSession;
 
 /** A legacy link that Verus Mobile still answers (`src/sagas/deeplink.js`). */
 export type LegacyRequestKind = 'login' | 'invoice';
@@ -175,6 +184,7 @@ const REQUEST_DETAIL_KEYS = new Set([
 /** The detail types the desktop flow can show today. */
 const SUPPORTED_DETAIL_KEYS = new Set([
   APP_ENCRYPTION_REQUEST_VDXF_KEY.vdxfid,
+  SPENDABLE_KEY_DETAILS_VDXF_KEY.vdxfid,
   USER_DATA_REQUEST_VDXF_KEY.vdxfid,
   DATA_PACKET_REQUEST_VDXF_KEY.vdxfid,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid,
@@ -483,6 +493,13 @@ export function parseGenericRequestSession(
     }
     if (detail instanceof DataPacketRequestOrdinalVDXFObject) {
       return parseDataPacketDetail(detail, index);
+    }
+    if (detail instanceof SpendableKeyDetailsOrdinalVDXFObject) {
+      return {
+        index,
+        type: 'giftCard' as const,
+        requiresPassword: detail.data.isEncrypted() || detail.data.usesSaltedTaggedAes256Gcm(),
+      };
     }
     if (detail instanceof UserDataRequestOrdinalVDXFObject) {
       return {
