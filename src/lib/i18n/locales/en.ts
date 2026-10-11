@@ -204,6 +204,10 @@ export const en: Record<string, string> = {
   'genericRequest.flow.payFeeFrom': 'Pay the fee from',
   'genericRequest.flow.chooseSource': 'Choose a source',
   'genericRequest.flow.feeAfterChoice': 'The fee shows after you choose',
+  'genericRequest.flow.warning.noEffect': 'This request does not change your VerusID.',
+  'genericRequest.flow.warning.dustChange':
+    'The change is too small to send back, so it is added to the network fee.',
+  'genericRequest.flow.warning.other': 'Check this request carefully before you continue.',
   'genericRequest.flow.networkFee': 'Network fee',
   'genericRequest.flow.feeValue': '{fee} {currency}',
   'genericRequest.flow.highRisk': 'High risk',

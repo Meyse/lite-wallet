@@ -468,6 +468,10 @@ export const es: Record<string, string> = {
   'genericRequest.flow.payFeeFrom': 'Pagar la comisión desde',
   'genericRequest.flow.chooseSource': 'Elige un origen',
   'genericRequest.flow.feeAfterChoice': 'La comisión aparece cuando eliges',
+  'genericRequest.flow.warning.noEffect': 'Esta solicitud no cambia tu VerusID.',
+  'genericRequest.flow.warning.dustChange':
+    'El cambio es demasiado pequeño para devolverlo y se suma a la comisión de red.',
+  'genericRequest.flow.warning.other': 'Revisa esta solicitud con cuidado antes de continuar.',
   'genericRequest.flow.networkFee': 'Comisión de red',
   'genericRequest.flow.feeValue': '{fee} {currency}',
   'genericRequest.flow.highRisk': 'Riesgo alto',

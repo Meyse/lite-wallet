@@ -14,6 +14,7 @@
     IdentityUpdateContentItem,
     IdentityUpdateReviewModel,
   } from '$lib/genericRequest/identityUpdateReview';
+  import { requestWarningKeys } from '$lib/genericRequest/warnings';
   import type { IdentityWarning } from '$lib/types/wallet.js';
 
   /**
@@ -31,6 +32,7 @@
   } = $props();
 
   const i18n = $derived($i18nStore);
+  const warningKeys = $derived(requestWarningKeys(warnings));
   let inspected = $state<IdentityUpdateContentItem | null>(null);
   let inspectOpen = $state(false);
 
@@ -216,11 +218,11 @@
   </div>
 {/if}
 
-{#if warnings.length > 0}
+{#if warningKeys.length > 0}
   <ul class="flex flex-col gap-1.5 text-sm">
-    {#each warnings as warning (`${warning.warningType}:${warning.message}`)}
+    {#each warningKeys as key (key)}
       <li class="rounded-lg bg-muted/45 px-3 py-2 text-foreground dark:bg-muted/30">
-        {warning.message}
+        {i18n.t(key)}
       </li>
     {/each}
   </ul>

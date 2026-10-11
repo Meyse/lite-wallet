@@ -208,6 +208,10 @@ export const nl: Record<string, string> = {
   'genericRequest.flow.payFeeFrom': 'Betaal de kosten vanaf',
   'genericRequest.flow.chooseSource': 'Kies een bron',
   'genericRequest.flow.feeAfterChoice': 'De kosten verschijnen na je keuze',
+  'genericRequest.flow.warning.noEffect': 'Dit verzoek wijzigt je VerusID niet.',
+  'genericRequest.flow.warning.dustChange':
+    'Het wisselgeld is te klein om terug te sturen en gaat naar de netwerkkosten.',
+  'genericRequest.flow.warning.other': 'Controleer dit verzoek goed voordat je verdergaat.',
   'genericRequest.flow.networkFee': 'Netwerkkosten',
   'genericRequest.flow.feeValue': '{fee} {currency}',
   'genericRequest.flow.highRisk': 'Hoog risico',

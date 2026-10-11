@@ -178,8 +178,11 @@ guided flow defined by the
   German, or Spanish. It found 117 English request strings in each language
   (older Sign in, Update identity, error, and provisioning copy). They are now
   translated. 21 unused request keys are removed.
-- **Not done yet:** keeping a request across a lock, the auto-lock pause,
-  warning-code copy, and Help.
+- **Warning copy, 2026-10-11:** the Changes step shows translated copy for each
+  Rust warning code (`src/lib/genericRequest/warnings.ts`), not Rust's English
+  message. An unknown code shows a general caution.
+- **Not done yet:** keeping a request across a lock, the auto-lock pause, and
+  Help.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`

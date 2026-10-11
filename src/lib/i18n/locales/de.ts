@@ -471,6 +471,10 @@ export const de: Record<string, string> = {
   'genericRequest.flow.payFeeFrom': 'Gebühr zahlen von',
   'genericRequest.flow.chooseSource': 'Quelle wählen',
   'genericRequest.flow.feeAfterChoice': 'Die Gebühr erscheint nach deiner Wahl',
+  'genericRequest.flow.warning.noEffect': 'Diese Anfrage ändert deine VerusID nicht.',
+  'genericRequest.flow.warning.dustChange':
+    'Das Wechselgeld ist zu klein für eine Rückzahlung und wird der Netzwerkgebühr hinzugefügt.',
+  'genericRequest.flow.warning.other': 'Prüfe diese Anfrage sorgfältig, bevor du fortfährst.',
   'genericRequest.flow.networkFee': 'Netzwerkgebühr',
   'genericRequest.flow.feeValue': '{fee} {currency}',
   'genericRequest.flow.highRisk': 'Hohes Risiko',
