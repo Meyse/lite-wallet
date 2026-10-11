@@ -43,6 +43,10 @@ pub(crate) fn channel_keys(
     encryption_index: u32,
     return_secret: bool,
 ) -> Result<ChannelKeys, WalletError> {
+    // `ChildIndex::hardened` panics from 2^31.
+    if encryption_index >= 1 << 31 {
+        return Err(WalletError::OperationFailed);
+    }
     let base = Zeroizing::new(account.to_bytes());
     let mut hasher = Sha256::new();
     hasher.update(base.as_slice());
@@ -166,6 +170,14 @@ mod tests {
         value
             .as_str()
             .map(|hex_value| hex::decode(hex_value).unwrap().try_into().unwrap())
+    }
+
+    #[test]
+    fn a_channel_number_from_2_pow_31_is_an_error() {
+        let vectors = vectors();
+        let account = account(&vectors);
+        assert!(channel_keys(&account, None, None, 0x7fff_ffff, false).is_ok());
+        assert!(channel_keys(&account, None, None, 0x8000_0000, false).is_err());
     }
 
     #[test]

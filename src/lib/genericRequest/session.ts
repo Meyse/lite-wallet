@@ -128,6 +128,12 @@ export type AppEncryptionDetailSession = {
   derivationNumber: number;
   derivationId: string | null;
   returnsSpendingKey: boolean;
+  /**
+   * The VerusID that cannot answer: at number 0, the key for its channel with
+   * itself would decrypt its stored credentials. Rust refuses that key too
+   * (`app_encryption_channel`), but only when it signs, after any payment.
+   */
+  excludedResponder: string | null;
 };
 
 /** Share data: Rust reads the matching credentials from the responder. */
@@ -516,12 +522,22 @@ export function parseGenericRequestSession(
       return parseProvisionIdentityDetail(detail, index);
     }
     if (detail instanceof AppEncryptionRequestOrdinalVDXFObject) {
+      const derivationNumber = detail.data.derivationNumber.toNumber();
+      const derivationId = detail.data.derivationID?.toAddress?.() ?? null;
+      // The key's channel is with the derivation identity, else the app, else
+      // the requester.
+      const counterparty =
+        derivationId ??
+        request.appOrDelegatedID?.toAddress?.() ??
+        request.signature?.identityID?.toIAddress?.() ??
+        null;
       return {
         index,
         type: 'appEncryption' as const,
-        derivationNumber: detail.data.derivationNumber.toNumber(),
-        derivationId: detail.data.derivationID?.toAddress?.() ?? null,
+        derivationNumber,
+        derivationId,
         returnsSpendingKey: detail.data.returnESK(),
+        excludedResponder: derivationNumber === 0 ? counterparty : null,
       };
     }
     if (detail instanceof DataPacketRequestOrdinalVDXFObject) {

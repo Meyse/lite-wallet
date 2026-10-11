@@ -964,9 +964,37 @@ async fn encrypt_update_credentials(
     Ok(())
 }
 
-/// The keys an encryption key request asks for (`appEncryptionRequestHandler`):
-/// the channel from the responder to the derivation identity, else the app
-/// identity, else the requester, at the request's derivation number, under the
+/// The channel an encryption key request asks for (`appEncryptionRequestHandler`):
+/// from the responder to the derivation identity, else the app identity, else
+/// the requester, at the request's derivation number.
+///
+/// The responder's own channel at number 0 is the one its credentials are
+/// stored under (`encrypt_update_credentials`, Verus Mobile's
+/// `encryptCredentials.js`), and its viewing key decrypts them. Verus Mobile
+/// derives that channel for an app too; this wallet refuses to share it.
+fn app_encryption_channel(
+    app: &details::AppEncryptionRequest,
+    app_or_delegated_id: Option<&str>,
+    requester_id: Option<&str>,
+    responder_id: &str,
+) -> Result<([u8; 20], [u8; 20], u32), WalletError> {
+    let counterparty = app
+        .derivation_id
+        .as_deref()
+        .or(app_or_delegated_id)
+        .or(requester_id)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let from = names::decode_i_address(responder_id).ok_or(WalletError::InvalidAddress)?;
+    let to = names::decode_i_address(counterparty).ok_or(WalletError::InvalidAddress)?;
+    let index = u32::try_from(app.derivation_number)
+        .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+    if from == to && index == 0 {
+        return Err(acceptance::Rejection::EncryptionKeyChannel.into());
+    }
+    Ok((from, to, index))
+}
+
+/// The keys of the channel that an encryption key request asks for, under the
 /// wallet's private account key.
 async fn app_encryption_keys(
     open: &OpenRequest,
@@ -984,21 +1012,15 @@ async fn app_encryption_keys(
         return Ok(None);
     };
     let app = details::parse_app_encryption(&detail.data, open.parsed.is_testnet)?;
-    let counterparty = app
-        .derivation_id
-        .clone()
-        .or_else(|| open.parsed.app_or_delegated_id.clone())
-        .or_else(|| {
-            open.parsed
-                .signature
-                .as_ref()
-                .map(|signature| signature.signer_identity_id.clone())
-        })
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
-    let from = names::decode_i_address(signer.identity_id).ok_or(WalletError::InvalidAddress)?;
-    let to = names::decode_i_address(&counterparty).ok_or(WalletError::InvalidAddress)?;
-    let index = u32::try_from(app.derivation_number)
-        .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+    let (from, to, index) = app_encryption_channel(
+        &app,
+        open.parsed.app_or_delegated_id.as_deref(),
+        open.parsed
+            .signature
+            .as_ref()
+            .map(|signature| signature.signer_identity_id.as_str()),
+        signer.identity_id,
+    )?;
 
     let account = private_account_key(context).await?;
     let keys = crate::core::generic_request::private_crypto::channel_keys(
@@ -3711,6 +3733,41 @@ mod tests {
         };
         store.open(open.clone());
         open
+    }
+
+    #[test]
+    fn an_app_key_is_never_the_responders_credential_channel() {
+        let requester = "i5ULg5wze6A1uWGiXSoLjc9KBF1Ea6ZuGd";
+        let responder = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
+        let id = |address| super::names::decode_i_address(address).unwrap();
+        let channel = |derivation_id: Option<&str>, derivation_number, signer| {
+            let app = super::details::AppEncryptionRequest {
+                encrypt_to: None,
+                derivation_number,
+                derivation_id: derivation_id.map(str::to_string),
+                request_id: None,
+                return_spending_key: false,
+            };
+            super::app_encryption_channel(&app, None, Some(signer), responder)
+        };
+        let refused = |result: Result<_, WalletError>| {
+            matches!(result, Err(WalletError::GenericRequestRejected(code))
+                if code == "encryptionKeyChannel")
+        };
+
+        // Credentials are stored under the responder's own channel at number 0,
+        // whether the request names the responder or the responder signed it.
+        assert!(refused(channel(Some(responder), 0, requester)));
+        assert!(refused(channel(None, 0, responder)));
+
+        assert_eq!(
+            channel(Some(responder), 1, requester).unwrap(),
+            (id(responder), id(responder), 1)
+        );
+        assert_eq!(
+            channel(None, 0, requester).unwrap(),
+            (id(responder), id(requester), 0)
+        );
     }
 
     /// The encryption keys of a `verus-zfunc-vectors.json` channel.

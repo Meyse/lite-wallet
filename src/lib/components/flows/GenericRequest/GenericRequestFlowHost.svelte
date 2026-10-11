@@ -568,6 +568,12 @@
         (identity) => identity.identityAddress.toLowerCase() === requiredIdentity
       );
     }
+    const excluded = encryptionKeyModule?.detail.excludedResponder?.toLowerCase();
+    if (excluded) {
+      identities = identities.filter(
+        (identity) => identity.identityAddress.toLowerCase() !== excluded
+      );
+    }
     if (!authDetail) return identities;
     const of = (type: number) =>
       new Set(

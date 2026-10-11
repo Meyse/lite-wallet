@@ -658,6 +658,10 @@ export const de: Record<string, string> = {
     'Diese Anfrage nennt eine ungültige Verschlüsselungsadresse oder bittet ohne eine um einen Ausgabeschlüssel.',
   'genericRequest.rejected.encryptionKeyIdentity':
     'Die Identität, für die dieser Schlüssel ist, existiert nicht.',
+  'genericRequest.rejected.encryptionKeyChannel':
+    'Dieser Schlüssel würde auch die auf dieser VerusID gespeicherten Nachweise entsperren, daher teilt die Wallet ihn nicht.',
+  'genericRequest.rejected.encryptionKeyNumber':
+    'Diese Anfrage fragt nach einer ungültigen Schlüsselnummer.',
   'genericRequest.rejected.privateNotSetUp': 'Richte zuerst private Adressen ein.',
   'genericRequest.flow.step.shareData': 'Daten teilen',
   'genericRequest.flow.title.shareData': 'Nachweise mit {app} teilen',

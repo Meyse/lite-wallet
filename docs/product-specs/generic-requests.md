@@ -259,7 +259,12 @@ single-screen header.
   SHA-256 of its bytes, and the signature covers the height-bound identity hash.
 - **Encryption keys:** derived from the extended spending key, with plain ID
   byte order. The IVK is in the curve's own byte order, as the daemon and Verus
-  Mobile's native module return it. An encrypted reply is a data response.
+  Mobile's native module return it. An encrypted reply is a data response. The
+  wallet refuses a key for the responder's own channel at number 0: its stored
+  credentials use that channel, so the key would decrypt them. The responder
+  picker leaves that identity out, so the refusal cannot come after a payment or
+  update. Verus Mobile shares this key. A key number must be below 2^31
+  (hardened derivation).
 - **Sign data inside an update** (the update's sign data map) is refused as not
   supported on desktop yet. Verus Mobile has the daemon sign it.
 - **Credentials written by an update:** before any network call, each entry is

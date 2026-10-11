@@ -1,6 +1,10 @@
 import { Buffer } from 'buffer';
 import { describe, expect, it, vi } from 'vitest';
-import { GenericRequest } from 'verus-typescript-primitives';
+import {
+  AppEncryptionRequestOrdinalVDXFObject,
+  CompactIAddressObject,
+  GenericRequest,
+} from 'verus-typescript-primitives';
 import fixtures from './fixtures/legacy-requests.json';
 import vectors from './fixtures/request-vectors.json';
 import { parseGenericRequestSession } from './session';
@@ -109,6 +113,44 @@ describe('share data requests', () => {
     expect(() => parseGenericRequestSession(request.toBuffer().toString('hex'))).toThrow(
       'genericRequest.rejected.unsupportedDetail'
     );
+  });
+});
+
+describe('encryption key requests', () => {
+  const vector = vectors.cases.find((entry) => entry.name === 'auth-app-encryption');
+  if (!vector) throw new Error('Missing vector auth-app-encryption');
+  const vectorHex = vector.hex;
+  const responder = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
+
+  /** The vector with key number 0 or 1 and an optional derivation identity. */
+  function keyRequest(derivationNumber: 0 | 1, derivationId?: string): string {
+    const request = new GenericRequest();
+    request.fromBuffer(Buffer.from(vectorHex, 'hex'), 0);
+    const { data } = request.details[1] as AppEncryptionRequestOrdinalVDXFObject;
+    // The vector asks for number 1.
+    data.derivationNumber = data.derivationNumber.muln(derivationNumber);
+    if (derivationId) data.derivationID = CompactIAddressObject.fromAddress(derivationId);
+    data.setFlags();
+    request.setFlags();
+    return request.toBuffer().toString('hex');
+  }
+
+  // At number 0 the key for an identity's channel with itself decrypts its
+  // stored credentials, so that identity cannot answer.
+  it('names the identity that cannot answer a key request', () => {
+    expect(parseGenericRequestSession(keyRequest(0, responder)).details[1]).toMatchObject({
+      type: 'appEncryption',
+      derivationId: responder,
+      excludedResponder: responder,
+    });
+
+    const signedBy = parseGenericRequestSession(keyRequest(0));
+    expect(signedBy.signer.identityId).toMatch(/^i/);
+    expect(signedBy.details[1]).toMatchObject({ excludedResponder: signedBy.signer.identityId });
+
+    expect(parseGenericRequestSession(keyRequest(1, responder)).details[1]).toMatchObject({
+      excludedResponder: null,
+    });
   });
 });
 

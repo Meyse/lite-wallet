@@ -384,6 +384,10 @@ export const en: Record<string, string> = {
     'This request names an encryption address that is not valid, or asks for a spending key without one.',
   'genericRequest.rejected.encryptionKeyIdentity':
     'The identity that this key is for does not exist.',
+  'genericRequest.rejected.encryptionKeyChannel':
+    'This key would also unlock the credentials stored on this VerusID, so the wallet does not share it.',
+  'genericRequest.rejected.encryptionKeyNumber':
+    'This request asks for a key number that is not valid.',
   'genericRequest.rejected.privateNotSetUp': 'Set up private addresses first.',
   'genericRequest.flow.step.shareData': 'Share data',
   'genericRequest.flow.title.shareData': 'Share credentials with {app}',

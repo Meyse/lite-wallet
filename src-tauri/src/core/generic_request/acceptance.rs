@@ -58,6 +58,11 @@ pub(crate) enum Rejection {
     EncryptionKeyAddress,
     /// The derivation identity of an encryption key request does not exist.
     EncryptionKeyIdentity,
+    /// The encryption key would be the responder's credential storage
+    /// channel, whose viewing key decrypts its stored credentials.
+    EncryptionKeyChannel,
+    /// The key number is outside hardened ZIP 32 derivation (below 2^31).
+    EncryptionKeyNumber,
     /// This wallet has no private address set up.
     PrivateNotSetUp,
     /// The app asks for data other than whole credentials; Verus Mobile
@@ -106,6 +111,8 @@ impl Rejection {
             Self::DataNotForSignature => "dataNotForSignature",
             Self::EncryptionKeyAddress => "encryptionKeyAddress",
             Self::EncryptionKeyIdentity => "encryptionKeyIdentity",
+            Self::EncryptionKeyChannel => "encryptionKeyChannel",
+            Self::EncryptionKeyNumber => "encryptionKeyNumber",
             Self::PrivateNotSetUp => "privateNotSetUp",
             Self::CredentialsOnly => "credentialsOnly",
             Self::CredentialsNotEncrypted => "credentialsNotEncrypted",
@@ -194,10 +201,14 @@ pub(crate) fn check_data_packet(
 
 /// `appEncryptionRequestValidator.js`: a spending key is returned only
 /// encrypted, to a valid address named in the detail. The derivation
-/// identity is checked against the chain when the request opens.
+/// identity is checked against the chain when the request opens. The key
+/// number is a hardened ZIP 32 index, so it must be below 2^31.
 pub(crate) fn check_app_encryption(
     request: &super::details::AppEncryptionRequest,
 ) -> Result<(), Rejection> {
+    if request.derivation_number >= 1 << 31 {
+        return Err(Rejection::EncryptionKeyNumber);
+    }
     if let Some(raw) = &request.encrypt_to {
         if sapling::PaymentAddress::from_bytes(raw).is_none() {
             return Err(Rejection::EncryptionKeyAddress);
@@ -376,6 +387,24 @@ mod tests {
     fn wallet_backups_are_refused_even_when_well_ordered() {
         let kinds = [DetailKind::CreateWalletBackup, DetailKind::SpendableKey];
         assert!(check_order(&kinds).is_ok());
+    }
+
+    #[test]
+    fn an_encryption_key_number_from_2_pow_31_is_refused() {
+        let app = |derivation_number| super::super::details::AppEncryptionRequest {
+            encrypt_to: None,
+            derivation_number,
+            derivation_id: None,
+            request_id: None,
+            return_spending_key: false,
+        };
+        assert!(check_app_encryption(&app(0x7fff_ffff)).is_ok());
+        for number in [0x8000_0000, 0xffff_ffff, 0x1_0000_0000] {
+            assert_eq!(
+                check_app_encryption(&app(number)),
+                Err(Rejection::EncryptionKeyNumber)
+            );
+        }
     }
 }
 

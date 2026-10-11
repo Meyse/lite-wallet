@@ -33,6 +33,8 @@ export const REJECTION_CODES = [
   'dataNotForSignature',
   'encryptionKeyAddress',
   'encryptionKeyIdentity',
+  'encryptionKeyChannel',
+  'encryptionKeyNumber',
   'privateNotSetUp',
   'credentialsOnly',
   'credentialsNotEncrypted',

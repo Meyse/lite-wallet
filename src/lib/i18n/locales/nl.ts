@@ -397,6 +397,10 @@ export const nl: Record<string, string> = {
     'Dit verzoek noemt een ongeldig versleuteladres, of vraagt een bestedingssleutel zonder versleuteladres.',
   'genericRequest.rejected.encryptionKeyIdentity':
     'De identiteit waarvoor deze sleutel is, bestaat niet.',
+  'genericRequest.rejected.encryptionKeyChannel':
+    'Deze sleutel ontgrendelt ook de referenties die op deze VerusID zijn opgeslagen, dus de wallet deelt hem niet.',
+  'genericRequest.rejected.encryptionKeyNumber':
+    'Dit verzoek vraagt om een sleutelnummer dat niet geldig is.',
   'genericRequest.rejected.privateNotSetUp': 'Stel eerst privéadressen in.',
   'genericRequest.flow.step.shareData': 'Gegevens delen',
   'genericRequest.flow.title.shareData': 'Referenties delen met {app}',

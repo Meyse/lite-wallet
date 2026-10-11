@@ -653,6 +653,10 @@ export const es: Record<string, string> = {
     'Esta solicitud indica una dirección de cifrado no válida, o pide una clave de gasto sin ninguna.',
   'genericRequest.rejected.encryptionKeyIdentity':
     'La identidad para la que es esta clave no existe.',
+  'genericRequest.rejected.encryptionKeyChannel':
+    'Esta clave también desbloquearía las credenciales guardadas en esta VerusID, así que la cartera no la comparte.',
+  'genericRequest.rejected.encryptionKeyNumber':
+    'Esta solicitud pide un número de clave no válido.',
   'genericRequest.rejected.privateNotSetUp': 'Configura primero las direcciones privadas.',
   'genericRequest.flow.step.shareData': 'Compartir datos',
   'genericRequest.flow.title.shareData': 'Compartir credenciales con {app}',
