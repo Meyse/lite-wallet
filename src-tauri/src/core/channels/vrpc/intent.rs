@@ -217,6 +217,24 @@ pub(crate) fn validate_transaction_intent(
     Ok(())
 }
 
+/// A native output locked to `identity_address` alone, as `sendcurrency` to an
+/// i-address writes it: no eval code, no data, and one ID destination.
+pub(crate) fn is_native_identity_output(script_hex: &str, identity_address: &str) -> bool {
+    let Ok(destination) = decode_base58_destination(identity_address) else {
+        return false;
+    };
+    let Ok(script) = hex::decode(script_hex) else {
+        return false;
+    };
+    destination.destination_type == 4
+        && parse_cc_params(&script).is_ok_and(|params| {
+            validate_single_condition_master(&params).is_ok()
+                && params.condition.eval_code == EVAL_NONE
+                && params.condition.vdata.is_empty()
+                && params.condition.destinations.as_slice() == [destination]
+        })
+}
+
 /// A sweep moves everything to one address: every output pays `destination`
 /// (natively or as a reserve output), every reserve input reaches it, and the
 /// native fee is exactly `expected_fee_sats`.

@@ -2,9 +2,10 @@
 //! Mobile claims them at `dev-asf-parent` (`spendableKey.js`).
 //!
 //! Each VerusID the key controls moves to the wallet's address, paid from a
-//! plain native output of the key, with its change to the wallet. Every other
-//! output of the key then goes to the wallet's address in one sweep. The claim
-//! key signs both, and nothing pays anyone but the wallet.
+//! plain native output of the key, or else from native funds the VerusID holds
+//! itself, with the change to the wallet. Every other output of the key then
+//! goes to the wallet's address in one sweep. The claim key signs both, and
+//! nothing pays anyone but the wallet.
 
 use std::collections::BTreeMap;
 
@@ -23,8 +24,9 @@ use super::identity::preflight::{
 use super::identity::validate::{validate_operation_authority, validate_target_state};
 use super::identity::verus_tx::codec::decode_hex as decode_verus_tx;
 use super::intent::{
-    decode_base58_destination, identity_control_intent_from_json, validate_identity_control_intent,
-    validate_identity_transaction_intent, validate_sweep_transaction, VrpcOutputIntent,
+    decode_base58_destination, identity_control_intent_from_json, is_native_identity_output,
+    validate_identity_control_intent, validate_identity_transaction_intent,
+    validate_sweep_transaction, VrpcOutputIntent,
 };
 use super::transfer::{parse_fund_result, parse_sendcurrency_hex};
 use super::VrpcProvider;
@@ -110,20 +112,18 @@ pub(crate) fn claim_totals(outputs: &[ClaimOutput]) -> (i64, BTreeMap<String, i6
     (native, currencies)
 }
 
-/// Picks one plain native output for each identity fee, largest first. The
-/// rest of the outputs are swept.
+/// Picks one plain native output for each identity fee, largest first, as long
+/// as they last. An identity without one pays from its own funds
+/// ([`identity_fee_outputs`]). The rest of the outputs are swept.
 pub(crate) fn split_fee_outputs(
     outputs: &[ClaimOutput],
     identity_count: usize,
-) -> Result<(Vec<VrpcUtxo>, Vec<ClaimOutput>), WalletError> {
+) -> (Vec<VrpcUtxo>, Vec<ClaimOutput>) {
     let mut plain = outputs
         .iter()
         .filter(|output| output.is_plain_native() && output.utxo.satoshis >= DEFAULT_FEE_SAT)
         .collect::<Vec<_>>();
     plain.sort_by_key(|output| std::cmp::Reverse(output.utxo.satoshis));
-    if plain.len() < identity_count {
-        return Err(WalletError::InsufficientFunds);
-    }
     let fee_outputs = plain
         .into_iter()
         .take(identity_count)
@@ -138,7 +138,34 @@ pub(crate) fn split_fee_outputs(
         })
         .cloned()
         .collect();
-    Ok((fee_outputs, rest))
+    (fee_outputs, rest)
+}
+
+/// Native funds a VerusID holds at its own i-address, largest first, for its
+/// claim fee when the key has no plain native output for it (Verus Mobile's
+/// `getIdentityFeeUtxos`). Only native outputs locked to the VerusID alone
+/// qualify, so nothing else it holds moves. The claim key can sign them while
+/// it is the VerusID's primary address.
+pub(crate) fn identity_fee_outputs(
+    raw: &Value,
+    native_currency_id: &str,
+    identity_address: &str,
+) -> Vec<VrpcUtxo> {
+    let mut fee_outputs = parse_claim_outputs(raw, native_currency_id)
+        .into_iter()
+        .filter(|output| {
+            output.currencies.is_empty()
+                && output.utxo.satoshis > 0
+                && output
+                    .utxo
+                    .script_pub_key
+                    .as_deref()
+                    .is_some_and(|script| is_native_identity_output(script, identity_address))
+        })
+        .map(|output| output.utxo)
+        .collect::<Vec<_>>();
+    fee_outputs.sort_by_key(|utxo| std::cmp::Reverse(utxo.satoshis));
+    fee_outputs
 }
 
 fn p2pkh_script(address: &str) -> Result<Vec<u8>, WalletError> {
@@ -156,14 +183,16 @@ fn p2pkh_script(address: &str) -> Result<Vec<u8>, WalletError> {
 /// address as its only primary address, one signature, and the wallet's
 /// private address, or none (Verus Mobile clears it when the wallet has
 /// none). Its revocation and recovery stay as they are. The fee comes from
-/// `fee_output`; the change goes to the wallet.
+/// `fee_outputs`, as many as it takes; the change goes to the wallet. (Verus
+/// Mobile returns change from the VerusID's own funds to the VerusID; here it
+/// goes to the wallet, so every output but the identity pays the wallet.)
 pub(crate) async fn preflight_identity_claim(
     provider: &VrpcProvider,
     identity_address: &str,
     claim_address: &str,
     wallet_address: &str,
     wallet_private_address: Option<&str>,
-    fee_output: &VrpcUtxo,
+    fee_outputs: &[VrpcUtxo],
 ) -> Result<IdentityPreflightPayload, WalletError> {
     let target = parse_target_identity(provider.getidentity(identity_address).await?)?;
     validate_target_state(&target.status, &IdentityOperation::Update)?;
@@ -208,7 +237,7 @@ pub(crate) async fn preflight_identity_claim(
         target.vout,
         &identity_script,
         identity_sats,
-        std::slice::from_ref(fee_output),
+        fee_outputs,
         DEFAULT_FEE_SAT,
         Some(&change_script),
     )?;
@@ -431,13 +460,51 @@ mod tests {
             entry("cc", 3_000_000, PLAIN_SCRIPT, json!({})),
         ]);
         let outputs = parse_claim_outputs(&raw, TESTNET);
-        let (fees, rest) = split_fee_outputs(&outputs, 1).unwrap();
+        let (fees, rest) = split_fee_outputs(&outputs, 1);
         assert_eq!(fees.len(), 1);
         assert_eq!(fees[0].txid, "cc");
         assert_eq!(rest.len(), 2);
-        assert!(matches!(
-            split_fee_outputs(&outputs, 3),
-            Err(WalletError::InsufficientFunds)
-        ));
+        // A third identity pays from its own funds; the token output is swept.
+        let (fees, rest) = split_fee_outputs(&outputs, 3);
+        assert_eq!(fees.len(), 2);
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].utxo.txid, "bb");
+    }
+
+    #[test]
+    fn a_verusid_pays_its_fee_only_from_native_funds_locked_to_it_alone() {
+        // `getaddressutxos` for dlsgiftqa1@ on VRSCTEST: 0.05 sent to its
+        // i-address (`sendcurrency`), and the VerusID's own reservation output.
+        const IDENTITY: &str = "i4HkuymMZBaF7oYqE2hxmdQVHrgKxH6imH";
+        const NATIVE_TO_IDENTITY: &str =
+            "050403000000cc1b0403000101150408eecdbbae7b3a704053efb295f68b95cd49d71d75";
+        const IDENTITY_OWN_OUTPUT: &str = "1b0403000101150408eecdbbae7b3a704053efb295f68b95cd49d71dcc4c7404030a0101150408eecdbbae7b3a704053efb295f68b95cd49d71d4c57010000000a646c7367696674716131a6ef9ea235635e328124ff3429db9f9e91b64e2d00000000000000000000000000000000000000003ec71906776f6f07f9f959559a9933af76784195321a0eb834c1088e8b59119b75";
+        let raw = json!([
+            entry(
+                "aa",
+                5_000_000,
+                NATIVE_TO_IDENTITY,
+                json!({ TESTNET: 0.05 })
+            ),
+            entry("bb", 0, IDENTITY_OWN_OUTPUT, json!({})),
+            entry(
+                "cc",
+                3_000_000,
+                NATIVE_TO_IDENTITY,
+                json!({ TESTNET: 0.03, "iTokenCurrency1111111111111111111": 1 })
+            ),
+            entry("dd", 4_000_000, PLAIN_SCRIPT, json!({})),
+        ]);
+        let fees = identity_fee_outputs(&raw, TESTNET, IDENTITY);
+        assert_eq!(
+            fees.iter()
+                .map(|utxo| utxo.txid.as_str())
+                .collect::<Vec<_>>(),
+            ["aa"]
+        );
+        // The same output does not pay for another VerusID.
+        assert!(
+            identity_fee_outputs(&raw, TESTNET, "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq").is_empty()
+        );
     }
 }

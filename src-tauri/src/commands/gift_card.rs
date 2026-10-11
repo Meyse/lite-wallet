@@ -20,8 +20,8 @@ use crate::commands::generic_request::{private_account_key, wallet_network_to_cr
 use crate::commands::identity::{parse_discovery_candidates, parse_getidentity_payload};
 use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::claim::{
-    claim_totals, parse_claim_outputs, preflight_identity_claim, preflight_sweep, sign_claim,
-    split_fee_outputs, ClaimOutput,
+    claim_totals, identity_fee_outputs, parse_claim_outputs, preflight_identity_claim,
+    preflight_sweep, sign_claim, split_fee_outputs, ClaimOutput,
 };
 use crate::core::channels::vrpc::common::VrpcPreflightPayload;
 use crate::core::channels::vrpc::identity::preflight::{IdentityPreflightPayload, DEFAULT_FEE_SAT};
@@ -217,7 +217,7 @@ pub async fn preflight_gift_card_claim(
         return Err(Rejection::GiftCardIdentity.into());
     }
     let outputs = scan_outputs(provider, &claim.address, system_id).await?;
-    let (fee_outputs, rest) = split_fee_outputs(&outputs, identities.len())?;
+    let (fee_outputs, rest) = split_fee_outputs(&outputs, identities.len());
 
     // The wallet's private address replaces the card's; without one, the
     // claimed VerusID keeps none (Verus Mobile's default).
@@ -233,15 +233,31 @@ pub async fn preflight_gift_card_claim(
     };
 
     let mut identity_payloads = Vec::new();
-    for (identity, fee_output) in identities.iter().zip(&fee_outputs) {
+    for (index, identity) in identities.iter().enumerate() {
+        let identity_address = &identity.review.identity_address;
+        // Without a plain native output of the key, the VerusID pays its own
+        // fee, as Verus Mobile does for a card that only gives a VerusID.
+        let fee_candidates = match fee_outputs.get(index) {
+            Some(output) => vec![output.clone()],
+            None => identity_fee_outputs(
+                &provider
+                    .funding_utxos(std::slice::from_ref(identity_address))
+                    .await?,
+                system_id,
+                identity_address,
+            ),
+        };
+        if fee_candidates.is_empty() {
+            return Err(WalletError::InsufficientFunds);
+        }
         identity_payloads.push(
             preflight_identity_claim(
                 provider,
-                &identity.review.identity_address,
+                identity_address,
                 &claim.address,
                 &context.vrsc_address,
                 wallet_private_address.as_deref(),
-                fee_output,
+                &fee_candidates,
             )
             .await?,
         );

@@ -419,12 +419,21 @@ guided flow defined by the
   `b4ac47621c1cadf9dc14b6dc4dfea125bf39ded15ed3666865dce34864b2875c`) and swept
   0.0298 VRSCTEST and 1 AUD to it (txid
   `a41471025603019efd6542b71252cb9df3317a50f9a1021b3da438450be63c32`).
+- **VerusID-only cards, 2026-10-11:** when the key has no plain native output
+  for a VerusID, the VerusID pays its own fee from native outputs locked to it
+  alone, as mobile does for a card that only gives a VerusID. The claim key
+  signs them. The change goes to the wallet, not back to the VerusID as on
+  mobile. Verified on testnet: `dlsgiftqa1@` was given to a new card with 0.05
+  VRSCTEST at its i-address and nothing at the card's address. The claim moved
+  it to the wallet and paid the fee from those funds (txid
+  `b2b01d6ad9ab051684661eca38e68bc65c069fc65a4b63936d9aa96cb5ea3f1f`).
 - **Not done:**
   - Saving the request encrypted in Stronghold until the claim finishes (step
     3). Opening the card again claims what is left.
-  - Claims on PBaaS chains other than the wallet's network.
-  - Paying an identity fee from the VerusID's own funds when the key holds no
-    plain native output, as mobile can.
+  - Claims on PBaaS chains other than the wallet's network. Mobile also scans
+    the active PBaaS chains of the same network.
+  - Mobile's combined update and sweep, for a key whose address holds other
+    currencies but too little native coin for a separate sweep.
 
 1. **Design.** Read mobile's gift card handler and screen at `dev-asf-parent`,
    and design the step.
