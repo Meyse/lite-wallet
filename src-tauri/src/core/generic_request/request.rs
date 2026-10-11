@@ -113,6 +113,7 @@ impl ParsedRequest {
         self.signature.is_some()
     }
 
+    #[cfg(test)]
     pub(crate) fn ordinals(&self) -> Vec<u64> {
         self.details.iter().map(|detail| detail.ordinal).collect()
     }

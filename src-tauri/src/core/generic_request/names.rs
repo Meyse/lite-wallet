@@ -3,13 +3,11 @@
 
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-use zcash_client_backend::encoding::{decode_payment_address, encode_payment_address};
+use zcash_client_backend::encoding::encode_payment_address;
 use zcash_protocol::constants::mainnet;
 
 pub(crate) const I_ADDRESS_VERSION: u8 = 102;
-pub(crate) const X_ADDRESS_VERSION: u8 = 137;
 pub(crate) const R_ADDRESS_VERSION: u8 = 60;
-pub(crate) const P2SH_ADDRESS_VERSION: u8 = 85;
 pub(crate) const MAINNET_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
 pub(crate) const TESTNET_SYSTEM_ID: &str = "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq";
 
@@ -69,7 +67,9 @@ pub(crate) fn sapling_address(raw: &[u8; 43]) -> Option<String> {
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn decode_sapling_address(address: &str) -> Option<[u8; 43]> {
+    use zcash_client_backend::encoding::decode_payment_address;
     let decoded = decode_payment_address(
         mainnet::HRP_SAPLING_PAYMENT_ADDRESS,
         address.trim().to_ascii_lowercase().as_str(),

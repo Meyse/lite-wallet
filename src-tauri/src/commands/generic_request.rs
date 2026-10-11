@@ -2520,7 +2520,7 @@ pub async fn preflight_generic_identity_update(
 
     let funding_candidates = parse_funding_utxos(
         &provider
-            .funding_utxos(&[resolved.address.clone()])
+            .funding_utxos(std::slice::from_ref(&resolved.address))
             .await
             .map_err(|_| WalletError::IdentityBuildFailed)?,
     );

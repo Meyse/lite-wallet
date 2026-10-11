@@ -120,7 +120,7 @@ pub(crate) fn split_fee_outputs(
         .iter()
         .filter(|output| output.is_plain_native() && output.utxo.satoshis >= DEFAULT_FEE_SAT)
         .collect::<Vec<_>>();
-    plain.sort_by(|left, right| right.utxo.satoshis.cmp(&left.utxo.satoshis));
+    plain.sort_by_key(|output| std::cmp::Reverse(output.utxo.satoshis));
     if plain.len() < identity_count {
         return Err(WalletError::InsufficientFunds);
     }

@@ -132,11 +132,12 @@ fn decrypt(
     let (salt, rest) = blob.split_at(SALT_LENGTH);
     let (iv, sealed) = rest.split_at(IV_LENGTH);
     let rounds = u32::try_from(iterations).map_err(|_| invalid())?;
+    let nonce: [u8; IV_LENGTH] = iv.try_into().map_err(|_| invalid())?;
     let mut key = Zeroizing::new([0u8; 32]);
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, rounds, key.as_mut_slice());
     Aes256Gcm::new_from_slice(key.as_slice())
         .map_err(|_| invalid())?
-        .decrypt(Nonce::from_slice(iv), sealed)
+        .decrypt(&Nonce::from(nonce), sealed)
         .map(Zeroizing::new)
         .map_err(|_| Rejection::GiftCardPassword.into())
 }
