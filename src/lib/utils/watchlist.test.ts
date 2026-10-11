@@ -104,6 +104,7 @@ describe('watchlist view models', () => {
     );
 
     expect(view.publicValueDisplay).toBe('€10.00');
+    expect(view.hasPartialFiatValue).toBe(false);
     expect(view.holdings[0]).toMatchObject({
       balanceDisplay: '2.5',
       ticker: 'VRSC',
@@ -135,7 +136,31 @@ describe('watchlist view models', () => {
     );
 
     expect(view.publicValueDisplay).toBe('—');
+    expect(view.hasPartialFiatValue).toBe(false);
     expect(view.currencyCount).toBe(1);
+  });
+
+  it('sums priced holdings while identifying an incomplete public value', () => {
+    const mixedSnapshot = snapshot('available');
+    mixedSnapshot.holdings.push({
+      assetKey: 'unpriced',
+      currencyId: 'unpriced-currency',
+      systemId: mixedSnapshot.holdings[0].systemId,
+      systemTicker: 'VRSC',
+      systemDisplayName: 'Verus',
+      balance: '100',
+    });
+
+    const view = buildWatchlistEntryViewModel(
+      { snapshot: mixedSnapshot, stale: false },
+      { VRSC: { rates: { USD: 4 }, usdChange24hPct: null } },
+      'en-US',
+      'USD'
+    );
+
+    expect(view.publicValueDisplay).toBe('$10.00');
+    expect(view.hasPartialFiatValue).toBe(true);
+    expect(view.holdings.map((holding) => holding.fiatDisplay)).toEqual(['$10.00', '—']);
   });
 });
 

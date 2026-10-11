@@ -1858,6 +1858,7 @@ export const nl: Record<string, string> = {
   'wallet.watchlist.refreshing': 'Vernieuwen…',
   'wallet.watchlist.readOnly': 'Alleen-lezen',
   'wallet.watchlist.publicValue': 'Openbare waarde',
+  'wallet.watchlist.partialValue': 'Voor sommige valuta is geen fiatkoers beschikbaar.',
   'wallet.watchlist.currencyCount': '{count} valuta',
   'wallet.watchlist.currencyCountOne': '1 valuta',
   'wallet.watchlist.noCurrencies': 'Geen openbare saldi gevonden',

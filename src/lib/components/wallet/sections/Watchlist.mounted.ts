@@ -1257,6 +1257,52 @@ describe('watchlist workflows', () => {
     expect(document.activeElement).toBe(document.querySelector('[data-testid="watchlist-entry"]'));
   });
 
+  it('shows full holding fiat amounts and updates an incomplete total when a rate arrives', async () => {
+    const mixedSnapshot: WatchlistEntrySnapshot = {
+      ...snapshot,
+      holdings: [
+        ...snapshot.holdings,
+        {
+          assetKey: 'unpriced',
+          currencyId: 'unpriced-currency',
+          systemId: snapshot.holdings[0].systemId,
+          systemTicker: 'VRSC',
+          systemDisplayName: 'Verus',
+          balance: '3',
+        },
+      ],
+    };
+    ratesStore.set({ VRSC: { rates: { USD: 2 }, usdChange24hPct: null } });
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(refreshResult([mixedSnapshot]));
+
+    await render();
+    const entryRow = document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]');
+    expect(entryRow?.textContent).toContain('$8.50');
+    expect(entryRow?.textContent).toContain('Partial');
+    entryRow?.click();
+    await settle();
+
+    const valueCard = document.querySelector('[data-testid="public-value-card"]');
+    const holdingRows = document.querySelectorAll('[data-testid="watchlist-holding-row"]');
+    expect(valueCard?.textContent).toContain('$8.50');
+    expect(valueCard?.textContent).toContain('Some currencies have no fiat rate.');
+    expect(holdingRows).toHaveLength(2);
+    expect(holdingRows[0].textContent).toContain('$8.50');
+    expect(holdingRows[1].textContent).toContain('—');
+
+    ratesStore.set({
+      VRSC: { rates: { USD: 2 }, usdChange24hPct: null },
+      'unpriced-currency': { rates: { USD: 5 }, usdChange24hPct: null },
+    });
+    await settle();
+    expect(valueCard?.textContent).toContain('$23.50');
+    expect(valueCard?.textContent).not.toContain('Some currencies have no fiat rate.');
+    expect(
+      document.querySelectorAll('[data-testid="watchlist-holding-row"]')[1].textContent
+    ).toContain('$15.00');
+  });
+
   it('keeps the entry until confirmed removal finishes', async () => {
     service.getWatchlistEntries.mockResolvedValue([entry]);
     service.refreshWatchlist.mockResolvedValue(refreshResult());
