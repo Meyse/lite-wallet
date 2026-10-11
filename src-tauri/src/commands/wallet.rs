@@ -239,6 +239,7 @@ async fn persist_new_account(
             .await?;
     }
 
+    // No asset choice yet: the first read saves the network defaults.
     account_state_store.store_active_assets(
         &account_id,
         request.network,
@@ -481,6 +482,14 @@ fn sanitize_hidden_asset_keys(asset_keys: &[String]) -> Vec<String> {
         })
         .take(512)
         .collect()
+}
+
+/// Creation and import store `initialized: false`: the owner has not chosen
+/// assets yet, so the first read saves the network defaults. An older profile
+/// version resets once to the defaults. Every explicit choice stores
+/// `initialized: true`, including an empty one, so it is never replaced.
+fn needs_default_active_assets(initialized: bool, profile_version: u8) -> bool {
+    !initialized || profile_version < ACTIVE_ASSETS_PROFILE_VERSION
 }
 
 fn default_active_coin_ids(network: WalletNetwork) -> Vec<String> {
@@ -1360,14 +1369,27 @@ pub async fn get_active_assets(
     account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<ActiveAssetsState, WalletError> {
-    let state = capture_active_wallet_state(session_manager.inner()).await?;
+    load_active_assets_state(
+        session_manager.inner(),
+        account_state_store.inner(),
+        coin_registry.as_ref(),
+    )
+    .await
+}
+
+async fn load_active_assets_state(
+    session_manager: &Arc<Mutex<SessionManager>>,
+    account_state_store: &AccountStateStore,
+    coin_registry: &CoinRegistry,
+) -> Result<ActiveAssetsState, WalletError> {
+    let state = capture_active_wallet_state(session_manager).await?;
 
     let (initialized, coin_ids, profile_version) =
         account_state_store.load_active_assets(&state.account_id, state.network)?;
-    let sanitized = sanitize_active_coin_ids(coin_registry.as_ref(), state.network, &coin_ids);
-    if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
+    let sanitized = sanitize_active_coin_ids(coin_registry, state.network, &coin_ids);
+    if needs_default_active_assets(initialized, profile_version) {
         let defaults = sanitize_active_coin_ids(
-            coin_registry.as_ref(),
+            coin_registry,
             state.network,
             &default_active_coin_ids(state.network),
         );
@@ -1426,6 +1448,19 @@ pub async fn get_asset_preferences(
     account_state_store: State<'_, AccountStateStore>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<AssetPreferencesState, WalletError> {
+    load_asset_preferences_state(
+        session_manager.inner(),
+        account_state_store.inner(),
+        coin_registry.as_ref(),
+    )
+    .await
+}
+
+async fn load_asset_preferences_state(
+    session_manager: &Arc<Mutex<SessionManager>>,
+    account_state_store: &AccountStateStore,
+    coin_registry: &CoinRegistry,
+) -> Result<AssetPreferencesState, WalletError> {
     let session = session_manager.lock().await;
     if !session.is_unlocked() {
         return Err(WalletError::WalletLocked);
@@ -1439,20 +1474,17 @@ pub async fn get_asset_preferences(
         .cloned()
         .ok_or(WalletError::WalletLocked)?;
     let network = session.active_network().unwrap_or(WalletNetwork::Mainnet);
-    let (_initialized, coin_ids, profile_version, hidden_asset_keys) =
+    let (initialized, coin_ids, profile_version, hidden_asset_keys) =
         account_state_store.load_asset_preferences(&account_id, network)?;
-    let portfolio_coin_ids = if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
-        sanitize_active_coin_ids(
-            coin_registry.as_ref(),
-            network,
-            &default_active_coin_ids(network),
-        )
+    let needs_defaults = needs_default_active_assets(initialized, profile_version);
+    let portfolio_coin_ids = if needs_defaults {
+        sanitize_active_coin_ids(coin_registry, network, &default_active_coin_ids(network))
     } else {
-        sanitize_active_coin_ids(coin_registry.as_ref(), network, &coin_ids)
+        sanitize_active_coin_ids(coin_registry, network, &coin_ids)
     };
     let hidden_asset_keys = sanitize_hidden_asset_keys(&hidden_asset_keys);
 
-    if profile_version < ACTIVE_ASSETS_PROFILE_VERSION {
+    if needs_defaults {
         account_state_store.store_asset_preferences(
             &account_id,
             network,
@@ -2084,10 +2116,11 @@ mod tests {
         canonical_non_vrpc_network_metadata, channel_id_for_non_vrpc_coin,
         collect_vrpc_scope_addresses, collect_vrpc_system_descriptors, dedupe_preserve_order,
         dlight_recovery_secret_kind_from_seed, ensure_expected_session_id,
-        format_discovered_amount, load_watched_scope_addresses, merge_discovered_vrpc_amounts,
-        persist_new_account, reconcile_watched_entries,
-        recovery_secret_kind_from_wallet_secret_kind, sanitize_active_coin_ids,
-        vrpc_balance_entries, DiscoveredVrpcAmount, NewAccountPersistenceRequest,
+        format_discovered_amount, load_active_assets_state, load_asset_preferences_state,
+        load_watched_scope_addresses, merge_discovered_vrpc_amounts, persist_new_account,
+        reconcile_watched_entries, recovery_secret_kind_from_wallet_secret_kind,
+        sanitize_active_coin_ids, vrpc_balance_entries, DiscoveredVrpcAmount,
+        NewAccountPersistenceRequest,
     };
     use crate::core::auth::kdf::CURRENT_KEY_DERIVATION_VERSION;
     use crate::core::auth::{
@@ -2766,6 +2799,162 @@ mod tests {
                 .expect("imported dlight"),
             None
         );
+
+        let _ = std::fs::remove_dir_all(stronghold_dir);
+        let _ = std::fs::remove_dir_all(wallet_data_dir);
+    }
+
+    #[tokio::test]
+    async fn new_wallets_start_with_network_default_assets() {
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
+
+        let (stronghold_dir, wallet_data_dir) = temp_wallet_test_dirs();
+        let wallet_manager = WalletManager::new(wallet_data_dir.clone());
+        let account_state_store = AccountStateStore::new(wallet_data_dir.clone());
+        let coin_registry = CoinRegistry::new();
+        let session_manager = Arc::new(Mutex::new(SessionManager::new(
+            StrongholdStore::new_for_tests(stronghold_dir.clone()),
+        )));
+        let seed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        // A new mainnet wallet shows Verus, USDC on Verus, Ethereum, and Bitcoin
+        // (docs/product-specs/wallet-asset-sorting.md); testnet uses its equivalents.
+        let mainnet_defaults = ["BTC", "ETH", "VRSC", "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd"];
+        let testnet_defaults = ["BTCTEST", "GETH", "VRSCTEST"];
+
+        for (wallet_name, network, secret_kind, expected) in [
+            (
+                "Created mainnet",
+                WalletNetwork::Mainnet,
+                WalletSecretKind::SeedText,
+                &mainnet_defaults[..],
+            ),
+            (
+                "Imported mainnet",
+                WalletNetwork::Mainnet,
+                WalletSecretKind::Wif,
+                &mainnet_defaults[..],
+            ),
+            (
+                "Created testnet",
+                WalletNetwork::Testnet,
+                WalletSecretKind::SeedText,
+                &testnet_defaults[..],
+            ),
+            (
+                "Imported testnet",
+                WalletNetwork::Testnet,
+                WalletSecretKind::Wif,
+                &testnet_defaults[..],
+            ),
+        ] {
+            let crypto_network = if matches!(network, WalletNetwork::Testnet) {
+                Network::Testnet
+            } else {
+                Network::Mainnet
+            };
+            let wif = derive_keys_v1(wallet_name, crypto_network)
+                .expect("derive test WIF")
+                .wif
+                .clone();
+            let secret_material = match secret_kind {
+                WalletSecretKind::Wif => wif.as_str(),
+                _ => seed,
+            };
+            let wallet = persist_new_account(
+                NewAccountPersistenceRequest {
+                    wallet_name,
+                    password: "password-one",
+                    network,
+                    emoji: "\u{1F4B0}",
+                    color: "blue",
+                    secret_kind,
+                    secret_material,
+                    initial_dlight_secret: None,
+                },
+                &wallet_manager,
+                &account_state_store,
+                &session_manager,
+            )
+            .await
+            .expect("persist wallet");
+            let profile =
+                derive_public_profile_from_material(secret_material, secret_kind, crypto_network)
+                    .expect("public profile");
+            session_manager.lock().await.unlock_with_profile(
+                wallet.wallet_id.clone(),
+                network,
+                secret_kind,
+                profile,
+                Zeroizing::new(vec![7u8; 32]),
+            );
+
+            // The first read saves the defaults, so let each command read first
+            // on one network: active assets for created, preferences for imported.
+            let preferences_first = matches!(secret_kind, WalletSecretKind::Wif);
+            let mut preferences = None;
+            if preferences_first {
+                preferences = Some(
+                    load_asset_preferences_state(
+                        &session_manager,
+                        &account_state_store,
+                        &coin_registry,
+                    )
+                    .await
+                    .expect("asset preferences"),
+                );
+            }
+            let active_assets =
+                load_active_assets_state(&session_manager, &account_state_store, &coin_registry)
+                    .await
+                    .expect("active assets");
+            let preferences = match preferences {
+                Some(preferences) => preferences,
+                None => load_asset_preferences_state(
+                    &session_manager,
+                    &account_state_store,
+                    &coin_registry,
+                )
+                .await
+                .expect("asset preferences"),
+            };
+
+            let mut coin_ids = active_assets.coin_ids.clone();
+            coin_ids.sort();
+            assert_eq!(coin_ids, expected, "{wallet_name} active assets");
+            assert!(active_assets.initialized, "{wallet_name} initialized");
+            let mut portfolio_coin_ids = preferences.portfolio_coin_ids.clone();
+            portfolio_coin_ids.sort();
+            assert_eq!(portfolio_coin_ids, expected, "{wallet_name} portfolio");
+            assert!(preferences.hidden_asset_keys.is_empty());
+
+            // An explicit empty choice is the owner's, not a request for defaults.
+            account_state_store
+                .store_asset_preferences(
+                    &wallet.wallet_id,
+                    network,
+                    ACTIVE_ASSETS_PROFILE_VERSION,
+                    &[],
+                    &[],
+                )
+                .expect("store empty choice");
+            assert!(
+                load_active_assets_state(&session_manager, &account_state_store, &coin_registry)
+                    .await
+                    .expect("active assets after choice")
+                    .coin_ids
+                    .is_empty(),
+                "{wallet_name} keeps an empty choice"
+            );
+            assert!(load_asset_preferences_state(
+                &session_manager,
+                &account_state_store,
+                &coin_registry,
+            )
+            .await
+            .expect("asset preferences after choice")
+            .portfolio_coin_ids
+            .is_empty());
+        }
 
         let _ = std::fs::remove_dir_all(stronghold_dir);
         let _ = std::fs::remove_dir_all(wallet_data_dir);

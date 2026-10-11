@@ -21,7 +21,10 @@ overview, its fiat total, and background update-engine work. It does not control
 which configured holding networks can be checked by an explicit discovery.
 Preference reads include the current unlock-session ID, and writes must present
 that same ID so a result from a replaced wallet session cannot mutate the new
-session.
+session. A created or imported wallet has no saved choice. Its first read saves
+the network defaults: VRSC, USDC on Verus, ETH, and BTC on mainnet; VRSCTEST,
+GETH, and BTCTEST on testnet. A saved choice, including an empty one, stays
+unchanged.
 
 On demand, discovery checks the owned scopes only: the primary transparent
 address and linked identity addresses, against the configured VRPC holding
