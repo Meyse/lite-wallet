@@ -261,6 +261,11 @@ describe('request flow approval', () => {
     await settle();
 
     await press('Continue'); // Sign in, with the only eligible VerusID chosen
+    // The finished Sign in step names the VerusID that answers, once.
+    const signInStep = [...document.querySelectorAll('ol li')].find((item) =>
+      item.textContent?.includes('Sign in')
+    );
+    expect(signInStep?.textContent).toContain('as player7@');
     await press('Continue'); // Update identity: content only, no acknowledgement
     expect(document.body.textContent).toContain('Choose a source');
     // Nothing is preselected, so Continue waits for a choice.

@@ -15,6 +15,7 @@
     type ApprovalStageId,
     approvalStages,
     DETAIL_IMPACT,
+    expiresSoon,
     planRequestFlow,
     type RequestStepId,
     timeLeft,
@@ -247,6 +248,7 @@
   const expiresAt = $derived(authDetail?.expiryTime ?? invoiceModule?.expiresAt() ?? null);
   const expiry = $derived(expiresAt ? timeLeft(expiresAt, nowSeconds) : null);
   const expired = $derived(expiry?.kind === 'expired');
+  const expiryUrgent = $derived(!!expiresAt && expiresSoon(expiresAt, nowSeconds));
   const timeLeftLabel = $derived(formatTimeLeft());
   const failedStage = $derived.by(() => {
     void runTick;
@@ -510,6 +512,7 @@
         requesterIdentityDetails && sameChain ? toContactIdentity(requesterIdentityDetails) : null,
       identityLabel,
       signed: !!session?.signer.isSigned,
+      giftCard: !!session?.details.some((detail) => detail.type === 'giftCard'),
     };
   }
 
@@ -815,7 +818,7 @@
     }
   }
 
-  function stepLabel(step: RequestStepId | 'done'): string {
+  function stepLabel(step: RequestStepId): string {
     return i18n.t(`genericRequest.flow.step.${step}`);
   }
 
@@ -832,21 +835,38 @@
       case 'networkFee':
         return i18n.t('genericRequest.flow.title.networkFee');
       default:
-        return (session?.responseUris.length && respondsWithDetails) || newIdentity
-          ? i18n.t('genericRequest.flow.title.confirm')
-          : i18n.t('genericRequest.flow.title.confirmNoDelivery');
+        return i18n.t('genericRequest.flow.title.confirm');
     }
   }
 
+  // The step where the user picks the VerusID that answers: Sign in, or the
+  // step that shows the picker itself when the request has no sign-in.
+  const responderStep = $derived<RequestStepId | null>(
+    plan?.steps.find(
+      (id) =>
+        id === 'signIn' ||
+        id === 'encryptionKey' ||
+        (!authDetail && (id === 'signData' || id === 'shareData'))
+    ) ?? null
+  );
+
   const railSteps = $derived<RailStep[]>(
     plan
-      ? [...plan.steps, 'done' as const].map((id, index) => {
-          // The rail reaches Done only when the stages have run; a decline stays put.
+      ? plan.steps.map((id, index) => {
+          // Done is a result, not a step: after the stages run every step is
+          // finished, and a decline leaves the rail where it was.
           const current = phase === 'done' || phase === 'failed' ? plan.steps.length : stepIndex;
+          const status = index < current ? 'done' : index === current ? 'current' : 'upcoming';
           return {
             id,
             label: stepLabel(id),
-            status: index < current ? 'done' : index === current ? 'current' : 'upcoming',
+            detail:
+              status === 'done' && id === responderStep && responder && !newIdentity
+                ? i18n.t('genericRequest.flow.respondsAs', {
+                    identity: formatIdentityDisplayName(responder),
+                  })
+                : undefined,
+            status,
           };
         })
       : []
@@ -955,15 +975,9 @@
   function changeSummary(): string {
     if (!updateReview) return '';
     const total = updateReview.contentCount + updateReview.highRiskCount;
-    const changes = i18n.t(`genericRequest.flow.plan.changes.${total === 1 ? 'one' : 'other'}`, {
+    return i18n.t(`genericRequest.flow.plan.changes.${total === 1 ? 'one' : 'other'}`, {
       count: total,
     });
-    return updateReview.highRiskCount > 0
-      ? i18n.t('genericRequest.flow.plan.withHighRisk', {
-          changes,
-          count: updateReview.highRiskCount,
-        })
-      : changes;
   }
 
   const planLines = $derived<PlanLine[]>(
@@ -1008,6 +1022,7 @@
                 text: i18n.t('genericRequest.flow.plan.update', { identity: targetName }),
                 detail: changeSummary(),
                 impact: DETAIL_IMPACT.identityUpdate,
+                highRisk: (updateReview?.highRiskCount ?? 0) > 0,
               },
             ];
           }
@@ -1016,7 +1031,13 @@
       : []
   );
 
-  function buildDeliveryLine(): { text: string; sends: boolean } {
+  /**
+   * Where the response goes, when the screen does not already say it. A POST to
+   * the requester's own address needs no line: the rail or the header names
+   * that site. No response, a new browser page, and a request that goes to the
+   * issuer instead of the site do get a line.
+   */
+  function buildDeliveryLine(): { text: string; sends: boolean } | null {
     if (!respondsWithDetails && !newIdentity)
       return { text: i18n.t('genericRequest.flow.delivery.none'), sends: false };
     if (newIdentity)
@@ -1026,8 +1047,7 @@
         }),
         sends: true,
       };
-    if (postUri)
-      return { text: i18n.t('genericRequest.flow.delivery.post', { app: appLabel }), sends: true };
+    if (postUri) return null;
     if (redirectUri)
       return {
         text: i18n.t('genericRequest.flow.delivery.redirect', { app: appLabel }),
@@ -1340,24 +1360,16 @@
     return rows;
   });
 
-  const signInFacts = $derived.by<RequestFact[]>(() => {
-    const rows: RequestFact[] = [
-      { label: i18n.t('genericRequest.flow.signIn.site'), value: appLabel },
-      {
-        label: i18n.t('genericRequest.flow.signIn.learns'),
-        value: i18n.t('genericRequest.flow.signIn.learnsValue'),
-      },
-    ];
-    rows.push(
-      authDetail && authDetail.constraints.length > 0
-        ? { label: i18n.t('genericRequest.flow.signIn.requirements'), content: requirementsValue }
-        : {
-            label: i18n.t('genericRequest.flow.signIn.requirements'),
-            value: i18n.t('genericRequest.flow.signIn.requirementsNone'),
-          }
-    );
-    return rows;
-  });
+  // A required system that is the open wallet's own network limits nothing: the
+  // wallet refuses a request for another network before this screen.
+  const signInConstraints = $derived(
+    (authDetail?.constraints ?? []).filter(
+      (constraint) =>
+        constraint.type !== AUTH_REQUIRED_SYSTEM ||
+        constraint.identity.toLowerCase() !==
+          (session?.testnet ? TESTNET_SYSTEM_ID : MAINNET_SYSTEM_ID).toLowerCase()
+    )
+  );
 
   const newIdentityFacts = $derived<RequestFact[]>([
     { label: i18n.t('genericRequest.flow.newIdentity.name'), value: requestedFqn },
@@ -1399,7 +1411,7 @@
 
 {#snippet requirementsValue()}
   <span class="flex flex-col items-end gap-1 font-normal">
-    {#each authDetail?.constraints ?? [] as constraint (`${constraint.type}:${constraint.identity}`)}
+    {#each signInConstraints as constraint (`${constraint.type}:${constraint.identity}`)}
       <span class="inline-flex items-center gap-1.5">
         <span class="text-muted-foreground">{constraintLabel(constraint.type)}</span>
         {#if constraint.type === AUTH_REQUIRED_SYSTEM}
@@ -1445,7 +1457,16 @@
     {:else}
       {@render responderPicker()}
     {/if}
-    <RequestFacts rows={signInFacts} />
+    <p class="text-[13px] text-muted-foreground">
+      {i18n.t('genericRequest.flow.signIn.learns')}
+    </p>
+    {#if signInConstraints.length > 0}
+      <RequestFacts
+        rows={[
+          { label: i18n.t('genericRequest.flow.signIn.requirements'), content: requirementsValue },
+        ]}
+      />
+    {/if}
   {:else if step === 'newIdentity'}
     {#if choosesName}
       <div class="flex flex-col gap-1.5">
@@ -1619,7 +1640,7 @@
 
 {#if isOpen && session && plan}
   <RequestFrame
-    topLabel={i18n.t('genericRequest.flow.requestFrom', { app: appLabel })}
+    label={i18n.t('genericRequest.flow.requestFrom', { app: appLabel })}
     onClose={closeFlow}
     closeDisabled={phase === 'working'}
     rail={plan.layout === 'rail' ? railSnippet : undefined}
@@ -1641,7 +1662,7 @@
             requester={requesterView}
             title={stepTitle(currentStep)}
             {timeLeftLabel}
-            {expired}
+            urgent={expiryUrgent}
           />
         {:else}
           <h1
@@ -1652,7 +1673,7 @@
         {/if}
         {@render errorBox()}
         {@render stepBody(currentStep)}
-        {#if plan.layout === 'single'}
+        {#if plan.layout === 'single' && deliveryView}
           <DeliveryLine text={deliveryView.text} sends={deliveryView.sends} />
         {/if}
       </fieldset>
@@ -1673,11 +1694,8 @@
 {#snippet railSnippet()}
   <RequestRail
     requester={requesterView}
-    responder={responder && phase !== 'declined' && (stepIndex > 0 || phase !== 'review')
-      ? { name: formatIdentityDisplayName(responder), identity: toContactIdentity(responder) }
-      : null}
     steps={railSteps}
-    {timeLeftLabel}
-    {expired}
+    timeLeftLabel={phase === 'review' || phase === 'working' ? timeLeftLabel : ''}
+    urgent={expiryUrgent}
   />
 {/snippet}

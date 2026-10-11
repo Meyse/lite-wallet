@@ -18,7 +18,6 @@ const SAME_AS_ENGLISH: Record<keyof typeof translations, string[]> = {
     'genericRequest.flow.encryptionKey.app',
     'genericRequest.flow.signData.bytes',
     'genericRequest.flow.signData.size',
-    'genericRequest.flow.signIn.site',
   ],
   de: [
     'genericRequest.flow.feeValue',

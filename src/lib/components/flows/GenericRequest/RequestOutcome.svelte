@@ -2,7 +2,6 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import CircleIcon from '@lucide/svelte/icons/circle';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
-  import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
   import ClockIcon from '@lucide/svelte/icons/clock';
   import XIcon from '@lucide/svelte/icons/x';
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
@@ -86,7 +85,8 @@
             class={`flex items-center gap-2 ${stage.status === 'pending' ? 'text-muted-foreground' : 'text-foreground'}`}
           >
             {#if stage.status === 'done'}
-              <CircleCheckIcon class="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <!-- The header already shows success; a finished stage stays quiet. -->
+              <CheckIcon class="size-4 shrink-0 text-muted-foreground" />
             {:else if stage.status === 'failed'}
               <CircleAlertIcon class="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
             {:else if stage.status === 'running'}

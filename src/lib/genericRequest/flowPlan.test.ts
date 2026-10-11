@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApprovalRun, approvalStages, planRequestFlow, timeLeft } from './flowPlan';
+import { ApprovalRun, approvalStages, expiresSoon, planRequestFlow, timeLeft } from './flowPlan';
 import type { SupportedGenericRequestDetail } from './session';
 
 const detail = (type: SupportedGenericRequestDetail['type']) =>
@@ -127,5 +127,13 @@ describe('timeLeft', () => {
     expect(timeLeft(1_000 + 61, 1_000)).toEqual({ kind: 'minutes', minutes: 2 });
     expect(timeLeft(1_000 + 2 * 3600, 1_000)).toEqual({ kind: 'hours', hours: 2 });
     expect(timeLeft(1_000, 1_000)).toEqual({ kind: 'expired' });
+  });
+});
+
+describe('expiresSoon', () => {
+  it('warns under ten minutes and after expiry', () => {
+    expect(expiresSoon(1_000 + 10 * 60, 1_000)).toBe(false);
+    expect(expiresSoon(1_000 + 10 * 60 - 1, 1_000)).toBe(true);
+    expect(expiresSoon(1_000, 1_000 + 5)).toBe(true);
   });
 });

@@ -172,3 +172,10 @@ export function timeLeft(expiresAtSeconds: number, nowSeconds: number): TimeLeft
   if (minutes < 90) return { kind: 'minutes', minutes };
   return { kind: 'hours', hours: Math.round(minutes / 60) };
 }
+
+/** The time left stays quiet until less than ten minutes remain (spec "Requester header"). */
+const EXPIRY_WARNING_SECONDS = 10 * 60;
+
+export function expiresSoon(expiresAtSeconds: number, nowSeconds: number): boolean {
+  return expiresAtSeconds - nowSeconds < EXPIRY_WARNING_SECONDS;
+}

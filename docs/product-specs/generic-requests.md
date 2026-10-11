@@ -16,7 +16,10 @@ last_reviewed: 2026-10-11
   (parsing boundary), [ADR 0003](../adr/0003-mobile-parity-scope.md) (parity
   scope).
 - Design exploration: variation B, "Guided flow", of the
-  [design review page](https://claude.ai/artifact/6HjeGM5qEkBXnYdBidPVXt).
+  [design review page](https://claude.ai/artifact/6HjeGM5qEkBXnYdBidPVXt). The
+  shell (requester, rail, Confirm, Done) follows variation A, "Calm rail", of
+  the
+  [shell variations canvas](https://claude.ai/artifact/6J64SoTj18C6urGVdA5fgZ).
 
 ## Goal
 
@@ -94,37 +97,48 @@ identity view and it shares no context, as on mobile.
 
 ## Flow
 
-The request takes over the window. The top bar shows "Request from" and the
-response address, plus a close button. Close declines the request.
+The request takes over the window. The top bar holds only the close button.
+Close declines the request. The requester is named once, in the rail or in the
+single-screen header.
 
 ### Layout
 
 - **Single screen:** a request with one detail whose impact is "Signs as you".
-  It shows the requester header, the responder, the detail, the delivery line,
-  Decline, and the primary action.
-- **Rail:** every other request. The rail shows the requester header, the
-  responder once chosen, one step per detail, Confirm, Done, and the time left.
-  The main column is at most 560px wide. The footer has Back or Decline on the
-  left and Continue on the right.
+  It shows the requester header, the responder, the detail, the delivery line
+  when it adds something (see "Confirm and Approval"), Decline, and the primary
+  action.
+- **Rail:** every other request. The rail runs from the top of the window, like
+  the wallet sidebar. It shows the requester, one step per detail, Confirm, and
+  the time left. A finished step shows what was chosen in it, such as the
+  VerusID that answers. Done is a result, not a step. The main column is at most
+  560px wide. The footer has Back or Decline on the left and Continue on the
+  right.
 
 ### Requester header
 
-- The requester shows as an identity mention with its profile preview.
-- "Signed by" names the requester after the signature check. An unsigned invoice
-  shows "Not signed".
+- The signing VerusID shows with its own avatar and its name, as a mention with
+  its profile preview. A quiet check after the name says the signature was
+  checked. In the rail, the site it answers to shows below the name.
+- A request that is not signed shows "Not signed" in amber. A gift card has no
+  requester, so the rail shows none.
+- **Colour:** a normal state gets no colour. Not signed, an expiry under 10
+  minutes, and a high-risk change are amber. Blue is only for the main action.
 - When the request names a delegated app identity, the header names both.
 - When the request opens, the wallet runs the existing website-connection check
   against the response address. "Connected to" shows only after it succeeds.
   While it runs, or when it fails, nothing shows and nothing blocks.
-- **Expiry:** one format. Time-based: "9 min left". Block-based: "about 2 hours
-  left".
+- **Expiry:** one format, in one place: the single-screen header or the foot of
+  the rail. Time-based: "9 min left". Block-based: "about 2 hours left". It
+  turns amber under 10 minutes and is hidden after Approval finishes.
 
 ### Steps per detail
 
 - **Sign in:**
   - The responder picker lists only VerusIDs in the open wallet that meet the
     request's rules (required ID, system, parent).
-  - The step lists what the website learns and the requirements.
+  - The step says what the website learns. It lists requirements only when they
+    limit the choice: a required system that is the open wallet's network is not
+    listed, because the wallet refuses other networks earlier.
   - The picker always offers Link VerusID. It also offers New VerusID when the
     request offers one, next to the linked VerusIDs, as on mobile.
 - **New VerusID:** shows the name, the issuer, and the network. An offered
@@ -197,8 +211,12 @@ response address, plus a close button. Close declines the request.
 
 ### Confirm and Approval
 
-- Confirm lists one line per detail, each with its impact, plus the delivery
-  line.
+- Confirm lists one line per detail. Only a line with a high-risk change is
+  marked, with an amber "High risk".
+- The delivery line shows only when it adds something: no response is sent, the
+  site opens in the browser, or the request goes to the issuer of a new VerusID.
+  A POST to the requester's own address needs no line, because the rail or the
+  header already names that site.
 - The primary action names the result, for example "Sign in and update".
 - Approval needs no password, as with Send.
 
@@ -211,7 +229,8 @@ response address, plus a close button. Close declines the request.
 - A failed stage shows its own state and retries alone. The wallet never
   broadcasts twice for one open request.
 - Auto-lock pauses while the stages run.
-- Done lists what was signed, broadcast, and delivered as separate lines.
+- Done lists what was signed, broadcast, and delivered as separate lines. A
+  finished stage is quiet; a failed stage is amber.
 - **Failed delivery:** "Signed, not delivered", with Try again and Copy
   response, and "Open site instead" when a redirect address exists.
 - **Decline:** "Nothing was signed or sent."

@@ -19,21 +19,25 @@ export type RequesterView = {
   /** The signing VerusID as text, for when no profile is available. */
   identityLabel: string;
   signed: boolean;
+  /** A gift card has no requester, so no requester is shown. */
+  giftCard: boolean;
 };
 
-/** One line on Confirm: what a detail does, with its impact. */
+/** One line on Confirm: what a detail does. Only a high-risk line is marked. */
 export type PlanLine = {
   id: string;
   icon: RequestStepId;
   text: string;
   detail?: string;
   impact: RequestImpact;
+  highRisk?: boolean;
 };
 
-/** One step in the rail. */
+/** One step in the rail. A finished step can show what was chosen in it. */
 export type RailStep = {
-  id: RequestStepId | 'done';
+  id: RequestStepId;
   label: string;
+  detail?: string;
   status: 'done' | 'current' | 'upcoming';
 };
 

@@ -20,7 +20,13 @@
   import PublicProfile from './PublicProfile.svelte';
   import { getContactNavigation } from '$lib/contacts/navigation';
 
-  let { identity, iconOnly = false }: { identity: ContactIdentity; iconOnly?: boolean } = $props();
+  // `nameOnly` keeps the preview but shows just the name in the caller's type
+  // style, for a place that already shows the identity's avatar.
+  let {
+    identity,
+    iconOnly = false,
+    nameOnly = false,
+  }: { identity: ContactIdentity; iconOnly?: boolean; nameOnly?: boolean } = $props();
   const instance = $props.id();
   const openContact = getContactNavigation();
   const i18n = $derived($i18nStore);
@@ -152,9 +158,11 @@
     openOnHover
     openDelay={0}
     closeDelay={200}
-    class="inline-flex max-w-full cursor-default items-center gap-2 rounded-sm text-[13px] leading-5 outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-offset-2 {saved
-      ? 'text-text-action hover:text-text-action data-[state=open]:text-text-action'
-      : 'text-settings-muted-foreground hover:text-foreground data-[state=open]:text-foreground'}"
+    class="inline-flex max-w-full cursor-default items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-settings-focus-ring focus-visible:ring-offset-2 {nameOnly
+      ? 'min-w-0'
+      : saved
+        ? 'text-[13px] leading-5 text-text-action hover:text-text-action data-[state=open]:text-text-action'
+        : 'text-[13px] leading-5 text-settings-muted-foreground hover:text-foreground data-[state=open]:text-foreground'}"
     aria-label={i18n.t(saved ? 'wallet.contacts.mentionSaved' : 'wallet.contacts.mentionUnsaved', {
       name: identity.fullyQualifiedName,
     })}
@@ -191,6 +199,11 @@
   >
     {#if iconOnly}<span class="inline-flex size-8 items-center justify-center"
         ><InfoIcon class="size-4" aria-hidden="true" /></span
+      >
+    {:else if nameOnly}
+      <span
+        class="min-w-0 truncate underline decoration-current/30 decoration-dotted underline-offset-[5px]"
+        >{identity.fullyQualifiedName}</span
       >
     {:else}
       <span class="inline-flex size-[22px] shrink-0 items-center justify-center">

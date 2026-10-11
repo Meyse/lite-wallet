@@ -5,18 +5,21 @@
   import { i18nStore } from '$lib/i18n';
 
   /**
-   * The window a request takes over: a top bar, an optional step rail, one main
-   * column of at most 560px, and a footer with the step actions.
+   * The window a request takes over: an optional step rail from the top of the
+   * window, like the wallet sidebar, and one main column of at most 560px with
+   * Close above it and the step actions below. The requester is named in the
+   * rail or the header, so the top bar holds no text; `label` names the region
+   * for assistive technology.
    */
   let {
-    topLabel,
+    label,
     onClose,
     closeDisabled = false,
     rail,
     children,
     footer,
   }: {
-    topLabel: string;
+    label: string;
     onClose: () => void;
     closeDisabled?: boolean;
     rail?: Snippet;
@@ -39,49 +42,51 @@
   });
 </script>
 
-<section class="absolute inset-0 z-50 flex flex-col bg-background dark:bg-app-canvas">
-  <header
-    class="relative flex h-[52px] shrink-0 items-center gap-2.5 border-b border-border/70 pr-3.5 pl-[88px] text-[13px] text-muted-foreground"
-  >
-    <div class="absolute inset-0" data-tauri-drag-region aria-hidden="true"></div>
-    <span class="relative min-w-0 flex-1 truncate">{topLabel}</span>
-    <button
-      type="button"
-      class="relative inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:opacity-50"
-      onclick={onClose}
-      disabled={closeDisabled}
-      aria-label={i18n.t('genericRequest.flow.close')}
+<section class="absolute inset-0 z-50 flex bg-background dark:bg-app-canvas" aria-label={label}>
+  {#if rail}
+    <aside
+      class="relative flex w-60 shrink-0 flex-col gap-6 overflow-y-auto border-r border-sidebar-divider bg-sidebar-surface px-3 pt-16 pb-4"
     >
-      <XIcon class="size-4" />
-    </button>
-  </header>
+      <div
+        class="absolute inset-x-0 top-0 h-[52px]"
+        data-tauri-drag-region
+        aria-hidden="true"
+      ></div>
+      {@render rail()}
+    </aside>
+  {/if}
 
-  <div class="flex min-h-0 flex-1">
-    {#if rail}
-      <aside
-        class="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-sidebar-divider bg-sidebar-surface px-3.5 pt-[22px] pb-4"
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header
+      class={`relative flex h-[52px] shrink-0 items-center justify-end pr-3.5 ${rail ? 'pl-3.5' : 'pl-[88px]'}`}
+    >
+      <div class="absolute inset-0" data-tauri-drag-region aria-hidden="true"></div>
+      <button
+        type="button"
+        class="relative inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:opacity-50"
+        onclick={onClose}
+        disabled={closeDisabled}
+        aria-label={i18n.t('genericRequest.flow.close')}
       >
-        {@render rail()}
-      </aside>
-    {/if}
+        <XIcon class="size-4" />
+      </button>
+    </header>
 
-    <div class="flex min-w-0 flex-1 flex-col">
-      <ScrollArea.Root class="min-h-0 flex-1">
-        <ScrollArea.Viewport class="h-full">
-          <div class="px-7 py-8">
-            <div class="mx-auto flex w-full max-w-[560px] flex-col gap-5">
-              {@render children()}
-            </div>
+    <ScrollArea.Root class="min-h-0 flex-1">
+      <ScrollArea.Viewport class="h-full">
+        <div class="px-7 pt-4 pb-8">
+          <div class="mx-auto flex w-full max-w-[560px] flex-col gap-5">
+            {@render children()}
           </div>
-        </ScrollArea.Viewport>
-        <ScrollArea.Scrollbar orientation="vertical" />
-      </ScrollArea.Root>
+        </div>
+      </ScrollArea.Viewport>
+      <ScrollArea.Scrollbar orientation="vertical" />
+    </ScrollArea.Root>
 
-      <footer
-        class="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 px-6 py-3"
-      >
-        {@render footer()}
-      </footer>
-    </div>
+    <footer
+      class="flex shrink-0 items-center justify-between gap-3 border-t border-border/70 px-6 py-3"
+    >
+      {@render footer()}
+    </footer>
   </div>
 </section>
