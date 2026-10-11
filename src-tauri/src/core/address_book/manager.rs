@@ -472,9 +472,17 @@ pub fn normalize_destination_address(
                 if name.is_empty() {
                     return Err(WalletError::InvalidAddress);
                 }
-                let valid = name
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'));
+                // VerusID names can contain internal spaces and Unicode. Keep
+                // dots for qualified names, and leave existence to getidentity.
+                let valid = !name.contains("  ")
+                    && name.split('.').all(|part| part.trim() == part)
+                    && name.chars().all(|ch| {
+                        !ch.is_control()
+                            && !matches!(
+                                ch,
+                                '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '@'
+                            )
+                    });
                 if !valid {
                     return Err(WalletError::InvalidAddress);
                 }
@@ -676,6 +684,49 @@ mod tests {
         )
         .expect("valid eth");
         assert_eq!(normalized, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+    }
+
+    #[test]
+    fn normalize_vrpc_identity_name_accepts_internal_spaces_and_unicode() {
+        for (input, expected) in [
+            ("Verus Coin Foundation@", "verus coin foundation@"),
+            (" Verus Coin Foundation@ ", "verus coin foundation@"),
+            ("Lüçkÿ Jöë@", "lüçkÿ jöë@"),
+            ("幸运 八八八@", "幸运 八八八@"),
+            ("Alice.Example@", "alice.example@"),
+        ] {
+            let normalized = normalize_destination_address(
+                AddressEndpointKind::Vrpc,
+                input,
+                WalletNetwork::Mainnet,
+            )
+            .expect("valid VerusID name");
+            assert_eq!(normalized, expected);
+        }
+    }
+
+    #[test]
+    fn normalize_vrpc_identity_name_rejects_invalid_spacing_and_reserved_characters() {
+        for input in [
+            "@",
+            "Verus @",
+            "Verus  Coin@",
+            "Verus .Example@",
+            "Verus. Example@",
+            "Verus\u{a0}@",
+            "Verus.\u{a0}Example@",
+            "Verus/ID@",
+            "Verus\nID@",
+        ] {
+            assert!(matches!(
+                normalize_destination_address(
+                    AddressEndpointKind::Vrpc,
+                    input,
+                    WalletNetwork::Mainnet,
+                ),
+                Err(WalletError::InvalidAddress)
+            ));
+        }
     }
 
     #[test]
