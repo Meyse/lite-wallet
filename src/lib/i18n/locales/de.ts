@@ -113,8 +113,6 @@ export const de: Record<string, string> = {
   'genericRequest.error.updatePreflight':
     'Diese Identitätsänderung konnte nicht vorbereitet werden.',
   'genericRequest.error.complete': 'Diese Anfrage konnte nicht abgeschlossen werden.',
-  'genericRequest.summary.provisioningRequested':
-    'Mit dieser Anfrage kannst du eine neue VerusID erhalten.',
   'genericRequest.auth.requiredId': 'Erforderliche VerusID',
   'genericRequest.auth.requiredSystem': 'Erforderliches System',
   'genericRequest.auth.requiredParent': 'Erforderliche übergeordnete ID',
@@ -501,6 +499,7 @@ export const de: Record<string, string> = {
     'Der Name konnte nicht geprüft werden. Versuche es erneut.',
   'genericRequest.flow.newIdentity.nameAvailable': 'Dieser Name ist frei.',
   'genericRequest.flow.newIdentity.chosen': 'Eine neue VerusID, {name}, beantwortet diese Anfrage.',
+  'genericRequest.flow.newIdentity.chosenUnnamed': 'Eine neue VerusID beantwortet diese Anfrage.',
   'genericRequest.flow.newIdentity.name': 'Neue VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Ausgestellt von',
   'genericRequest.flow.newIdentity.network': 'Netzwerk',

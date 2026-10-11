@@ -238,6 +238,7 @@ export const nl: Record<string, string> = {
     'De naam kon niet worden gecontroleerd. Probeer het opnieuw.',
   'genericRequest.flow.newIdentity.nameAvailable': 'Deze naam is vrij.',
   'genericRequest.flow.newIdentity.chosen': 'Een nieuwe VerusID, {name}, beantwoordt dit verzoek.',
+  'genericRequest.flow.newIdentity.chosenUnnamed': 'Een nieuwe VerusID beantwoordt dit verzoek.',
   'genericRequest.flow.newIdentity.name': 'Nieuwe VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Uitgegeven door',
   'genericRequest.flow.newIdentity.network': 'Netwerk',
@@ -530,8 +531,6 @@ export const nl: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'Er is geen betaalbron beschikbaar voor dit verzoek.',
   'genericRequest.error.updatePreflight': 'Deze identiteitsupdate kon niet worden voorbereid.',
   'genericRequest.error.complete': 'Dit verzoek kon niet worden afgerond.',
-  'genericRequest.summary.provisioningRequested':
-    'Met dit verzoek kun je een nieuwe VerusID krijgen.',
   'genericRequest.auth.requiredId': 'Vereiste VerusID',
   'genericRequest.auth.requiredSystem': 'Vereist systeem',
   'genericRequest.auth.requiredParent': 'Vereiste bovenliggende ID',

@@ -233,6 +233,7 @@ export const en: Record<string, string> = {
   'genericRequest.flow.newIdentity.nameCheckFailed': 'The name could not be checked. Try again.',
   'genericRequest.flow.newIdentity.nameAvailable': 'This name is free.',
   'genericRequest.flow.newIdentity.chosen': 'A new VerusID, {name}, answers this request.',
+  'genericRequest.flow.newIdentity.chosenUnnamed': 'A new VerusID answers this request.',
   'genericRequest.flow.newIdentity.name': 'New VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Issued by',
   'genericRequest.flow.newIdentity.network': 'Network',
@@ -511,8 +512,6 @@ export const en: Record<string, string> = {
   'genericRequest.error.noSourceChannel': 'No funding source is available for this request.',
   'genericRequest.error.updatePreflight': 'Could not prepare this identity update.',
   'genericRequest.error.complete': 'Could not finish this request.',
-  'genericRequest.summary.provisioningRequested':
-    'A new VerusID can be provisioned from this request.',
   'genericRequest.auth.requiredId': 'Required VerusID',
   'genericRequest.auth.requiredSystem': 'Required system',
   'genericRequest.auth.requiredParent': 'Required parent',

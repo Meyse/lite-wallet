@@ -141,10 +141,10 @@ single-screen header.
     listed, because the wallet refuses other networks earlier.
   - The picker always offers Link VerusID. It also offers New VerusID when the
     request offers one, next to the linked VerusIDs, as on mobile.
-- **New VerusID:** shows the name, the issuer, and the network. An offered
-  VerusID or name that exists on chain fixes the name to that VerusID's name.
-  Otherwise the user types a name under the request's parent; the wallet checks
-  it and accepts only a free one. This is mobile's rule
+- **New VerusID:** shows the name once it is known, the issuer, and the network.
+  An offered VerusID or name that exists on chain fixes the name to that
+  VerusID's name. Otherwise the user types a name under the request's parent;
+  the wallet checks it and accepts only a free one. This is mobile's rule
   (`ProvisionIdentityForm.js`). After Approval the wallet signs the provisioning
   request with its address key (a bare recoverable signature over the challenge
   hash, as `signVerusIdProvisioningRequest` makes it), sends it to the request's

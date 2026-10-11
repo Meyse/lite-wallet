@@ -241,10 +241,9 @@
   const chosenFqn = $derived(
     choosesName && chosenNameValid && parentFqn ? `${chosenName}.${parentFqn}` : null
   );
-  const requestedFqn = $derived(
-    formatIdentityFullyQualifiedName(offeredFqn ?? chosenFqn) ||
-      i18n.t('genericRequest.summary.provisioningRequested')
-  );
+  // Empty until the name is known: offered and found on chain, or chosen and
+  // valid. Copy that names the new VerusID waits for it.
+  const requestedFqn = $derived(formatIdentityFullyQualifiedName(offeredFqn ?? chosenFqn) || '');
   const expiresAt = $derived(authDetail?.expiryTime ?? invoiceModule?.expiresAt() ?? null);
   const expiry = $derived(expiresAt ? timeLeft(expiresAt, nowSeconds) : null);
   const expired = $derived(expiry?.kind === 'expired');
@@ -1372,7 +1371,9 @@
   );
 
   const newIdentityFacts = $derived<RequestFact[]>([
-    { label: i18n.t('genericRequest.flow.newIdentity.name'), value: requestedFqn },
+    ...(requestedFqn
+      ? [{ label: i18n.t('genericRequest.flow.newIdentity.name'), value: requestedFqn }]
+      : []),
     { label: i18n.t('genericRequest.flow.newIdentity.issuer'), value: requesterView.identityLabel },
     {
       label: i18n.t('genericRequest.flow.newIdentity.network'),
@@ -1452,7 +1453,9 @@
   {#if step === 'signIn'}
     {#if newIdentity}
       <p class="text-[13.5px] text-foreground/80">
-        {i18n.t('genericRequest.flow.newIdentity.chosen', { name: requestedFqn })}
+        {requestedFqn
+          ? i18n.t('genericRequest.flow.newIdentity.chosen', { name: requestedFqn })
+          : i18n.t('genericRequest.flow.newIdentity.chosenUnnamed')}
       </p>
     {:else}
       {@render responderPicker()}

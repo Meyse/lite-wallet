@@ -10,6 +10,7 @@ import type {
   GiftCardDetailSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
+  ProvisionIdentityDetailSession,
   UserDataDetailSession,
 } from '$lib/genericRequest/session';
 import GenericRequestFlowHost from './GenericRequestFlowHost.svelte';
@@ -317,6 +318,33 @@ describe('request flow approval', () => {
       request_hex: '00',
       signer: { systemId: TESTNET, identityId: TARGET },
     });
+  });
+
+  it('names a new VerusID only when its name is known', async () => {
+    const provision: ProvisionIdentityDetailSession = {
+      index: 1,
+      type: 'provisionIdentity',
+      requestedFqn: null,
+      systemId: TESTNET,
+      parent: null,
+      webhook: 'https://lumen.example/provision',
+      requestId: null,
+      raw: null,
+    };
+    component = mount(GenericRequestFlowHost, {
+      target: document.body,
+      props: { isOpen: true, session: { ...session, details: [auth, provision] } },
+    });
+    await settle();
+    [...document.querySelectorAll('button')]
+      .find((element) => element.textContent?.includes('player7@'))
+      ?.click();
+    await settle();
+    await press('New VerusID');
+    expect(document.body.textContent).toContain('A new VerusID answers this request.');
+
+    await press('Continue'); // The name step, before a name is typed
+    expect(document.body.textContent).not.toContain('can be provisioned');
   });
 
   it('signs and sends nothing when the request is declined', async () => {

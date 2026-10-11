@@ -112,8 +112,6 @@ export const es: Record<string, string> = {
     'No hay ninguna fuente de pago disponible para esta solicitud.',
   'genericRequest.error.updatePreflight': 'No se pudo preparar esta actualización de identidad.',
   'genericRequest.error.complete': 'No se pudo completar esta solicitud.',
-  'genericRequest.summary.provisioningRequested':
-    'Con esta solicitud puedes obtener una nueva VerusID.',
   'genericRequest.auth.requiredId': 'VerusID requerida',
   'genericRequest.auth.requiredSystem': 'Sistema requerido',
   'genericRequest.auth.requiredParent': 'ID padre requerido',
@@ -498,6 +496,7 @@ export const es: Record<string, string> = {
     'No se pudo comprobar el nombre. Vuelve a intentarlo.',
   'genericRequest.flow.newIdentity.nameAvailable': 'Este nombre está libre.',
   'genericRequest.flow.newIdentity.chosen': 'Una nueva VerusID, {name}, responde a esta solicitud.',
+  'genericRequest.flow.newIdentity.chosenUnnamed': 'Una nueva VerusID responde a esta solicitud.',
   'genericRequest.flow.newIdentity.name': 'Nueva VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Emitida por',
   'genericRequest.flow.newIdentity.network': 'Red',
