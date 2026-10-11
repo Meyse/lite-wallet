@@ -143,12 +143,9 @@ pub async fn list_address_book_contacts(
 ) -> Result<Vec<AddressBookContact>, WalletError> {
     let perf = AddressBookPerf::new("list");
     let started = Instant::now();
-    let result = update(
-        context(session_manager.inner(), expected_session_id.as_deref()).await?,
-        perf,
-        |snapshot| Ok(manager::sorted_contacts(snapshot)),
-    )
-    .await;
+    let ctx = context(session_manager.inner(), expected_session_id.as_deref()).await?;
+    ctx.wait_for_overview_metadata_warmup().await;
+    let result = update(ctx, perf, |snapshot| Ok(manager::sorted_contacts(snapshot))).await;
     perf.mark("command_total", started);
     result
 }

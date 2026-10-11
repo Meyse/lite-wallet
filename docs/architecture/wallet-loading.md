@@ -23,16 +23,17 @@ Preference reads include the current unlock-session ID, and writes must present
 that same ID so a result from a replaced wallet session cannot mutate the new
 session.
 
-On demand, discovery checks the primary transparent address, linked identity
-addresses, and watched read-only addresses against the configured VRPC holding
-networks. A PBaaS currency keeps one portfolio identity across networks while
-retaining per-network balance provenance. Registered BTC, ETH, and ERC20 assets
-use their existing balance providers; discovery does not enumerate arbitrary
-ERC20 contracts. Provider and scope failures remain partial or unavailable
-instead of becoming zero, and retries can target only the incomplete VRPC
-systems. Shielded/private balances are not part of this discovery path, so an
-absent transparent holding must not be interpreted as proof of a zero private
-balance.
+On demand, discovery checks the owned scopes only: the primary transparent
+address and linked identity addresses, against the configured VRPC holding
+networks. Watched addresses stay on the Watchlist path and never enter
+discovery, coin scopes, owned balances, or the portfolio total. A PBaaS currency
+keeps one portfolio identity across networks while retaining per-network balance
+provenance. Registered BTC, ETH, and ERC20 assets use their existing balance
+providers; discovery does not enumerate arbitrary ERC20 contracts. Provider and
+scope failures remain partial or unavailable instead of becoming zero, and
+retries can target only the incomplete VRPC systems. Shielded/private balances
+are not part of this discovery path, so an absent transparent holding must not
+be interpreted as proof of a zero private balance.
 
 ## Readiness and background updates
 
@@ -119,6 +120,13 @@ cache is replaced on every unlock and discarded on lock, so account and network
 changes cannot reuse an earlier session's values. Identity mutations update the
 cached records only after Stronghold persistence succeeds.
 
+Right after a successful unlock, the backend starts both reads in the background
+so they are ready when the Overview asks for scopes. The Contacts and Watchlist
+list commands wait for this warm-up (at most five seconds) before they read
+their own files. Each Stronghold file read runs scrypt; in a release build one
+read takes about 1.1 s and needs 512 MiB, so this keeps the Overview's reads
+from competing with them for CPU and memory.
+
 Only non-secret records and derived public addresses are cached. Seeds and other
 signing material still load from Stronghold on demand and are not retained in
 the public metadata cache. Unlock keeps Argon2id password derivation, Stronghold
@@ -134,6 +142,8 @@ emitted balance and non-empty rate events. Dashboard logs mark receipt of those
 events. Event receipt does not prove that Svelte painted a value, and the first
 non-empty rate event may not yet contain the user's selected fiat currency.
 Render and native latency need separate runtime measurement.
+`session phase=overview_metadata_warmup` marks the post-unlock warm-up, and the
+`coin_scopes` phases split linked-identity and dlight metadata time.
 
 Debug builds optimize the crypto crates (`[profile.dev.package.*]` in
 `src-tauri/Cargo.toml`) and store files at work factor 15, so a debug read takes

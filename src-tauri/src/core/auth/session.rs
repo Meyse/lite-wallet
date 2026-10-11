@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{watch, Mutex, RwLock};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -45,7 +45,12 @@ pub(crate) struct DlightPublicMetadata {
 struct SessionPublicMetadataCache {
     linked_identities: Mutex<Option<Vec<LinkedIdentity>>>,
     dlight: Mutex<Option<DlightPublicMetadata>>,
+    /// Held for writing while the post-unlock warm-up reads run.
+    overview_warmup: Arc<RwLock<()>>,
 }
+
+/// Upper bound for a lower-priority read that waits for the warm-up.
+const OVERVIEW_WARMUP_WAIT: Duration = Duration::from_secs(5);
 
 /// Coordinates transaction-future admission with session invalidation.
 ///
@@ -213,6 +218,47 @@ impl ActiveWalletAccessContext {
         };
         *cached = Some(metadata.clone());
         Ok(metadata)
+    }
+
+    /// Start reading the linked IDs and dlight metadata that the Overview needs
+    /// first, right after unlock. Each encrypted file read runs scrypt (about 1 s
+    /// in a release build), so starting before the frontend asks shortens the
+    /// path to a complete Overview. Errors are not cached; a later caller retries.
+    pub(crate) fn spawn_overview_metadata_warmup(self) {
+        let Ok(warmup) = self
+            .public_metadata_cache
+            .overview_warmup
+            .clone()
+            .try_write_owned()
+        else {
+            return;
+        };
+        drop(tokio::spawn(async move {
+            let started_at = Instant::now();
+            let (linked, dlight) = tokio::join!(
+                self.load_linked_identities_cached(),
+                self.load_dlight_public_metadata_cached()
+            );
+            println!(
+                "[WALLET_PERF] session phase=overview_metadata_warmup linked_ok={} dlight_ok={} elapsed_ms={}",
+                linked.is_ok(),
+                dlight.is_ok(),
+                started_at.elapsed().as_millis()
+            );
+            drop(warmup);
+        }));
+    }
+
+    /// Hold a lower-priority storage read (Contacts, Watchlist) until the
+    /// post-unlock warm-up ends, so it does not compete with the Overview's reads
+    /// for CPU and memory (512 MiB for each release read). Returns at once when
+    /// no warm-up runs, and after `OVERVIEW_WARMUP_WAIT` at most.
+    pub(crate) async fn wait_for_overview_metadata_warmup(&self) {
+        let _ = tokio::time::timeout(
+            OVERVIEW_WARMUP_WAIT,
+            self.public_metadata_cache.overview_warmup.read(),
+        )
+        .await;
     }
 }
 
@@ -684,6 +730,38 @@ mod tests {
                 expected_btc_address
             )
         );
+    }
+
+    #[tokio::test]
+    async fn a_lower_priority_read_starts_after_the_overview_warmup() {
+        let public_profile = derive_public_profile_from_material(
+            "session warmup seed",
+            WalletSecretKind::SeedText,
+            Network::Testnet,
+        )
+        .expect("public profile");
+        let mut session = SessionManager::new(test_store());
+        session.unlock_with_profile(
+            "account-1".to_string(),
+            WalletNetwork::Testnet,
+            WalletSecretKind::SeedText,
+            public_profile,
+            Zeroizing::new(vec![1, 2, 3, 4]),
+        );
+        let context = session
+            .active_wallet_access_context()
+            .expect("active wallet access context");
+
+        context.clone().spawn_overview_metadata_warmup();
+        context.wait_for_overview_metadata_warmup().await;
+
+        // The warm-up filled both caches before the waiting read was let through.
+        let cache = &context.public_metadata_cache;
+        assert_eq!(
+            cache.linked_identities.lock().await.as_deref(),
+            Some(&[][..])
+        );
+        assert!(cache.dlight.lock().await.is_some());
     }
 
     #[test]

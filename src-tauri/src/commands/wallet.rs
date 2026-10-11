@@ -1118,6 +1118,10 @@ pub async fn unlock_wallet(
         provisioning_signature_store.inner().clone(),
         coin_registry.inner().clone(),
     );
+    // Start the Overview's first storage reads now, not after the route loads.
+    if let Ok(context) = session.active_wallet_access_context() {
+        context.spawn_overview_metadata_warmup();
+    }
     drop(session);
     if let Err(error) = wallet_manager.mark_wallet_last_unlocked(&account_id).await {
         println!(

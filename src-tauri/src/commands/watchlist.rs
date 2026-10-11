@@ -378,6 +378,7 @@ pub async fn get_watchlist_entries(
     account_state_store: State<'_, AccountStateStore>,
 ) -> Result<Vec<WatchlistEntry>, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    context.wait_for_overview_metadata_warmup().await;
     let entries = load_entries(account_state_store.inner(), &context).await?;
     ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
     Ok(entries)
