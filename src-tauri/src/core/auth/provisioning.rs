@@ -9,7 +9,6 @@ pub struct ProvisioningSignatureChallenge {
     pub session_id: String,
     pub account_id: String,
     pub network: WalletNetwork,
-    pub system_id: String,
     pub challenge_hash: [u8; 32],
     pub expires_at: u64,
 }

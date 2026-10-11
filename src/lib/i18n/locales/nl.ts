@@ -233,6 +233,15 @@ export const nl: Record<string, string> = {
   'genericRequest.flow.signIn.requirements': 'Vereisten',
   'genericRequest.flow.signIn.requirementsNone': 'Geen',
   'genericRequest.flow.newIdentity.offer': 'Nieuwe VerusID',
+  'genericRequest.flow.newIdentity.chooseName': 'Naam van je nieuwe VerusID',
+  'genericRequest.flow.newIdentity.nameHint': 'Kies een naam die nog vrij is.',
+  'genericRequest.flow.newIdentity.nameInvalid':
+    'Een naam mag geen \\ / : * ? " < > | @ of punt bevatten, en niet beginnen of eindigen met een spatie.',
+  'genericRequest.flow.newIdentity.nameChecking': 'Naam controleren…',
+  'genericRequest.flow.newIdentity.nameTaken': 'Deze naam is bezet. Kies een andere.',
+  'genericRequest.flow.newIdentity.nameCheckFailed':
+    'De naam kon niet worden gecontroleerd. Probeer het opnieuw.',
+  'genericRequest.flow.newIdentity.nameAvailable': 'Deze naam is vrij.',
   'genericRequest.flow.newIdentity.chosen': 'Een nieuwe VerusID, {name}, beantwoordt dit verzoek.',
   'genericRequest.flow.newIdentity.name': 'Nieuwe VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Uitgegeven door',

@@ -4,6 +4,8 @@
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
   import { Spinner } from '$lib/components/ui/spinner';
   import LinkIdentitySheet from '$lib/components/wallet/sections/identity/LinkIdentitySheet.svelte';
   import { contactChainId } from '$lib/contacts/identity';
@@ -224,8 +226,19 @@
       fullyQualifiedName: updateReviewSource?.fullyQualifiedName ?? null,
     })
   );
+  // Without an offered VerusID the user chooses the name under the parent,
+  // as in Verus Mobile's provisioning form.
+  const choosesName = $derived(!!provisioningDetail && !provisioningDetail.requestedFqn);
+  let chosenName = $state('');
+  let parentFqn = $state<string | null>(null);
+  let chosenNameStatus = $state<'idle' | 'checking' | 'available' | 'taken' | 'failed'>('idle');
+  let chosenNameSequence = 0;
+  const chosenNameValid = $derived(isValidChosenName(chosenName));
+  const chosenFqn = $derived(
+    choosesName && chosenNameValid && parentFqn ? `${chosenName}.${parentFqn}` : null
+  );
   const requestedFqn = $derived(
-    formatIdentityFullyQualifiedName(provisioningDetail?.requestedFqn) ||
+    formatIdentityFullyQualifiedName(provisioningDetail?.requestedFqn ?? chosenFqn) ||
       i18n.t('genericRequest.summary.provisioningRequested')
   );
   const expiresAt = $derived(authDetail?.expiryTime ?? invoiceModule?.expiresAt() ?? null);
@@ -369,6 +382,10 @@
     loadingLinkedIdentities = false;
     responderAddress = '';
     newIdentity = false;
+    chosenName = '';
+    parentFqn = null;
+    chosenNameStatus = 'idle';
+    chosenNameSequence += 1;
     linkSheetOpen = false;
     updateAnalysis = null;
     updateAnalysisLoading = false;
@@ -776,7 +793,11 @@
       case 'signIn':
         return newIdentity ? !!provisioningDetail?.webhook : !!responder?.systemId;
       case 'newIdentity':
-        return !!provisioningDetail?.webhook && !!walletChannels.vrpcAddress?.trim();
+        return (
+          !!provisioningDetail?.webhook &&
+          !!walletChannels.vrpcAddress?.trim() &&
+          (!choosesName || chosenNameStatus === 'available')
+        );
       case 'updateChanges':
         return !!updateReview && (!updateReview.hasHighRisk || highRiskAcknowledged);
       case 'networkFee':
@@ -855,6 +876,52 @@
   function startNewIdentity() {
     newIdentity = true;
     responderAddress = '';
+    if (choosesName && !parentFqn) void loadParentFqn();
+  }
+
+  /** One label without the characters a VerusID name cannot hold (Rust checks it too). */
+  function isValidChosenName(name: string): boolean {
+    return (
+      name.length > 0 &&
+      name.trim() === name &&
+      new TextEncoder().encode(name).length <= 64 &&
+      !/[\\/:*?"<>|@.\p{Cc}]/u.test(name)
+    );
+  }
+
+  async function loadParentFqn() {
+    const parent = provisioningDetail?.parent ?? provisioningDetail?.systemId ?? null;
+    if (!parent) {
+      parentFqn = session?.testnet ? 'VRSCTEST@' : 'VRSC@';
+      return;
+    }
+    try {
+      const details = await identityLinkService.getIdentityDetails(parent);
+      parentFqn = details.fullyQualifiedName ?? null;
+    } catch {
+      parentFqn = null;
+    }
+  }
+
+  /** A chosen name must be free (Verus Mobile: "Identity name taken"). */
+  async function checkChosenName(name: string) {
+    chosenName = name;
+    const sequence = ++chosenNameSequence;
+    if (!isValidChosenName(name) || !parentFqn) {
+      chosenNameStatus = 'idle';
+      return;
+    }
+    chosenNameStatus = 'checking';
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (sequence !== chosenNameSequence) return;
+    try {
+      await identityLinkService.getIdentityDetails(`${name}.${parentFqn}`);
+      if (sequence === chosenNameSequence) chosenNameStatus = 'taken';
+    } catch (error) {
+      if (sequence !== chosenNameSequence) return;
+      chosenNameStatus =
+        extractWalletErrorType(error) === 'IdentityNotFound' ? 'available' : 'failed';
+    }
   }
 
   // Plan and outcome copy ------------------------------------------------------
@@ -1131,6 +1198,7 @@
               authenticationDetail: authDetail,
               provisioningDetail,
               signingAddress,
+              chosenFqn,
             });
           },
         },
@@ -1347,6 +1415,42 @@
     {/if}
     <RequestFacts rows={signInFacts} />
   {:else if step === 'newIdentity'}
+    {#if choosesName}
+      <div class="flex flex-col gap-1.5">
+        <Label for="request-new-identity-name" class="text-xs font-medium text-muted-foreground">
+          {i18n.t('genericRequest.flow.newIdentity.chooseName')}
+        </Label>
+        <div class="flex items-center gap-2">
+          <Input
+            id="request-new-identity-name"
+            value={chosenName}
+            oninput={(event) => void checkChosenName((event.target as HTMLInputElement).value)}
+            autocomplete="off"
+            aria-invalid={chosenName !== '' && (!chosenNameValid || chosenNameStatus === 'taken')}
+          />
+          {#if parentFqn}
+            <span class="shrink-0 text-sm text-muted-foreground"
+              >.{formatIdentityFullyQualifiedName(parentFqn)}</span
+            >
+          {/if}
+        </div>
+        <p class="text-xs text-muted-foreground">
+          {#if chosenName !== '' && !chosenNameValid}
+            {i18n.t('genericRequest.flow.newIdentity.nameInvalid')}
+          {:else if chosenNameStatus === 'checking'}
+            {i18n.t('genericRequest.flow.newIdentity.nameChecking')}
+          {:else if chosenNameStatus === 'taken'}
+            {i18n.t('genericRequest.flow.newIdentity.nameTaken')}
+          {:else if chosenNameStatus === 'failed'}
+            {i18n.t('genericRequest.flow.newIdentity.nameCheckFailed')}
+          {:else if chosenNameStatus === 'available'}
+            {i18n.t('genericRequest.flow.newIdentity.nameAvailable')}
+          {:else}
+            {i18n.t('genericRequest.flow.newIdentity.nameHint')}
+          {/if}
+        </p>
+      </div>
+    {/if}
     <RequestFacts rows={newIdentityFacts} />
     <p class="text-[13.5px] text-foreground/80">
       {i18n.t('genericRequest.flow.newIdentity.note', { issuer: requesterView.identityLabel })}

@@ -98,6 +98,7 @@ const APP_COMMANDS: &[&str] = &[
     "review_gift_card",
     "preflight_gift_card_claim",
     "send_gift_card_claim",
+    "post_provisioning_request",
     "preflight_generic_invoice",
     "send_generic_invoice_payment",
     "prepare_provisioning_signature",

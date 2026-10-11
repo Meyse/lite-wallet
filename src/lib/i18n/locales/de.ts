@@ -516,6 +516,15 @@ export const de: Record<string, string> = {
   'genericRequest.flow.signIn.requirements': 'Anforderungen',
   'genericRequest.flow.signIn.requirementsNone': 'Keine',
   'genericRequest.flow.newIdentity.offer': 'Neue VerusID',
+  'genericRequest.flow.newIdentity.chooseName': 'Name deiner neuen VerusID',
+  'genericRequest.flow.newIdentity.nameHint': 'Wähle einen Namen, der noch frei ist.',
+  'genericRequest.flow.newIdentity.nameInvalid':
+    'Ein Name darf kein \\ / : * ? " < > | @ oder keinen Punkt enthalten und nicht mit einem Leerzeichen beginnen oder enden.',
+  'genericRequest.flow.newIdentity.nameChecking': 'Name wird geprüft…',
+  'genericRequest.flow.newIdentity.nameTaken': 'Dieser Name ist vergeben. Wähle einen anderen.',
+  'genericRequest.flow.newIdentity.nameCheckFailed':
+    'Der Name konnte nicht geprüft werden. Versuche es erneut.',
+  'genericRequest.flow.newIdentity.nameAvailable': 'Dieser Name ist frei.',
   'genericRequest.flow.newIdentity.chosen': 'Eine neue VerusID, {name}, beantwortet diese Anfrage.',
   'genericRequest.flow.newIdentity.name': 'Neue VerusID',
   'genericRequest.flow.newIdentity.issuer': 'Ausgestellt von',

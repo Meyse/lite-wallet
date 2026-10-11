@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-post-provisioning-request"
+description = "Enables the post_provisioning_request command without any pre-configured scope."
+commands.allow = ["post_provisioning_request"]
+
+[[permission]]
+identifier = "deny-post-provisioning-request"
+description = "Denies the post_provisioning_request command without any pre-configured scope."
+commands.deny = ["post_provisioning_request"]

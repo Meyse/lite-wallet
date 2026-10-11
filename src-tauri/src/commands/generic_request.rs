@@ -41,7 +41,7 @@ use crate::core::channels::PreflightRecord;
 use crate::core::crypto::verus_id_signature::{
     compute_identity_signature_hash, decode_compact_address_at, extract_chain_height,
     extract_primary_addresses, get_raw_envelope_sha256, parse_generic_envelope_hex,
-    parse_identity_signature, sign_identity_hash_with_private_bytes,
+    parse_identity_signature, sign_hash_compact, sign_identity_hash_with_private_bytes,
     validate_identity_control_for_active_wallet, verify_generic_request_signature_with_provider,
     verify_identity_hash_with_provider, verify_identity_signature_against_addresses,
 };
@@ -389,7 +389,9 @@ struct ParsedAuthenticationSemantics {
 struct ParsedProvisioningSemantics {
     system_id: Option<String>,
     parent_id: Option<String>,
-    identity_id: String,
+    /// The offered VerusID. Without one, the user chooses the name, as in
+    /// Verus Mobile's provisioning form.
+    identity_id: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -466,7 +468,6 @@ fn parse_provisioning_semantics(data: &[u8]) -> Result<ParsedProvisioningSemanti
             | PROVISION_FLAG_HAS_IDENTITY_ID
             | PROVISION_FLAG_HAS_URI)
         != 0
-        || flags & PROVISION_FLAG_HAS_IDENTITY_ID == 0
     {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
@@ -494,7 +495,7 @@ fn parse_provisioning_semantics(data: &[u8]) -> Result<ParsedProvisioningSemanti
     };
     let system_id = read_address(flags & PROVISION_FLAG_HAS_SYSTEM_ID != 0)?;
     let parent_id = read_address(flags & PROVISION_FLAG_HAS_PARENT_ID != 0)?;
-    let identity_id = read_address(true)?.ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let identity_id = read_address(flags & PROVISION_FLAG_HAS_IDENTITY_ID != 0)?;
     if cursor != data.len() {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
@@ -608,6 +609,18 @@ fn parse_provisioning_challenge_hex(
         parent_id,
         hash: signature_hash.finalize().into(),
     })
+}
+
+/// A name the user chose for a new VerusID: one label, without the
+/// characters a VerusID name cannot hold, and at most 64 bytes.
+fn is_valid_chosen_name(name: &str) -> bool {
+    const FORBIDDEN: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|', '@', '.'];
+    !name.is_empty()
+        && name.len() <= 64
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|character| character.is_control() || FORBIDDEN.contains(&character))
 }
 
 fn provisioning_challenge_name(identity_id: &str) -> String {
@@ -1720,6 +1733,71 @@ async fn post_generic_response_callback_request(
     Ok(())
 }
 
+/// The largest provisioning service answer the wallet reads.
+const PROVISIONING_RESPONSE_MAX_BYTES: usize = 64 * 1024;
+
+/// Sends a signed provisioning request to the provisioning address of the
+/// open request and returns the service's JSON answer. Rust sends it, as it
+/// sends every response: only to the address the verified request names,
+/// over HTTPS in release builds, and with the 30-second limit. The UI checks
+/// the answer's signature.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn post_provisioning_request(
+    request_hex: String,
+    webhook_url: String,
+    body_json: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<String, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    let provisioning_uri = open
+        .parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::ProvisionIdentity)
+        .map(|(detail, _)| details::parse_provision_identity(&detail.data, open.parsed.is_testnet))
+        .transpose()?
+        .and_then(|provisioning| provisioning.uri)
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if provisioning_uri.trim() != webhook_url.trim() {
+        return Err(WalletError::GenericRequestRejected(
+            "responseAddress".to_string(),
+        ));
+    }
+    serde_json::from_str::<Value>(&body_json).map_err(|_| WalletError::OperationFailed)?;
+    let url = parse_generic_response_post_callback_uri(&webhook_url)?;
+    let post = async move {
+        let response = reqwest::Client::builder()
+            .timeout(DELIVERY_TIMEOUT)
+            .build()
+            .map_err(|_| WalletError::NetworkError)?
+            .post(url)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body_json)
+            .send()
+            .await
+            .map_err(|_| WalletError::NetworkError)?;
+        if !response.status().is_success() {
+            return Err(WalletError::OperationFailed);
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|_| WalletError::NetworkError)?;
+        if bytes.len() > PROVISIONING_RESPONSE_MAX_BYTES {
+            return Err(WalletError::OperationFailed);
+        }
+        String::from_utf8(bytes.to_vec()).map_err(|_| WalletError::OperationFailed)
+    };
+    context
+        .session_submission_guard()
+        .run(post)
+        .await
+        .map_err(map_generic_session_change)
+}
+
 /// Delivers the signed response by opening the request's redirect address.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_generic_request_callback(
@@ -1817,12 +1895,17 @@ pub async fn prepare_provisioning_signature(
         .ok_or(WalletError::GenericRequestInvalidEnvelope)
         .and_then(|detail| parse_provisioning_semantics(&detail.data))?;
     let challenge = parse_provisioning_challenge_hex(&challenge_hex)?;
-    let request_id = authentication
+    // Verus Mobile's challenge ID: the request's own ID, else the sign-in
+    // detail's (`ProvisionIdentityConfirm.js`).
+    let request_id = parsed_request
         .request_id
-        .or(parsed_request.request_id)
+        .or(authentication.request_id)
         .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
     if !challenge.challenge_id.eq_ignore_ascii_case(&request_id)
-        || challenge.name != provisioning_challenge_name(&provisioning.identity_id)
+        || !match provisioning.identity_id.as_deref() {
+            Some(identity_id) => challenge.name == provisioning_challenge_name(identity_id),
+            None => is_valid_chosen_name(&challenge.name),
+        }
         || challenge.system_id != provisioning.system_id
         || challenge.parent_id != provisioning.parent_id
     {
@@ -1856,7 +1939,6 @@ pub async fn prepare_provisioning_signature(
             session_id: context.session_id,
             account_id: context.account_id,
             network,
-            system_id: expected_system_id.to_string(),
             challenge_hash: challenge.hash,
             expires_at,
         },
@@ -1872,7 +1954,6 @@ pub async fn confirm_provisioning_signature(
     signing_challenge_id: String,
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
-    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
 ) -> Result<String, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let challenge = provisioning_signature_store
@@ -1883,17 +1964,19 @@ pub async fn confirm_provisioning_signature(
     }
 
     let private_key = load_primary_private_scalar_for_context(&context).await?;
-    let provider = vrpc_provider_pool.for_system(challenge.network, &challenge.system_id);
-    let info = provider.getinfo().await?;
-    let signed_block_height = extract_chain_height(&info)?;
     ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
-    let signature_as_vch = sign_identity_hash_with_private_bytes(
-        challenge.challenge_hash,
-        signed_block_height,
-        &private_key,
-    )?;
+    provisioning_signature(challenge.challenge_hash, &private_key)
+}
 
-    Ok(BASE64_STANDARD.encode(signature_as_vch))
+/// `VerusIdInterface.signVerusIdProvisioningRequest`: the bare compact
+/// signature over the challenge hash, which the provisioning service checks
+/// with `verifyVerusIdProvisioningRequest`. It carries no identity signature
+/// header or block height.
+fn provisioning_signature(
+    challenge_hash: [u8; 32],
+    private_key: &[u8; 32],
+) -> Result<String, WalletError> {
+    Ok(BASE64_STANDARD.encode(sign_hash_compact(challenge_hash, private_key)?))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3365,10 +3448,10 @@ mod tests {
         decode_defined_key_label, map_generic_session_change, merge_identity_update_patch,
         parse_generic_response_post_callback_uri, parse_provisioning_challenge_hex,
         post_generic_response_callback_for_session, post_generic_response_callback_request,
-        resolve_signer_cmm_key_labels_from_identity, sign_unsigned_response,
-        validate_generic_request_funding_source, wallet_network_to_crypto_network, CallbackBody,
-        WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
-        MAINNET_VERUS_CHAIN_ID,
+        provisioning_signature, resolve_signer_cmm_key_labels_from_identity,
+        sign_unsigned_response, validate_generic_request_funding_source,
+        wallet_network_to_crypto_network, CallbackBody, WalletNetwork,
+        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID, MAINNET_VERUS_CHAIN_ID,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
@@ -3376,7 +3459,7 @@ mod tests {
         parse_identity_signature, verify_identity_signature_against_addresses,
     };
     use crate::core::crypto::wif_encoding::generate_p2pkh_address;
-    use crate::core::crypto::{derive_public_profile_from_material, Network};
+    use crate::core::crypto::{derive_keys_v1, derive_public_profile_from_material, Network};
     use crate::core::generic_request::acceptance::check_request;
     use crate::core::generic_request::request::parse_request_hex;
     use crate::core::generic_request::response::{
@@ -3402,6 +3485,27 @@ mod tests {
     const FIXED_SIGNED_BLOCK_HEIGHT: u32 = 965_771;
 
     #[test]
+    fn a_chosen_verusid_name_is_one_clean_label() {
+        // VerusID names may hold spaces ("Mike T@" exists on testnet).
+        for good in ["alice", "Mike T", "player-7"] {
+            assert!(super::is_valid_chosen_name(good), "{good}");
+        }
+        let long = "x".repeat(65);
+        for bad in [
+            "",
+            " alice",
+            "alice ",
+            "alice.parent",
+            "alice@",
+            "a/b",
+            "a:b",
+            &long,
+        ] {
+            assert!(!super::is_valid_chosen_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
     fn provisioning_challenge_hash_matches_typescript_primitives() {
         let challenge = parse_provisioning_challenge_hex(
             "bf5b8b3997fe0381a6383fddc8f055c1f0dd67740165141af5b8015c64d39ab44c60ead8317f9f5a9b6c4c00f153650000000000567b9a87b17131f6eeb2dd0bdd191ece4a5d603b01010005616c696365141af5b8015c64d39ab44c60ead8317f9f5a9b6c4c14a6ef9ea235635e328124ff3429db9f9e91b64e2d",
@@ -3416,6 +3520,29 @@ mod tests {
         assert_eq!(
             hex::encode(challenge.hash),
             "35d3bef3d19528f98c4edeebba920d50438ca346d38257aa1c91b53805bd5c31"
+        );
+    }
+
+    #[test]
+    fn provisioning_signature_matches_verusid_ts_client() {
+        // `VerusIdInterface.signHashWithAddress` from verusid-ts-client 933e8f8
+        // over the challenge hash above, with the key of the public test
+        // phrase "verus id signature private byte parity"
+        // (RWctcHsxKcYgtCwjTgatANSd96JJa2p9Cj).
+        let keys = derive_keys_v1("verus id signature private byte parity", Network::Mainnet)
+            .expect("derive keys");
+        let private_key: [u8; 32] = hex::decode(&keys.eth_private_key)
+            .expect("private key hex")
+            .try_into()
+            .expect("private key length");
+        let hash: [u8; 32] =
+            hex::decode("35d3bef3d19528f98c4edeebba920d50438ca346d38257aa1c91b53805bd5c31")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        assert_eq!(
+            provisioning_signature(hash, &private_key).unwrap(),
+            "HxtGq48PEspGqbLll6cJZIIpVXJg18TUNWonsqZQg+DyFmTwd7P+GFB9hCVdnPmyAlrIUBpVODgFcWVUuRe3VKU="
         );
     }
 

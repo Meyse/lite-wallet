@@ -119,10 +119,15 @@ response address, plus a close button. Close declines the request.
   - The responder picker lists only VerusIDs in the open wallet that meet the
     request's rules (required ID, system, parent).
   - The step lists what the website learns and the requirements.
-  - When no VerusID qualifies, it offers Link VerusID, and New VerusID when the
-    request offers one.
-- **New VerusID:** shows the offered name, the issuer, and the network. After
-  Approval the wallet sends the provisioning request and saves the job. The sign
+  - The picker always offers Link VerusID. It also offers New VerusID when the
+    request offers one, next to the linked VerusIDs, as on mobile.
+- **New VerusID:** shows the offered name, the issuer, and the network. When the
+  request offers no name, the user types one under the request's parent. The
+  wallet checks the name and accepts only a free one. After Approval the wallet
+  signs the provisioning request with its address key (a bare recoverable
+  signature over the challenge hash, as `signVerusIdProvisioningRequest` makes
+  it), sends it to the request's provisioning address, and saves the job. The
+  challenge ID is the request's own ID, else the sign-in detail's ID. The sign
   in finishes after the user links the new VerusID.
 - **Update identity:** two steps.
   1. **Changes.** Content and profile changes. High-risk changes (primary

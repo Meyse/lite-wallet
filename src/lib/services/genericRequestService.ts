@@ -151,6 +151,23 @@ export async function postGenericResponseCallback(
   });
 }
 
+/**
+ * Rust sends the signed provisioning request to the open request's
+ * provisioning address and returns the service's JSON answer. A webview fetch
+ * would need the service to allow the wallet's origin (CORS).
+ */
+export async function postProvisioningRequest(
+  requestHex: string,
+  webhookUrl: string,
+  bodyJson: string
+): Promise<string> {
+  return invokeWalletCommand<string>('post_provisioning_request', {
+    request_hex: requestHex,
+    webhook_url: webhookUrl,
+    body_json: bodyJson,
+  });
+}
+
 export async function openGenericRequestCallback(
   requestHex: string,
   callbackUri: string,

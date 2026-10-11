@@ -155,9 +155,26 @@ guided flow defined by the
   (`68ad35c6c9241375b5f90381071a22bd4fd77f3e4ee9884622f8d82ac17c751c`). Deep
   Link Sim verified both responses, with the envelope ID echoed. All six
   negative cases are refused with their own message.
-- **Not done yet:** the provisioning timeout in TypeScript, keeping a request
-  across a lock, the auto-lock pause, warning-code copy, the locale test, and
-  Help.
+- **New VerusID parity, 2026-10-11:**
+  - The picker offers New VerusID next to the linked VerusIDs.
+  - A request without a name lets the user choose a free one.
+  - The challenge ID is the request ID first, then the sign-in detail's ID.
+  - Rust sends the provisioning call (`post_provisioning_request`). It accepts
+    only the request's provisioning address and stops after 30 seconds. The
+    webview `fetch` sent only the CORS preflight.
+  - Fixed: the provisioning signature is now the bare 65-byte compact signature
+    that `verifyVerusIdProvisioningRequest` reads. Before, the wallet sent a
+    serialized identity signature, and the service refused it.
+- **Verified on testnet, 2026-10-11:** the fake provisioning webhook accepted
+  the signed request for `lwqa1011a.gamesession5@`. The wallet verified the
+  signed response and saved the pending job. The service's name commitment
+  confirmed
+  (`c8d3616ef240ca83823c78b369823357d505bb9c66c79ad0bc3b3f2ab30821fb`). The
+  service could not register the name: a subID registration under a currency
+  needs a reserve transfer, and testnet has DeFi functions disabled. Linking a
+  ready provisioned VerusID was not verified.
+- **Not done yet:** keeping a request across a lock, the auto-lock pause,
+  warning-code copy, the locale test, and Help.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`

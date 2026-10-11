@@ -175,6 +175,16 @@
       <Button variant="secondary" onclick={link}
         >{i18n.t('genericRequest.auth.linkIdentity')}</Button
       >
+      <!-- Verus Mobile also offers a new VerusID next to the linked ones. -->
+      {#if newIdentityLabel && onNewIdentity}
+        <Button
+          variant="secondary"
+          onclick={() => {
+            sheetOpen = false;
+            onNewIdentity();
+          }}>{newIdentityLabel}</Button
+        >
+      {/if}
     </div>
   </div>
 </StandardRightSheet>

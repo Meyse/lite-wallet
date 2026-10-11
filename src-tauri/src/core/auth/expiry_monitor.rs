@@ -227,7 +227,6 @@ mod tests {
                 session_id: session_id.clone(),
                 account_id: "account-1".to_string(),
                 network: WalletNetwork::Mainnet,
-                system_id: "system-1".to_string(),
                 challenge_hash: [7; 32],
                 expires_at: u64::MAX,
             },

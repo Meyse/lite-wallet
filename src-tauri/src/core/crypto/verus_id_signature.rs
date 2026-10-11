@@ -276,6 +276,26 @@ pub(crate) fn compute_verus_data_identity_hash(
     hasher.finalize().into()
 }
 
+/// The 65-byte recoverable signature of a compressed key over `hash`, as
+/// utxo-lib's `IdentitySignature.signHashOffline` returns it.
+pub fn sign_hash_compact(hash: [u8; 32], private_key: &[u8; 32]) -> Result<[u8; 65], WalletError> {
+    let secret_key = SecretKey::from_slice(private_key)
+        .map_err(|_| WalletError::GenericRequestUnsupportedSignature)?;
+    let secp = Secp256k1::new();
+    let recoverable = secp.sign_ecdsa_recoverable(&Message::from_digest(hash), &secret_key);
+    let (recovery_id, compact_body) = recoverable.serialize_compact();
+
+    let header = 27u8
+        .checked_add(recovery_id.to_i32() as u8)
+        .and_then(|value| value.checked_add(4))
+        .ok_or(WalletError::GenericRequestUnsupportedSignature)?;
+
+    let mut compact_signature = [0u8; 65];
+    compact_signature[0] = header;
+    compact_signature[1..].copy_from_slice(&compact_body);
+    Ok(compact_signature)
+}
+
 pub fn sign_identity_hash(
     identity_hash: [u8; 32],
     signed_block_height: u32,
@@ -291,22 +311,7 @@ pub fn sign_identity_hash_with_private_bytes(
     signed_block_height: u32,
     private_key: &[u8; 32],
 ) -> Result<Vec<u8>, WalletError> {
-    let secret_key = SecretKey::from_slice(private_key)
-        .map_err(|_| WalletError::GenericRequestUnsupportedSignature)?;
-    let secp = Secp256k1::new();
-    let message = Message::from_digest(identity_hash);
-    let recoverable = secp.sign_ecdsa_recoverable(&message, &secret_key);
-    let (recovery_id, compact_body) = recoverable.serialize_compact();
-
-    let header = 27u8
-        .checked_add(recovery_id.to_i32() as u8)
-        .and_then(|value| value.checked_add(4))
-        .ok_or(WalletError::GenericRequestUnsupportedSignature)?;
-
-    let mut compact_signature = [0u8; 65];
-    compact_signature[0] = header;
-    compact_signature[1..].copy_from_slice(&compact_body);
-
+    let compact_signature = sign_hash_compact(identity_hash, private_key)?;
     let mut serialized = Vec::with_capacity(1 + 1 + 4 + 1 + 1 + compact_signature.len());
     serialized.push(VERIFIABLE_SIGNATURE_VERSION_V2 as u8);
     serialized.push(HASH_TYPE_SHA256 as u8);

@@ -24,6 +24,11 @@ type SubmitGenericProvisioningRequestParams = {
   authenticationDetail: AuthenticationDetailSession;
   provisioningDetail: ProvisionIdentityDetailSession;
   signingAddress: string;
+  /**
+   * The full name the user chose, when the request offers none (Verus
+   * Mobile's provisioning form). Rust checks the name the challenge carries.
+   */
+  chosenFqn?: string | null;
 };
 
 type ProvisioningResponseResultShape = {
@@ -76,12 +81,14 @@ export async function submitGenericProvisioningRequest(
     throw new Error('genericRequest.provisioning.error.noWebhook');
   }
 
-  const requestedFqn = provisioningDetail.requestedFqn?.trim();
+  const requestedFqn = (provisioningDetail.requestedFqn ?? params.chosenFqn)?.trim();
   if (!requestedFqn) {
     throw new Error('genericRequest.provisioning.error.invalidRequest');
   }
 
-  const challengeId = authenticationDetail.requestId || session.requestId;
+  // Verus Mobile uses the request's own ID, else the sign-in detail's
+  // (`AuthenticationRequestInfo.js`, `ProvisionIdentityConfirm.js`).
+  const challengeId = session.requestId || authenticationDetail.requestId;
   if (!challengeId) {
     throw new Error('genericRequest.provisioning.error.invalidRequest');
   }
@@ -117,19 +124,24 @@ export async function submitGenericProvisioningRequest(
     await genericRequestService.confirmProvisioningSignature(signingChallengeId);
   provisioningRequest.signature = new VerusIDSignature({ signature: requestSignature });
 
-  const webhookResponse = await globalThis.fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(provisioningRequest.toJson()),
-  });
+  // Rust sends it to the request's provisioning address, with the 30-second
+  // limit (spec "Delivery").
+  const responseText = await genericRequestService
+    .postProvisioningRequest(
+      session.requestHex,
+      webhookUrl,
+      JSON.stringify(provisioningRequest.toJson())
+    )
+    .catch(() => {
+      throw new Error('genericRequest.provisioning.error.webhook');
+    });
 
-  if (!webhookResponse.ok) {
+  let responseJson: ConstructorParameters<typeof LoginConsentProvisioningResponse>[0];
+  try {
+    responseJson = JSON.parse(responseText);
+  } catch {
     throw new Error('genericRequest.provisioning.error.webhook');
   }
-
-  const responseJson = await webhookResponse.json();
   const provisioningResponse = new LoginConsentProvisioningResponse(responseJson);
   const responseSignature = provisioningResponse.signature?.signature;
   const responseSignerId = provisioningResponse.signing_id?.trim();
