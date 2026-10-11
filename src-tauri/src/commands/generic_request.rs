@@ -1798,6 +1798,35 @@ pub async fn post_provisioning_request(
         .map_err(map_generic_session_change)
 }
 
+/// The longest one request's approved stages hold auto-lock.
+const REQUEST_STAGES_AUTO_LOCK_LIMIT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Pauses auto-lock while the approved stages of the open request run
+/// (ADR 0001). Only an open request can pause it, and only for five minutes.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn pause_auto_lock_for_request(
+    request_hex: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<(), WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    request_store.get(&context.session_id, &request_hex)?;
+    let mut session = session_manager.lock().await;
+    if session.active_session_id() != Some(context.session_id.as_str()) {
+        return Err(WalletError::WalletLocked);
+    }
+    session.hold_expiry(REQUEST_STAGES_AUTO_LOCK_LIMIT)
+}
+
+/// Ends the pause after the stages stop, whether they passed or failed.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resume_auto_lock(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+) -> Result<(), WalletError> {
+    session_manager.lock().await.release_expiry_hold();
+    Ok(())
+}
+
 /// Delivers the signed response by opening the request's redirect address.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_generic_request_callback(

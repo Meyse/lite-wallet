@@ -181,8 +181,12 @@ guided flow defined by the
 - **Warning copy, 2026-10-11:** the Changes step shows translated copy for each
   Rust warning code (`src/lib/genericRequest/warnings.ts`), not Rust's English
   message. An unknown code shows a general caution.
-- **Not done yet:** keeping a request across a lock, the auto-lock pause, and
-  Help.
+- **Auto-lock pause, 2026-10-11:** the host runs the stages inside
+  `pause_auto_lock_for_request` and `resume_auto_lock`. Rust holds the
+  inactivity timer only while a request is open, for at most five minutes. The
+  end of the hold counts as activity. A manual lock still locks. Verified with a
+  Deep Link Sim sign in on testnet (verified once).
+- **Not done yet:** keeping a request across a lock, and Help.
 
 1. **Library pins.** Pin the `dev-asf-parent` commits:
    - `verus-typescript-primitives` `3ffa9d77`

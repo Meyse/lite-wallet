@@ -99,6 +99,8 @@ const APP_COMMANDS: &[&str] = &[
     "preflight_gift_card_claim",
     "send_gift_card_claim",
     "post_provisioning_request",
+    "pause_auto_lock_for_request",
+    "resume_auto_lock",
     "preflight_generic_invoice",
     "send_generic_invoice_payment",
     "prepare_provisioning_signature",

@@ -312,6 +312,8 @@ pub fn run() {
             gift_card::preflight_gift_card_claim,
             gift_card::send_gift_card_claim,
             generic_request::post_provisioning_request,
+            generic_request::pause_auto_lock_for_request,
+            generic_request::resume_auto_lock,
             generic_request::preflight_generic_invoice,
             generic_request::send_generic_invoice_payment,
             generic_request::store_generic_provisioning_job,

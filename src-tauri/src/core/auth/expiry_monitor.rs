@@ -329,6 +329,43 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn monitor_waits_for_a_request_hold_and_then_its_timeout() {
+        let state = TestWalletState::new();
+        let (session_id, registration, _) = state
+            .unlock("expiry monitor hold", Duration::from_secs(10))
+            .await;
+        let (notifier, mut notifications) = notification_channel();
+        let monitor = state.spawn(registration, notifier);
+        tokio::task::yield_now().await;
+
+        state
+            .session
+            .lock()
+            .await
+            .hold_expiry(Duration::from_secs(300))
+            .expect("hold while unlocked");
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert!(state.session.lock().await.is_current_session(&session_id));
+
+        state.session.lock().await.release_expiry_hold();
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(9)).await;
+        assert!(state.session.lock().await.is_current_session(&session_id));
+        assert!(matches!(
+            notifications.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+
+        tokio::time::advance(Duration::from_secs(2)).await;
+        assert_eq!(
+            notifications.recv().await.as_deref(),
+            Some(session_id.as_str())
+        );
+        monitor.await.expect("expiry monitor after the hold");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn late_old_monitor_cannot_replace_or_notify_for_new_session() {
         let state = TestWalletState::new();
         let (first_id, first_registration, _) = state

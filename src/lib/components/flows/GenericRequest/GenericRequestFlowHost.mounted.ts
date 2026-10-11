@@ -197,6 +197,9 @@ describe('request flow approval', () => {
           };
         case 'send_generic_invoice_payment':
           return { txid: TXID };
+        case 'pause_auto_lock_for_request':
+        case 'resume_auto_lock':
+          return undefined;
         case 'get_dlight_seed_status':
           return { configured: true };
         case 'review_gift_card':
@@ -281,6 +284,26 @@ describe('request flow approval', () => {
     expect(commandsCalled('send_generic_identity_update')).toBe(1);
     expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
     expect(commandsCalled('post_generic_response_callback')).toBe(2);
+    // Auto-lock pauses around each run of the stages and resumes after it.
+    const order = wallet.invoke.mock.calls
+      .map(([command]) => command)
+      .filter((command) =>
+        [
+          'pause_auto_lock_for_request',
+          'send_generic_identity_update',
+          'post_generic_response_callback',
+          'resume_auto_lock',
+        ].includes(command)
+      );
+    expect(order).toEqual([
+      'pause_auto_lock_for_request',
+      'send_generic_identity_update',
+      'post_generic_response_callback',
+      'resume_auto_lock',
+      'pause_auto_lock_for_request',
+      'post_generic_response_callback',
+      'resume_auto_lock',
+    ]);
     const signCall = wallet.invoke.mock.calls.find(
       ([command]) => command === 'build_and_sign_generic_response'
     );

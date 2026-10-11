@@ -1248,7 +1248,10 @@
 
     phase = 'working';
     approved = true;
-    const ok = await run.run();
+    const approvedRun = run;
+    const ok = await genericRequestService.withAutoLockPaused(activeSession.requestHex, () =>
+      approvedRun.run()
+    );
     if (!live()) return;
     phase = ok ? 'done' : 'failed';
   }
@@ -1258,7 +1261,10 @@
     const activeSession = session;
     const generation = openGeneration;
     phase = 'working';
-    const ok = await run.run();
+    const retried = run;
+    const ok = await genericRequestService.withAutoLockPaused(activeSession.requestHex, () =>
+      retried.run()
+    );
     if (generation !== openGeneration || session !== activeSession) return;
     phase = ok ? 'done' : 'failed';
   }

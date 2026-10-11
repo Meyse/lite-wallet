@@ -264,6 +264,9 @@ pub struct SessionManager {
     active_session_id: Option<String>,
     active_account_id: Option<String>,
     last_activity_at: Option<Instant>,
+    /// While set and in the future, auto-lock waits (ADR 0001: a request's
+    /// approved stages run without being cut off).
+    expiry_hold_until: Option<Instant>,
     timeout_duration: Duration,
     active_network: Option<WalletNetwork>,
     active_secret_kind: Option<WalletSecretKind>,
@@ -285,6 +288,7 @@ impl SessionManager {
             active_session_id: None,
             active_account_id: None,
             last_activity_at: None,
+            expiry_hold_until: None,
             timeout_duration: Duration::from_secs(default_timeout_minutes * 60),
             active_network: None,
             active_secret_kind: None,
@@ -328,6 +332,7 @@ impl SessionManager {
         self.stronghold_password_hash = Some(stronghold_password_hash);
         self.is_unlocked = true;
         self.last_activity_at = Some(Instant::now());
+        self.expiry_hold_until = None;
 
         println!("[SESSION] Unlock successful");
         session_id
@@ -350,6 +355,7 @@ impl SessionManager {
         self.stronghold_password_hash = None;
         self.is_unlocked = false;
         self.last_activity_at = None;
+        self.expiry_hold_until = None;
 
         println!("[SESSION] Wallet locked, session secrets zeroized");
     }
@@ -358,6 +364,12 @@ impl SessionManager {
     pub fn is_expired(&self) -> bool {
         if !self.is_unlocked {
             return true;
+        }
+        if self
+            .expiry_hold_until
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return false;
         }
 
         if let Some(last_activity_at) = self.last_activity_at {
@@ -432,6 +444,31 @@ impl SessionManager {
         self.last_activity_at = Some(Instant::now());
         self.notify_expiry_change();
         Ok(())
+    }
+
+    /// Holds auto-lock for at most `limit` while a request's approved stages
+    /// run. A manual lock still locks.
+    pub fn hold_expiry(&mut self, limit: Duration) -> Result<(), WalletError> {
+        if !self.is_unlocked || self.is_expired() {
+            return Err(WalletError::WalletLocked);
+        }
+        self.expiry_hold_until = Instant::now().checked_add(limit);
+        self.notify_expiry_change();
+        Ok(())
+    }
+
+    /// Ends the hold. The end counts as activity, so the user has a full
+    /// timeout to read the result, unless the hold ran past its limit.
+    pub fn release_expiry_hold(&mut self) {
+        if self.expiry_hold_until.is_none() {
+            return;
+        }
+        let expired = self.is_expired();
+        self.expiry_hold_until = None;
+        if !expired {
+            self.last_activity_at = Some(Instant::now());
+        }
+        self.notify_expiry_change();
     }
 
     /// Returns the active timeout in minutes.
@@ -546,10 +583,13 @@ impl SessionManager {
             return None;
         }
 
+        let inactivity_deadline = self
+            .last_activity_at
+            .and_then(|last_activity| last_activity.checked_add(self.timeout_duration))
+            .unwrap_or_else(Instant::now);
         Some(
-            self.last_activity_at
-                .and_then(|last_activity| last_activity.checked_add(self.timeout_duration))
-                .unwrap_or_else(Instant::now),
+            self.expiry_hold_until
+                .map_or(inactivity_deadline, |until| until.max(inactivity_deadline)),
         )
     }
 
@@ -701,6 +741,63 @@ mod tests {
 
         std::thread::sleep(Duration::from_millis(90));
         assert!(session.is_expired());
+    }
+
+    #[test]
+    fn an_expiry_hold_outlasts_the_timeout_until_it_ends_or_runs_out() {
+        let store = test_store();
+        let public_profile = derive_public_profile_from_material(
+            "session expiry hold",
+            WalletSecretKind::SeedText,
+            Network::Mainnet,
+        )
+        .expect("public profile");
+        let mut session = SessionManager::new(store);
+        session.unlock_with_profile(
+            "account-4".to_string(),
+            WalletNetwork::Mainnet,
+            WalletSecretKind::SeedText,
+            public_profile,
+            Zeroizing::new(vec![7, 7, 7, 7]),
+        );
+        session.set_timeout(Duration::from_millis(100));
+
+        session
+            .hold_expiry(Duration::from_millis(400))
+            .expect("hold while unlocked");
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(!session.is_expired(), "the hold outlasts the timeout");
+
+        session.release_expiry_hold();
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(!session.is_expired(), "ending the hold counts as activity");
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(session.is_expired());
+
+        session.touch_activity().expect_err("expired");
+        session.lock();
+        session.unlock_with_profile(
+            "account-4".to_string(),
+            WalletNetwork::Mainnet,
+            WalletSecretKind::SeedText,
+            derive_public_profile_from_material(
+                "session expiry hold",
+                WalletSecretKind::SeedText,
+                Network::Mainnet,
+            )
+            .expect("public profile"),
+            Zeroizing::new(vec![7, 7, 7, 7]),
+        );
+        session
+            .hold_expiry(Duration::from_millis(150))
+            .expect("hold while unlocked");
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            session.is_expired(),
+            "a hold past its limit no longer holds"
+        );
+        session.release_expiry_hold();
+        assert!(session.is_expired(), "ending a lapsed hold does not unlock");
     }
 
     #[test]

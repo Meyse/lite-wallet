@@ -168,6 +168,27 @@ export async function postProvisioningRequest(
   });
 }
 
+/**
+ * Runs the approved stages of the open request with auto-lock paused (ADR
+ * 0001). Rust caps the pause at five minutes; it ends when the stages stop.
+ */
+export async function withAutoLockPaused<T>(
+  requestHex: string,
+  stages: () => Promise<T>
+): Promise<T> {
+  const paused = await invokeWalletCommand<void>('pause_auto_lock_for_request', {
+    request_hex: requestHex,
+  }).then(
+    () => true,
+    () => false
+  );
+  try {
+    return await stages();
+  } finally {
+    if (paused) await invokeWalletCommand<void>('resume_auto_lock').catch(() => {});
+  }
+}
+
 export async function openGenericRequestCallback(
   requestHex: string,
   callbackUri: string,
