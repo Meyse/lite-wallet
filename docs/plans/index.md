@@ -17,8 +17,8 @@ Plans are first-class artifacts for multi-step work.
 
 - Requests in the guided flow (active; phase 1 in progress):
   [`./active/generic-requests-guided-flow.md`](./active/generic-requests-guided-flow.md)
-- Watchlist portfolio boundary and startup latency (in progress: steps 1–2
-  done):
+- Watchlist portfolio boundary and startup latency (in progress: steps 1–2 done;
+  steps 3–4 planned):
   [`./active/watchlist-portfolio-boundary-and-startup-latency.md`](./active/watchlist-portfolio-boundary-and-startup-latency.md)
 - Action wait feedback across user-started operations (proposed):
   [`./active/action-wait-feedback.md`](./active/action-wait-feedback.md)
