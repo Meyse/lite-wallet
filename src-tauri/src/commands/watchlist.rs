@@ -21,12 +21,13 @@ use crate::core::auth::{
 };
 use crate::core::channels::vrpc::{ConfiguredVrpcSystem, VrpcProviderPool};
 use crate::core::coins::{Channel, CoinDefinition, CoinRegistry};
+use crate::core::updates::{UpdateEngine, WatchedCurrencyRate, WATCHED_RATE_REQUEST_LIMIT};
 use crate::core::wallet::AccountStateStore;
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
     AddressEndpointKind, ResolveWatchlistTargetRequest, WalletError, WatchlistEntry,
-    WatchlistEntrySnapshot, WatchlistHolding, WatchlistRefreshResult, WatchlistResolvedTarget,
-    WatchlistSource, WatchlistTargetKind,
+    WatchlistEntrySnapshot, WatchlistHolding, WatchlistRateRequest, WatchlistRefreshResult,
+    WatchlistResolvedTarget, WatchlistSource, WatchlistTargetKind,
 };
 
 const MAX_WATCHLIST_ENTRIES: usize = 100;
@@ -382,6 +383,103 @@ pub async fn get_watchlist_entries(
     let entries = load_entries(account_state_store.inner(), &context).await?;
     ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
     Ok(entries)
+}
+
+/// A currency ID as `getaddressbalance` reports it: a short ASCII alphanumeric ID.
+fn is_currency_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 64 && value.chars().all(|ch| ch.is_ascii_alphanumeric())
+}
+
+/// Resolves a watched currency the same way a Watchlist refresh does: from the
+/// registry, or from `getcurrency` on its configured chain. The UI sends only
+/// IDs, so it cannot supply a coin definition or an endpoint.
+async fn resolve_watched_coin(
+    request: WatchlistRateRequest,
+    network: WalletNetwork,
+    systems: Arc<Vec<ConfiguredVrpcSystem>>,
+    provider_pool: Arc<VrpcProviderPool>,
+    coin_registry: Arc<CoinRegistry>,
+) -> Option<CoinDefinition> {
+    let system = systems.iter().find(|system| {
+        system
+            .system_id
+            .eq_ignore_ascii_case(request.system_id.trim())
+    })?;
+    let currency_id = request.currency_id.trim();
+    if !is_currency_id(currency_id) {
+        return None;
+    }
+    if let Some(known) = registered_coin(coin_registry.as_ref(), network, currency_id) {
+        return Some(known);
+    }
+    let payload = provider_pool
+        .for_system(network, &system.system_id)
+        .getcurrency(currency_id)
+        .await
+        .ok()?;
+    pbaas_coin_definition_from_payload(
+        &payload,
+        network,
+        provider_pool.endpoint_url_for_system(network, &system.system_id),
+    )
+}
+
+/// Prices watched currencies that the update engine does not track. The Watchlist
+/// calls this once per visit; rates younger than the refresh interval are reused.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_watchlist_rates(
+    currencies: Vec<WatchlistRateRequest>,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
+    update_engine: State<'_, Arc<UpdateEngine>>,
+) -> Result<Vec<WatchedCurrencyRate>, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let network = context.wallet_network;
+    let systems = Arc::new(watchlist_systems(vrpc_provider_pool.as_ref(), network));
+    let lookup_limit = shared_watchlist_lookup_limit();
+    let mut seen = std::collections::HashSet::<(String, String)>::new();
+    let mut tasks = JoinSet::new();
+    for request in currencies
+        .into_iter()
+        .filter(|request| {
+            seen.insert((
+                request.system_id.trim().to_ascii_lowercase(),
+                request.currency_id.trim().to_ascii_lowercase(),
+            ))
+        })
+        .take(WATCHED_RATE_REQUEST_LIMIT)
+    {
+        let systems = systems.clone();
+        let provider_pool = vrpc_provider_pool.inner().clone();
+        let coin_registry = coin_registry.inner().clone();
+        let lookup_limit = lookup_limit.clone();
+        tasks.spawn(async move {
+            with_watchlist_lookup_permit(
+                lookup_limit,
+                resolve_watched_coin(request, network, systems, provider_pool, coin_registry),
+            )
+            .await
+            .flatten()
+        });
+    }
+    let mut coins = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok(Some(coin)) = result {
+            coins.push(coin);
+        }
+    }
+
+    let rates = update_engine
+        .resolve_watched_rates(
+            network,
+            coins,
+            coin_registry.as_ref(),
+            vrpc_provider_pool.inner(),
+        )
+        .await;
+    ensure_active_wallet_session(session_manager.inner(), &context.session_id).await?;
+    Ok(rates)
 }
 
 #[tauri::command(rename_all = "snake_case")]

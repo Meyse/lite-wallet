@@ -1,7 +1,9 @@
 import { invokeSessionBoundWalletCommand } from './invokeWalletCommand.js';
 import type {
+  WatchedCurrencyRate,
   WatchlistEntry,
   WatchlistEntrySnapshot,
+  WatchlistRateRequest,
   WatchlistRefreshResult,
   WatchlistResolvedTarget,
 } from '$lib/types/watchlist.js';
@@ -28,4 +30,13 @@ export function removeWatchlistEntry(entryId: string): Promise<boolean> {
 
 export function refreshWatchlist(): Promise<WatchlistRefreshResult> {
   return invokeSessionBoundWalletCommand<WatchlistRefreshResult>('refresh_watchlist');
+}
+
+/** Prices watched currencies that the update engine does not track. */
+export function getWatchlistRates(
+  currencies: WatchlistRateRequest[]
+): Promise<WatchedCurrencyRate[]> {
+  return invokeSessionBoundWalletCommand<WatchedCurrencyRate[]>('get_watchlist_rates', {
+    currencies,
+  });
 }

@@ -4,7 +4,12 @@ import type {
   WatchlistHolding,
   WatchlistSource,
 } from '$lib/types/watchlist.js';
-import { buildWatchlistEntryViewModel, mergeWatchlistSnapshot } from './watchlist.js';
+import {
+  buildWatchlistEntryViewModel,
+  mergeWatchedRates,
+  mergeWatchlistSnapshot,
+  watchedRateRequests,
+} from './watchlist.js';
 
 function holding(systemId: string, assetKey: string, balance: string): WatchlistHolding {
   return {
@@ -232,5 +237,109 @@ describe('partial refresh merging', () => {
     );
 
     expect(mergeWatchlistSnapshot(previous, next).holdings).toEqual([]);
+  });
+});
+
+describe('watched currency rates and holding order', () => {
+  const now = 1_800_000_000_000;
+  const record = (holdings: WatchlistHolding[]) => ({
+    snapshot: multiSystemSnapshot('available', [], holdings),
+    stale: false,
+  });
+
+  it('lists priced holdings by value, highest first, then unpriced ones by name', () => {
+    const view = buildWatchlistEntryViewModel(
+      record([
+        holding('verus', 'small', '1'),
+        holding('verus', 'zeta', '5'),
+        holding('verus', 'large', '10'),
+        holding('verus', 'alpha', '5'),
+      ]),
+      {
+        'small-currency': { rates: { USD: 2 }, usdChange24hPct: null },
+        'large-currency': { rates: { USD: 1 }, usdChange24hPct: null },
+      },
+      'en-US',
+      'USD'
+    );
+
+    expect(view.holdings.map((h) => [h.key, h.fiatDisplay])).toEqual([
+      ['large', '$10.00'],
+      ['small', '$2.00'],
+      ['alpha', '—'],
+      ['zeta', '—'],
+    ]);
+  });
+
+  it('names the chain only for a currency held on more than one chain', () => {
+    const onVerus = holding('Verus', 'vrsc-on-verus', '10');
+    const onVarrr = { ...holding('vARRR', 'vrsc-on-varrr', '1'), currencyId: onVerus.currencyId };
+    const view = buildWatchlistEntryViewModel(
+      record([onVerus, onVarrr, holding('Verus', 'kaiju', '3')]),
+      {},
+      'en-US',
+      'USD'
+    );
+
+    expect(Object.fromEntries(view.holdings.map((h) => [h.key, h.systemLabel]))).toEqual({
+      'vrsc-on-verus': 'Verus',
+      'vrsc-on-varrr': 'vARRR',
+      kaiju: null,
+    });
+  });
+
+  it('prefers engine rates and shows a watched rate only while it is at most 15 minutes old', () => {
+    const merged = mergeWatchedRates(
+      { shared: { rates: { USD: 2 }, usdChange24hPct: 1 } },
+      {
+        shared: {
+          coinId: 'shared',
+          rates: { USD: 9 },
+          usdChange24hPct: null,
+          fetchedAt: now / 1000,
+        },
+        newer: {
+          coinId: 'newer',
+          rates: { USD: 5 },
+          usdChange24hPct: null,
+          fetchedAt: now / 1000 + 30,
+        },
+        recent: {
+          coinId: 'recent',
+          rates: { USD: 3 },
+          usdChange24hPct: null,
+          fetchedAt: now / 1000 - 14 * 60,
+        },
+        expired: {
+          coinId: 'expired',
+          rates: { USD: 4 },
+          usdChange24hPct: null,
+          fetchedAt: now / 1000 - 16 * 60,
+        },
+      },
+      now
+    );
+
+    expect(merged.shared.rates.USD).toBe(2);
+    // Fetched after the clock was last read: still fresh.
+    expect(merged.newer.rates.USD).toBe(5);
+    expect(merged.recent.rates.USD).toBe(3);
+    expect(merged.expired).toBeUndefined();
+  });
+
+  it('requests each unpriced watched currency once, skipping engine-priced and already requested ones', () => {
+    const priced = holding('verus', 'priced', '1');
+    const unpriced = holding('verus', 'unpriced', '1');
+    const requested = new Set(['already']);
+    const requests = watchedRateRequests(
+      [record([priced, unpriced]), record([unpriced, holding('verus', 'already', '1')])],
+      { 'priced-currency': { rates: { EUR: 1 }, usdChange24hPct: null } },
+      'EUR',
+      requested
+    );
+
+    expect(requests).toEqual([
+      { key: 'unpriced', systemId: 'verus', currencyId: 'unpriced-currency' },
+    ]);
   });
 });

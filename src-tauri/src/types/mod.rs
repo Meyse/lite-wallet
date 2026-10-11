@@ -69,5 +69,6 @@ pub use wallet::{
 };
 pub use watchlist::{
     ResolveWatchlistTargetRequest, WatchlistEntry, WatchlistEntrySnapshot, WatchlistHolding,
-    WatchlistRefreshResult, WatchlistResolvedTarget, WatchlistSource, WatchlistTargetKind,
+    WatchlistRateRequest, WatchlistRefreshResult, WatchlistResolvedTarget, WatchlistSource,
+    WatchlistTargetKind,
 };

@@ -103,6 +103,19 @@ an empty rate snapshot so the frontend removes that fiat value. A later
 successful refresh replaces the empty snapshot normally. Rebuilt snapshots are
 also emitted when an expired ECB reference removes a display currency.
 
+The engine prices only active assets. The Watchlist prices the other watched
+currencies on demand: once per visit, it sends each unpriced holding's chain and
+currency ID to `get_watchlist_rates`, at most once per holding. The backend
+resolves each currency itself (registry or `getcurrency` on a configured chain),
+reuses a cached rate younger than five minutes, and fetches the rest in one pass
+of at most four requests at a time, with a 30-second limit. It uses CoinPaprika
+for currencies with a known ID, so CoinPaprika can learn which currencies are
+watched, but not any address; other currencies use PBaaS derivation. These rates
+go into `PublicRatesCache` but are not emitted, so the Overview and its total
+never use them. The Watchlist shows each one until it is 15 minutes old.
+Holdings are listed by fiat value, highest first, and a currency held on more
+than one chain shows the chain name.
+
 ECB reference rates refresh after six hours and retain the publication date from
 the feed. A response with a missing, invalid, future, or more than five-day-old
 publication date, or without usable reference currencies, is rejected and

@@ -31,6 +31,7 @@
   import * as watchlistService from '$lib/services/watchlistService.js';
   import type { WalletNetwork } from '$lib/types/wallet.js';
   import type {
+    WatchedCurrencyRate,
     WatchlistEntry,
     WatchlistEntrySnapshot,
     WatchlistResolvedTarget,
@@ -39,7 +40,9 @@
   import { extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import {
     buildWatchlistEntryViewModel,
+    mergeWatchedRates,
     mergeWatchlistSnapshot,
+    watchedRateRequests,
     type WatchlistRecord,
   } from '$lib/utils/watchlist.js';
   import {
@@ -101,6 +104,12 @@
   let addGeneration = 0;
   /** Balance attempts already made per entry id, scoped to this component. */
   const attemptedEntryIds = new Set<string>();
+  /** Rates for watched currencies the engine does not track, for this visit only. */
+  let watchedRates = $state<Record<string, WatchedCurrencyRate>>({});
+  /** Holdings already priced in this visit; each is requested at most once. */
+  const requestedRateKeys = new Set<string>();
+  let rateClock = $state(Date.now());
+  const displayRates = $derived(mergeWatchedRates(rates, watchedRates, rateClock));
   let recoveringWalletSession = $state(false);
   const copiedAddressState = new TimedValueState<string>();
 
@@ -117,7 +126,12 @@
   const rows = $derived(
     records.map((record) => ({
       record,
-      view: buildWatchlistEntryViewModel(record, rates, i18n.intlLocale, settings.displayCurrency),
+      view: buildWatchlistEntryViewModel(
+        record,
+        displayRates,
+        i18n.intlLocale,
+        settings.displayCurrency
+      ),
     }))
   );
   const selectedRow = $derived(
@@ -527,10 +541,39 @@
     }
   }
 
+  // Price watched currencies the engine does not track, once per visit. The
+  // backend reuses rates younger than five minutes, so a quick revisit sends no
+  // request. Testnet has no fiat rates.
+  $effect(() => {
+    if (walletNetwork === 'testnet') return;
+    const requests = watchedRateRequests(
+      records,
+      rates,
+      settings.displayCurrency,
+      requestedRateKeys
+    );
+    if (requests.length === 0) return;
+    for (const request of requests) requestedRateKeys.add(request.key);
+    void watchlistService
+      .getWatchlistRates(requests.map(({ systemId, currencyId }) => ({ systemId, currencyId })))
+      .then((result) => {
+        if (!mounted || result.length === 0) return;
+        watchedRates = {
+          ...watchedRates,
+          ...Object.fromEntries(result.map((rate) => [rate.coinId, rate])),
+        };
+      })
+      // A failed lookup leaves these holdings unpriced until the next visit.
+      .catch(() => {});
+  });
+
   onMount(() => {
     mounted = true;
     void hydrate();
+    // Re-check watched rates against the display age limit while the visit lasts.
+    const rateClockTimer = setInterval(() => (rateClock = Date.now()), 60_000);
     return () => {
+      clearInterval(rateClockTimer);
       mounted = false;
       addGeneration++;
       contactGeneration++;
@@ -866,7 +909,9 @@
                     <div class="min-w-0 flex-1">
                       <p class="truncate text-sm font-medium">{holding.name}</p>
                       <p class="truncate text-xs text-settings-muted-foreground">
-                        {holding.ticker}
+                        {holding.systemLabel
+                          ? `${holding.ticker} · ${holding.systemLabel}`
+                          : holding.ticker}
                       </p>
                     </div>
                     <div class="shrink-0 text-right tabular-nums">

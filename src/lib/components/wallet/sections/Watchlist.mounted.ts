@@ -23,6 +23,7 @@ const service = vi.hoisted(() => ({
   addWatchlistEntry: vi.fn(),
   removeWatchlistEntry: vi.fn(),
   refreshWatchlist: vi.fn(),
+  getWatchlistRates: vi.fn(),
 }));
 vi.mock('$lib/services/watchlistService.js', () => service);
 const contactService = vi.hoisted(() => ({ loadContacts: vi.fn(), addIdentityContact: vi.fn() }));
@@ -173,6 +174,7 @@ beforeEach(() => {
   service.getWatchlistEntries.mockResolvedValue([]);
   service.refreshWatchlist.mockResolvedValue(refreshResult([]));
   service.removeWatchlistEntry.mockResolvedValue(true);
+  service.getWatchlistRates.mockResolvedValue([]);
   contactService.loadContacts.mockResolvedValue([]);
   addressService.validateDestinationAddress.mockImplementation(async ({ address }) => ({
     valid: true,
@@ -1298,9 +1300,64 @@ describe('watchlist workflows', () => {
     await settle();
     expect(valueCard?.textContent).toContain('$23.50');
     expect(valueCard?.textContent).not.toContain('Some currencies have no fiat rate.');
-    expect(
-      document.querySelectorAll('[data-testid="watchlist-holding-row"]')[1].textContent
-    ).toContain('$15.00');
+    // Holdings are listed by value, so the newly priced $15.00 holding moves to the top.
+    const repriced = document.querySelectorAll('[data-testid="watchlist-holding-row"]');
+    expect(repriced[0].textContent).toContain('$15.00');
+    expect(repriced[1].textContent).toContain('$8.50');
+  });
+
+  it('prices an unpriced watched currency once per visit and lists the most valuable holding first', async () => {
+    const systemId = snapshot.holdings[0].systemId;
+    const mixedSnapshot: WatchlistEntrySnapshot = {
+      ...snapshot,
+      holdings: [
+        ...snapshot.holdings,
+        {
+          assetKey: 'unpriced',
+          currencyId: 'unpriced-currency',
+          systemId,
+          systemTicker: 'VRSC',
+          systemDisplayName: 'Verus',
+          balance: '3',
+        },
+      ],
+    };
+    ratesStore.set({ VRSC: { rates: { USD: 2 }, usdChange24hPct: null } });
+    service.getWatchlistEntries.mockResolvedValue([entry]);
+    service.refreshWatchlist.mockResolvedValue(refreshResult([mixedSnapshot]));
+    // The rate is fetched after the visit started, so it is newer than the
+    // Watchlist's once-a-minute clock.
+    service.getWatchlistRates.mockImplementation(async () => [
+      {
+        coinId: 'unpriced-currency',
+        rates: { USD: 5 },
+        usdChange24hPct: null,
+        fetchedAt: Math.floor(Date.now() / 1000) + 5,
+      },
+    ]);
+
+    await render();
+    expect(service.getWatchlistRates).toHaveBeenCalledTimes(1);
+    expect(service.getWatchlistRates).toHaveBeenCalledWith([
+      { systemId, currencyId: 'unpriced-currency' },
+    ]);
+    const entryRow = document.querySelector<HTMLButtonElement>('[data-testid="watchlist-entry"]');
+    expect(entryRow?.textContent).toContain('$23.50');
+    expect(entryRow?.textContent).not.toContain('Partial');
+
+    entryRow?.click();
+    await settle();
+    const holdingRows = document.querySelectorAll('[data-testid="watchlist-holding-row"]');
+    expect(holdingRows[0].textContent).toContain('$15.00');
+    expect(holdingRows[1].textContent).toContain('$8.50');
+    expect(service.getWatchlistRates).toHaveBeenCalledTimes(1);
+
+    // Leaving and opening the Watchlist again is a new visit, so it asks again;
+    // the backend reuses its cached rate when it is recent.
+    if (component) await unmount(component);
+    document.body.replaceChildren();
+    await render();
+    expect(service.getWatchlistRates).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the entry until confirmed removal finishes', async () => {

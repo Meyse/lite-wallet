@@ -41,6 +41,7 @@ const APP_COMMANDS: &[&str] = &[
     "get_watched_vrpc_addresses",
     "set_watched_vrpc_addresses",
     "get_watchlist_entries",
+    "get_watchlist_rates",
     "resolve_watchlist_target",
     "add_watchlist_entry",
     "remove_watchlist_entry",

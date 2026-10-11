@@ -52,3 +52,18 @@ export interface WatchlistRefreshResult {
   entries: WatchlistEntrySnapshot[];
   refreshedAt: number;
 }
+
+/** A watched currency to price: the chain it is held on and its currency ID. */
+export interface WatchlistRateRequest {
+  systemId: string;
+  currencyId: string;
+}
+
+/** A public rate for a watched currency that the update engine does not track. */
+export interface WatchedCurrencyRate {
+  coinId: string;
+  rates: Record<string, number>;
+  usdChange24hPct: number | null;
+  /** Unix seconds when the source data was fetched. */
+  fetchedAt: number;
+}

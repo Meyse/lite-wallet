@@ -79,6 +79,34 @@ function snapshot(entry: WatchlistEntry): WatchlistEntrySnapshot {
                   },
                 ]
               : []),
+            ...(state === 'detail-multichain'
+              ? [
+                  {
+                    assetKey: `${entry.id}-varrr`,
+                    currencyId: coin.currencyId,
+                    systemId: 'iExBJfZYK7KREDpuhj6PzZBzqMAKaFg7d2',
+                    systemTicker: 'vARRR',
+                    systemDisplayName: 'vARRR',
+                    balance: '1.5',
+                    coin,
+                  },
+                  {
+                    assetKey: `${entry.id}-kaiju`,
+                    currencyId: 'iKaijuFixture',
+                    systemId: coin.systemId,
+                    systemTicker: 'VRSC',
+                    systemDisplayName: 'Verus',
+                    balance: '400',
+                    coin: {
+                      ...coin,
+                      id: 'iKaijuFixture',
+                      currencyId: 'iKaijuFixture',
+                      displayTicker: 'Kaiju',
+                      displayName: 'Kaiju',
+                    },
+                  },
+                ]
+              : []),
           ],
     sources: [],
     availability:
@@ -143,6 +171,17 @@ Object.assign(window, {
         return snapshot({ ...entries[0], displayName: request?.name || entries[0].displayName });
       }
       if (command === 'remove_watchlist_entry') return true;
+      if (command === 'get_watchlist_rates')
+        return state === 'detail-multichain'
+          ? [
+              {
+                coinId: 'iKaijuFixture',
+                rates: { USD: 0.275, EUR: 0.25 },
+                usdChange24hPct: null,
+                fetchedAt: Math.floor(Date.now() / 1000),
+              },
+            ]
+          : [];
       throw new Error(`Unsupported Watchlist fixture command: ${command}`);
     },
     transformCallback: () => 1,
@@ -167,6 +206,7 @@ async function advance(): Promise<void> {
       'preview-address',
       'detail',
       'detail-partial',
+      'detail-multichain',
       'detail-stale',
       'detail-unavailable',
       'detail-loading',

@@ -250,6 +250,7 @@ pub fn run() {
             wallet::get_watched_vrpc_addresses,
             wallet::set_watched_vrpc_addresses,
             watchlist::get_watchlist_entries,
+            watchlist::get_watchlist_rates,
             watchlist::resolve_watchlist_target,
             watchlist::add_watchlist_entry,
             watchlist::remove_watchlist_entry,

@@ -1,8 +1,10 @@
 import type { CoinRatesSnapshot } from '$lib/stores/rates.js';
 import type {
+  WatchedCurrencyRate,
   WatchlistAvailability,
   WatchlistEntrySnapshot,
   WatchlistHolding,
+  WatchlistRateRequest,
   WatchlistTargetKind,
 } from '$lib/types/watchlist.js';
 import { formatFiatAmount, getRateForCurrency } from '$lib/utils/fiatDisplay.js';
@@ -19,6 +21,8 @@ export interface WatchlistHoldingViewModel {
   name: string;
   ticker: string;
   systemName: string;
+  /** The chain's name, set only when the entry holds this currency on more than one chain. */
+  systemLabel: string | null;
   balanceDisplay: string;
   fiatDisplay: string;
   fiatValue: number | null;
@@ -71,6 +75,26 @@ function resolveRate(
   return null;
 }
 
+/**
+ * Priced holdings first, highest value first, so the holding that matters most
+ * is at the top; then unpriced holdings by name; then by chain.
+ */
+function compareHoldings(
+  left: WatchlistHoldingViewModel,
+  right: WatchlistHoldingViewModel,
+  intlLocale: string
+): number {
+  if (left.fiatValue !== null || right.fiatValue !== null) {
+    if (left.fiatValue === null) return 1;
+    if (right.fiatValue === null) return -1;
+    if (left.fiatValue !== right.fiatValue) return right.fiatValue - left.fiatValue;
+  }
+  return (
+    left.name.localeCompare(right.name, intlLocale) ||
+    left.systemName.localeCompare(right.systemName, intlLocale)
+  );
+}
+
 export function buildWatchlistEntryViewModel(
   record: WatchlistRecord,
   rates: Record<string, CoinRatesSnapshot>,
@@ -78,6 +102,11 @@ export function buildWatchlistEntryViewModel(
   displayCurrency: string,
   unavailableDisplay = '—'
 ): WatchlistEntryViewModel {
+  const chainCounts = new Map<string, number>();
+  for (const holding of record.snapshot.holdings) {
+    const key = holding.currencyId.toLowerCase();
+    chainCounts.set(key, (chainCounts.get(key) ?? 0) + 1);
+  }
   const holdings = record.snapshot.holdings.map((holding): WatchlistHoldingViewModel => {
     const balance = finiteNumber(holding.balance);
     const ticker = holding.coin?.displayTicker?.trim() || fallbackTicker(holding.currencyId);
@@ -91,13 +120,15 @@ export function buildWatchlistEntryViewModel(
             maximumFractionDigits: Math.min(8, holding.coin?.decimals ?? 8),
           }).format(balance);
 
+    const systemName = holding.systemDisplayName || holding.systemTicker;
     return {
       key: holding.assetKey,
       coinId: holding.coin?.id ?? holding.currencyId,
       currencyId: holding.currencyId,
       name: holding.coin?.displayName?.trim() || ticker,
       ticker,
-      systemName: holding.systemDisplayName || holding.systemTicker,
+      systemName,
+      systemLabel: (chainCounts.get(holding.currencyId.toLowerCase()) ?? 0) > 1 ? systemName : null,
       balanceDisplay,
       fiatDisplay:
         fiatValue === null
@@ -106,6 +137,7 @@ export function buildWatchlistEntryViewModel(
       fiatValue,
     };
   });
+  holdings.sort((left, right) => compareHoldings(left, right, intlLocale));
 
   const knownFiatValues = holdings
     .map((holding) => holding.fiatValue)
@@ -163,4 +195,49 @@ export function mergeWatchlistSnapshot(
 
   if (!retained.length) return next;
   return { ...next, holdings: [...next.holdings, ...retained] };
+}
+
+/** Matches the backend's display limit for public rates (`MARKET_RATE_DISPLAY_MAX_AGE_SECS`). */
+export const WATCHED_RATE_MAX_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * Adds watched-currency rates to the engine's rates for Watchlist display only.
+ * Engine rates win, and a watched rate older than the display limit is dropped,
+ * so an expired value is never shown as current.
+ */
+export function mergeWatchedRates(
+  engineRates: Record<string, CoinRatesSnapshot>,
+  watchedRates: Record<string, WatchedCurrencyRate>,
+  nowMs: number
+): Record<string, CoinRatesSnapshot> {
+  const merged: Record<string, CoinRatesSnapshot> = {};
+  for (const [coinId, entry] of Object.entries(watchedRates)) {
+    // The visit's clock ticks once a minute, so a rate fetched after the last
+    // tick has a negative age; it is fresh, not invalid.
+    if (nowMs - entry.fetchedAt * 1000 > WATCHED_RATE_MAX_AGE_MS) continue;
+    merged[coinId] = { rates: entry.rates, usdChange24hPct: entry.usdChange24hPct };
+  }
+  return { ...merged, ...engineRates };
+}
+
+/**
+ * Lists watched currencies that have no engine rate in the display currency and
+ * were not requested yet in this Watchlist visit, once per holding key.
+ */
+export function watchedRateRequests(
+  records: WatchlistRecord[],
+  engineRates: Record<string, CoinRatesSnapshot>,
+  displayCurrency: string,
+  requestedKeys: ReadonlySet<string>
+): (WatchlistRateRequest & { key: string })[] {
+  const requests = new Map<string, WatchlistRateRequest & { key: string }>();
+  for (const record of records) {
+    for (const holding of record.snapshot.holdings) {
+      const key = holding.assetKey;
+      if (requestedKeys.has(key) || requests.has(key)) continue;
+      if (resolveRate(holding, engineRates, displayCurrency) !== null) continue;
+      requests.set(key, { key, systemId: holding.systemId, currencyId: holding.currencyId });
+    }
+  }
+  return [...requests.values()];
 }

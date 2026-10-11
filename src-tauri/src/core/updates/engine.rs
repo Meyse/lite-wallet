@@ -221,6 +221,243 @@ impl UpdateEngine {
             println!("[UPDATE] Engine stopped");
         }
     }
+
+    /// Price watched currencies that the engine does not track, for one Watchlist
+    /// visit. A cached rate younger than the refresh interval is reused, so a repeat
+    /// visit within it sends no request. New rates go into the shared cache but are
+    /// not emitted: the Watchlist shows them only while they are displayable, and
+    /// the engine's own coin list stays unchanged. Testnet has no fiat rates.
+    pub async fn resolve_watched_rates(
+        &self,
+        network: WalletNetwork,
+        coins: Vec<CoinDefinition>,
+        coin_registry: &CoinRegistry,
+        vrpc_provider_pool: &Arc<VrpcProviderPool>,
+    ) -> Vec<WatchedCurrencyRate> {
+        if matches!(network, WalletNetwork::Testnet) {
+            return Vec::new();
+        }
+        let now_unix_secs = unix_timestamp_secs();
+        let mut seen = HashSet::<PublicRateIdentity>::new();
+        let coins = coins
+            .into_iter()
+            .filter(|coin| seen.insert(PublicRateIdentity::for_coin(network, coin)))
+            .take(WATCHED_RATE_REQUEST_LIMIT)
+            .collect::<Vec<_>>();
+        let vrsc_coin = coin_registry
+            .get_all()
+            .into_iter()
+            .find(|coin| !coin.is_testnet && coin.id.eq_ignore_ascii_case(VRSC_COIN_ID));
+
+        let fresh = |entry: &CachedMarketRates| {
+            entry.is_displayable(now_unix_secs) && !entry.needs_refresh(now_unix_secs)
+        };
+        let (usd_reference_rates, mut results, due, mut anchor) = {
+            let cache = self.public_rates_cache.lock().await;
+            let usd_reference_rates = cache
+                .usable_ecb_reference_rates(now_unix_secs)
+                .map(|entry| entry.rates)
+                .unwrap_or_else(|| HashMap::from([(ecb::USD.to_string(), 1.0)]));
+            let mut results = Vec::new();
+            let mut due = Vec::new();
+            for coin in coins {
+                match cache
+                    .market_rate(network, &coin)
+                    .filter(|entry| fresh(entry))
+                {
+                    Some(entry) => results.push(WatchedCurrencyRate::from_cached(
+                        &coin.id,
+                        entry,
+                        &usd_reference_rates,
+                    )),
+                    None => due.push(coin),
+                }
+            }
+            let anchor = vrsc_coin
+                .as_ref()
+                .and_then(|coin| cache.market_rate(network, coin))
+                .filter(|entry| entry.is_displayable(now_unix_secs))
+                .map(|entry| ecb::build_coin_fiat_rates(entry.usd_price, &usd_reference_rates));
+            (usd_reference_rates, results, due, anchor)
+        };
+        if due.is_empty() {
+            return results;
+        }
+
+        let client = build_rates_http_client();
+        // PBaaS prices are derived from the VRSC price; fetch it once if no
+        // displayable one is cached.
+        if anchor.is_none() && due.iter().any(pbaas::is_pbaas_derivation_candidate) {
+            if let Some(vrsc_coin) = vrsc_coin.as_ref() {
+                let fetched = tokio::time::timeout(
+                    Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS),
+                    coinpaprika::fetch_usd_metrics(&client, vrsc_coin),
+                )
+                .await;
+                if let Ok(Ok(metrics)) = fetched {
+                    if let Some(entry) = self
+                        .store_watched_rate(
+                            network,
+                            vrsc_coin,
+                            metrics.usd_price,
+                            metrics.usd_change_24h_pct,
+                            PublicRateSource::CoinPaprika,
+                            &usd_reference_rates,
+                        )
+                        .await
+                    {
+                        anchor = Some(entry.rates);
+                    }
+                }
+            }
+        }
+        let latest_rates = Arc::new(
+            anchor
+                .map(|rates| HashMap::from([(VRSC_COIN_ID.to_string(), rates)]))
+                .unwrap_or_default(),
+        );
+
+        // One pass for every due coin, so a slow coin never holds back another.
+        let semaphore = Arc::new(Semaphore::new(BOOTSTRAP_RATE_CONCURRENCY));
+        let mut tasks = JoinSet::new();
+        for coin in due {
+            let semaphore = Arc::clone(&semaphore);
+            let client = client.clone();
+            let provider_pool = Arc::clone(vrpc_provider_pool);
+            let latest_rates = Arc::clone(&latest_rates);
+            tasks.spawn(async move {
+                let Ok(_permit) = semaphore.acquire_owned().await else {
+                    return (coin, None);
+                };
+                let timeout = Duration::from_secs(BOOTSTRAP_RATE_RESOLVE_TIMEOUT_SECS);
+                let priced = if should_attempt_coinpaprika(&coin) {
+                    tokio::time::timeout(timeout, coinpaprika::fetch_usd_metrics(&client, &coin))
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                        .map(|metrics| {
+                            (
+                                metrics.usd_price,
+                                metrics.usd_change_24h_pct,
+                                PublicRateSource::CoinPaprika,
+                            )
+                        })
+                } else if pbaas::is_pbaas_derivation_candidate(&coin) {
+                    tokio::time::timeout(
+                        timeout,
+                        derive_pbaas_rates_with_provider_candidates(
+                            provider_pool.as_ref(),
+                            network,
+                            &coin,
+                            latest_rates.as_ref(),
+                        ),
+                    )
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|rates| rates.get(ecb::USD).copied())
+                    .map(|usd_price| (usd_price, None, PublicRateSource::Pbaas))
+                } else {
+                    None
+                };
+                (coin, priced)
+            });
+        }
+
+        let deadline = tokio::time::sleep(Duration::from_secs(WATCHED_RATE_DEADLINE_SECS));
+        tokio::pin!(deadline);
+        loop {
+            let joined = tokio::select! {
+                _ = &mut deadline => {
+                    tasks.abort_all();
+                    break;
+                }
+                joined = tasks.join_next() => joined,
+            };
+            let Some(joined) = joined else {
+                break;
+            };
+            let Ok((coin, Some((usd_price, usd_change_24h_pct, source)))) = joined else {
+                continue;
+            };
+            if let Some(entry) = self
+                .store_watched_rate(
+                    network,
+                    &coin,
+                    usd_price,
+                    usd_change_24h_pct,
+                    source,
+                    &usd_reference_rates,
+                )
+                .await
+            {
+                results.push(WatchedCurrencyRate::from_cached(
+                    &coin.id,
+                    &entry,
+                    &usd_reference_rates,
+                ));
+            }
+        }
+        results
+    }
+
+    async fn store_watched_rate(
+        &self,
+        network: WalletNetwork,
+        coin: &CoinDefinition,
+        usd_price: f64,
+        usd_change_24h_pct: Option<f64>,
+        source: PublicRateSource,
+        usd_reference_rates: &HashMap<String, f64>,
+    ) -> Option<CachedMarketRates> {
+        if !(usd_price.is_finite() && usd_price > 0.0) {
+            return None;
+        }
+        let entry = CachedMarketRates {
+            identity: PublicRateIdentity::for_coin(network, coin),
+            rates: ecb::build_coin_fiat_rates(usd_price, usd_reference_rates),
+            usd_price,
+            usd_change_24h_pct,
+            source,
+            fetched_at_unix_secs: unix_timestamp_secs(),
+        };
+        self.public_rates_cache
+            .lock()
+            .await
+            .store_market_rate(entry.clone());
+        Some(entry)
+    }
+}
+
+/// Upper bound on watched currencies priced in one Watchlist request.
+pub const WATCHED_RATE_REQUEST_LIMIT: usize = 64;
+/// Upper bound on one Watchlist pricing pass; unfinished coins stay unpriced.
+const WATCHED_RATE_DEADLINE_SECS: u64 = 30;
+
+/// A public rate for a watched currency that the update engine does not track.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedCurrencyRate {
+    pub coin_id: String,
+    pub rates: HashMap<String, f64>,
+    pub usd_change_24h_pct: Option<f64>,
+    /// Unix seconds when the source data was fetched.
+    pub fetched_at: u64,
+}
+
+impl WatchedCurrencyRate {
+    fn from_cached(
+        coin_id: &str,
+        entry: &CachedMarketRates,
+        usd_reference_rates: &HashMap<String, f64>,
+    ) -> Self {
+        Self {
+            coin_id: coin_id.to_string(),
+            rates: ecb::build_coin_fiat_rates(entry.usd_price, usd_reference_rates),
+            usd_change_24h_pct: entry.usd_change_24h_pct,
+            fetched_at: entry.fetched_at_unix_secs,
+        }
+    }
 }
 
 /// Build list of (coin_id, channel_id) for active channels.
@@ -2641,5 +2878,59 @@ mod tests {
 
         let vrsc_usd = derive_vrsc_usd_anchor_from_bridge_currency_result(&payload);
         assert_eq!(vrsc_usd, None);
+    }
+    #[tokio::test]
+    async fn watched_rates_reuse_a_rate_younger_than_the_refresh_interval_without_a_request() {
+        let engine = super::UpdateEngine::new();
+        let registry = CoinRegistry::new();
+        // An unreachable local endpoint: any VRPC request fails at once, so only
+        // the cache can supply a rate.
+        let pool = Arc::new(crate::core::channels::vrpc::VrpcProviderPool::for_tests(
+            "http://127.0.0.1:9/",
+        ));
+        let vrsc = registry
+            .get_all()
+            .into_iter()
+            .find(|coin| coin.id == "VRSC" && !coin.is_testnet)
+            .expect("VRSC in registry");
+        let fresh = sample_coin("iFreshWatched", VRSC_SYSTEM_ID, Protocol::Vrsc);
+        let due = sample_coin("iDueWatched", VRSC_SYSTEM_ID, Protocol::Vrsc);
+        let now = crate::core::rates::cache::unix_timestamp_secs();
+        {
+            let mut cache = engine.public_rates_cache.lock().await;
+            // A cached VRSC price means no CoinPaprika request for the PBaaS anchor.
+            for (coin, usd_price, age_secs) in
+                [(&vrsc, 0.2, 0), (&fresh, 2.0, 240), (&due, 3.0, 360)]
+            {
+                cache.store_market_rate(CachedMarketRates {
+                    identity: PublicRateIdentity::for_coin(WalletNetwork::Mainnet, coin),
+                    rates: HashMap::from([("USD".to_string(), usd_price)]),
+                    usd_price,
+                    usd_change_24h_pct: None,
+                    source: PublicRateSource::CoinPaprika,
+                    fetched_at_unix_secs: now - age_secs,
+                });
+            }
+        }
+
+        let rates = engine
+            .resolve_watched_rates(
+                WalletNetwork::Mainnet,
+                vec![fresh.clone(), due.clone(), fresh.clone()],
+                &registry,
+                &pool,
+            )
+            .await;
+
+        // The 4-minute rate is reused once. The 6-minute rate is due for refresh,
+        // and its refresh fails offline, so it is not returned as current.
+        assert_eq!(rates.len(), 1);
+        assert_eq!(rates[0].coin_id, "iFreshWatched");
+        assert_eq!(rates[0].rates.get("USD"), Some(&2.0));
+        assert_eq!(rates[0].fetched_at, now - 240);
+        assert!(engine
+            .resolve_watched_rates(WalletNetwork::Testnet, vec![fresh], &registry, &pool)
+            .await
+            .is_empty());
     }
 }

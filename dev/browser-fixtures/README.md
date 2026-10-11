@@ -38,6 +38,10 @@ Open either page on `http://127.0.0.1:1428`:
   shell, starting empty. Add `alex@` or `RAutMoGh771ECTDbTq2qwwZo7MF5Tov3ka` to
   step through lookup, resolved preview, list, and detail views. Balances and
   rates are synthetic. Supports `theme=dark` and `locale=nl`.
+- `/dev/browser-fixtures/watchlist-states.html`: one Watchlist state per
+  `?state=`. `detail-partial` shows an unpriced holding; `detail-multichain`
+  holds Verus on two chains and prices a watched currency on demand, so holdings
+  sort by value and repeated currencies name their chain.
 - `/dev/browser-fixtures/transfer-navigation.html`: the production wallet shell
   and retained Send/Convert drafts, including profile-to-Contacts navigation.
   See the

@@ -29,6 +29,14 @@ pub struct ResolveWatchlistTargetRequest {
     pub name: Option<String>,
 }
 
+/// A watched currency to price: the chain it is held on and its currency ID.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchlistRateRequest {
+    pub system_id: String,
+    pub currency_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchlistResolvedTarget {

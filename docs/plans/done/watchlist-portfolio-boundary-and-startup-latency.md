@@ -19,12 +19,12 @@ last_reviewed: 2026-10-11
   it; on mainnet, rates arrive about 0.1 s after the engine starts. The rest of
   the debug startup delay is the Vite dev server loading the wallet route.
 - **Follow-ups:**
-  1. The Watchlist has fiat values only for the wallet's active coins. DAI,
-     tBTC, MKR, vUSDT and other watched currencies show "—". Fetching their
-     rates would tell CoinPaprika which currencies are watched, so it needs a
-     privacy decision.
-  2. The Watchlist lists one currency once per chain under the same name (for
-     example three "Verus" rows) without naming the chain.
+  1. Done 2026-10-11: the Watchlist prices watched currencies on demand, once
+     per visit, through `get_watchlist_rates` (owner accepted that CoinPaprika
+     sees which currencies are watched). On mainnet, 15 of the Foundation's 16
+     holdings now have a fiat value.
+  2. Done 2026-10-11: holdings are listed by fiat value, and a currency held on
+     more than one chain shows the chain name.
   3. After a VRPC outage ends, balances stay unavailable until the 300 s
      refresh; a reload recovers them.
   4. New wallets start with no active coins (`create_wallet` stores an empty,
