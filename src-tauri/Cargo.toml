@@ -79,3 +79,23 @@ tokio = { version = "1.53.1", features = ["test-util"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+# Debug builds compile dependencies without optimization. Then each Stronghold
+# snapshot read (scrypt) takes about 2.8 s instead of about 0.07 s, which hides
+# real startup costs. These overrides change only the speed of debug builds; the
+# work factor and every other setting stay the same. Release builds already
+# optimize all crates.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

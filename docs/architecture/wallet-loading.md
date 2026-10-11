@@ -1,6 +1,6 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-09-18
+last_reviewed: 2026-10-11
 ---
 
 # Wallet loading lifecycle
@@ -134,6 +134,10 @@ emitted balance and non-empty rate events. Dashboard logs mark receipt of those
 events. Event receipt does not prove that Svelte painted a value, and the first
 non-empty rate event may not yet contain the user's selected fiat currency.
 Render and native latency need separate runtime measurement.
+
+Debug builds optimize the crypto crates (`[profile.dev.package.*]` in
+`src-tauri/Cargo.toml`) and store files at work factor 15, so a debug read takes
+about 0.07 s. Debug timings therefore do not show the release storage cost.
 
 ## Display request reuse
 
