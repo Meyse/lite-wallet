@@ -307,6 +307,7 @@ pub fn run() {
             generic_request::preflight_generic_identity_update,
             generic_request::send_generic_identity_update,
             generic_request::review_generic_invoice,
+            generic_request::review_generic_credentials,
             generic_request::preflight_generic_invoice,
             generic_request::send_generic_invoice_payment,
             generic_request::store_generic_provisioning_job,

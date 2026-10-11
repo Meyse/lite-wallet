@@ -7,6 +7,7 @@
 import { createRequire } from 'node:module';
 
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const p = require('verus-typescript-primitives');
@@ -157,6 +158,72 @@ function transmittalPacket() {
   return new p.DataPacketRequestOrdinalVDXFObject({ data: details });
 }
 
+// Credentials as Deep Link Sim's data lab writes and asks for them
+// (`data-lab-fixtures.ts`): dedicated keys, public dummy values, and the
+// request signer as their scope.
+const fixtureKey = (name) =>
+  p.CompactIAddressObject.fromFQN(`deeplink-sim-fixture-${name}-v1`, 'VRSCTEST').toIAddress();
+const PROFILE_KEY = fixtureKey('profile');
+const MEMBERSHIP_KEY = fixtureKey('membership');
+const MISSING_KEY = fixtureKey('missing');
+const fixtureCredentials = (scope) => [
+  new p.Credential({
+    version: p.Credential.VERSION_CURRENT,
+    credentialKey: PROFILE_KEY,
+    label: 'Test profile',
+    scopes: [scope],
+    credential: { displayName: 'Deep Link Sim test profile', purpose: 'Desktop QA only' },
+  }),
+  new p.Credential({
+    version: p.Credential.VERSION_CURRENT,
+    credentialKey: MEMBERSHIP_KEY,
+    label: 'Test membership',
+    scopes: [scope],
+    credential: { membership: 'Test group', level: 'Sample' },
+  }),
+];
+
+function userData({
+  requestType = p.UserDataRequestDetails.CREDENTIAL,
+  dataType = p.UserDataRequestDetails.FULL_DATA,
+  keys = [PROFILE_KEY, MEMBERSHIP_KEY, MISSING_KEY],
+  signer,
+} = {}) {
+  return new p.UserDataRequestOrdinalVDXFObject({
+    data: new p.UserDataRequestDetails({
+      flags: new BN(0),
+      requestType,
+      dataType,
+      requestID: compact(REQUEST_ID),
+      searchDataKey: keys.map((key) => ({ [key]: Buffer.alloc(0) })),
+      signer: signer ? compact(signer) : undefined,
+    }),
+  });
+}
+
+// `fixtureIdentityUpdate`: only the name, the parent, and the credentials.
+function credentialUpdate() {
+  const identity = p.PartialIdentity.fromJson({
+    name: 'player7',
+    parent: TESTNET,
+    contentmultimap: {},
+  });
+  identity.contentMultiMap.kvContent.setByAddress(
+    p.IDENTITY_CREDENTIAL.vdxfid,
+    fixtureCredentials(REQUESTER).map((credential) =>
+      p.FqnVdxfUniValue.fromVdxfUniValue(
+        new p.VdxfUniValue({ values: [{ [p.CredentialKey.vdxfid]: credential }] })
+      )
+    )
+  );
+  return new p.IdentityUpdateRequestOrdinalVDXFObject({
+    data: new p.IdentityUpdateRequestDetails({
+      flags: p.IdentityUpdateRequestDetails.IDENTITY_UPDATE_REQUEST_VALID,
+      identity,
+    }),
+  });
+}
+
 function envelope({
   details,
   signed = true,
@@ -303,6 +370,43 @@ add('auth-sign-data', envelope({ details: [auth(), signDataPacket()] }), {
 add('sign-data-transmittal', envelope({ details: [transmittalPacket()] }), {
   reject: 'dataTransmittal',
 });
+add(
+  'auth-credential',
+  envelope({ details: [auth(), userData({ signer: TARGET })], encryptTo: SHIELDED }),
+  {
+    ordinals: [2, 10],
+    userData: {
+      requestId: REQUEST_ID,
+      keys: [PROFILE_KEY, MEMBERSHIP_KEY, MISSING_KEY],
+      signer: TARGET,
+    },
+  }
+);
+add('credential-not-encrypted', envelope({ details: [userData()] }), {
+  reject: 'credentialsNotEncrypted',
+});
+add(
+  'credential-attestation',
+  envelope({
+    details: [userData({ requestType: p.UserDataRequestDetails.ATTESTATION })],
+    encryptTo: SHIELDED,
+  }),
+  { reject: 'credentialsOnly' }
+);
+add(
+  'credential-partial-data',
+  envelope({
+    details: [userData({ dataType: p.UserDataRequestDetails.PARTIAL_DATA })],
+    encryptTo: SHIELDED,
+  }),
+  { reject: 'credentialsOnly' }
+);
+add('update-credentials', envelope({ details: [credentialUpdate()] }), {
+  ordinals: [4],
+  credentialValues: credentialUpdate()
+    .data.identity.contentMultiMap.kvContent.getByAddress(p.IDENTITY_CREDENTIAL.vdxfid)
+    .map((value) => value.toBuffer().toString('hex')),
+});
 
 // Ordering cases from verusid-ts-client validateUnsignedGenericRequest.
 add('update-before-auth', envelope({ details: [update(), auth()] }), { reject: 'order' });
@@ -359,6 +463,31 @@ const updateResponse = (requestID, txid) =>
     }),
   });
 const byName = (name) => cases.find((entry) => entry.name === name);
+const zfunc = JSON.parse(
+  readFileSync(
+    new URL(
+      '../src-tauri/src/core/generic_request/fixtures/verus-zfunc-vectors.json',
+      import.meta.url
+    )
+  )
+);
+// An unencrypted encryption key response, as `appEncryptionRequestHandler`
+// builds it; the sign-in response is suppressed next to it.
+function appEncryptionResponse(channelCase) {
+  const keys = zfunc.channels[channelCase];
+  const extendedViewingKey = new p.SaplingExtendedViewingKey();
+  extendedViewingKey.fromBuffer(Buffer.from(keys.extfvk, 'hex'), 0);
+  return new p.AppEncryptionResponseOrdinalVDXFObject({
+    data: new p.AppEncryptionResponseDetails({
+      version: new BN(1),
+      flags: p.AppEncryptionResponseDetails.FLAG_HAS_REQUEST_ID,
+      requestID: compact(REQUEST_ID),
+      incomingViewingKey: Buffer.from(keys.ivkRaw, 'hex'),
+      extendedViewingKey,
+      address: p.SaplingPaymentAddress.fromAddressString(keys.address),
+    }),
+  });
+}
 // The signatures in a data response are placeholders here; Rust signs, and its
 // signature format is covered by the signature parity vectors.
 const PLACEHOLDER_ITEM_SIGNATURE = Buffer.alloc(73, 9);
@@ -384,6 +513,45 @@ function dataResponse(hashes) {
     }),
   });
 }
+// `buildUserDataResponse`: the credentials found, under the credential key.
+function credentialResponse() {
+  return new p.DataResponseOrdinalVDXFObject({
+    data: new p.DataResponseDetails({
+      requestID: compact(REQUEST_ID),
+      data: new p.DataDescriptor({
+        version: p.DataDescriptor.DEFAULT_VERSION,
+        objectdata: new p.VdxfUniValue({
+          values: fixtureCredentials(REQUESTER).map((credential) => ({
+            [p.DATA_TYPE_OBJECT_CREDENTIAL.vdxfid]: credential,
+          })),
+        }).toBuffer(),
+      }),
+    }),
+  });
+}
+// `getConditionID`, as `encryptCredentials.js` writes it: the native module's
+// key hex, byte-reversed, after the credential key.
+function credentialStorageKey(ivkHex) {
+  const { hash, hash160 } = require('verus-typescript-primitives/dist/utils/hash');
+  const cid = p.fromBase58Check(p.IDENTITY_CREDENTIAL.vdxfid).hash;
+  const ivk = Buffer.from(ivkHex, 'hex').reverse();
+  return p.toBase58Check(hash160(hash(cid, ivk)), 102);
+}
+const credentials = {
+  identity: TARGET,
+  scope: REQUESTER,
+  profileKey: PROFILE_KEY,
+  membershipKey: MEMBERSHIP_KEY,
+  missingKey: MISSING_KEY,
+  requestValues: byName('update-credentials').expect.credentialValues,
+  // The serialized credentials Deep Link Sim compares a response with.
+  credentialHex: fixtureCredentials(REQUESTER).map((credential) =>
+    credential.toBuffer().toString('hex')
+  ),
+  ivkRaw: zfunc.channels[0].ivkRaw,
+  storageKey: credentialStorageKey(zfunc.channels[0].ivkRaw),
+};
+
 const responses = [
   {
     request: 'auth',
@@ -413,8 +581,34 @@ const responses = [
       TARGET
     ),
   },
+  {
+    request: 'auth-app-encryption',
+    signer: TARGET,
+    createdAt: RESPONSE_CREATED_AT,
+    // Keys from verus_zfunc for the channel in `verus-zfunc-vectors.json`
+    // case 1; Rust derives them from the account key there.
+    appKeysCase: 1,
+    hex: mobileResponse(byName('auth-app-encryption').hex, [appEncryptionResponse(1)], TARGET),
+  },
+  {
+    // Mobile encrypts these details to the request's address; the vector
+    // holds them before that step.
+    request: 'auth-credential',
+    signer: TARGET,
+    createdAt: RESPONSE_CREATED_AT,
+    sharesCredentials: true,
+    hex: mobileResponse(
+      byName('auth-credential').hex,
+      [authResponse(REQUEST_ID), credentialResponse()],
+      TARGET
+    ),
+  },
 ];
 
 process.stdout.write(
-  `${JSON.stringify({ generatedBy: 'scripts/generate-request-vectors.mjs', cases, responses }, null, 2)}\n`
+  `${JSON.stringify(
+    { generatedBy: 'scripts/generate-request-vectors.mjs', cases, responses, credentials },
+    null,
+    2
+  )}\n`
 );

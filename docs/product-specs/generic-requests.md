@@ -145,9 +145,16 @@ response address, plus a close button. Close declines the request.
   - Reads the responder's on-chain content and decrypts it. It shows only
     credentials whose key was requested and whose scope includes the app
     identity, or the signer when no app identity is named.
+  - Each credential has its own consent checkbox. Continue needs consent to all
+    of them.
   - Missing keys are listed.
-  - A lookup or decryption failure is an error with Try again, never an empty
-    answer.
+  - A failed read of the identity's content is an error with Try again, never an
+    empty answer. As on mobile, a stored value that does not decrypt with the
+    identity's key is skipped: it cannot hold a credential this wallet wrote.
+  - When nothing matches, the step says so. If the request asks for nothing
+    else, nothing can be sent, and the user declines, as on mobile.
+  - Only requests for whole credentials are accepted, as on mobile. They must
+    name an address to encrypt the answer to.
 - **Gift card claim:** shows what will be claimed and asks for the claim
   password when there is one. The request is saved encrypted until the claim
   finishes. The phase 5 design fixes the screen.
@@ -193,12 +200,15 @@ response address, plus a close button. Close declines the request.
 - **Data signatures:** each item and statement is signed separately. The hash is
   SHA-256 of its bytes, and the signature covers the height-bound identity hash.
 - **Encryption keys:** derived from the extended spending key, with plain ID
-  byte order. The IVK is in display order. An encrypted reply is a data
-  response.
+  byte order. The IVK is in the curve's own byte order, as the daemon and Verus
+  Mobile's native module return it. An encrypted reply is a data response.
+- **Sign data inside an update** (the update's sign data map) is refused as not
+  supported on desktop yet. Verus Mobile has the daemon sign it.
 - **Credentials written by an update:** before any network call, each entry is
-  encrypted to the identity's own private address. That address must come from
-  this wallet's private-address seed. Plain credential values never leave the
-  device.
+  encrypted to the identity's own credential address, which the wallet derives
+  from its private-address seed. The identity's private address must come from
+  that seed. Each entry is stored under a key hashed from that address's viewing
+  key, as on mobile. Plain credential values never leave the device.
 - **Delivery:** POST first (raw bytes, `application/octet-stream`), else
   redirect. HTTPS only in release builds; plain HTTP only in debug builds. POST
   and provisioning calls time out after 30 seconds.

@@ -49,15 +49,15 @@ use crate::core::crypto::Network;
 use crate::core::generic_request::details::{self, DetailKind};
 use crate::core::generic_request::request::{parse_request_hex, ParsedRequest, ResponseUriKind};
 use crate::core::generic_request::store::{GenericRequestStore, OpenRequest};
-use crate::core::generic_request::{acceptance, names, response};
+use crate::core::generic_request::{acceptance, credentials, names, response};
 use crate::core::{AccountStateStore, PreflightStore};
 use crate::types::wallet::WalletNetwork;
 use crate::types::{
-    BuildAndSignGenericResponseResult, GenericIdentityAuthorities,
+    BuildAndSignGenericResponseResult, GenericCredentialReview, GenericIdentityAuthorities,
     GenericIdentityPrimaryAddressEntry, GenericIdentityPrimaryAddressInfo,
     GenericIdentityUpdatePreflightResult, GenericIdentityUpdateRequestMeta,
     GenericIdentityUpdateReviewResult, GenericInvoicePreflightResult, GenericInvoiceReview,
-    GenericRequestTransactionResult, IdentityOperation, IdentityWarning,
+    GenericRequestTransactionResult, GenericSharedCredential, IdentityOperation, IdentityWarning,
     LinkReadyProvisioningJobResult, LinkedIdentity, OpenedGenericRequest, ProvisioningJobRecord,
     WalletError,
 };
@@ -773,6 +773,169 @@ fn sign_unsigned_response(
     Ok(signed_response_hex)
 }
 
+/// The wallet's private account key, which encryption channels derive from.
+async fn private_account_key(
+    context: &crate::core::auth::session::ActiveWalletAccessContext,
+) -> Result<sapling::zip32::ExtendedSpendingKey, WalletError> {
+    let (encoded, _) = context
+        .stronghold_store
+        .load_dlight_runtime_material(
+            &context.account_id,
+            context.password_hash(),
+            context.wallet_network,
+        )
+        .await?
+        .ok_or_else(|| WalletError::from(acceptance::Rejection::PrivateNotSetUp))?;
+    crate::core::channels::dlight_private::decode_runtime_spending_key(&encoded)
+}
+
+/// The share data detail of the open request.
+fn open_user_data(open: &OpenRequest) -> Result<Option<details::UserDataRequest>, WalletError> {
+    open.parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::UserData)
+        .map(|(detail, _)| details::parse_user_data(&detail.data, open.parsed.is_testnet))
+        .transpose()
+}
+
+/// The credentials the response shares: those the user reviewed for this
+/// responder. The request's required identity, when it names one, must answer.
+fn shared_credentials(
+    open: &OpenRequest,
+    responder: &str,
+) -> Result<Vec<credentials::Credential>, WalletError> {
+    let Some(user_data) = open_user_data(open)? else {
+        return Ok(Vec::new());
+    };
+    if user_data
+        .signer
+        .as_deref()
+        .is_some_and(|required| !required.eq_ignore_ascii_case(responder))
+    {
+        return Err(WalletError::GenericRequestRejected("responder".to_string()));
+    }
+    match &open.reviewed_credentials {
+        Some((identity, found)) if identity.eq_ignore_ascii_case(responder) => Ok(found.clone()),
+        _ => Err(WalletError::OperationFailed),
+    }
+}
+
+/// `processEncryptedKeys`: the credentials an update writes are encrypted to
+/// the identity's own credential address before the update leaves Rust, and
+/// stored under the hashed credential key. The identity's private address
+/// must come from this wallet's seed, or the wallet could not read them back.
+async fn encrypt_update_credentials(
+    update: &details::IdentityUpdateRequest,
+    target_identity_address: &str,
+    current_identity: &Value,
+    requested_identity: &mut Value,
+    context: &crate::core::auth::session::ActiveWalletAccessContext,
+) -> Result<(), WalletError> {
+    let values = update
+        .identity
+        .content_multimap
+        .iter()
+        .flatten()
+        .filter(|(key, _)| {
+            key == credentials::IDENTITY_CREDENTIAL_KEY
+                || key.eq_ignore_ascii_case("vrsc::identity.credential")
+        })
+        .flat_map(|(_, values)| values.iter().cloned())
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return Ok(());
+    }
+    let content = requested_identity
+        .get_mut("contentmultimap")
+        .and_then(Value::as_object_mut)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+    content
+        .remove(credentials::IDENTITY_CREDENTIAL_KEY)
+        .ok_or(WalletError::IdentityBuildFailed)?;
+
+    let account = private_account_key(context).await?;
+    let (_, wallet_address) = account
+        .to_diversifiable_full_viewing_key()
+        .default_address();
+    let identity_address = current_identity
+        .get("privateaddress")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if names::sapling_address(&wallet_address.to_bytes()).as_deref() != Some(identity_address) {
+        return Err(acceptance::Rejection::CredentialAddress.into());
+    }
+
+    let identity =
+        names::decode_i_address(target_identity_address).ok_or(WalletError::InvalidAddress)?;
+    let keys = crate::core::generic_request::private_crypto::channel_keys(
+        &account,
+        Some(&identity),
+        Some(&identity),
+        0,
+        false,
+    )?;
+    let encrypted = credentials::encrypt_for_storage(&values, &keys.address.to_bytes())?;
+    content.insert(
+        credentials::storage_key(&keys.incoming_viewing_key)?,
+        Value::Array(encrypted),
+    );
+    Ok(())
+}
+
+/// The keys an encryption key request asks for (`appEncryptionRequestHandler`):
+/// the channel from the responder to the derivation identity, else the app
+/// identity, else the requester, at the request's derivation number, under the
+/// wallet's private account key.
+async fn app_encryption_keys(
+    open: &OpenRequest,
+    signer: &response::ResponseSigner<'_>,
+    context: &crate::core::auth::session::ActiveWalletAccessContext,
+) -> Result<Option<response::AppEncryptionKeys>, WalletError> {
+    let Some(detail) = open
+        .parsed
+        .details
+        .iter()
+        .zip(&open.kinds)
+        .find(|(_, kind)| **kind == DetailKind::AppEncryption)
+        .map(|(detail, _)| detail)
+    else {
+        return Ok(None);
+    };
+    let app = details::parse_app_encryption(&detail.data, open.parsed.is_testnet)?;
+    let counterparty = app
+        .derivation_id
+        .clone()
+        .or_else(|| open.parsed.app_or_delegated_id.clone())
+        .or_else(|| {
+            open.parsed
+                .signature
+                .as_ref()
+                .map(|signature| signature.signer_identity_id.clone())
+        })
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let from = names::decode_i_address(signer.identity_id).ok_or(WalletError::InvalidAddress)?;
+    let to = names::decode_i_address(&counterparty).ok_or(WalletError::InvalidAddress)?;
+    let index = u32::try_from(app.derivation_number)
+        .map_err(|_| WalletError::GenericRequestInvalidEnvelope)?;
+
+    let account = private_account_key(context).await?;
+    let keys = crate::core::generic_request::private_crypto::channel_keys(
+        &account,
+        Some(&from),
+        Some(&to),
+        index,
+        app.return_spending_key,
+    )?;
+    Ok(Some(response::AppEncryptionKeys {
+        incoming_viewing_key: keys.incoming_viewing_key,
+        extended_viewing_key: keys.extended_viewing_key,
+        address: keys.address.to_bytes(),
+        extended_spending_key: keys.extended_spending_key,
+    }))
+}
+
 /// Signs every object and statement of the open request's data packets, each
 /// over its own height-bound identity hash (`signDataPacket.js`). Rust builds
 /// the hashes from the verified request; it never signs a hash from the UI.
@@ -1038,6 +1201,7 @@ pub async fn open_generic_request(
         parsed,
         kinds,
         broadcast_txid: None,
+        reviewed_credentials: None,
     });
     Ok(opened)
 }
@@ -1075,6 +1239,21 @@ async fn check_request_expiry(
                 let invoice = details::parse_invoice(&detail.data)?;
                 acceptance::check_invoice(&invoice, parsed.is_testnet)?;
                 expiry_height = invoice.expiry_height.or(expiry_height);
+            }
+            DetailKind::AppEncryption => {
+                // `appEncryptionRequestValidator.js`: the derivation identity
+                // must resolve on the chain.
+                let app = details::parse_app_encryption(&detail.data, parsed.is_testnet)?;
+                if let Some(identity) = app.derivation_id.as_deref() {
+                    guard.run(provider.getidentity(identity)).await.map_err(
+                        |error| match error {
+                            WalletError::WalletLocked | WalletError::WalletSessionChanged => {
+                                WalletError::WalletSessionChanged
+                            }
+                            _ => acceptance::Rejection::EncryptionKeyIdentity.into(),
+                        },
+                    )?;
+                }
             }
             _ => {}
         }
@@ -1157,9 +1336,12 @@ async fn build_and_sign_generic_response_for_session(
     };
     let data_signatures =
         sign_data_packets(&open, &response_signer, signed_block_height, &private_key)?;
+    let app_encryption_keys = app_encryption_keys(&open, &response_signer, &context).await?;
     let outcome = response::ResponseOutcome {
         txid: open.broadcast_txid.clone(),
         data_signatures,
+        app_encryption_keys,
+        shared_credentials: shared_credentials(&open, &signer.identity_id)?,
     };
     let response_details =
         response::response_details(&open.parsed, &open.kinds, &outcome, &response_signer)?;
@@ -1726,10 +1908,8 @@ async fn open_identity_update(
         .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
     let update = details::parse_identity_update(&detail.data, open.parsed.is_testnet)?;
     if update.contains_sign_data {
-        // Credentials written by an update arrive with phase 4.
-        return Err(WalletError::GenericRequestRejected(
-            "unsupportedDetail".to_string(),
-        ));
+        // Acceptance refuses sign data in an update (see `check_request`).
+        return Err(acceptance::Rejection::UnsupportedDetail.into());
     }
     let target_identity = update
         .target_identity(open.parsed.is_testnet)
@@ -1905,6 +2085,7 @@ pub async fn preflight_generic_identity_update(
 
     let open = request_store.get(&context.session_id, &request_hex)?;
     let OpenIdentityUpdate {
+        update,
         target_identity: target_identity_address,
         meta,
         requested_identity_json,
@@ -1948,9 +2129,18 @@ pub async fn preflight_generic_identity_update(
     .await?;
     let GenericIdentityUpdateInspection {
         target,
-        effective_requested_identity,
+        mut effective_requested_identity,
         mut review,
     } = inspection;
+    // The review keeps the plain credentials; the daemon sees them encrypted.
+    encrypt_update_credentials(
+        &update,
+        &target_identity_address,
+        &target.identity,
+        &mut effective_requested_identity,
+        &context.access,
+    )
+    .await?;
 
     validate_operation_authority(
         &provider,
@@ -2138,6 +2328,102 @@ pub async fn send_generic_identity_update(
     .await?;
     request_store.record_broadcast(&context.session_id, &open.parsed.request_hash, &result.txid);
     Ok(GenericRequestTransactionResult { txid: result.txid })
+}
+
+// --- Share data -----------------------------------------------------------------
+
+/// Finds the credentials a share data request would send from `identity_id`
+/// (`getScopedCredentials`): Rust reads the identity's content under its
+/// credential key, decrypts it, and keeps the valid credentials whose key was
+/// requested and whose scopes include the app identity, or the requester
+/// when the request names no app. The response shares exactly these.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_generic_credentials(
+    request_hex: String,
+    identity_id: String,
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
+) -> Result<GenericCredentialReview, WalletError> {
+    let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let open = request_store.get(&context.session_id, &request_hex)?;
+    let user_data = open_user_data(&open)?.ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    if user_data
+        .signer
+        .as_deref()
+        .is_some_and(|required| !required.eq_ignore_ascii_case(&identity_id))
+    {
+        return Err(WalletError::GenericRequestRejected("responder".to_string()));
+    }
+    let identity = names::decode_i_address(&identity_id).ok_or(WalletError::InvalidAddress)?;
+    let scope = open
+        .parsed
+        .app_or_delegated_id
+        .clone()
+        .or_else(|| {
+            open.parsed
+                .signature
+                .as_ref()
+                .map(|signature| signature.signer_identity_id.clone())
+        })
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+
+    let account = private_account_key(&context).await?;
+    let keys = crate::core::generic_request::private_crypto::channel_keys(
+        &account,
+        Some(&identity),
+        Some(&identity),
+        0,
+        false,
+    )?;
+    let storage_key = credentials::storage_key(&keys.incoming_viewing_key)?;
+    let provider = vrpc_provider_pool.for_system(
+        context.wallet_network,
+        names::root_system_id(open.parsed.is_testnet),
+    );
+    let content = provider
+        .getidentitycontent_for_key(&identity_id, 0, 0, false, &storage_key)
+        .await?;
+    let stored = match content
+        .get("identity")
+        .and_then(|identity| identity.get("contentmultimap"))
+        .and_then(|map| map.get(&storage_key))
+    {
+        Some(Value::Array(values)) => values.clone(),
+        Some(value) => vec![value.clone()],
+        None => Vec::new(),
+    };
+
+    let requested_keys = user_data
+        .search_keys
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    let found =
+        credentials::read_credentials(&stored, &keys.incoming_viewing_key, &requested_keys, &scope);
+    let missing_keys = requested_keys
+        .into_iter()
+        .filter(|key| !found.iter().any(|credential| &credential.key == key))
+        .collect();
+    let review = GenericCredentialReview {
+        credentials: found
+            .iter()
+            .map(|credential| GenericSharedCredential {
+                key: credential.key.clone(),
+                label: credential.label.clone(),
+                credential: credential.credential.clone(),
+                scopes: credential.scopes.clone(),
+            })
+            .collect(),
+        missing_keys,
+    };
+    request_store.record_credentials(
+        &context.session_id,
+        &open.parsed.request_hash,
+        &identity_id,
+        found,
+    );
+    Ok(review)
 }
 
 // --- Pay invoice ----------------------------------------------------------------
@@ -2909,9 +3195,34 @@ mod tests {
             parsed,
             kinds,
             broadcast_txid: None,
+            reviewed_credentials: None,
         };
         store.open(open.clone());
         open
+    }
+
+    /// The encryption keys of a `verus-zfunc-vectors.json` channel.
+    fn vector_app_keys(case: usize) -> crate::core::generic_request::response::AppEncryptionKeys {
+        let zfunc: serde_json::Value = serde_json::from_str(include_str!(
+            "../core/generic_request/fixtures/verus-zfunc-vectors.json"
+        ))
+        .unwrap();
+        let keys = &zfunc["channels"][case];
+        crate::core::generic_request::response::AppEncryptionKeys {
+            incoming_viewing_key: hex::decode(keys["ivkRaw"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            extended_viewing_key: hex::decode(keys["extfvk"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            address: crate::core::generic_request::names::decode_sapling_address(
+                keys["address"].as_str().unwrap(),
+            )
+            .unwrap(),
+            extended_spending_key: None,
+        }
     }
 
     fn unsigned_vector_response(
@@ -2920,6 +3231,7 @@ mod tests {
         signer: &str,
         created_at: u64,
         item_signature: &[u8],
+        app_keys_case: Option<usize>,
     ) -> Vec<u8> {
         let open = open_vector_request(
             &GenericRequestStore::new(),
@@ -2952,6 +3264,8 @@ mod tests {
             &ResponseOutcome {
                 txid: txid.map(ToString::to_string),
                 data_signatures,
+                app_encryption_keys: app_keys_case.map(vector_app_keys),
+                shared_credentials: Vec::new(),
             },
             &signer,
         )
@@ -2972,9 +3286,62 @@ mod tests {
         );
     }
 
+    /// The vector credentials, as Rust reads them from an identity.
+    fn vector_credentials() -> Vec<super::credentials::Credential> {
+        vectors()["credentials"]["credentialHex"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                super::credentials::parse_credential(&hex::decode(value.as_str().unwrap()).unwrap())
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    /// The response to a share data request before mobile encrypts it.
+    fn unencrypted_credential_response(request: &str, signer: &str, created_at: u64) -> Vec<u8> {
+        let mut open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex(request),
+            true,
+        );
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: signer,
+        };
+        let details = response_details(
+            &open.parsed,
+            &open.kinds,
+            &ResponseOutcome {
+                shared_credentials: vector_credentials(),
+                ..ResponseOutcome::default()
+            },
+            &signer,
+        )
+        .expect("response details");
+        open.parsed.encrypt_response_to = None;
+        build_unsigned_response(&open.parsed, details, &signer, created_at)
+            .expect("unsigned response")
+    }
+
     #[test]
     fn responses_match_the_bytes_verus_mobile_builds() {
         for expected in vectors()["responses"].as_array().unwrap() {
+            if expected["sharesCredentials"].as_bool() == Some(true) {
+                assert_eq!(
+                    hex::encode(unencrypted_credential_response(
+                        expected["request"].as_str().unwrap(),
+                        expected["signer"].as_str().unwrap(),
+                        expected["createdAt"].as_u64().unwrap(),
+                    )),
+                    expected["hex"].as_str().unwrap(),
+                    "{} response differs from Verus Mobile",
+                    expected["request"]
+                );
+                continue;
+            }
             let item_signature =
                 hex::decode(expected["itemSignature"].as_str().unwrap_or_default()).unwrap();
             let unsigned = unsigned_vector_response(
@@ -2983,6 +3350,7 @@ mod tests {
                 expected["signer"].as_str().unwrap(),
                 expected["createdAt"].as_u64().unwrap(),
                 &item_signature,
+                expected["appKeysCase"].as_u64().map(|case| case as usize),
             );
             assert_eq!(
                 hex::encode(unsigned),
@@ -2991,6 +3359,51 @@ mod tests {
                 expected["request"]
             );
         }
+    }
+
+    #[test]
+    fn a_share_data_answer_without_credentials_leaves_the_detail_out() {
+        let open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex("auth-credential"),
+            true,
+        );
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
+        };
+        let details = response_details(
+            &open.parsed,
+            &open.kinds,
+            &ResponseOutcome::default(),
+            &signer,
+        )
+        .unwrap();
+        // Only the sign-in response remains.
+        assert_eq!(details.len(), 1);
+    }
+
+    #[test]
+    fn credentials_are_shared_only_after_review_by_the_required_identity() {
+        let store = GenericRequestStore::new();
+        let mut open = open_vector_request(
+            &store,
+            "session",
+            &vector_request_hex("auth-credential"),
+            true,
+        );
+        let required = "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk";
+        assert!(matches!(
+            super::shared_credentials(&open, required),
+            Err(WalletError::OperationFailed)
+        ));
+        open.reviewed_credentials = Some((required.to_string(), vector_credentials()));
+        assert_eq!(super::shared_credentials(&open, required).unwrap().len(), 2);
+        assert!(matches!(
+            super::shared_credentials(&open, "iGHXn8mvh9kutBNotJ2LCNz3zDxvemEb2i"),
+            Err(WalletError::GenericRequestRejected(code)) if code == "responder"
+        ));
     }
 
     #[test]
@@ -3014,7 +3427,7 @@ mod tests {
         .is_err());
         let malformed = ResponseOutcome {
             txid: Some("1234".to_string()),
-            data_signatures: Vec::new(),
+            ..ResponseOutcome::default()
         };
         assert!(matches!(
             response_details(&open.parsed, &open.kinds, &malformed, &signer),
@@ -3032,6 +3445,7 @@ mod tests {
             "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
             FIXED_CREATED_AT,
             &[],
+            None,
         );
         let signed = sign_unsigned_response(
             &unsigned,
@@ -3120,6 +3534,67 @@ mod tests {
     }
 
     #[test]
+    fn an_encrypted_response_decrypts_to_the_plain_details() {
+        let mut open = open_vector_request(
+            &GenericRequestStore::new(),
+            "session",
+            &vector_request_hex("auth-sign-data"),
+            true,
+        );
+        let signer = ResponseSigner {
+            system_id: TEST_SYSTEM_ID,
+            identity_id: "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
+        };
+        let outcome = ResponseOutcome {
+            data_signatures: vec![(0..4)
+                .map(|_| ItemSignature {
+                    hash: [5; 32],
+                    signature: vec![9; 73],
+                })
+                .collect()],
+            ..ResponseOutcome::default()
+        };
+        let plain_details = response_details(&open.parsed, &open.kinds, &outcome, &signer).unwrap();
+        let recipient = vector_app_keys(1);
+        open.parsed.encrypt_response_to = Some(recipient.address);
+        let encrypted = build_unsigned_response(&open.parsed, plain_details.clone(), &signer, 1)
+            .expect("encrypted response");
+
+        let parsed = parse_generic_envelope_hex(&hex::encode(&encrypted)).unwrap();
+        assert_eq!(parsed.details.len(), 1);
+        assert_eq!(parsed.details[0].ordinal, 0);
+        // The descriptor: version, flags (encrypted, epk), ciphertext, epk.
+        let mut reader = crate::core::generic_request::wire::Reader::new(&parsed.details[0].data);
+        assert_eq!(reader.varint().unwrap(), 1);
+        assert_eq!(reader.varint().unwrap(), 5);
+        let ciphertext = reader.var_slice().unwrap().to_vec();
+        let epk: [u8; 32] = reader.var_slice().unwrap().try_into().unwrap();
+        let plaintext = crate::core::generic_request::private_crypto::decrypt_with_viewing_key(
+            &recipient.incoming_viewing_key,
+            &epk,
+            &ciphertext,
+        )
+        .unwrap();
+        // VdxfUniValue: the data descriptor key, version, length, descriptor.
+        let mut uni = crate::core::generic_request::wire::Reader::new(&plaintext);
+        assert_eq!(
+            crate::core::generic_request::names::i_address(&uni.hash160().unwrap()),
+            "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv"
+        );
+        assert_eq!(uni.varint().unwrap(), 1);
+        let _length = uni.compact_size().unwrap();
+        assert_eq!(uni.varint().unwrap(), 1);
+        assert_eq!(uni.varint().unwrap(), 0);
+        let inner = uni.var_slice().unwrap();
+        let mut expected = Vec::new();
+        crate::core::crypto::verus_id_signature::write_compact_size(&mut expected, 2);
+        for detail in &plain_details {
+            expected.extend_from_slice(detail);
+        }
+        assert_eq!(inner, expected.as_slice());
+    }
+
+    #[test]
     fn a_responder_this_wallet_does_not_control_is_rejected() {
         let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
@@ -3130,6 +3605,7 @@ mod tests {
             "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk",
             FIXED_CREATED_AT,
             &[],
+            None,
         );
         let error = sign_unsigned_response(
             &unsigned,
@@ -3273,6 +3749,9 @@ mod tests {
 
     #[tokio::test]
     async fn build_and_sign_cancels_during_delayed_identity_lookup_after_session_change() {
+        // The test Stronghold uses the cheap work factor; without it, this
+        // test depends on another test having set it first.
+        let _ = iota_stronghold::engine::snapshot::try_set_encrypt_work_factor(0);
         let store_path = std::env::temp_dir().join(format!(
             "lite_wallet_generic_build_session_{}",
             uuid::Uuid::new_v4()

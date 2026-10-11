@@ -458,6 +458,21 @@ export interface GenericInvoiceReview {
   alreadyPaid: boolean;
 }
 
+/** One credential that a share data request would send. */
+export interface GenericSharedCredential {
+  key: string;
+  label: string | null;
+  credential: unknown;
+  scopes: unknown;
+}
+
+/** The credentials a share data request would send from one VerusID. */
+export interface GenericCredentialReview {
+  credentials: GenericSharedCredential[];
+  /** Requested keys with no matching credential. */
+  missingKeys: string[];
+}
+
 export interface GenericInvoicePreflightResult {
   preflightId: string;
   amount: string;

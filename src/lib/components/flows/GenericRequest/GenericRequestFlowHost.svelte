@@ -71,6 +71,10 @@
   import PayInvoiceStep from './PayInvoiceStep.svelte';
   import { PayInvoiceModule } from './modules/PayInvoiceModule.svelte';
   import { SignDataModule } from './modules/SignDataModule.svelte';
+  import { EncryptionKeyModule } from './modules/EncryptionKeyModule.svelte';
+  import { ShareDataModule } from './modules/ShareDataModule.svelte';
+  import EncryptionKeyStep from './EncryptionKeyStep.svelte';
+  import ShareDataStep from './ShareDataStep.svelte';
   import SignDataStep from './SignDataStep.svelte';
   import type { DetailModule, RequestContext } from './modules/types';
 
@@ -90,12 +94,15 @@
     approved = $bindable(false),
     session,
     onClose = () => {},
+    onSetupPrivate,
   }: {
     isOpen?: boolean;
     /** True from Approval until the request closes; a second link then waits. */
     approved?: boolean;
     session: GenericRequestFlowSession | null;
     onClose?: () => void;
+    /** Leaves the request for the private address setup. */
+    onSetupPrivate?: () => void;
   } = $props();
 
   const i18n = $derived($i18nStore);
@@ -141,14 +148,26 @@
   // Detail modules: each new detail type plugs into the shell (plan step 7).
   let invoiceModule = $state.raw<PayInvoiceModule | null>(null);
   let signDataModule = $state.raw<SignDataModule | null>(null);
+  let encryptionKeyModule = $state.raw<EncryptionKeyModule | null>(null);
+  let shareDataModule = $state.raw<ShareDataModule | null>(null);
   const modules = $derived<DetailModule[]>(
-    [invoiceModule, signDataModule].filter((module) => module !== null)
+    [invoiceModule, signDataModule, encryptionKeyModule, shareDataModule].filter(
+      (module) => module !== null
+    )
   );
   const transactionModule = $derived(modules.find((module) => module.transaction) ?? null);
   /** The response carries a detail; invoices and New VerusID add none, as on mobile. */
-  const respondsWithDetails = $derived(!!authDetail || !!updateDetail || !!signDataModule);
-  /** Details that the chosen responder answers: a sign in, or signing data. */
-  const needsResponder = $derived(!!authDetail || !!signDataModule);
+  const respondsWithDetails = $derived(
+    !!authDetail ||
+      !!updateDetail ||
+      !!signDataModule ||
+      !!encryptionKeyModule ||
+      (shareDataModule?.count ?? 0) > 0
+  );
+  /** Details that the chosen responder answers: a sign in, signing or sharing data, or a key. */
+  const needsResponder = $derived(
+    !!authDetail || !!signDataModule || !!encryptionKeyModule || !!shareDataModule
+  );
 
   // Approval state.
   let phase = $state<Phase>('review');
@@ -239,7 +258,27 @@
       }
       const dataPacket = activeSession.details.find((detail) => detail.type === 'dataPacket');
       if (dataPacket) signDataModule = new SignDataModule(moduleContext(activeSession), dataPacket);
+      const appEncryption = activeSession.details.find((detail) => detail.type === 'appEncryption');
+      if (appEncryption) {
+        const module = new EncryptionKeyModule(moduleContext(activeSession), appEncryption);
+        encryptionKeyModule = module;
+        void module.load();
+      }
+      const userData = activeSession.details.find((detail) => detail.type === 'userData');
+      if (userData) {
+        const module = new ShareDataModule(moduleContext(activeSession), userData);
+        shareDataModule = module;
+        void module.load();
+      }
     });
+  });
+
+  $effect(() => {
+    // Share data reads the credentials of the chosen responder.
+    const module = shareDataModule;
+    const identityId = responder?.identityAddress ?? '';
+    if (!isOpen || !module || !identityId || module.privateReady !== true) return;
+    untrack(() => void module.lookUp(identityId));
   });
 
   function moduleContext(activeSession: GenericRequestFlowSession): RequestContext {
@@ -312,6 +351,8 @@
     openGeneration += 1;
     invoiceModule = null;
     signDataModule = null;
+    encryptionKeyModule = null;
+    shareDataModule = null;
     linkedIdentities = [];
     identityDetailsByAddress = {};
     loadingLinkedIdentities = false;
@@ -482,6 +523,14 @@
       const target = updateDetail.targetIdentityAddress.toLowerCase();
       identities = identities.filter(
         (identity) => identity.identityAddress.toLowerCase() === target
+      );
+    }
+    // A credential request may name the VerusID that must answer
+    // (`userDataRequestedSignerMatchesIdentity`).
+    const requiredIdentity = shareDataModule?.detail.requiredIdentity?.toLowerCase();
+    if (requiredIdentity) {
+      identities = identities.filter(
+        (identity) => identity.identityAddress.toLowerCase() === requiredIdentity
       );
     }
     if (!authDetail) return identities;
@@ -816,7 +865,7 @@
   const planLines = $derived<PlanLine[]>(
     session
       ? session.details.flatMap((detail): PlanLine[] => {
-          if (detail.type === 'authentication' && responder) {
+          if (detail.type === 'authentication' && responder && !encryptionKeyModule) {
             return [
               {
                 id: 'signIn',
@@ -844,6 +893,8 @@
           }
           if (detail.type === 'invoice') return invoiceModule?.planLines() ?? [];
           if (detail.type === 'dataPacket') return signDataModule?.planLines() ?? [];
+          if (detail.type === 'appEncryption') return encryptionKeyModule?.planLines() ?? [];
+          if (detail.type === 'userData') return shareDataModule?.planLines() ?? [];
           if (detail.type === 'identityUpdate') {
             return [
               {
@@ -901,10 +952,22 @@
         working: i18n.t('genericRequest.flow.working.pay'),
       };
     }
+    if (encryptionKeyModule) {
+      return {
+        idle: encryptionKeyModule.actionLabel(),
+        working: i18n.t('genericRequest.flow.working.shareKey'),
+      };
+    }
     if (signDataModule) {
       return {
         idle: signDataModule.actionLabel(!!authDetail),
         working: i18n.t('genericRequest.flow.working.sign'),
+      };
+    }
+    if (shareDataModule && shareDataModule.count > 0) {
+      return {
+        idle: shareDataModule.actionLabel(!!authDetail),
+        working: i18n.t('genericRequest.flow.working.share'),
       };
     }
     return {
@@ -960,9 +1023,13 @@
           ? i18n.t('genericRequest.flow.outcome.updated', { identity: targetName })
           : invoiceModule
             ? invoiceModule.outcomeTitle()
-            : signDataModule
-              ? signDataModule.outcomeTitle()
-              : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
+            : encryptionKeyModule
+              ? encryptionKeyModule.outcomeTitle()
+              : signDataModule
+                ? signDataModule.outcomeTitle()
+                : shareDataModule && shareDataModule.count > 0
+                  ? shareDataModule.outcomeTitle()
+                  : i18n.t('genericRequest.flow.outcome.signedIn', { app: appLabel })
   );
 
   // Approval ----------------------------------------------------------------------
@@ -1131,7 +1198,7 @@
 
   const receiptFacts = $derived.by<RequestFact[]>(() => {
     const rows: RequestFact[] = [];
-    if (responder && authDetail && !newIdentity) {
+    if (responder && authDetail && !newIdentity && !encryptionKeyModule) {
       rows.push({
         label: i18n.t('genericRequest.flow.receipt.signedInAs'),
         value: formatIdentityDisplayName(responder),
@@ -1140,6 +1207,9 @@
     if (invoiceModule && phase === 'done') rows.push(...invoiceModule.receiptFacts());
     if (signDataModule && !authDetail && phase === 'done')
       rows.push(...signDataModule.receiptFacts());
+    if (encryptionKeyModule && phase === 'done') rows.push(...encryptionKeyModule.receiptFacts());
+    if (shareDataModule && shareDataModule.count > 0 && !authDetail && phase === 'done')
+      rows.push(...shareDataModule.receiptFacts());
     if (txid) rows.push({ label: i18n.t('genericRequest.complete.txidLabel'), content: txidValue });
     return rows;
   });
@@ -1278,11 +1348,39 @@
       networkLabel={(source) => systemDisplayLabel(source.systemId)}
       onSelect={(channelId) => void chooseFundingSource(channelId)}
     />
+  {:else if step === 'encryptionKey' && encryptionKeyModule}
+    <EncryptionKeyStep
+      module={encryptionKeyModule}
+      responder={responderPicker}
+      onSetupPrivate={onSetupPrivate
+        ? () => {
+            closeFlow();
+            onSetupPrivate?.();
+          }
+        : undefined}
+    />
   {:else if step === 'signData' && signDataModule}
     <SignDataStep
       module={signDataModule}
       {appLabel}
       responder={authDetail ? undefined : responderPicker}
+    />
+  {:else if step === 'shareData' && shareDataModule}
+    {@const module = shareDataModule}
+    <ShareDataStep
+      {module}
+      {appLabel}
+      responderName={responder ? formatIdentityDisplayName(responder) : ''}
+      responder={authDetail ? undefined : responderPicker}
+      onSetupPrivate={onSetupPrivate
+        ? () => {
+            closeFlow();
+            onSetupPrivate?.();
+          }
+        : undefined}
+      onRetry={() => {
+        if (responder) void module.lookUp(responder.identityAddress, true);
+      }}
     />
   {:else if step === 'payInvoice' && invoiceModule}
     <PayInvoiceStep module={invoiceModule} networkLabel={systemDisplayLabel} />

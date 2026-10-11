@@ -9,22 +9,33 @@ use crate::core::crypto::verus_id_signature::{
 use crate::types::WalletError;
 
 use super::details::{self, DetailKind};
+use super::private_crypto::{encrypt_to_address, EncryptedPayload};
 use super::request::{
-    ParsedRequest, FLAG_HAS_CREATED_AT, FLAG_HAS_REQUEST_ID, FLAG_IS_TESTNET, FLAG_MULTI_DETAILS,
-    FLAG_SIGNED,
+    ParsedRequest, FLAG_DETAILS_ARE_ENCRYPTED, FLAG_HAS_CREATED_AT, FLAG_HAS_REQUEST_ID,
+    FLAG_IS_TESTNET, FLAG_MULTI_DETAILS, FLAG_SIGNED,
 };
 use super::wire::invalid;
 
 const ORDINAL_AUTHENTICATION_RESPONSE: usize = 3;
 const ORDINAL_IDENTITY_UPDATE_RESPONSE: usize = 5;
+const ORDINAL_DATA_DESCRIPTOR: usize = 0;
+const ORDINAL_APP_ENCRYPTION_RESPONSE: usize = 8;
 const ORDINAL_DATA_RESPONSE: usize = 11;
+
+/// `vrsc::data.type.object.datadescriptor`, the key of the plaintext that
+/// `encryptDataBufferToDescriptor` encrypts.
+pub(crate) const DATA_DESCRIPTOR_KEY: &str = "i4GC1YGEVD21afWudGoFJVdnfjJ5XWnCQv";
+pub(crate) const DESCRIPTOR_FLAG_ENCRYPTED_DATA: u64 = 1;
+pub(crate) const DESCRIPTOR_FLAG_EPK_PRESENT: u64 = 4;
+const APP_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
+const APP_RESPONSE_FLAG_HAS_SPENDING_KEY: u64 = 2;
 
 /// `vrsc::data.signaturedata`, the key of each signature in a data response.
 const SIGNATURE_DATA_KEY: &str = "i7PcVF9wwPtQ6p6jDtCVpohX65pTZuP2ah";
 /// `SignatureData.version` of each item signature.
 const ITEM_SIGNATURE_VERSION: u64 = 1;
 const SIGNATURE_TYPE_VERUSID_DEFAULT: u64 = 1;
-const DATA_DESCRIPTOR_VERSION: u64 = 1;
+pub(crate) const DATA_DESCRIPTOR_VERSION: u64 = 1;
 const DATA_RESPONSE_FLAG_HAS_REQUEST_ID: u64 = 1;
 
 const RESPONSE_FLAG_HAS_REQUEST_HASH: u64 = 128;
@@ -50,14 +61,104 @@ pub(crate) struct ItemSignature {
     pub signature: Vec<u8>,
 }
 
+/// The keys an encryption key request returns, derived for this app.
+#[derive(Clone)]
+pub(crate) struct AppEncryptionKeys {
+    pub incoming_viewing_key: [u8; 32],
+    pub extended_viewing_key: [u8; 169],
+    pub address: [u8; 43],
+    pub extended_spending_key: Option<zeroize::Zeroizing<[u8; 169]>>,
+}
+
 /// What the wallet did for the request, as the response reports it.
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct ResponseOutcome {
     /// The identity update or invoice payment broadcast after Approval.
     pub txid: Option<String>,
     /// Per data packet, in request order: the signatures of its objects, then
     /// of its statements.
     pub data_signatures: Vec<Vec<ItemSignature>>,
+    /// The keys for an encryption key request.
+    pub app_encryption_keys: Option<AppEncryptionKeys>,
+    /// The credentials the user agreed to share, for a share data request.
+    pub shared_credentials: Vec<super::credentials::Credential>,
+}
+
+fn data_descriptor(flags: u64, objectdata: &[u8], epk: Option<&[u8; 32]>) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_varint(&mut out, DATA_DESCRIPTOR_VERSION);
+    write_varint(&mut out, flags);
+    write_var_slice(&mut out, objectdata);
+    if let Some(epk) = epk {
+        write_var_slice(&mut out, epk);
+    }
+    out
+}
+
+/// `encryptVDXFUniValuesToDescriptor` for one data descriptor
+/// (`encryptDataBufferToDescriptor`): the data goes in a data descriptor,
+/// wrapped as a `VdxfUniValue` under the data descriptor key, and encrypted
+/// to `address`.
+pub(crate) fn encrypt_wrapped_data(
+    address: &[u8; 43],
+    data: &[u8],
+) -> Result<EncryptedPayload, WalletError> {
+    let recipient = sapling::PaymentAddress::from_bytes(address).ok_or_else(invalid)?;
+    let key = super::names::decode_i_address(DATA_DESCRIPTOR_KEY).ok_or_else(invalid)?;
+    let inner = zeroize::Zeroizing::new(data_descriptor(0, data, None));
+    let mut plaintext = zeroize::Zeroizing::new(Vec::with_capacity(inner.len() + 32));
+    plaintext.extend_from_slice(&key);
+    write_varint(&mut plaintext, DATA_DESCRIPTOR_VERSION);
+    write_compact_size(&mut plaintext, inner.len());
+    plaintext.extend_from_slice(&inner);
+    encrypt_to_address(&recipient, &plaintext)
+}
+
+/// The encrypted data descriptor that carries `data`, with the ephemeral
+/// public key (`encryptDataBufferToDescriptor`).
+pub(crate) fn encrypted_descriptor(
+    address: &[u8; 43],
+    data: &[u8],
+) -> Result<Vec<u8>, WalletError> {
+    let payload = encrypt_wrapped_data(address, data)?;
+    Ok(data_descriptor(
+        DESCRIPTOR_FLAG_ENCRYPTED_DATA | DESCRIPTOR_FLAG_EPK_PRESENT,
+        &payload.ciphertext,
+        Some(&payload.ephemeral_public_key),
+    ))
+}
+
+/// `AppEncryptionResponseDetails`: the incoming viewing key, the extended
+/// viewing key, the address, and the spending key when the app asked for it.
+fn app_encryption_details(
+    request_id: Option<&str>,
+    keys: &AppEncryptionKeys,
+    return_spending_key: bool,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, WalletError> {
+    let spending_key = if return_spending_key {
+        Some(keys.extended_spending_key.as_ref().ok_or_else(invalid)?)
+    } else {
+        None
+    };
+    let mut flags = 0;
+    if request_id.is_some() {
+        flags |= APP_RESPONSE_FLAG_HAS_REQUEST_ID;
+    }
+    if spending_key.is_some() {
+        flags |= APP_RESPONSE_FLAG_HAS_SPENDING_KEY;
+    }
+    let mut out = zeroize::Zeroizing::new(Vec::new());
+    write_varint(&mut out, flags);
+    if let Some(request_id) = request_id {
+        out.extend_from_slice(&encode_compact_i_address(request_id)?);
+    }
+    out.extend_from_slice(&keys.incoming_viewing_key);
+    out.extend_from_slice(&keys.extended_viewing_key);
+    out.extend_from_slice(&keys.address);
+    if let Some(spending_key) = spending_key {
+        out.extend_from_slice(spending_key.as_slice());
+    }
+    Ok(out)
 }
 
 /// For each data packet, in request order: SHA-256 of each object, then of
@@ -103,8 +204,33 @@ fn signature_data(
     Ok(out)
 }
 
-/// `DataResponseDetails` holding a data descriptor whose object is a
-/// `VdxfUniValue` of signatures (`signDataPacket.js`).
+fn ordinal_detail(ordinal: usize, data: &[u8]) -> Vec<u8> {
+    let mut detail = Vec::new();
+    write_compact_size(&mut detail, ordinal);
+    write_varint(&mut detail, 1);
+    write_var_slice(&mut detail, data);
+    detail
+}
+
+/// `DataResponseDetails`: flags, the request ID, and a data descriptor.
+fn data_response_detail(
+    request_id: Option<&str>,
+    descriptor: &[u8],
+) -> Result<Vec<u8>, WalletError> {
+    let mut data = Vec::new();
+    match request_id {
+        Some(request_id) => {
+            write_varint(&mut data, DATA_RESPONSE_FLAG_HAS_REQUEST_ID);
+            data.extend_from_slice(&encode_compact_i_address(request_id)?);
+        }
+        None => write_varint(&mut data, 0),
+    }
+    data.extend_from_slice(descriptor);
+    Ok(ordinal_detail(ORDINAL_DATA_RESPONSE, &data))
+}
+
+/// A data response whose descriptor holds a `VdxfUniValue` of signatures
+/// (`signDataPacket.js`).
 fn data_response(
     request_id: Option<&str>,
     signer: &ResponseSigner<'_>,
@@ -119,29 +245,7 @@ fn data_response(
         write_compact_size(&mut values, data.len());
         values.extend_from_slice(&data);
     }
-    let mut descriptor = Vec::new();
-    write_varint(&mut descriptor, DATA_DESCRIPTOR_VERSION);
-    write_varint(&mut descriptor, 0);
-    write_var_slice(&mut descriptor, &values);
-
-    let mut data = Vec::new();
-    match request_id {
-        Some(request_id) => {
-            write_varint(&mut data, DATA_RESPONSE_FLAG_HAS_REQUEST_ID);
-            data.extend_from_slice(&encode_compact_i_address(request_id)?);
-        }
-        None => write_varint(&mut data, 0),
-    }
-    data.extend_from_slice(&descriptor);
-    Ok(ordinal_detail(ORDINAL_DATA_RESPONSE, &data))
-}
-
-fn ordinal_detail(ordinal: usize, data: &[u8]) -> Vec<u8> {
-    let mut detail = Vec::new();
-    write_compact_size(&mut detail, ordinal);
-    write_varint(&mut detail, 1);
-    write_var_slice(&mut detail, data);
-    detail
+    data_response_detail(request_id, &data_descriptor(0, &values, None))
 }
 
 fn authentication_response(request_id: Option<&str>) -> Result<Vec<u8>, WalletError> {
@@ -220,6 +324,39 @@ pub(crate) fn response_details(
                     signatures,
                 )?);
             }
+            DetailKind::AppEncryption => {
+                // An encryption key response echoes its own request ID. With
+                // an address in the detail, it is encrypted to that address.
+                let app = details::parse_app_encryption(&detail.data, request.is_testnet)?;
+                let keys = outcome.app_encryption_keys.as_ref().ok_or_else(invalid)?;
+                let plain = app_encryption_details(
+                    app.request_id.as_deref(),
+                    keys,
+                    app.return_spending_key,
+                )?;
+                out.push(match &app.encrypt_to {
+                    Some(address) => data_response_detail(
+                        app.request_id.as_deref(),
+                        &encrypted_descriptor(address, &plain)?,
+                    )?,
+                    // A spending key never leaves unencrypted (acceptance).
+                    None if app.return_spending_key => return Err(invalid()),
+                    None => ordinal_detail(ORDINAL_APP_ENCRYPTION_RESPONSE, &plain),
+                });
+            }
+            DetailKind::UserData => {
+                // `buildUserDataResponse`: with no credentials found, the
+                // detail is left out.
+                let user_data = details::parse_user_data(&detail.data, request.is_testnet)?;
+                if !outcome.shared_credentials.is_empty() {
+                    let values =
+                        super::credentials::credential_values(&outcome.shared_credentials)?;
+                    out.push(data_response_detail(
+                        user_data.request_id.as_deref(),
+                        &data_descriptor(0, &values, None),
+                    )?);
+                }
+            }
             // New VerusID and invoices add no response detail, as on mobile.
             DetailKind::Authentication | DetailKind::ProvisionIdentity | DetailKind::Invoice => {}
             _ => {
@@ -261,6 +398,26 @@ pub(crate) fn build_unsigned_response(
     if details.len() > 1 {
         flags |= FLAG_MULTI_DETAILS;
     }
+    // `encryptGenericResponseDetails`: with an address in the request, every
+    // detail is encrypted into one data descriptor. The multi-details flag of
+    // the original details stays set.
+    let details = match &request.encrypt_response_to {
+        Some(address) => {
+            let mut buffer = zeroize::Zeroizing::new(Vec::new());
+            if details.len() > 1 {
+                write_compact_size(&mut buffer, details.len());
+            }
+            for detail in &details {
+                buffer.extend_from_slice(detail);
+            }
+            flags |= FLAG_DETAILS_ARE_ENCRYPTED;
+            vec![ordinal_detail(
+                ORDINAL_DATA_DESCRIPTOR,
+                &encrypted_descriptor(address, &buffer)?,
+            )]
+        }
+        None => details,
+    };
 
     let mut out = Vec::new();
     write_compact_size(&mut out, 1);
@@ -285,6 +442,7 @@ pub(crate) fn build_unsigned_response(
     for detail in &details {
         out.extend_from_slice(detail);
     }
+    debug_assert!(flags & FLAG_DETAILS_ARE_ENCRYPTED == 0 || details.len() == 1);
 
     write_compact_size(&mut out, HASH_TYPE_SHA256);
     write_var_slice(&mut out, &request.request_hash);

@@ -31,6 +31,12 @@ export const REJECTION_CODES = [
   'alreadyPaid',
   'dataTransmittal',
   'dataNotForSignature',
+  'encryptionKeyAddress',
+  'encryptionKeyIdentity',
+  'privateNotSetUp',
+  'credentialsOnly',
+  'credentialsNotEncrypted',
+  'credentialAddress',
 ] as const;
 
 export type RejectionCode = (typeof REJECTION_CODES)[number];

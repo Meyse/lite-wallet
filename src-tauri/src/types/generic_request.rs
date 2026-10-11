@@ -23,6 +23,25 @@ pub struct GenericResponseSignerInput {
     pub identity_id: String,
 }
 
+/// One credential found for a share data request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericSharedCredential {
+    pub key: String,
+    pub label: Option<String>,
+    pub credential: serde_json::Value,
+    pub scopes: serde_json::Value,
+}
+
+/// The credentials a share data request would send from one identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenericCredentialReview {
+    pub credentials: Vec<GenericSharedCredential>,
+    /// Requested keys with no matching credential.
+    pub missing_keys: Vec<String>,
+}
+
 /// An invoice as Rust will pay it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

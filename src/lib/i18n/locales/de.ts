@@ -143,6 +143,7 @@ export const de: Record<string, string> = {
   'genericRequest.update.privateAddress': 'Private address',
   'genericRequest.update.contentPrefix': 'Content',
   'genericRequest.update.content.currentIdentityContent': 'Current identity content',
+  'genericRequest.update.content.credentials': 'Nachweise (verschlüsselt gespeichert)',
   'genericRequest.update.content.noneAfterUpdate': 'No content after update',
   'genericRequest.update.content.currentLabel': 'Current',
   'genericRequest.update.content.currentValueLabel': 'Current value',
@@ -644,6 +645,67 @@ export const de: Record<string, string> = {
     'Diese Anfrage sendet dir Daten, statt um eine Signatur zu bitten. Diese Wallet nimmt das nicht an.',
   'genericRequest.rejected.dataNotForSignature':
     'Diese Anfrage bittet dich nicht, etwas zu signieren.',
+  'genericRequest.flow.step.encryptionKey': 'Verschlüsselungsschlüssel',
+  'genericRequest.flow.title.encryptionKey': 'Einen Verschlüsselungsschlüssel mit {app} teilen',
+  'genericRequest.flow.encryptionKey.app': 'App',
+  'genericRequest.flow.encryptionKey.number': 'Schlüsselnummer',
+  'genericRequest.flow.encryptionKey.shares': 'Teilt',
+  'genericRequest.flow.encryptionKey.sharesViewing':
+    'Einen Anzeigeschlüssel und eine private Adresse für diese App',
+  'genericRequest.flow.encryptionKey.sharesWithSpendingKey':
+    'Einen Anzeigeschlüssel, eine private Adresse und ihren Ausgabeschlüssel',
+  'genericRequest.flow.encryptionKey.checking': 'Private Adressen werden geprüft…',
+  'genericRequest.flow.encryptionKey.setupTitle': 'Richte zuerst private Adressen ein',
+  'genericRequest.flow.encryptionKey.setupBody':
+    'Diese App braucht eine private Adresse aus dieser Wallet. Richte private Adressen ein und öffne den Link der Anfrage dann erneut.',
+  'genericRequest.flow.encryptionKey.setupAction': 'Private Adressen einrichten',
+  'genericRequest.flow.encryptionKey.spendingKeyTitle':
+    'Diese App bittet auch um einen Ausgabeschlüssel',
+  'genericRequest.flow.encryptionKey.spendingKeyBody':
+    'Damit kann die App alles ausgeben, was an diese private Adresse geht. Teile ihn nur mit einer App, der du dieses Geld anvertraust.',
+  'genericRequest.flow.encryptionKey.spendingKeyAcknowledge':
+    'Ich verstehe, dass diese App von dieser Adresse ausgeben kann.',
+  'genericRequest.flow.encryptionKey.error.status':
+    'Private Adressen konnten nicht geprüft werden.',
+  'genericRequest.flow.plan.encryptionKey':
+    'Einen Verschlüsselungsschlüssel mit {app} als {identity} teilen',
+  'genericRequest.flow.action.shareKey': 'Schlüssel teilen',
+  'genericRequest.flow.working.shareKey': 'Schlüssel wird geteilt…',
+  'genericRequest.flow.outcome.keyShared': '{app} hat einen Verschlüsselungsschlüssel',
+  'genericRequest.flow.receipt.sharedAs': 'Geteilt als',
+  'genericRequest.rejected.encryptionKeyAddress':
+    'Diese Anfrage nennt eine ungültige Verschlüsselungsadresse oder bittet ohne eine um einen Ausgabeschlüssel.',
+  'genericRequest.rejected.encryptionKeyIdentity':
+    'Die Identität, für die dieser Schlüssel ist, existiert nicht.',
+  'genericRequest.rejected.privateNotSetUp': 'Richte zuerst private Adressen ein.',
+  'genericRequest.flow.step.shareData': 'Daten teilen',
+  'genericRequest.flow.title.shareData': 'Nachweise mit {app} teilen',
+  'genericRequest.flow.shareData.intro':
+    '{app} fragt diese Nachweise von {identity} an. Sie werden verschlüsselt gesendet, sodass nur {app} sie lesen kann.',
+  'genericRequest.flow.shareData.loading': 'Passende Nachweise werden gesucht…',
+  'genericRequest.flow.shareData.consent': '{credential} teilen',
+  'genericRequest.flow.shareData.allNeeded': 'Hake jeden Nachweis an, um fortzufahren.',
+  'genericRequest.flow.shareData.missing.one':
+    '{count} angefragter Nachweis wurde nicht gefunden. Er wird nicht gesendet.',
+  'genericRequest.flow.shareData.missing.other':
+    '{count} angefragte Nachweise wurden nicht gefunden. Sie werden nicht gesendet.',
+  'genericRequest.flow.shareData.none': 'Auf {identity} wurden keine passenden Nachweise gefunden.',
+  'genericRequest.flow.shareData.nothingToSend':
+    'Es gibt nichts zu teilen. Lehne ab, um diese Anfrage zu schließen.',
+  'genericRequest.flow.shareData.error.lookup': 'Die Nachweise konnten nicht gelesen werden.',
+  'genericRequest.flow.plan.shareData.one': '{count} Nachweis mit {app} als {identity} teilen',
+  'genericRequest.flow.plan.shareData.other': '{count} Nachweise mit {app} als {identity} teilen',
+  'genericRequest.flow.action.share': 'Teilen',
+  'genericRequest.flow.action.signInAndShare': 'Anmelden und teilen',
+  'genericRequest.flow.working.share': 'Wird geteilt…',
+  'genericRequest.flow.outcome.sharedData.one': 'Du hast {count} Nachweis mit {app} geteilt',
+  'genericRequest.flow.outcome.sharedData.other': 'Du hast {count} Nachweise mit {app} geteilt',
+  'genericRequest.rejected.credentialsOnly':
+    'Diese Anfrage fragt nach anderen Daten als vollständigen Nachweisen. Diese Wallet teilt nur vollständige Nachweise.',
+  'genericRequest.rejected.credentialsNotEncrypted':
+    'Diese Anfrage fragt nach Nachweisen, nennt aber keine Adresse zum Verschlüsseln. Sie werden daher nicht gesendet.',
+  'genericRequest.rejected.credentialAddress':
+    'Die private Adresse dieser VerusID stammt nicht aus dieser Wallet, daher können darauf keine Nachweise gespeichert werden.',
   'genericRequest.rejected.unknownDetail':
     'Diese Anfrage enthält einen Teil, den diese Wallet nicht erkennt.',
   'genericRequest.rejected.detailOrder':

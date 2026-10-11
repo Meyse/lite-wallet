@@ -94,6 +94,7 @@ const APP_COMMANDS: &[&str] = &[
     "preflight_generic_identity_update",
     "send_generic_identity_update",
     "review_generic_invoice",
+    "review_generic_credentials",
     "preflight_generic_invoice",
     "send_generic_invoice_payment",
     "prepare_provisioning_signature",

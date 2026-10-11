@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use crate::types::WalletError;
 
+use super::credentials::Credential;
 use super::details::DetailKind;
 use super::request::{parse_request_hex, ParsedRequest};
 
@@ -19,6 +20,9 @@ pub(crate) struct OpenRequest {
     /// The transaction broadcast for this request. Once set, a retry reuses it
     /// and never broadcasts again (ADR 0001).
     pub broadcast_txid: Option<String>,
+    /// The credentials the user reviewed, with the identity they belong to.
+    /// The response shares exactly these.
+    pub reviewed_credentials: Option<(String, Vec<Credential>)>,
 }
 
 #[derive(Default)]
@@ -83,6 +87,21 @@ impl GenericRequestStore {
             open.session_id == session_id && &open.parsed.request_hash == request_hash
         }) {
             open.broadcast_txid = Some(txid.to_string());
+        }
+    }
+
+    pub(crate) fn record_credentials(
+        &self,
+        session_id: &str,
+        request_hash: &[u8; 32],
+        identity: &str,
+        credentials: Vec<Credential>,
+    ) {
+        let mut guard = self.open.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(open) = guard.as_mut().filter(|open| {
+            open.session_id == session_id && &open.parsed.request_hash == request_hash
+        }) {
+            open.reviewed_credentials = Some((identity.to_string(), credentials));
         }
     }
 }

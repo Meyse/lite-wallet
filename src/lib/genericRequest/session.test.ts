@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 import { describe, expect, it, vi } from 'vitest';
 import { GenericRequest } from 'verus-typescript-primitives';
 import fixtures from './fixtures/legacy-requests.json';
+import vectors from './fixtures/request-vectors.json';
 import { parseGenericRequestSession } from './session';
 
 // External CommonJS dependencies use Node's Buffer under Vitest. Production
@@ -77,5 +78,30 @@ describe('persisted request compatibility', () => {
       const uri = `verus://1/${Buffer.from(input, 'hex').toString('base64url')}`;
       expect(() => parseGenericRequestSession(uri)).toThrow();
     }
+  });
+});
+
+describe('share data requests', () => {
+  const vector = (name: string) => vectors.cases.find((entry) => entry.name === name)!;
+
+  it('reads the requested credential keys and the identity that must answer', () => {
+    const { details } = parseGenericRequestSession(vector('auth-credential').hex);
+    const expected = vector('auth-credential').expect.userData!;
+    expect(details[1]).toEqual({
+      index: 1,
+      type: 'userData',
+      keys: expected.keys,
+      requiredIdentity: expected.signer,
+    });
+  });
+
+  it('refuses a second credential request in one request', () => {
+    const request = new GenericRequest();
+    request.fromBuffer(Buffer.from(vector('auth-credential').hex, 'hex'), 0);
+    request.details = [...request.details, request.details[1]];
+    request.setFlags();
+    expect(() => parseGenericRequestSession(request.toBuffer().toString('hex'))).toThrow(
+      'genericRequest.rejected.unsupportedDetail'
+    );
   });
 });

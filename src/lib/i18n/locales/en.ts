@@ -353,6 +353,64 @@ export const en: Record<string, string> = {
   'genericRequest.rejected.dataTransmittal':
     'This request sends data to you instead of asking for a signature. This wallet does not accept that.',
   'genericRequest.rejected.dataNotForSignature': 'This request does not ask you to sign anything.',
+  'genericRequest.flow.step.encryptionKey': 'Encryption key',
+  'genericRequest.flow.title.encryptionKey': 'Share an encryption key with {app}',
+  'genericRequest.flow.encryptionKey.app': 'App',
+  'genericRequest.flow.encryptionKey.number': 'Key number',
+  'genericRequest.flow.encryptionKey.shares': 'Shares',
+  'genericRequest.flow.encryptionKey.sharesViewing':
+    'A viewing key and a private address made for this app',
+  'genericRequest.flow.encryptionKey.sharesWithSpendingKey':
+    'A viewing key, a private address, and its spending key',
+  'genericRequest.flow.encryptionKey.checking': 'Checking private addresses…',
+  'genericRequest.flow.encryptionKey.setupTitle': 'Set up private addresses first',
+  'genericRequest.flow.encryptionKey.setupBody':
+    'This app needs a private address from this wallet. Set up private addresses, then open the request link again.',
+  'genericRequest.flow.encryptionKey.setupAction': 'Set up private addresses',
+  'genericRequest.flow.encryptionKey.spendingKeyTitle': 'This app also asks for a spending key',
+  'genericRequest.flow.encryptionKey.spendingKeyBody':
+    'With it, the app can spend anything sent to this private address. Share it only with an app that you trust with those funds.',
+  'genericRequest.flow.encryptionKey.spendingKeyAcknowledge':
+    'I understand that this app can spend from this address.',
+  'genericRequest.flow.encryptionKey.error.status': 'Could not check private addresses.',
+  'genericRequest.flow.plan.encryptionKey': 'Share an encryption key with {app} as {identity}',
+  'genericRequest.flow.action.shareKey': 'Share key',
+  'genericRequest.flow.working.shareKey': 'Sharing key…',
+  'genericRequest.flow.outcome.keyShared': '{app} has an encryption key',
+  'genericRequest.flow.receipt.sharedAs': 'Shared as',
+  'genericRequest.rejected.encryptionKeyAddress':
+    'This request names an encryption address that is not valid, or asks for a spending key without one.',
+  'genericRequest.rejected.encryptionKeyIdentity':
+    'The identity that this key is for does not exist.',
+  'genericRequest.rejected.privateNotSetUp': 'Set up private addresses first.',
+  'genericRequest.flow.step.shareData': 'Share data',
+  'genericRequest.flow.title.shareData': 'Share credentials with {app}',
+  'genericRequest.flow.shareData.intro':
+    '{app} asks for these credentials from {identity}. They are sent encrypted, so only {app} can read them.',
+  'genericRequest.flow.shareData.loading': 'Looking for matching credentials…',
+  'genericRequest.flow.shareData.consent': 'Share {credential}',
+  'genericRequest.flow.shareData.allNeeded': 'Check every credential to continue.',
+  'genericRequest.flow.shareData.missing.one':
+    '{count} requested credential was not found. It is not sent.',
+  'genericRequest.flow.shareData.missing.other':
+    '{count} requested credentials were not found. They are not sent.',
+  'genericRequest.flow.shareData.none': 'No matching credentials were found on {identity}.',
+  'genericRequest.flow.shareData.nothingToSend':
+    'There is nothing to share. Decline to close this request.',
+  'genericRequest.flow.shareData.error.lookup': 'The credentials could not be read.',
+  'genericRequest.flow.plan.shareData.one': 'Share {count} credential with {app} as {identity}',
+  'genericRequest.flow.plan.shareData.other': 'Share {count} credentials with {app} as {identity}',
+  'genericRequest.flow.action.share': 'Share',
+  'genericRequest.flow.action.signInAndShare': 'Sign in and share',
+  'genericRequest.flow.working.share': 'Sharing…',
+  'genericRequest.flow.outcome.sharedData.one': 'You shared {count} credential with {app}',
+  'genericRequest.flow.outcome.sharedData.other': 'You shared {count} credentials with {app}',
+  'genericRequest.rejected.credentialsOnly':
+    'This request asks for data other than whole credentials. This wallet shares only whole credentials.',
+  'genericRequest.rejected.credentialsNotEncrypted':
+    'This request asks for credentials but gives no address to encrypt them to, so they are not sent.',
+  'genericRequest.rejected.credentialAddress':
+    'The private address of this VerusID does not come from this wallet, so credentials cannot be stored on it.',
   'genericRequest.rejected.unknownDetail':
     'This request contains a part that this wallet does not recognize.',
   'genericRequest.rejected.detailOrder':
@@ -441,6 +499,7 @@ export const en: Record<string, string> = {
   'genericRequest.update.privateAddress': 'Private address',
   'genericRequest.update.contentPrefix': 'Content',
   'genericRequest.update.content.currentIdentityContent': 'Current identity content',
+  'genericRequest.update.content.credentials': 'Credentials (stored encrypted)',
   'genericRequest.update.content.noneAfterUpdate': 'No content after update',
   'genericRequest.update.content.currentLabel': 'Current',
   'genericRequest.update.content.currentValueLabel': 'Current value',

@@ -45,6 +45,30 @@ describe('identity content review compatibility', () => {
     expect(review.contentChanges[0].nextPreview).toBe('Disposable QA note');
   });
 
+  it('names the credentials an update stores by their labels', () => {
+    const credentialKey = 'iMRGoNZvSuayeu17PmbXv2CA6eRL4xfmhm';
+    const credential = (label: string | null, credentialkey: string) => ({
+      iDTG49YLqmkHMYRyuQBYgEyTByQwAzqGd6: {
+        version: 1,
+        credentialkey,
+        credential: { displayName: 'Test user' },
+        scopes: [key],
+        label,
+      },
+    });
+    const values = [credential('Test profile', unrelated), credential(null, key)];
+    const review = buildGenericIdentityUpdateReview({
+      ...defaults,
+      currentIdentity: { contentmultimap: {} },
+      requestedIdentity: { contentmultimap: { [credentialKey]: values } },
+      rawRequestedIdentity: { contentmultimap: { [credentialKey]: values } },
+    });
+    expect(review.contentChanges[0]).toMatchObject({
+      label: 'genericRequest.update.content.credentials',
+      nextPreview: `Test profile, ${key}`,
+    });
+  });
+
   it('treats a private address change as high risk, as Verus Mobile does', () => {
     const next = 'zs13akhfdhypx9a8t2efkfgxpd5d9h3glz7d5pug2ys65mrzt4mw5vjqx0vw29gx82y3e0xjjuhrwn';
     const review = buildGenericIdentityUpdateReview({

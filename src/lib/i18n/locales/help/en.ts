@@ -199,9 +199,9 @@ export const helpEn = {
   'helpCenter.article.requests.summary':
     'A request asks the wallet to perform specific actions. Check the requester and each action before approving.',
   'helpCenter.article.requests.body':
-    'Use Open request for a supported request, or open a supported wallet link. The wallet verifies the request and shows the actions it understands. These can include authentication and identity changes; some actions also require funding and a fee.\n\nA valid signature identifies the signer, but does not make the request desirable. Check the identity, permissions, destination and changes yourself. Reject an unexpected request. The Apps section is not currently an app directory, and Activity has no transaction history in this version; inspect an asset for its transactions.',
+    'Use Open request for a supported request, or open a supported wallet link. The wallet verifies the request and shows each action it understands: signing in, asking for a new VerusID, updating a VerusID, paying an invoice, signing data, sharing an encryption key, and sharing credentials. Each action shows its impact: it signs as you, shares data, spends funds, or changes control of a VerusID. Payments and updates also need a fee.\n\nA valid signature identifies the signer, but does not make the request desirable. Check the identity, permissions, destination and changes yourself. Reject an unexpected request. Encryption keys and credentials are sent encrypted, so only the requester can read them. The Apps section is not currently an app directory, and Activity has no transaction history in this version; inspect an asset for its transactions.',
   'helpCenter.article.requests.keywords':
-    'app apps request deeplink link sign signature authentication login permissions activity',
+    'app apps request deeplink link sign signature authentication login permissions activity invoice payment credentials encryption key',
   'helpCenter.article.contacts.title': 'Contacts and public profiles',
   'helpCenter.article.contacts.summary':
     '[[contacts|Contacts]] store recipients and private notes in this wallet. A linked public profile comes from the VerusID.',

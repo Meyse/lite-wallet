@@ -686,32 +686,57 @@ const DESCRIPTOR_FLAG_VDXF_KEY: u64 = 0x80;
 const DESCRIPTOR_LABEL_MAX: usize = 64;
 const DESCRIPTOR_MIME_MAX: usize = 128;
 
-/// Reads a `DataDescriptor` and returns its exact bytes.
-pub(crate) fn read_data_descriptor<'a>(reader: &mut Reader<'a>) -> Result<&'a [u8], WalletError> {
+/// The fields of a `DataDescriptor` that the wallet reads.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DataDescriptor<'a> {
+    pub objectdata: &'a [u8],
+    pub epk: Option<&'a [u8]>,
+    pub ivk: Option<&'a [u8]>,
+    pub ssk: Option<&'a [u8]>,
+    /// The descriptor's exact bytes.
+    pub bytes: &'a [u8],
+}
+
+/// Reads a `DataDescriptor` (`DataDescriptor.fromBuffer`).
+pub(crate) fn parse_data_descriptor<'a>(
+    reader: &mut Reader<'a>,
+) -> Result<DataDescriptor<'a>, WalletError> {
     let start = reader.position();
     let _version = reader.varint()?;
     let flags = reader.varint()?;
     if flags & DESCRIPTOR_FLAG_VDXF_KEY != 0 {
         reader.hash160()?;
     }
-    reader.var_slice()?;
+    let objectdata = reader.var_slice()?;
     if flags & DESCRIPTOR_FLAG_LABEL != 0 && reader.var_slice()?.len() > DESCRIPTOR_LABEL_MAX {
         return Err(invalid());
     }
     if flags & DESCRIPTOR_FLAG_MIME != 0 && reader.var_slice()?.len() > DESCRIPTOR_MIME_MAX {
         return Err(invalid());
     }
-    for flag in [
-        DESCRIPTOR_FLAG_SALT,
-        DESCRIPTOR_FLAG_EPK,
-        DESCRIPTOR_FLAG_IVK,
-        DESCRIPTOR_FLAG_SSK,
-    ] {
+    let mut optional = |flag: u64| -> Result<Option<&'a [u8]>, WalletError> {
         if flags & flag != 0 {
-            reader.var_slice()?;
+            reader.var_slice().map(Some)
+        } else {
+            Ok(None)
         }
-    }
-    Ok(reader.since(start))
+    };
+    let _salt = optional(DESCRIPTOR_FLAG_SALT)?;
+    let epk = optional(DESCRIPTOR_FLAG_EPK)?;
+    let ivk = optional(DESCRIPTOR_FLAG_IVK)?;
+    let ssk = optional(DESCRIPTOR_FLAG_SSK)?;
+    Ok(DataDescriptor {
+        objectdata,
+        epk,
+        ivk,
+        ssk,
+        bytes: reader.since(start),
+    })
+}
+
+/// Reads a `DataDescriptor` and returns its exact bytes.
+pub(crate) fn read_data_descriptor<'a>(reader: &mut Reader<'a>) -> Result<&'a [u8], WalletError> {
+    parse_data_descriptor(reader).map(|descriptor| descriptor.bytes)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -771,5 +796,135 @@ pub(crate) fn parse_data_packet(
         signable,
         object_count,
         request_id,
+    })
+}
+
+// --- Share data --------------------------------------------------------------
+
+const USER_DATA_FLAG_HAS_REQUEST_ID: u64 = 1;
+const USER_DATA_FLAG_HAS_SIGNER: u64 = 2;
+const USER_DATA_FLAG_HAS_REQUESTED_KEYS: u64 = 4;
+pub(crate) const USER_DATA_FULL_DATA: u64 = 1;
+const USER_DATA_COLLECTION: u64 = 3;
+pub(crate) const USER_DATA_CREDENTIAL: u64 = 3;
+const USER_DATA_ATTESTATION: u64 = 1;
+/// `HASH_TYPE_BLAKE2B` (1) to `HASH_TYPE_SHA256` (5).
+const HASH_TYPES: std::ops::RangeInclusive<u64> = 1..=5;
+
+/// `UserDataRequestDetails`: what data the app asks for, and from whom.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UserDataRequest {
+    pub data_type: u64,
+    pub request_type: u64,
+    pub hash_type: u64,
+    /// The data keys the app asks for, each with its search value.
+    pub search_keys: Vec<(String, Vec<u8>)>,
+    /// The identity that must answer, when the app names one.
+    pub signer: Option<String>,
+    pub requested_keys: Vec<String>,
+    pub request_id: Option<String>,
+}
+
+impl UserDataRequest {
+    /// `UserDataRequestDetails.isValid()`.
+    pub(crate) fn is_valid(&self) -> bool {
+        (USER_DATA_FULL_DATA..=USER_DATA_COLLECTION).contains(&self.data_type)
+            && (USER_DATA_ATTESTATION..=USER_DATA_CREDENTIAL).contains(&self.request_type)
+            && HASH_TYPES.contains(&self.hash_type)
+            && !self.search_keys.is_empty()
+    }
+}
+
+pub(crate) fn parse_user_data(
+    data: &[u8],
+    is_testnet: bool,
+) -> Result<UserDataRequest, WalletError> {
+    let mut reader = Reader::new(data);
+    let flags = reader.compact_size()?;
+    let data_type = reader.compact_size()?;
+    let request_type = reader.compact_size()?;
+    let hash_type = reader.compact_size()?;
+    let count = reader.count()?;
+    let mut search_keys = Vec::with_capacity(count);
+    for _ in 0..count {
+        let key = i_address(&reader.hash160()?);
+        search_keys.push((key, reader.var_slice()?.to_vec()));
+    }
+    let signer = if flags & USER_DATA_FLAG_HAS_SIGNER != 0 {
+        Some(CompactAddress::read(&mut reader)?.identity_address(is_testnet)?)
+    } else {
+        None
+    };
+    let mut requested_keys = Vec::new();
+    if flags & USER_DATA_FLAG_HAS_REQUESTED_KEYS != 0 {
+        let count = reader.count()?;
+        for _ in 0..count {
+            requested_keys.push(i_address(&reader.hash160()?));
+        }
+    }
+    let request_id = if flags & USER_DATA_FLAG_HAS_REQUEST_ID != 0 {
+        Some(CompactAddress::read(&mut reader)?.identity_address(is_testnet)?)
+    } else {
+        None
+    };
+    reader.finish()?;
+    Ok(UserDataRequest {
+        data_type,
+        request_type,
+        hash_type,
+        search_keys,
+        signer,
+        requested_keys,
+        request_id,
+    })
+}
+
+// --- Encryption key ----------------------------------------------------------
+
+const APP_ENCRYPTION_FLAG_HAS_REQUEST_ID: u64 = 1;
+const APP_ENCRYPTION_FLAG_HAS_ENCRYPT_TO: u64 = 2;
+const APP_ENCRYPTION_FLAG_HAS_DERIVATION_ID: u64 = 4;
+const APP_ENCRYPTION_FLAG_RETURN_SPENDING_KEY: u64 = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AppEncryptionRequest {
+    /// The address to encrypt this detail's response to.
+    pub encrypt_to: Option<[u8; 43]>,
+    pub derivation_number: u64,
+    pub derivation_id: Option<String>,
+    pub request_id: Option<String>,
+    /// The app asks for the channel's extended spending key.
+    pub return_spending_key: bool,
+}
+
+pub(crate) fn parse_app_encryption(
+    data: &[u8],
+    is_testnet: bool,
+) -> Result<AppEncryptionRequest, WalletError> {
+    let mut reader = Reader::new(data);
+    let flags = reader.compact_size()?;
+    let encrypt_to = if flags & APP_ENCRYPTION_FLAG_HAS_ENCRYPT_TO != 0 {
+        Some(reader.take(43)?.try_into().map_err(|_| invalid())?)
+    } else {
+        None
+    };
+    let derivation_number = reader.varint()?;
+    let derivation_id = if flags & APP_ENCRYPTION_FLAG_HAS_DERIVATION_ID != 0 {
+        Some(CompactAddress::read(&mut reader)?.identity_address(is_testnet)?)
+    } else {
+        None
+    };
+    let request_id = if flags & APP_ENCRYPTION_FLAG_HAS_REQUEST_ID != 0 {
+        Some(CompactAddress::read(&mut reader)?.identity_address(is_testnet)?)
+    } else {
+        None
+    };
+    reader.finish()?;
+    Ok(AppEncryptionRequest {
+        encrypt_to,
+        derivation_number,
+        derivation_id,
+        request_id,
+        return_spending_key: flags & APP_ENCRYPTION_FLAG_RETURN_SPENDING_KEY != 0,
     })
 }

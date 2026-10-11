@@ -11,6 +11,7 @@ import type {
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
   ProvisionIdentityDetailSession,
+  UserDataDetailSession,
 } from '$lib/genericRequest/session';
 import Fixture from './RequestsFixture.svelte';
 
@@ -105,24 +106,40 @@ const dataPacket: DataPacketDetailSession = {
   statements: ['These signatures are for a disposable test.'],
 };
 
+// Share data: Deep Link Sim's fixture keys (`data-lab-fixtures.ts`).
+const userData: UserDataDetailSession = {
+  index: 1,
+  type: 'userData',
+  keys: [
+    'iEwa1Py7XEjJNvte13WogabJkTDVv7Vg5Z',
+    'iRXFrvRaaVT7hKsQc9bqcHa1AAmtzXe5jb',
+    'iNZn695ZGgyUJUBVQBFcVEpc8RBsbvuMcK',
+  ],
+  requiredIdentity: null,
+};
+
 const details =
-  scenario === 'signData'
-    ? [{ ...dataPacket, index: 0 }]
-    : scenario === 'authSignData'
-      ? [auth, dataPacket]
-      : scenario === 'update'
-        ? [auth, update]
-        : scenario === 'updateOnly'
-          ? [{ ...update, index: 0 }]
-          : scenario === 'newid'
-            ? [auth, provision]
-            : scenario === 'invoice'
-              ? [auth, invoice]
-              : scenario === 'invoiceOnly' ||
-                  scenario === 'invoiceAny' ||
-                  scenario === 'invoicePaid'
-                ? [{ ...invoice, index: 0 }]
-                : [auth];
+  scenario === 'shareData' || scenario === 'shareDataNone' || scenario === 'shareDataError'
+    ? [{ ...userData, index: 0 }]
+    : scenario === 'authShareData'
+      ? [auth, userData]
+      : scenario === 'signData'
+        ? [{ ...dataPacket, index: 0 }]
+        : scenario === 'authSignData'
+          ? [auth, dataPacket]
+          : scenario === 'update'
+            ? [auth, update]
+            : scenario === 'updateOnly'
+              ? [{ ...update, index: 0 }]
+              : scenario === 'newid'
+                ? [auth, provision]
+                : scenario === 'invoice'
+                  ? [auth, invoice]
+                  : scenario === 'invoiceOnly' ||
+                      scenario === 'invoiceAny' ||
+                      scenario === 'invoicePaid'
+                    ? [{ ...invoice, index: 0 }]
+                    : [auth];
 const session: GenericRequestFlowSession = {
   request: {} as GenericRequestFlowSession['request'],
   requestHex: '00',
@@ -274,6 +291,32 @@ window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
     case 'send_generic_invoice_payment':
       await once('transaction');
       return { txid: '0600eba8a139873d6c3dba0a2dd6ebb8589ffb44a5ac9386102c123b776773f7' };
+    case 'get_dlight_seed_status':
+      return { configured: true };
+    case 'review_generic_credentials':
+      if (scenario === 'shareDataError') {
+        throw { type: 'NetworkError', message: 'Synthetic fixture failure' };
+      }
+      if (scenario === 'shareDataNone') {
+        return { credentials: [], missingKeys: userData.keys };
+      }
+      return {
+        credentials: [
+          {
+            key: userData.keys[0],
+            label: 'Disposable test profile',
+            credential: { displayName: 'Deeplink test user', purpose: 'Mobile redesign QA only' },
+            scopes: [REQUESTER],
+          },
+          {
+            key: userData.keys[1],
+            label: 'Disposable test membership',
+            credential: { membership: 'Test group', level: 'Sample' },
+            scopes: [REQUESTER],
+          },
+        ],
+        missingKeys: [userData.keys[2]],
+      };
     case 'get_balances':
       return { confirmed: '2.63337', pending: '0', total: '2.63337' };
     case 'send_generic_identity_update':

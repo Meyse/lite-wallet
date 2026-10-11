@@ -1,13 +1,13 @@
 ---
 owner: lite-wallet-team
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Plan: Requests in the guided flow
 
-- Status: active (phase 0 done; phases 1 to 3 in progress)
+- Status: active (phase 0 done; phases 1 to 4 in progress)
 - Owner: lite-wallet-team
-- Last updated: 2026-10-10
+- Last updated: 2026-10-11
 
 ## Goal
 
@@ -300,6 +300,38 @@ guided flow defined by the
 
 ### Phase 4: private-address crypto, encryption key, credentials
 
+**Progress on 2026-10-11.**
+
+- **Done:**
+  - `core/generic_request/private_crypto.rs` ports `verus_zfunc`'s channel keys,
+    encryption, and decryption to the wallet's Sapling crates. Its vectors come
+    from `verus_zfunc` itself for a fixed public test seed, instead of a Deep
+    Link Sim helper mode. The daemon's `z_getencryptionaddress` gave the same
+    addresses, and its IVK is the curve's own byte order.
+  - Encryption key: Rust derives the keys from the private account, encrypts a
+    detail to the address it names, and encrypts the whole response to the
+    request's address. The response bytes match mobile's (vector test).
+  - Credentials written by an update: Rust encrypts each credential to the
+    identity's credential address before the preflight reaches the daemon, and
+    stores it under the hashed key. The key matches mobile's `getConditionID`
+    and the daemon's `getvdxfid` with the same viewing key.
+  - Share data: Rust reads the responder's content under that key, decrypts it,
+    and keeps the valid credentials whose key was requested and whose scopes
+    include the app. Each credential has its own consent. The response bytes
+    match mobile's (vector test). Sign data inside an update is refused as not
+    supported yet.
+- **Verified on testnet, 2026-10-11:**
+  - Encryption key, encrypted and plain: Deep Link Sim decrypted and verified
+    both.
+  - Credentials written by an update to a new disposable identity,
+    `dlscredqa1@`: txid
+    `ea9e4cf13280d48a3b6bd015bc47098f21d4d1d383c1b316f9ef5c3ba8254e0c`. The
+    chain holds only encrypted descriptors under the hashed key.
+  - Sign in plus a credential request with no match: Deep Link Sim verified an
+    encrypted response with zero credentials and the missing key.
+- **Not done:** sharing the stored credentials, which waits for the update to be
+  mined.
+
 1. **Key derivation in Rust.** Implement the channel-key derivation from the
    extended spending key on the existing upstream crates. Promote
    `zcash_note_encryption` to a normal dependency.
@@ -307,7 +339,8 @@ guided flow defined by the
    from-ID, to-ID, and index in; address, IVK, and viewing key out. Cross-check
    it once against the daemon's `z_getencryptionaddress`. Add decrypt vectors
    for encryption. Nothing in this phase ships before both pass. The IVK is in
-   display order.
+   the curve's own byte order, as the daemon and `react-native-verus` return it
+   (corrected on 2026-10-11; this step first said display order).
 3. **Response encryption.** Encrypt the whole response to the address the
    request names.
 4. **Encryption key module.**

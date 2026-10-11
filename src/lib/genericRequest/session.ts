@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
 import {
   APP_ENCRYPTION_REQUEST_VDXF_KEY,
+  AppEncryptionRequestOrdinalVDXFObject,
   AUTHENTICATION_REQUEST_VDXF_KEY,
   AuthenticationRequestOrdinalVDXFObject,
   CREATE_WALLET_BACKUP_DETAILS_VDXF_KEY,
@@ -15,6 +16,7 @@ import {
   ResponseURI,
   SPENDABLE_KEY_DETAILS_VDXF_KEY,
   USER_DATA_REQUEST_VDXF_KEY,
+  UserDataRequestOrdinalVDXFObject,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY,
   VerusPayInvoiceDetailsOrdinalVDXFObject,
 } from 'verus-typescript-primitives';
@@ -105,12 +107,33 @@ export type DataPacketDetailSession = {
   statements: string[];
 };
 
+/** Encryption key: Rust derives the keys from the wallet's private account. */
+export type AppEncryptionDetailSession = {
+  index: number;
+  type: 'appEncryption';
+  derivationNumber: number;
+  derivationId: string | null;
+  returnsSpendingKey: boolean;
+};
+
+/** Share data: Rust reads the matching credentials from the responder. */
+export type UserDataDetailSession = {
+  index: number;
+  type: 'userData';
+  /** The credential keys the app asks for. */
+  keys: string[];
+  /** The VerusID that must answer, when the app names one. */
+  requiredIdentity: string | null;
+};
+
 export type SupportedGenericRequestDetail =
   | AuthenticationDetailSession
   | ProvisionIdentityDetailSession
   | IdentityUpdateDetailSession
   | InvoiceDetailSession
-  | DataPacketDetailSession;
+  | DataPacketDetailSession
+  | AppEncryptionDetailSession
+  | UserDataDetailSession;
 
 export type GenericRequestFlowSession = {
   request: GenericRequest;
@@ -138,6 +161,8 @@ const REQUEST_DETAIL_KEYS = new Set([
 
 /** The detail types the desktop flow can show today. */
 const SUPPORTED_DETAIL_KEYS = new Set([
+  APP_ENCRYPTION_REQUEST_VDXF_KEY.vdxfid,
+  USER_DATA_REQUEST_VDXF_KEY.vdxfid,
   DATA_PACKET_REQUEST_VDXF_KEY.vdxfid,
   VERUSPAY_INVOICE_DETAILS_VDXF_KEY.vdxfid,
   AUTHENTICATION_REQUEST_VDXF_KEY.vdxfid,
@@ -353,8 +378,27 @@ export function parseGenericRequestSession(
     if (detail instanceof ProvisionIdentityDetailsOrdinalVDXFObject) {
       return parseProvisionIdentityDetail(detail, index);
     }
+    if (detail instanceof AppEncryptionRequestOrdinalVDXFObject) {
+      return {
+        index,
+        type: 'appEncryption' as const,
+        derivationNumber: detail.data.derivationNumber.toNumber(),
+        derivationId: detail.data.derivationID?.toAddress?.() ?? null,
+        returnsSpendingKey: detail.data.returnESK(),
+      };
+    }
     if (detail instanceof DataPacketRequestOrdinalVDXFObject) {
       return parseDataPacketDetail(detail, index);
+    }
+    if (detail instanceof UserDataRequestOrdinalVDXFObject) {
+      return {
+        index,
+        type: 'userData' as const,
+        keys: detail.data.searchDataKey.flatMap((item) => Object.keys(item)),
+        requiredIdentity: detail.data.hasSigner()
+          ? (detail.data.signer?.toIAddress?.() ?? null)
+          : null,
+      };
     }
     if (detail instanceof VerusPayInvoiceDetailsOrdinalVDXFObject) {
       return {
@@ -366,8 +410,12 @@ export function parseGenericRequestSession(
 
     throw rejectionError('unsupportedDetail');
   });
-  // One Sign data step per request: a second data packet is not shown yet.
-  if (details.filter((detail) => detail.type === 'dataPacket').length > 1) {
+  // One Sign data and one Share data step per request: a second data packet
+  // or credential request is not shown yet.
+  if (
+    details.filter((detail) => detail.type === 'dataPacket').length > 1 ||
+    details.filter((detail) => detail.type === 'userData').length > 1
+  ) {
     throw rejectionError('unsupportedDetail');
   }
 

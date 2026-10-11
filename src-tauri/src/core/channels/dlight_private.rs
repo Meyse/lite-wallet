@@ -276,6 +276,13 @@ pub fn derive_spending_key(
     Ok(encode_extended_spending_key(hrp, &extsk))
 }
 
+/// The account's extended spending key from its stored encoding.
+pub(crate) fn decode_runtime_spending_key(
+    encoded: &str,
+) -> Result<sapling::zip32::ExtendedSpendingKey, WalletError> {
+    spend_keys::decode_spending_key(encoded)
+}
+
 pub fn runtime_spending_key(
     secret: &str,
     network: WalletNetwork,

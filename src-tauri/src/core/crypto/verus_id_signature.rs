@@ -17,6 +17,7 @@ const GENERIC_ENVELOPE_FLAG_MULTI_DETAILS: u64 = 8;
 const GENERIC_ENVELOPE_FLAG_IS_TESTNET: u64 = 16;
 const GENERIC_ENVELOPE_FLAG_HAS_SALT: u64 = 32;
 const GENERIC_ENVELOPE_FLAG_HAS_APP_OR_DELEGATED_ID: u64 = 64;
+const GENERIC_ENVELOPE_FLAG_DETAILS_ARE_ENCRYPTED: u64 = 1024;
 
 const VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEYS: u64 = 1;
 const VERIFIABLE_SIGNATURE_FLAG_HAS_VDXF_KEY_NAMES: u64 = 2;
@@ -145,7 +146,10 @@ pub fn parse_generic_envelope_bytes(bytes: &[u8]) -> Result<ParsedGenericEnvelop
         None
     };
 
-    let details = if (flags & GENERIC_ENVELOPE_FLAG_MULTI_DETAILS) != 0 {
+    // Encrypted details are one data descriptor, whatever the multi flag says.
+    let details = if (flags & GENERIC_ENVELOPE_FLAG_MULTI_DETAILS) != 0
+        && (flags & GENERIC_ENVELOPE_FLAG_DETAILS_ARE_ENCRYPTED) == 0
+    {
         let (count, count_len) = read_compact_size(bytes, scan)?;
         scan += count_len;
 

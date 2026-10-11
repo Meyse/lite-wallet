@@ -368,6 +368,45 @@ mod tests {
     }
 
     #[test]
+    fn share_data_fields_match_the_library() {
+        let (request, expect) = parse("auth-credential");
+        let user_data =
+            crate::core::generic_request::details::parse_user_data(&request.details[1].data, true)
+                .unwrap();
+        let expected = &expect["userData"];
+        assert!(user_data.is_valid());
+        assert_eq!(
+            user_data.request_id.as_deref(),
+            expected["requestId"].as_str()
+        );
+        assert_eq!(user_data.signer.as_deref(), expected["signer"].as_str());
+        let keys = user_data
+            .search_keys
+            .iter()
+            .map(|(key, _)| Value::String(key.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(Value::Array(keys), expected["keys"]);
+    }
+
+    #[test]
+    fn credentials_in_an_update_keep_their_bytes() {
+        let (request, expect) = parse("update-credentials");
+        let update = parse_identity_update(&request.details[0].data, true).unwrap();
+        let entries = update.identity.content_multimap.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].0,
+            crate::core::generic_request::credentials::IDENTITY_CREDENTIAL_KEY
+        );
+        let values = entries[0]
+            .1
+            .iter()
+            .map(|value| Value::String(hex::encode(value)))
+            .collect::<Vec<_>>();
+        assert_eq!(Value::Array(values), expect["credentialValues"]);
+    }
+
+    #[test]
     fn a_signer_named_by_its_full_name_resolves_to_its_i_address() {
         let (request, expect) = parse("fqn-signer");
         assert_eq!(

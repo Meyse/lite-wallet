@@ -473,6 +473,12 @@
     }
   }
 
+  /** Encryption key and share data requests need private addresses; open their setup. */
+  function openPrivateSetupFromRequest(): void {
+    navigateToSection('settings');
+    settingsTarget = 'private-verus';
+  }
+
   function closeGenericRequestFlow(): void {
     genericRequestFlowOpen = false;
     genericRequestApproved = false;
@@ -767,6 +773,7 @@
       bind:isOpen={genericRequestFlowOpen}
       bind:approved={genericRequestApproved}
       session={genericRequestSession}
+      onSetupPrivate={openPrivateSetupFromRequest}
       onClose={closeGenericRequestFlow}
     />
   {/if}

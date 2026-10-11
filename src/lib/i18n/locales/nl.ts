@@ -364,6 +364,65 @@ export const nl: Record<string, string> = {
   'genericRequest.rejected.dataTransmittal':
     'Dit verzoek stuurt gegevens naar je in plaats van om een handtekening te vragen. Deze wallet accepteert dat niet.',
   'genericRequest.rejected.dataNotForSignature': 'Dit verzoek vraagt je niets te ondertekenen.',
+  'genericRequest.flow.step.encryptionKey': 'Versleutelsleutel',
+  'genericRequest.flow.title.encryptionKey': 'Een versleutelsleutel delen met {app}',
+  'genericRequest.flow.encryptionKey.app': 'App',
+  'genericRequest.flow.encryptionKey.number': 'Sleutelnummer',
+  'genericRequest.flow.encryptionKey.shares': 'Deelt',
+  'genericRequest.flow.encryptionKey.sharesViewing':
+    'Een kijksleutel en een privéadres voor deze app',
+  'genericRequest.flow.encryptionKey.sharesWithSpendingKey':
+    'Een kijksleutel, een privéadres en de bestedingssleutel ervan',
+  'genericRequest.flow.encryptionKey.checking': 'Privéadressen controleren…',
+  'genericRequest.flow.encryptionKey.setupTitle': 'Stel eerst privéadressen in',
+  'genericRequest.flow.encryptionKey.setupBody':
+    'Deze app heeft een privéadres uit deze wallet nodig. Stel privéadressen in en open daarna de link van het verzoek opnieuw.',
+  'genericRequest.flow.encryptionKey.setupAction': 'Privéadressen instellen',
+  'genericRequest.flow.encryptionKey.spendingKeyTitle': 'Deze app vraagt ook een bestedingssleutel',
+  'genericRequest.flow.encryptionKey.spendingKeyBody':
+    'Daarmee kan de app alles uitgeven wat naar dit privéadres gaat. Deel hem alleen met een app die je dat geld toevertrouwt.',
+  'genericRequest.flow.encryptionKey.spendingKeyAcknowledge':
+    'Ik begrijp dat deze app vanaf dit adres kan uitgeven.',
+  'genericRequest.flow.encryptionKey.error.status':
+    'Privéadressen konden niet worden gecontroleerd.',
+  'genericRequest.flow.plan.encryptionKey': 'Een versleutelsleutel delen met {app} als {identity}',
+  'genericRequest.flow.action.shareKey': 'Sleutel delen',
+  'genericRequest.flow.working.shareKey': 'Sleutel delen…',
+  'genericRequest.flow.outcome.keyShared': '{app} heeft een versleutelsleutel',
+  'genericRequest.flow.receipt.sharedAs': 'Gedeeld als',
+  'genericRequest.rejected.encryptionKeyAddress':
+    'Dit verzoek noemt een ongeldig versleuteladres, of vraagt een bestedingssleutel zonder versleuteladres.',
+  'genericRequest.rejected.encryptionKeyIdentity':
+    'De identiteit waarvoor deze sleutel is, bestaat niet.',
+  'genericRequest.rejected.privateNotSetUp': 'Stel eerst privéadressen in.',
+  'genericRequest.flow.step.shareData': 'Gegevens delen',
+  'genericRequest.flow.title.shareData': 'Referenties delen met {app}',
+  'genericRequest.flow.shareData.intro':
+    '{app} vraagt deze referenties van {identity}. Ze worden versleuteld verstuurd, zodat alleen {app} ze kan lezen.',
+  'genericRequest.flow.shareData.loading': 'Passende referenties zoeken…',
+  'genericRequest.flow.shareData.consent': '{credential} delen',
+  'genericRequest.flow.shareData.allNeeded': 'Vink elke referentie aan om door te gaan.',
+  'genericRequest.flow.shareData.missing.one':
+    '{count} gevraagde referentie is niet gevonden. Die wordt niet verstuurd.',
+  'genericRequest.flow.shareData.missing.other':
+    '{count} gevraagde referenties zijn niet gevonden. Die worden niet verstuurd.',
+  'genericRequest.flow.shareData.none': 'Er zijn geen passende referenties gevonden op {identity}.',
+  'genericRequest.flow.shareData.nothingToSend':
+    'Er is niets om te delen. Weiger om dit verzoek te sluiten.',
+  'genericRequest.flow.shareData.error.lookup': 'De referenties konden niet worden gelezen.',
+  'genericRequest.flow.plan.shareData.one': '{count} referentie delen met {app} als {identity}',
+  'genericRequest.flow.plan.shareData.other': '{count} referenties delen met {app} als {identity}',
+  'genericRequest.flow.action.share': 'Delen',
+  'genericRequest.flow.action.signInAndShare': 'Inloggen en delen',
+  'genericRequest.flow.working.share': 'Delen…',
+  'genericRequest.flow.outcome.sharedData.one': 'Je hebt {count} referentie gedeeld met {app}',
+  'genericRequest.flow.outcome.sharedData.other': 'Je hebt {count} referenties gedeeld met {app}',
+  'genericRequest.rejected.credentialsOnly':
+    'Dit verzoek vraagt om andere gegevens dan volledige referenties. Deze wallet deelt alleen volledige referenties.',
+  'genericRequest.rejected.credentialsNotEncrypted':
+    'Dit verzoek vraagt om referenties, maar geeft geen adres om ze naar te versleutelen. Ze worden dus niet verstuurd.',
+  'genericRequest.rejected.credentialAddress':
+    'Het privéadres van deze VerusID komt niet uit deze wallet, dus er kunnen geen referenties op worden opgeslagen.',
   'genericRequest.rejected.unknownDetail':
     'Dit verzoek bevat een onderdeel dat deze wallet niet herkent.',
   'genericRequest.rejected.detailOrder':
@@ -455,6 +514,7 @@ export const nl: Record<string, string> = {
   'genericRequest.update.privateAddress': 'Private address',
   'genericRequest.update.contentPrefix': 'Content',
   'genericRequest.update.content.currentIdentityContent': 'Current identity content',
+  'genericRequest.update.content.credentials': 'Referenties (versleuteld opgeslagen)',
   'genericRequest.update.content.noneAfterUpdate': 'No content after update',
   'genericRequest.update.content.currentLabel': 'Current',
   'genericRequest.update.content.currentValueLabel': 'Current value',

@@ -31,12 +31,16 @@ export const DETAIL_IMPACT: Record<SupportedGenericRequestDetail['type'], Reques
   identityUpdate: 'control',
   invoice: 'spends',
   dataPacket: 'signs',
+  appEncryption: 'shares',
+  userData: 'shares',
 };
 
 /** The step each module detail adds (spec "Steps per detail"). */
 const MODULE_STEP: Partial<Record<SupportedGenericRequestDetail['type'], RequestStepId>> = {
   invoice: 'payInvoice',
   dataPacket: 'signData',
+  appEncryption: 'encryptionKey',
+  userData: 'shareData',
 };
 
 /**
@@ -50,7 +54,12 @@ export function planRequestFlow(
 ): RequestFlowPlan {
   const steps: RequestStepId[] = [];
   const answered: SupportedGenericRequestDetail[] = [];
+  // Next to an encryption key request, the sign in has no step and no
+  // response; the responder is chosen on the encryption key step (mobile
+  // `authenticationRequestDetailsHandler`).
+  const encryptionKey = details.some((detail) => detail.type === 'appEncryption');
   for (const detail of details) {
+    if (detail.type === 'authentication' && encryptionKey) continue;
     if (detail.type === 'authentication') {
       steps.push('signIn');
       answered.push(detail);

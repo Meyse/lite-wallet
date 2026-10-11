@@ -3,6 +3,7 @@
   import InlineTextActionButton from '$lib/components/common/InlineTextActionButton.svelte';
   import StandardRightSheet from '$lib/components/common/StandardRightSheet.svelte';
   import { Checkbox } from '$lib/components/ui/checkbox';
+  import { Label } from '$lib/components/ui/label';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
   import type { SignableItemView } from '$lib/genericRequest/session';
   import { i18nStore } from '$lib/i18n';
@@ -69,9 +70,9 @@
         aria-label={i18n.t('genericRequest.flow.signData.consent', { item: itemTitle(item) })}
       />
       <div class="flex min-w-0 flex-1 flex-col gap-1">
-        <label for={`request-sign-item-${index}`} class="text-sm font-medium text-foreground">
+        <Label for={`request-sign-item-${index}`} class="leading-snug text-foreground">
           {itemTitle(item)}
-        </label>
+        </Label>
         <p
           class={`line-clamp-3 text-[13px] break-words text-foreground/80 ${item.text === null ? 'font-mono' : ''}`}
         >
@@ -95,12 +96,15 @@
         onCheckedChange={(checked) => module.setConsent(index, checked === true)}
         class="mt-0.5"
       />
-      <label for={`request-sign-item-${index}`} class="flex min-w-0 flex-1 flex-col gap-1">
+      <Label
+        for={`request-sign-item-${index}`}
+        class="flex min-w-0 flex-1 flex-col items-start gap-1 leading-normal font-normal"
+      >
         <span class="text-xs font-medium text-muted-foreground">
           {i18n.t('genericRequest.flow.signData.statement')}
         </span>
         <span class="text-[13.5px] break-words text-foreground">{statement}</span>
-      </label>
+      </Label>
     </li>
   {/each}
 </ul>

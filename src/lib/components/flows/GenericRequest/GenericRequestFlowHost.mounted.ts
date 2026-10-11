@@ -6,6 +6,7 @@ import { coinsStore } from '$lib/stores/coins';
 import type {
   AuthenticationDetailSession,
   DataPacketDetailSession,
+  UserDataDetailSession,
   GenericRequestFlowSession,
   IdentityUpdateDetailSession,
   InvoiceDetailSession,
@@ -195,6 +196,26 @@ describe('request flow approval', () => {
           };
         case 'send_generic_invoice_payment':
           return { txid: TXID };
+        case 'get_dlight_seed_status':
+          return { configured: true };
+        case 'review_generic_credentials':
+          return {
+            credentials: [
+              {
+                key: 'iProfileKey',
+                label: 'Test profile',
+                credential: { displayName: 'Test user' },
+                scopes: ['iRequester'],
+              },
+              {
+                key: 'iMembershipKey',
+                label: 'Test membership',
+                credential: { level: 'Sample' },
+                scopes: ['iRequester'],
+              },
+            ],
+            missingKeys: [],
+          };
         case 'post_generic_response_callback':
           if (deliveryFailures > 0) {
             deliveryFailures -= 1;
@@ -342,5 +363,43 @@ describe('request flow approval', () => {
     await press('Sign');
     expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
     expect(document.body.textContent).toContain('You signed 2 items for');
+  });
+
+  it('shares credentials only after each has consent and Approval', async () => {
+    deliveryFailures = 0;
+    const userData: UserDataDetailSession = {
+      index: 1,
+      type: 'userData',
+      keys: ['iProfileKey', 'iMembershipKey'],
+      requiredIdentity: null,
+    };
+    component = mount(GenericRequestFlowHost, {
+      target: document.body,
+      props: { isOpen: true, session: { ...session, details: [auth, userData] } },
+    });
+    await settle();
+    await press('Continue');
+
+    // Rust reads the credentials of the chosen responder once.
+    expect(wallet.invoke).toHaveBeenCalledWith('review_generic_credentials', {
+      request_hex: '00',
+      identity_id: TARGET,
+    });
+    expect(commandsCalled('review_generic_credentials')).toBe(1);
+    expect(document.body.textContent).toContain('Test membership');
+    const boxes = [...document.querySelectorAll('[role="checkbox"]')] as HTMLButtonElement[];
+    expect(boxes).toHaveLength(2);
+    boxes[0].click();
+    await settle();
+    expect(button('Continue').disabled).toBe(true);
+    boxes[1].click();
+    await settle();
+    await press('Continue');
+
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(0);
+    await press('Sign in and share');
+    expect(commandsCalled('build_and_sign_generic_response')).toBe(1);
+    expect(commandsCalled('review_generic_credentials')).toBe(1);
+    expect(document.body.textContent).toContain('You shared 2 credentials with');
   });
 });

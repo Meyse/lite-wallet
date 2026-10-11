@@ -6,8 +6,10 @@
 //! from the UI (ADR 0002).
 
 pub(crate) mod acceptance;
+pub(crate) mod credentials;
 pub(crate) mod details;
 pub(crate) mod names;
+pub(crate) mod private_crypto;
 pub(crate) mod request;
 pub(crate) mod response;
 pub mod store;

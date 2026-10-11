@@ -53,6 +53,21 @@ pub(crate) enum Rejection {
     /// The data packet does not ask for the user's signature, or names
     /// nothing to sign.
     DataNotForSignature,
+    /// The app asks for a spending key without naming an address to encrypt
+    /// it to, or names an address that is not valid.
+    EncryptionKeyAddress,
+    /// The derivation identity of an encryption key request does not exist.
+    EncryptionKeyIdentity,
+    /// This wallet has no private address set up.
+    PrivateNotSetUp,
+    /// The app asks for data other than whole credentials; Verus Mobile
+    /// answers only full credential requests.
+    CredentialsOnly,
+    /// A credential request names no address to encrypt the answer to.
+    CredentialsNotEncrypted,
+    /// An update writes credentials to an identity whose private address
+    /// does not come from this wallet's seed.
+    CredentialAddress,
 }
 
 impl Rejection {
@@ -77,6 +92,12 @@ impl Rejection {
             Self::AlreadyPaid => "alreadyPaid",
             Self::DataTransmittal => "dataTransmittal",
             Self::DataNotForSignature => "dataNotForSignature",
+            Self::EncryptionKeyAddress => "encryptionKeyAddress",
+            Self::EncryptionKeyIdentity => "encryptionKeyIdentity",
+            Self::PrivateNotSetUp => "privateNotSetUp",
+            Self::CredentialsOnly => "credentialsOnly",
+            Self::CredentialsNotEncrypted => "credentialsNotEncrypted",
+            Self::CredentialAddress => "credentialAddress",
         }
     }
 }
@@ -153,6 +174,42 @@ pub(crate) fn check_data_packet(
     Ok(())
 }
 
+/// `appEncryptionRequestValidator.js`: a spending key is returned only
+/// encrypted, to a valid address named in the detail. The derivation
+/// identity is checked against the chain when the request opens.
+pub(crate) fn check_app_encryption(
+    request: &super::details::AppEncryptionRequest,
+) -> Result<(), Rejection> {
+    if let Some(raw) = &request.encrypt_to {
+        if sapling::PaymentAddress::from_bytes(raw).is_none() {
+            return Err(Rejection::EncryptionKeyAddress);
+        }
+    } else if request.return_spending_key {
+        return Err(Rejection::EncryptionKeyAddress);
+    }
+    Ok(())
+}
+
+/// `userDataRequestValidator.js`: a valid request for full credentials, with
+/// an address to encrypt the answer to. The signed-request rule is checked
+/// with the other unsigned rules.
+pub(crate) fn check_user_data(
+    request: &ParsedRequest,
+    user_data: &super::details::UserDataRequest,
+) -> Result<(), Rejection> {
+    use super::details::{USER_DATA_CREDENTIAL, USER_DATA_FULL_DATA};
+    if !user_data.is_valid()
+        || user_data.request_type != USER_DATA_CREDENTIAL
+        || user_data.data_type != USER_DATA_FULL_DATA
+    {
+        return Err(Rejection::CredentialsOnly);
+    }
+    if request.encrypt_response_to.is_none() {
+        return Err(Rejection::CredentialsNotEncrypted);
+    }
+    Ok(())
+}
+
 /// The checks that need only the request bytes and the open wallet's network.
 pub(crate) fn check_request(
     request: &ParsedRequest,
@@ -187,6 +244,25 @@ pub(crate) fn check_request(
                 .map_err(|_| Rejection::DataNotForSignature)?;
             check_data_packet(&packet)?;
         }
+        if *kind == DetailKind::AppEncryption {
+            let app = super::details::parse_app_encryption(&detail.data, request.is_testnet)
+                .map_err(|_| Rejection::EncryptionKeyAddress)?;
+            check_app_encryption(&app)?;
+        }
+        if *kind == DetailKind::UserData {
+            let user_data = super::details::parse_user_data(&detail.data, request.is_testnet)
+                .map_err(|_| Rejection::CredentialsOnly)?;
+            check_user_data(request, &user_data)?;
+        }
+        if *kind == DetailKind::IdentityUpdate {
+            // Sign data in an update is signed by the daemon on Verus Mobile;
+            // this wallet builds updates itself and cannot sign it yet.
+            let update = super::details::parse_identity_update(&detail.data, request.is_testnet)
+                .map_err(|_| Rejection::UnsupportedDetail)?;
+            if update.contains_sign_data {
+                return Err(Rejection::UnsupportedDetail);
+            }
+        }
     }
     if request.is_testnet != wallet_is_testnet {
         return Err(Rejection::Network);
@@ -200,6 +276,11 @@ pub(crate) fn check_request(
             .eq_ignore_ascii_case(root_system_id(!request.is_testnet))
         {
             return Err(Rejection::Network);
+        }
+    }
+    if let Some(raw) = &request.encrypt_response_to {
+        if sapling::PaymentAddress::from_bytes(raw).is_none() {
+            return Err(Rejection::EncryptionKeyAddress);
         }
     }
     Ok(kinds)
@@ -252,11 +333,11 @@ mod tests {
             let outcome = check_request(&request, testnet);
             match expect["reject"].as_str() {
                 Some("order") => assert_eq!(outcome, Err(Rejection::DetailOrder), "{name}"),
-                Some("unsigned") => assert_eq!(outcome, Err(Rejection::Unsigned), "{name}"),
-                Some("dataTransmittal") => {
-                    assert_eq!(outcome, Err(Rejection::DataTransmittal), "{name}")
-                }
-                Some(other) => panic!("{name}: unknown expectation {other}"),
+                Some(code) => assert_eq!(
+                    outcome.map(|_| ()).map_err(Rejection::code),
+                    Err(code),
+                    "{name}"
+                ),
                 None => assert!(outcome.is_ok(), "{name}: {outcome:?}"),
             }
         }

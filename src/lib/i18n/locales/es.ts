@@ -142,6 +142,7 @@ export const es: Record<string, string> = {
   'genericRequest.update.privateAddress': 'Private address',
   'genericRequest.update.contentPrefix': 'Content',
   'genericRequest.update.content.currentIdentityContent': 'Current identity content',
+  'genericRequest.update.content.credentials': 'Credenciales (guardadas cifradas)',
   'genericRequest.update.content.noneAfterUpdate': 'No content after update',
   'genericRequest.update.content.currentLabel': 'Current',
   'genericRequest.update.content.currentValueLabel': 'Current value',
@@ -641,6 +642,69 @@ export const es: Record<string, string> = {
   'genericRequest.rejected.dataTransmittal':
     'Esta solicitud te envía datos en lugar de pedir una firma. Esta cartera no lo acepta.',
   'genericRequest.rejected.dataNotForSignature': 'Esta solicitud no te pide firmar nada.',
+  'genericRequest.flow.step.encryptionKey': 'Clave de cifrado',
+  'genericRequest.flow.title.encryptionKey': 'Compartir una clave de cifrado con {app}',
+  'genericRequest.flow.encryptionKey.app': 'App',
+  'genericRequest.flow.encryptionKey.number': 'Número de clave',
+  'genericRequest.flow.encryptionKey.shares': 'Comparte',
+  'genericRequest.flow.encryptionKey.sharesViewing':
+    'Una clave de visualización y una dirección privada para esta app',
+  'genericRequest.flow.encryptionKey.sharesWithSpendingKey':
+    'Una clave de visualización, una dirección privada y su clave de gasto',
+  'genericRequest.flow.encryptionKey.checking': 'Comprobando las direcciones privadas…',
+  'genericRequest.flow.encryptionKey.setupTitle': 'Configura primero las direcciones privadas',
+  'genericRequest.flow.encryptionKey.setupBody':
+    'Esta app necesita una dirección privada de esta cartera. Configura las direcciones privadas y luego abre otra vez el enlace de la solicitud.',
+  'genericRequest.flow.encryptionKey.setupAction': 'Configurar direcciones privadas',
+  'genericRequest.flow.encryptionKey.spendingKeyTitle': 'Esta app también pide una clave de gasto',
+  'genericRequest.flow.encryptionKey.spendingKeyBody':
+    'Con ella, la app puede gastar todo lo que llegue a esta dirección privada. Compártela solo con una app a la que confíes esos fondos.',
+  'genericRequest.flow.encryptionKey.spendingKeyAcknowledge':
+    'Entiendo que esta app puede gastar desde esta dirección.',
+  'genericRequest.flow.encryptionKey.error.status':
+    'No se pudieron comprobar las direcciones privadas.',
+  'genericRequest.flow.plan.encryptionKey':
+    'Compartir una clave de cifrado con {app} como {identity}',
+  'genericRequest.flow.action.shareKey': 'Compartir clave',
+  'genericRequest.flow.working.shareKey': 'Compartiendo la clave…',
+  'genericRequest.flow.outcome.keyShared': '{app} tiene una clave de cifrado',
+  'genericRequest.flow.receipt.sharedAs': 'Compartida como',
+  'genericRequest.rejected.encryptionKeyAddress':
+    'Esta solicitud indica una dirección de cifrado no válida, o pide una clave de gasto sin ninguna.',
+  'genericRequest.rejected.encryptionKeyIdentity':
+    'La identidad para la que es esta clave no existe.',
+  'genericRequest.rejected.privateNotSetUp': 'Configura primero las direcciones privadas.',
+  'genericRequest.flow.step.shareData': 'Compartir datos',
+  'genericRequest.flow.title.shareData': 'Compartir credenciales con {app}',
+  'genericRequest.flow.shareData.intro':
+    '{app} pide estas credenciales de {identity}. Se envían cifradas, así que solo {app} puede leerlas.',
+  'genericRequest.flow.shareData.loading': 'Buscando credenciales que coincidan…',
+  'genericRequest.flow.shareData.consent': 'Compartir {credential}',
+  'genericRequest.flow.shareData.allNeeded': 'Marca cada credencial para continuar.',
+  'genericRequest.flow.shareData.missing.one':
+    'No se encontró {count} credencial solicitada. No se envía.',
+  'genericRequest.flow.shareData.missing.other':
+    'No se encontraron {count} credenciales solicitadas. No se envían.',
+  'genericRequest.flow.shareData.none':
+    'No se encontraron credenciales que coincidan en {identity}.',
+  'genericRequest.flow.shareData.nothingToSend':
+    'No hay nada que compartir. Rechaza para cerrar esta solicitud.',
+  'genericRequest.flow.shareData.error.lookup': 'No se pudieron leer las credenciales.',
+  'genericRequest.flow.plan.shareData.one':
+    'Compartir {count} credencial con {app} como {identity}',
+  'genericRequest.flow.plan.shareData.other':
+    'Compartir {count} credenciales con {app} como {identity}',
+  'genericRequest.flow.action.share': 'Compartir',
+  'genericRequest.flow.action.signInAndShare': 'Iniciar sesión y compartir',
+  'genericRequest.flow.working.share': 'Compartiendo…',
+  'genericRequest.flow.outcome.sharedData.one': 'Compartiste {count} credencial con {app}',
+  'genericRequest.flow.outcome.sharedData.other': 'Compartiste {count} credenciales con {app}',
+  'genericRequest.rejected.credentialsOnly':
+    'Esta solicitud pide datos distintos de credenciales completas. Esta cartera solo comparte credenciales completas.',
+  'genericRequest.rejected.credentialsNotEncrypted':
+    'Esta solicitud pide credenciales, pero no indica una dirección para cifrarlas, así que no se envían.',
+  'genericRequest.rejected.credentialAddress':
+    'La dirección privada de esta VerusID no proviene de esta cartera, así que no se pueden guardar credenciales en ella.',
   'genericRequest.rejected.unknownDetail':
     'Esta solicitud contiene una parte que esta cartera no reconoce.',
   'genericRequest.rejected.detailOrder':

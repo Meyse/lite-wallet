@@ -1,4 +1,4 @@
-import { ContentMultiMapRemoveKey } from 'verus-typescript-primitives';
+import { ContentMultiMapRemoveKey, IDENTITY_CREDENTIAL } from 'verus-typescript-primitives';
 import type { TranslationParams } from '$lib/i18n';
 import { formatIdentifierForDisplay } from '$lib/utils/identifierDisplay';
 import { formatIdentityFullyQualifiedName } from '$lib/utils/identityDisplay';
@@ -184,6 +184,21 @@ function readableContentPreview(value: unknown, maxLength = 160): string | null 
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
+/** The labels of the credentials an update writes, or their keys without a label. */
+function credentialPreview(value: unknown): string | null {
+  const names = normalizeContentMultiMapValues(value).flatMap((entry) =>
+    isPlainObject(entry)
+      ? Object.values(entry).flatMap((credential) =>
+          isPlainObject(credential)
+            ? [normalizeString(credential.label) ?? normalizeString(credential.credentialkey)]
+            : []
+        )
+      : []
+  );
+  const readable = names.filter((name): name is string => name !== null);
+  return readable.length > 0 ? readable.join(', ') : readableContentPreview(value);
+}
+
 function normalizeString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -243,6 +258,9 @@ function formatContentKeyLabel(
   if (key === ContentMultiMapRemoveKey.vdxfid) {
     return t('genericRequest.update.content.currentIdentityContent');
   }
+  // Rust encrypts these to the identity's private address before the update
+  // leaves the wallet (`encrypt_update_credentials`).
+  if (key === IDENTITY_CREDENTIAL.vdxfid) return t('genericRequest.update.content.credentials');
   if (key.length <= 12) return key;
   return formatIdentifierForDisplay(key, 'compact');
 }
@@ -253,7 +271,7 @@ function hasReadableContentKeyLabel(
 ): boolean {
   const explicitLabel = normalizeString(signerCmmKeyLabels[key]);
   if (explicitLabel) return true;
-  if (key === ContentMultiMapRemoveKey.vdxfid) return true;
+  if (key === ContentMultiMapRemoveKey.vdxfid || key === IDENTITY_CREDENTIAL.vdxfid) return true;
   return key.length <= 12;
 }
 
@@ -540,7 +558,10 @@ function buildContentChanges(
           nextLabel: hasExistingValue
             ? t('genericRequest.update.content.addingLabel')
             : t('genericRequest.update.content.newLabel'),
-          nextPreview: readableContentPreview(requestedPreviewSource),
+          nextPreview:
+            contentKey === IDENTITY_CREDENTIAL.vdxfid
+              ? credentialPreview(requestedPreviewSource)
+              : readableContentPreview(requestedPreviewSource),
           rawCurrentValue: beforeEntry,
           rawRequestedValue: requestedPreviewSource,
           inspectTitle: t('genericRequest.update.content.inspectTitle', { label: contentLabel }),

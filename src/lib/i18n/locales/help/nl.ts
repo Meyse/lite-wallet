@@ -204,9 +204,9 @@ export const helpNl = {
   'helpCenter.article.requests.summary':
     'Een verzoek vraagt de wallet bepaalde handelingen uit te voeren. Controleer de aanvrager en elke handeling voordat je goedkeurt.',
   'helpCenter.article.requests.body':
-    'Gebruik Open request of open een ondersteunde walletlink. De wallet controleert het verzoek en toont de handelingen die zij ondersteunt. Dit kunnen authenticatie en identiteitswijzigingen zijn; sommige vereisen ook financiering en kosten.\n\nEen geldige handtekening identificeert de ondertekenaar, maar maakt het verzoek niet automatisch wenselijk. Controleer zelf de identiteit, bevoegdheden, bestemming en wijzigingen. Wijs onverwachte verzoeken af. Apps is momenteel geen appcatalogus en Activiteit toont in deze versie geen transactiegeschiedenis; bekijk daarvoor een munt.',
+    'Gebruik Open request of open een ondersteunde walletlink. De wallet controleert het verzoek en toont elke handeling die zij begrijpt: inloggen, een nieuwe VerusID aanvragen, een VerusID bijwerken, een factuur betalen, gegevens ondertekenen, een versleutelingssleutel delen en referenties delen. Elke handeling toont haar gevolg: ze ondertekent namens jou, deelt gegevens, geeft geld uit of wijzigt de controle over een VerusID. Betalingen en wijzigingen kosten ook een vergoeding.\n\nEen geldige handtekening identificeert de ondertekenaar, maar maakt het verzoek niet automatisch wenselijk. Controleer zelf de identiteit, bevoegdheden, bestemming en wijzigingen. Wijs onverwachte verzoeken af. Versleutelingssleutels en referenties worden versleuteld verstuurd, zodat alleen de aanvrager ze kan lezen. Apps is momenteel geen appcatalogus en Activiteit toont in deze versie geen transactiegeschiedenis; bekijk daarvoor een munt.',
   'helpCenter.article.requests.keywords':
-    'app apps verzoek deeplink link ondertekenen handtekening authenticatie inloggen rechten activiteit',
+    'app apps verzoek deeplink link ondertekenen handtekening authenticatie inloggen rechten activiteit factuur betaling referenties versleutelingssleutel',
   'helpCenter.article.contacts.title': 'Contacten en openbare profielen',
   'helpCenter.article.contacts.summary':
     '[[contacts|Contacten]] bewaren ontvangers en privénotities in deze wallet. Een gekoppeld openbaar profiel komt van de VerusID.',

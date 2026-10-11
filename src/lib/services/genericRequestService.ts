@@ -4,6 +4,7 @@ import type {
   GenericIdentityUpdateReviewResult,
   GenericInvoicePreflightResult,
   GenericInvoiceReview,
+  GenericCredentialReview,
   GenericRequestTransactionResult,
   GenericResponseSignerInput,
   LinkReadyProvisioningJobResult,
@@ -55,6 +56,20 @@ export async function sendGenericIdentityUpdate(
 export async function reviewGenericInvoice(requestHex: string): Promise<GenericInvoiceReview> {
   return invokeWalletCommand<GenericInvoiceReview>('review_generic_invoice', {
     request_hex: requestHex,
+  });
+}
+
+/**
+ * Rust reads and decrypts the credentials of `identityId` that the open
+ * request asks for. The response shares exactly the credentials returned here.
+ */
+export async function reviewGenericCredentials(
+  requestHex: string,
+  identityId: string
+): Promise<GenericCredentialReview> {
+  return invokeWalletCommand<GenericCredentialReview>('review_generic_credentials', {
+    request_hex: requestHex,
+    identity_id: identityId,
   });
 }
 

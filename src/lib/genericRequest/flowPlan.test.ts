@@ -7,6 +7,7 @@ const detail = (type: SupportedGenericRequestDetail['type']) =>
 const auth = detail('authentication');
 const update = detail('identityUpdate');
 const provision = detail('provisionIdentity');
+const userData = detail('userData');
 
 describe('planRequestFlow', () => {
   // Expected layouts and steps follow the requests spec ("Layout", "Steps per detail").
@@ -37,6 +38,20 @@ describe('planRequestFlow', () => {
     expect(planRequestFlow([auth, provision], { newIdentity: true })).toEqual({
       layout: 'rail',
       steps: ['signIn', 'newIdentity', 'confirm'],
+    });
+  });
+});
+
+describe('planRequestFlow share data', () => {
+  it('adds a share data step after the sign in, on the rail', () => {
+    // Share data shares data, so it never takes the single screen.
+    expect(planRequestFlow([auth, userData], { newIdentity: false })).toEqual({
+      layout: 'rail',
+      steps: ['signIn', 'shareData', 'confirm'],
+    });
+    expect(planRequestFlow([userData], { newIdentity: false })).toEqual({
+      layout: 'rail',
+      steps: ['shareData', 'confirm'],
     });
   });
 });
