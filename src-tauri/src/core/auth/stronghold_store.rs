@@ -1342,7 +1342,12 @@ impl StrongholdStore {
     ) -> Result<T, WalletError> {
         static GATE: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
             std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Mutex::new(())));
+        let gate_started_at = Instant::now();
         let permit = GATE.clone().lock_owned().await;
+        println!(
+            "[WALLET_PERF] watchlist_store phase=gate_wait elapsed_ms={}",
+            gate_started_at.elapsed().as_millis()
+        );
         let path = self.watchlist_snapshot_path(account_id);
         let obsolete_path = self.watched_vrpc_addresses_snapshot_path(account_id);
         let sources = account_state_store.legacy_watchlist_sources(account_id)?;

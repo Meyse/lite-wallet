@@ -52,11 +52,12 @@ Policy:
   compatibility and verification limits.
 - Watchlist entries for both networks live in the versioned
   `watchlist.snapshot.stronghold` record. The unlocked account key is required
-  for list, mutation, discovery scopes, and watched-only funding checks. The
-  first successful access imports both plaintext account-state fields and the
-  legacy encrypted watched-address snapshot, verifies the new record, then
-  removes the plaintext fields. A non-sensitive version marker prevents a
-  missing or damaged encrypted snapshot from appearing as an empty Watchlist.
+  for list, mutation, and watched-only funding checks. Coin scopes and asset
+  discovery are owned-only and never read this record. The first successful
+  access imports both plaintext account-state fields and the legacy encrypted
+  watched-address snapshot, verifies the new record, then removes the plaintext
+  fields. A non-sensitive version marker prevents a missing or damaged encrypted
+  snapshot from appearing as an empty Watchlist.
 
 Private Sapling notes, recipients, nullifiers, witnesses, transaction history,
 and pending sends also belong to this class. Their frequent writes use an

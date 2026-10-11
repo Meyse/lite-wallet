@@ -131,6 +131,25 @@ export function aggregateOverviewBalances(snapshots: (BalanceResult | undefined)
   return { hasSnapshot, amountValue, isConfirmedZero };
 }
 
+/**
+ * The wallet's primary VRPC address plus every owned scope address already known.
+ * Scope channel ids are owned-only (watched addresses are never wallet scopes).
+ */
+function ownedVrpcAddressKeys(
+  walletChannels: WalletChannelsState,
+  scopeChannelIdsByCoinId?: Record<string, string[]>
+): Set<string> {
+  const keys = new Set<string>();
+  if (walletChannels.vrpcAddress) keys.add(walletChannels.vrpcAddress.trim().toLowerCase());
+  for (const channelIds of Object.values(scopeChannelIdsByCoinId ?? {})) {
+    for (const channelId of channelIds) {
+      const channel = parseVrpcChannelId(channelId);
+      if (channel) keys.add(channel.middle.trim().toLowerCase());
+    }
+  }
+  return keys;
+}
+
 function resolveCoinBalanceSnapshot(
   coin: CoinDefinition,
   walletChannels: WalletChannelsState,
@@ -142,10 +161,17 @@ function resolveCoinBalanceSnapshot(
     if (scopedChannelIds.length > 0) {
       return aggregateOverviewBalances(scopedChannelIds.map((id) => balances[id]?.[coin.id]));
     }
+    // Before this coin's scopes load, sum only owned addresses so a balance cached for
+    // any other address (for example a watched one) cannot enter the row or total.
+    const ownedAddresses = ownedVrpcAddressKeys(walletChannels, scopeChannelIdsByCoinId);
     const snapshots = Object.entries(balances)
       .filter(([id]) => {
         const channel = parseVrpcChannelId(id);
-        return channel && equalsIgnoreCase(channel.systemId, coin.systemId);
+        return (
+          channel &&
+          equalsIgnoreCase(channel.systemId, coin.systemId) &&
+          ownedAddresses.has(channel.middle.trim().toLowerCase())
+        );
       })
       .map(([, channelBalances]) => channelBalances[coin.id]);
     if (snapshots.length > 0) return aggregateOverviewBalances(snapshots);

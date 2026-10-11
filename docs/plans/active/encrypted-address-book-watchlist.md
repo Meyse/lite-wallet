@@ -333,8 +333,8 @@ Route these consumers to the new encrypted source:
 | Watchlist list/add/remove/refresh  | Read or mutate encrypted canonical entries                                                                                                         |
 | `get_watched_vrpc_addresses`       | Return addresses derived from encrypted entries                                                                                                    |
 | `set_watched_vrpc_addresses`       | Preserve the command contract but reconcile through encrypted entries; preserve metadata for retained addresses and document replacement semantics |
-| `discover_vrpc_assets`             | Use the unlocked encrypted selection without writing it to a plaintext discovery index                                                             |
-| `get_coin_scopes`                  | Preserve watched/read-only classification and account/network isolation                                                                            |
+| `discover_vrpc_assets`             | Check owned scopes only; watched addresses stay on the Watchlist path ([boundary plan](./watchlist-portfolio-boundary-and-startup-latency.md))     |
+| `get_coin_scopes`                  | Return owned scopes only and never read the Watchlist; keep account/network isolation                                                              |
 | Generic-request funding validation | Continue excluding watched-only sources; storage failure must not silently erase this restriction                                                  |
 | Legacy KDF migration               | Stop exporting watched addresses into plaintext account state                                                                                      |
 

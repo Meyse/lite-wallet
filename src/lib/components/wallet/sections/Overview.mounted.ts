@@ -401,6 +401,46 @@ describe('mounted wallet overview controls', () => {
     expect(vrscRow?.textContent).toContain('10.0000 VRSC');
   });
 
+  it('keeps a read-only scope and a cached watched balance out of owned rows and the total', async () => {
+    const linked = 'vrpc.iLinkedFixture.verus';
+    const watched = 'vrpc.iWatchedFixture.verus';
+    balances[linked] = { VRSC: balance('1') };
+    balances[watched] = { VRSC: balance('100') };
+    // A stale watched balance may already be cached when scopes reload.
+    balanceStore.set(balances);
+    let finishScopes!: (value: unknown) => void;
+    services.getDisplayCoinScopes.mockImplementation((coinId) =>
+      coinId === 'VRSC'
+        ? new Promise((resolve) => {
+            finishScopes = resolve;
+          })
+        : Promise.resolve({
+            coinId,
+            scopes: [{ channelId: channels.byCoinId[coinId], coinId, scopeKind: 'transparent' }],
+          })
+    );
+    await render();
+    const vrscRow = () =>
+      [...document.querySelectorAll('ul li')].find(
+        (row) => row.textContent?.includes('Verus') && !row.textContent.includes('USDC')
+      );
+    expect(vrscRow()?.textContent).toContain('10.0000 VRSC');
+    expect(banner()).toContain('230.00');
+
+    finishScopes({
+      coinId: 'VRSC',
+      scopes: [
+        { channelId: channels.byCoinId.VRSC, coinId: 'VRSC', scopeKind: 'transparent' },
+        { channelId: linked, coinId: 'VRSC', scopeKind: 'transparent' },
+        { channelId: watched, coinId: 'VRSC', scopeKind: 'transparent', isReadOnly: true },
+      ],
+    });
+    await settle();
+    expect(vrscRow()?.textContent).toContain('11.0000 VRSC');
+    expect(banner()).toContain('232.00');
+    expect(services.getDisplayBalance).not.toHaveBeenCalledWith(watched, 'VRSC');
+  });
+
   it('offers filter-only recovery when every enabled balance is a loaded zero', async () => {
     for (const channel of Object.values(balances))
       for (const id of Object.keys(channel)) channel[id] = balance('0');
