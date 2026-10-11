@@ -613,12 +613,18 @@ const LEGACY_SIGNATURE = Buffer.alloc(73, 5).toString('base64');
 const LEGACY_WEBHOOK = 'https://lumen.example/verus/login';
 const LEGACY_REDIRECT = 'https://lumen.example/verus/login-return';
 const CHALLENGE_ID = vectorId('legacy-challenge');
+// "Request VerusID" (`LoginRequestIdentity.js`): a provisioning webhook with
+// the system, parent, and name the new VerusID gets.
+const PROVISIONING_WEBHOOK = 'https://lumen.example/verus/provision';
+const PROVISIONING_PARENT = vectorId('legacy-parent');
+const PROVISIONING_NAME = 'alice.lumen.VRSCTEST@';
 function legacyLogin({
   permissions = [p.IDENTITY_VIEW.vdxfid],
   redirects = [
     [p.LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid, LEGACY_WEBHOOK],
     [p.LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid, LEGACY_REDIRECT],
   ],
+  provisioning = [],
   context,
 } = {}) {
   return new p.LoginConsentRequest({
@@ -630,6 +636,7 @@ function legacyLogin({
       created_at: CREATED_AT,
       session_id: vectorId('legacy-session'),
       requested_access: permissions.map((key) => new p.RequestedPermission(key)),
+      provisioning_info: provisioning.map(([key, data]) => new p.ProvisioningInfo(data, key)),
       redirect_uris: redirects.map(([key, uri]) => new p.RedirectUri(uri, key)),
       context: context ? new p.Context(context) : undefined,
     }),
@@ -688,6 +695,22 @@ const legacy = {
     responseCreatedAt: RESPONSE_CREATED_AT,
     responseHex: legacyLoginResponse(loginRequest).toBuffer().toString('hex'),
     decisionHash: legacyLoginResponse(loginRequest).getDecisionHash(LEGACY_HEIGHT).toString('hex'),
+  },
+  loginProvisioning: {
+    link: legacyLogin({
+      provisioning: [
+        [p.LOGIN_CONSENT_ID_PROVISIONING_WEBHOOK_VDXF_KEY.vdxfid, PROVISIONING_WEBHOOK],
+        [p.ID_SYSTEMID_VDXF_KEY.vdxfid, TESTNET],
+        [p.ID_PARENT_VDXF_KEY.vdxfid, PROVISIONING_PARENT],
+        [p.ID_FULLYQUALIFIEDNAME_VDXF_KEY.vdxfid, PROVISIONING_NAME],
+        // Mobile reads the first entry of each key.
+        [p.LOGIN_CONSENT_ID_PROVISIONING_WEBHOOK_VDXF_KEY.vdxfid, 'https://other.example/p'],
+      ],
+    }).toWalletDeeplinkUri(),
+    webhook: PROVISIONING_WEBHOOK,
+    systemId: TESTNET,
+    parent: PROVISIONING_PARENT,
+    fullyQualifiedName: PROVISIONING_NAME,
   },
   loginWithContext: legacyLogin({ context: { [APP]: 'session data' } }).toWalletDeeplinkUri(),
   loginOtherPermission: legacyLogin({

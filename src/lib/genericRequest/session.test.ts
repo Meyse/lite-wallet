@@ -131,6 +131,24 @@ describe('legacy links', () => {
     expect(session.responseUris).toEqual([{ mode: 'redirect', uri: legacy.login.redirect }]);
   });
 
+  it('offers the new VerusID a legacy login names, from the first entry of each key', () => {
+    const offer = legacy.loginProvisioning;
+    const session = parseGenericRequestSession(offer.link);
+    expect(session.details).toEqual([
+      expect.objectContaining({ type: 'authentication', requestId: legacy.login.challengeId }),
+      {
+        index: 1,
+        type: 'provisionIdentity',
+        requestedFqn: offer.fullyQualifiedName,
+        systemId: offer.systemId,
+        parent: offer.parent,
+        webhook: offer.webhook,
+        requestId: legacy.login.challengeId,
+        raw: null,
+      },
+    ]);
+  });
+
   it('opens legacy invoices at versions 3 and 4 as an invoice', () => {
     for (const invoice of legacy.invoices) {
       const session = parseGenericRequestSession(invoice.link);

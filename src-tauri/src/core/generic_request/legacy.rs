@@ -35,6 +35,12 @@ pub(crate) const LOGIN_CONSENT_WEBHOOK_KEY: &str = "iSaBWByu4zqhEZ6HQmFxvfR1HyiF
 /// `IDENTITY_AUTH_SIG_VDXF_KEY`, which `LOGIN_CONSENT_RESPONSE_SIG_VDXF_KEY`
 /// equals.
 const IDENTITY_AUTH_SIG_KEY: &str = "iPi1DPgDDu7hP1mAp5xJ8rHBWwXSzc6yA8";
+/// `provisioning_info` keys Verus Mobile reads (`ProvisionIdentityForm.js`).
+const PROVISIONING_WEBHOOK_KEY: &str = "iMiXw4BuL4iESPqz6fvJ4rHbDg1SvVKLnc";
+const ID_ADDRESS_KEY: &str = "i3a3M9n7uVtRYv1vhjmyb4DxY825AVAwic";
+const ID_SYSTEMID_KEY: &str = "iMZTNkNBgBXNHkMLipQw9wQb56pxBSEp3k";
+const ID_PARENT_KEY: &str = "i6aJSTKfNiDZ4rPxj1pPh4Y8xDmh1GqYm9";
+const ID_FULLYQUALIFIEDNAME_KEY: &str = "iCQ5gYekWs5DaXiBN7YfoDfNWT3VtpUwVq";
 /// `IDENTITY_VIEW`, the only permission Verus Mobile grants.
 const IDENTITY_VIEW: &str = "iLUrA89mDKnwxZcMiPadfNB9TLp58A2TKU";
 pub(crate) const VERUSPAY_INVOICE_KEY: &str = "iEETy7La3FTN2Sd2hNRgepek5S8x8eeUeQ";
@@ -144,6 +150,56 @@ pub(crate) struct LoginConsentRequest {
     /// Each redirect address with its kind (webhook or redirect key).
     pub redirect_uris: Vec<(String, String)>,
     pub context_entries: usize,
+    /// A new VerusID the requester offers ("Request VerusID" on mobile).
+    pub provisioning: Option<LegacyProvisioning>,
+}
+
+/// The `provisioning_info` of a login consent request, read as Verus Mobile
+/// reads it: the first entry of each key (`ProvisionIdentityForm.js`). It
+/// offers a new VerusID only with a provisioning webhook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LegacyProvisioning {
+    pub webhook: String,
+    pub system_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub identity_id: Option<String>,
+    pub fully_qualified_name: Option<String>,
+}
+
+/// `Utf8OrBase58Object`: an ID address, parent, or system is a hash; any
+/// other entry is text.
+fn read_provisioning(
+    objects: &[VdxfObject<'_>],
+) -> Result<Option<LegacyProvisioning>, WalletError> {
+    let first = |key: &str| objects.iter().find(|object| object.key == key);
+    let text = |key: &str| {
+        first(key)
+            .map(|object| {
+                std::str::from_utf8(object.data)
+                    .map(|value| value.trim().to_string())
+                    .map_err(|_| invalid())
+            })
+            .transpose()
+    };
+    let address = |key: &str| {
+        first(key)
+            .map(|object| {
+                <[u8; 20]>::try_from(object.data)
+                    .map(|hash| i_address(&hash))
+                    .map_err(|_| invalid())
+            })
+            .transpose()
+    };
+    let Some(webhook) = text(PROVISIONING_WEBHOOK_KEY)?.filter(|uri| !uri.is_empty()) else {
+        return Ok(None);
+    };
+    Ok(Some(LegacyProvisioning {
+        webhook,
+        system_id: address(ID_SYSTEMID_KEY)?,
+        parent_id: address(ID_PARENT_KEY)?,
+        identity_id: address(ID_ADDRESS_KEY)?,
+        fully_qualified_name: text(ID_FULLYQUALIFIEDNAME_KEY)?.filter(|name| !name.is_empty()),
+    }))
 }
 
 fn read_hash160_slice(reader: &mut Reader<'_>) -> Result<[u8; 20], WalletError> {
@@ -185,7 +241,7 @@ pub(crate) fn parse_login_consent(bytes: &[u8]) -> Result<LoginConsentRequest, W
         return Err(invalid());
     }
     let _subjects = read_objects(&mut reader)?;
-    let _provisioning_info = read_objects(&mut reader)?;
+    let provisioning = read_provisioning(&read_objects(&mut reader)?)?;
     if reader.count()? != 0 {
         return Err(invalid());
     }
@@ -216,6 +272,7 @@ pub(crate) fn parse_login_consent(bytes: &[u8]) -> Result<LoginConsentRequest, W
         permissions,
         redirect_uris,
         context_entries,
+        provisioning,
     })
 }
 
@@ -552,6 +609,30 @@ mod tests {
             check_login_consent(&request, false),
             Err(Rejection::Network)
         );
+    }
+
+    #[test]
+    fn a_login_can_offer_a_new_verusid_as_mobile_reads_it() {
+        let vectors = legacy();
+        let expected = &vectors["loginProvisioning"];
+        let request = match parse_legacy_link(expected["link"].as_str().unwrap()).unwrap() {
+            LegacyLink::Login(bytes) => parse_login_consent(&bytes).unwrap(),
+            other => panic!("expected a login link, got {other:?}"),
+        };
+        let text = |key: &str| Some(expected[key].as_str().unwrap().to_string());
+        assert_eq!(
+            request.provisioning,
+            Some(LegacyProvisioning {
+                // The first webhook entry wins.
+                webhook: text("webhook").unwrap(),
+                system_id: text("systemId"),
+                parent_id: text("parent"),
+                identity_id: None,
+                fully_qualified_name: text("fullyQualifiedName"),
+            })
+        );
+        assert!(check_login_consent(&request, true).is_ok());
+        assert_eq!(login().provisioning, None);
     }
 
     #[test]

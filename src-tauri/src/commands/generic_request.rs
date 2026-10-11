@@ -1751,16 +1751,24 @@ pub async fn post_provisioning_request(
 ) -> Result<String, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let open = request_store.get(&context.session_id, &request_hex)?;
-    let provisioning_uri = open
-        .parsed
-        .details
-        .iter()
-        .zip(&open.kinds)
-        .find(|(_, kind)| **kind == DetailKind::ProvisionIdentity)
-        .map(|(detail, _)| details::parse_provision_identity(&detail.data, open.parsed.is_testnet))
-        .transpose()?
-        .and_then(|provisioning| provisioning.uri)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let provisioning_uri = match open.legacy_login.as_ref() {
+        Some(login) => login
+            .provisioning
+            .as_ref()
+            .map(|offer| offer.webhook.clone()),
+        None => open
+            .parsed
+            .details
+            .iter()
+            .zip(&open.kinds)
+            .find(|(_, kind)| **kind == DetailKind::ProvisionIdentity)
+            .map(|(detail, _)| {
+                details::parse_provision_identity(&detail.data, open.parsed.is_testnet)
+            })
+            .transpose()?
+            .and_then(|provisioning| provisioning.uri),
+    }
+    .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
     if provisioning_uri.trim() != webhook_url.trim() {
         return Err(WalletError::GenericRequestRejected(
             "responseAddress".to_string(),
@@ -1871,6 +1879,35 @@ fn map_generic_session_change(error: WalletError) -> WalletError {
     }
 }
 
+/// The new VerusID a legacy login offers, from the open request, which Rust
+/// verified when it opened: its provisioning entries, the login's challenge ID
+/// (`ProvisionIdentityConfirm.js`), and the login's system. It has no expiry.
+fn legacy_provisioning_terms(
+    open: &OpenRequest,
+) -> Result<(ParsedProvisioningSemantics, String, String, Option<u64>), WalletError> {
+    let login = open
+        .legacy_login
+        .as_ref()
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    let offer = login
+        .provisioning
+        .as_ref()
+        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+    Ok((
+        ParsedProvisioningSemantics {
+            system_id: offer.system_id.clone(),
+            parent_id: offer.parent_id.clone(),
+            identity_id: offer
+                .fully_qualified_name
+                .clone()
+                .or_else(|| offer.identity_id.clone()),
+        },
+        names::i_address(&login.challenge_id),
+        names::i_address(&login.system_id),
+        None,
+    ))
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn prepare_provisioning_signature(
     request_hex: String,
@@ -1880,6 +1917,7 @@ pub async fn prepare_provisioning_signature(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
     provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
     vrpc_provider_pool: State<'_, Arc<VrpcProviderPool>>,
+    request_store: State<'_, GenericRequestStore>,
 ) -> Result<String, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let network = context.wallet_network;
@@ -1890,46 +1928,58 @@ pub async fn prepare_provisioning_signature(
         return Err(WalletError::InvalidAddress);
     }
 
-    let parsed_request = parse_generic_envelope_hex(request_hex.trim())?;
-    if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
-        return Err(WalletError::UnsupportedNetwork);
-    }
-    acceptance::check_request(
-        &parse_request_hex(request_hex.trim())?,
-        matches!(network, WalletNetwork::Testnet),
-    )?;
+    let (provisioning, request_id, signer_system_id, expiry_time) =
+        if legacy::is_legacy_link(&request_hex) {
+            legacy_provisioning_terms(&request_store.get(&context.session_id, &request_hex)?)?
+        } else {
+            let parsed_request = parse_generic_envelope_hex(request_hex.trim())?;
+            if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
+                return Err(WalletError::UnsupportedNetwork);
+            }
+            acceptance::check_request(
+                &parse_request_hex(request_hex.trim())?,
+                matches!(network, WalletNetwork::Testnet),
+            )?;
 
-    let request_provider =
-        vrpc_provider_pool.for_system(network, &parsed_request.signature_data.signer_system_id);
-    if !verify_generic_request_signature_with_provider(
-        request_provider,
-        &parsed_request,
-        wallet_network_to_crypto_network(network),
-    )
-    .await?
-    {
-        return Err(WalletError::GenericRequestInvalidEnvelope);
-    }
+            let request_provider = vrpc_provider_pool
+                .for_system(network, &parsed_request.signature_data.signer_system_id);
+            if !verify_generic_request_signature_with_provider(
+                request_provider,
+                &parsed_request,
+                wallet_network_to_crypto_network(network),
+            )
+            .await?
+            {
+                return Err(WalletError::GenericRequestInvalidEnvelope);
+            }
 
-    let authentication = parsed_request
-        .details
-        .iter()
-        .find(|detail| detail.ordinal == VDXF_ORDINAL_AUTHENTICATION_REQUEST)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)
-        .and_then(|detail| parse_authentication_semantics(&detail.data))?;
-    let provisioning = parsed_request
-        .details
-        .iter()
-        .find(|detail| detail.ordinal == VDXF_ORDINAL_PROVISION_IDENTITY)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)
-        .and_then(|detail| parse_provisioning_semantics(&detail.data))?;
+            let authentication = parsed_request
+                .details
+                .iter()
+                .find(|detail| detail.ordinal == VDXF_ORDINAL_AUTHENTICATION_REQUEST)
+                .ok_or(WalletError::GenericRequestInvalidEnvelope)
+                .and_then(|detail| parse_authentication_semantics(&detail.data))?;
+            let provisioning = parsed_request
+                .details
+                .iter()
+                .find(|detail| detail.ordinal == VDXF_ORDINAL_PROVISION_IDENTITY)
+                .ok_or(WalletError::GenericRequestInvalidEnvelope)
+                .and_then(|detail| parse_provisioning_semantics(&detail.data))?;
+            // Verus Mobile's challenge ID: the request's own ID, else the
+            // sign-in detail's (`ProvisionIdentityConfirm.js`).
+            let request_id = parsed_request
+                .request_id
+                .clone()
+                .or(authentication.request_id)
+                .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
+            (
+                provisioning,
+                request_id,
+                parsed_request.signature_data.signer_system_id.clone(),
+                authentication.expiry_time,
+            )
+        };
     let challenge = parse_provisioning_challenge_hex(&challenge_hex)?;
-    // Verus Mobile's challenge ID: the request's own ID, else the sign-in
-    // detail's (`ProvisionIdentityConfirm.js`).
-    let request_id = parsed_request
-        .request_id
-        .or(authentication.request_id)
-        .ok_or(WalletError::GenericRequestInvalidEnvelope)?;
     if !challenge.challenge_id.eq_ignore_ascii_case(&request_id)
         || !match provisioning.identity_id.as_deref() {
             Some(identity_id) => challenge.name == provisioning_challenge_name(identity_id),
@@ -1944,21 +1994,18 @@ pub async fn prepare_provisioning_signature(
     let expected_system_id = provisioning
         .system_id
         .as_deref()
-        .unwrap_or(&parsed_request.signature_data.signer_system_id);
+        .unwrap_or(&signer_system_id);
     if !system_id.trim().eq_ignore_ascii_case(expected_system_id) {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
     let now = now_unix_seconds();
     if challenge.created_at > now.saturating_add(PROVISIONING_CREATED_AT_CLOCK_SKEW_SECS)
         || now.saturating_sub(challenge.created_at) > PROVISIONING_SIGNATURE_TTL_SECS
-        || authentication
-            .expiry_time
-            .is_some_and(|expiry| expiry < now || challenge.created_at > expiry)
+        || expiry_time.is_some_and(|expiry| expiry < now || challenge.created_at > expiry)
     {
         return Err(WalletError::GenericRequestInvalidEnvelope);
     }
-    let expires_at = authentication
-        .expiry_time
+    let expires_at = expiry_time
         .unwrap_or_else(|| now.saturating_add(PROVISIONING_SIGNATURE_TTL_SECS))
         .min(now.saturating_add(PROVISIONING_SIGNATURE_TTL_SECS));
     let signing_challenge_id = Uuid::new_v4().to_string();

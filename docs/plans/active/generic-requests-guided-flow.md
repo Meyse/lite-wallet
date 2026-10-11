@@ -463,8 +463,16 @@ guided flow defined by the
     `a8f3acd53d0fea8687708427ad82b2e5423084089526280942a4bd48dab44d68`.
   - v4 invoice, signed, 0.011 VRSCTEST: txid
     `f4d447d22fec241ee2da38c1e55f79cfb2425d4be8320c769c7dae6eb2f78485`.
-- **Not done:** a legacy login that offers provisioning instead of a redirect
-  address (mobile's "Request VerusID") is answered as a plain sign in.
+- **Legacy "Request VerusID", 2026-10-11:** a legacy login whose provisioning
+  entries name a webhook offers New VerusID. Rust reads the entries from the
+  verified link; the provisioning signature and the POST use them, with the
+  login's challenge ID. Verified on testnet: a link signed by `TestBob.antafri@`
+  with a fake-webhook record's challenge ID. The webhook verified the request
+  for `lwqa1011b.gamesession5@` and answered with a signed response. The wallet
+  saved the pending job; the service made its name commitment
+  (`da5baf768abec3165bc678c740f42cd9be4926d067829400f9f2819e93efaba2`).
+  Registration and the sign in after linking were not verified: testnet refuses
+  the subID registration (DeFi functions disabled).
 
 1. **Legacy sign in.** A request with only the identity-view permission goes to
    the Sign in module. Its response follows the legacy delivery rules.

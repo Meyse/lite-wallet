@@ -9,8 +9,13 @@ import {
   DataDescriptor,
   DataPacketRequestOrdinalVDXFObject,
   GenericRequest,
+  ID_ADDRESS_VDXF_KEY,
+  ID_FULLYQUALIFIEDNAME_VDXF_KEY,
+  ID_PARENT_VDXF_KEY,
+  ID_SYSTEMID_VDXF_KEY,
   IDENTITY_UPDATE_REQUEST_VDXF_KEY,
   IdentityUpdateRequestOrdinalVDXFObject,
+  LOGIN_CONSENT_ID_PROVISIONING_WEBHOOK_VDXF_KEY,
   LOGIN_CONSENT_REDIRECT_VDXF_KEY,
   LOGIN_CONSENT_REQUEST_VDXF_KEY,
   LOGIN_CONSENT_WEBHOOK_VDXF_KEY,
@@ -70,7 +75,8 @@ export type ProvisionIdentityDetailSession = {
   parent: string | null;
   webhook: string | null;
   requestId: string | null;
-  raw: InstanceType<typeof ProvisionIdentityDetailsOrdinalVDXFObject>;
+  /** Null for a legacy login's offer, which has no provisioning detail. */
+  raw: InstanceType<typeof ProvisionIdentityDetailsOrdinalVDXFObject> | null;
 };
 
 export type IdentityUpdateDetailSession = {
@@ -412,6 +418,17 @@ function parseLegacySession(
       [...(request.challenge.redirect_uris ?? [])].reverse().find((uri) => uri.vdxfkey === kind);
     const redirect = lastOf(LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid);
     const webhook = lastOf(LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid);
+    // "Request VerusID" (`LoginRequestIdentity.js`): the first entry of each
+    // key, offered only with a provisioning webhook. Rust reads the same
+    // entries from the verified link.
+    const provisioningEntry = (key: string) =>
+      (request.challenge.provisioning_info ?? [])
+        .find((entry) => entry.vdxfkey === key)
+        ?.data?.trim() || null;
+    const provisioningWebhook = provisioningEntry(
+      LOGIN_CONSENT_ID_PROVISIONING_WEBHOOK_VDXF_KEY.vdxfid
+    );
+    const challengeId = request.challenge.challenge_id ?? null;
     return {
       ...base,
       testnet: request.system_id === TESTNET_SYSTEM_ID,
@@ -425,11 +442,27 @@ function parseLegacySession(
         {
           index: 0,
           type: 'authentication',
-          requestId: request.challenge.challenge_id ?? null,
+          requestId: challengeId,
           expiryTime: null,
           constraints: [],
           raw: null,
         },
+        ...(provisioningWebhook
+          ? [
+              {
+                index: 1,
+                type: 'provisionIdentity' as const,
+                requestedFqn:
+                  provisioningEntry(ID_FULLYQUALIFIEDNAME_VDXF_KEY.vdxfid) ??
+                  provisioningEntry(ID_ADDRESS_VDXF_KEY.vdxfid),
+                systemId: provisioningEntry(ID_SYSTEMID_VDXF_KEY.vdxfid),
+                parent: provisioningEntry(ID_PARENT_VDXF_KEY.vdxfid),
+                webhook: provisioningWebhook,
+                requestId: challengeId,
+                raw: null,
+              },
+            ]
+          : []),
       ],
       legacy: 'login',
     };

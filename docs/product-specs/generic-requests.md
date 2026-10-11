@@ -50,6 +50,12 @@ identity view and it shares no context, as on mobile.
   response is a signed `LoginConsentResponse` that embeds the request. It goes
   to the request's redirect address when it has one, else to its webhook as
   JSON, as on mobile.
+- **Legacy sign in with a new VerusID:** when the challenge's provisioning
+  entries name a provisioning webhook, the picker also offers New VerusID, as
+  mobile's "Request VerusID" does. The first entry of each key gives the
+  webhook, system, parent, and name. The provisioning request uses the login's
+  challenge ID and goes to that webhook. After the user links the new VerusID,
+  the login opens again to finish the sign in.
 - **Legacy invoices** pay as invoices do. A signed invoice must verify for its
   signer. No response is sent.
 
