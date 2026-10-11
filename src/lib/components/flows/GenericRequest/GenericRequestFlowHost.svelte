@@ -226,9 +226,12 @@
       fullyQualifiedName: updateReviewSource?.fullyQualifiedName ?? null,
     })
   );
-  // Without an offered VerusID the user chooses the name under the parent,
-  // as in Verus Mobile's provisioning form.
-  const choosesName = $derived(!!provisioningDetail && !provisioningDetail.requestedFqn);
+  // An offered VerusID or name that exists on chain fixes the name; otherwise
+  // the user chooses one under the parent, as in Verus Mobile's provisioning
+  // form (`ProvisionIdentityForm.js`).
+  let offeredFqn = $state<string | null>(null);
+  let offerChecked = $state(false);
+  const choosesName = $derived(!!provisioningDetail && offerChecked && !offeredFqn);
   let chosenName = $state('');
   let parentFqn = $state<string | null>(null);
   let chosenNameStatus = $state<'idle' | 'checking' | 'available' | 'taken' | 'failed'>('idle');
@@ -238,7 +241,7 @@
     choosesName && chosenNameValid && parentFqn ? `${chosenName}.${parentFqn}` : null
   );
   const requestedFqn = $derived(
-    formatIdentityFullyQualifiedName(provisioningDetail?.requestedFqn ?? chosenFqn) ||
+    formatIdentityFullyQualifiedName(offeredFqn ?? chosenFqn) ||
       i18n.t('genericRequest.summary.provisioningRequested')
   );
   const expiresAt = $derived(authDetail?.expiryTime ?? invoiceModule?.expiresAt() ?? null);
@@ -384,6 +387,8 @@
     newIdentity = false;
     chosenName = '';
     parentFqn = null;
+    offeredFqn = null;
+    offerChecked = false;
     chosenNameStatus = 'idle';
     chosenNameSequence += 1;
     linkSheetOpen = false;
@@ -796,6 +801,7 @@
         return (
           !!provisioningDetail?.webhook &&
           !!walletChannels.vrpcAddress?.trim() &&
+          offerChecked &&
           (!choosesName || chosenNameStatus === 'available')
         );
       case 'updateChanges':
@@ -876,6 +882,26 @@
   function startNewIdentity() {
     newIdentity = true;
     responderAddress = '';
+    void checkOffer();
+  }
+
+  async function checkOffer() {
+    if (!offerChecked) {
+      const generation = openGeneration;
+      const offered = provisioningDetail?.requestedFqn?.trim();
+      let found: string | null = null;
+      if (offered) {
+        try {
+          found =
+            (await identityLinkService.getIdentityDetails(offered)).fullyQualifiedName ?? null;
+        } catch {
+          // Not on chain: the user chooses the name.
+        }
+      }
+      if (generation !== openGeneration) return;
+      offeredFqn = found;
+      offerChecked = true;
+    }
     if (choosesName && !parentFqn) void loadParentFqn();
   }
 
@@ -1198,7 +1224,7 @@
               authenticationDetail: authDetail,
               provisioningDetail,
               signingAddress,
-              chosenFqn,
+              requestedFqn: offeredFqn ?? chosenFqn,
             });
           },
         },

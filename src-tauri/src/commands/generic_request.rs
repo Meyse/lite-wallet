@@ -623,12 +623,34 @@ fn is_valid_chosen_name(name: &str) -> bool {
             .any(|character| character.is_control() || FORBIDDEN.contains(&character))
 }
 
-fn provisioning_challenge_name(identity_id: &str) -> String {
-    identity_id
-        .split(['.', '@'])
-        .next()
-        .unwrap_or(identity_id)
-        .to_string()
+/// The name of the VerusID a request offers, when it exists on chain. Verus
+/// Mobile then fixes the name to it (`ProvisionIdentityForm.js`); otherwise the
+/// user chooses one.
+async fn offered_identity_name(
+    provider: &crate::core::channels::vrpc::VrpcProvider,
+    offered: Option<&str>,
+) -> Result<Option<String>, WalletError> {
+    let Some(offered) = offered else {
+        return Ok(None);
+    };
+    let raw = match provider.getidentity(offered).await {
+        Ok(raw) => raw,
+        Err(error) => {
+            return match map_link_identity_lookup_error(error) {
+                WalletError::IdentityNotFound => Ok(None),
+                other => Err(other),
+            }
+        }
+    };
+    match parse_getidentity_payload(raw) {
+        Ok(parsed) => Ok(parsed
+            .identity
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)),
+        Err(WalletError::IdentityNotFound) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn decode_defined_key_label(
@@ -1980,9 +2002,15 @@ pub async fn prepare_provisioning_signature(
             )
         };
     let challenge = parse_provisioning_challenge_hex(&challenge_hex)?;
+    let root_provider = vrpc_provider_pool.for_system(
+        network,
+        names::root_system_id(matches!(network, WalletNetwork::Testnet)),
+    );
+    let offered_name =
+        offered_identity_name(root_provider, provisioning.identity_id.as_deref()).await?;
     if !challenge.challenge_id.eq_ignore_ascii_case(&request_id)
-        || !match provisioning.identity_id.as_deref() {
-            Some(identity_id) => challenge.name == provisioning_challenge_name(identity_id),
+        || !match offered_name {
+            Some(name) => challenge.name == name,
             None => is_valid_chosen_name(&challenge.name),
         }
         || challenge.system_id != provisioning.system_id

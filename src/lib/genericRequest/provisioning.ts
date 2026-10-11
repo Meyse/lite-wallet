@@ -25,10 +25,11 @@ type SubmitGenericProvisioningRequestParams = {
   provisioningDetail: ProvisionIdentityDetailSession;
   signingAddress: string;
   /**
-   * The full name the user chose, when the request offers none (Verus
-   * Mobile's provisioning form). Rust checks the name the challenge carries.
+   * The full name to ask for: the offered VerusID when it exists on chain,
+   * else the name the user chose (Verus Mobile's provisioning form). Rust
+   * checks the name the challenge carries.
    */
-  chosenFqn?: string | null;
+  requestedFqn: string | null;
 };
 
 type ProvisioningResponseResultShape = {
@@ -81,7 +82,7 @@ export async function submitGenericProvisioningRequest(
     throw new Error('genericRequest.provisioning.error.noWebhook');
   }
 
-  const requestedFqn = (provisioningDetail.requestedFqn ?? params.chosenFqn)?.trim();
+  const requestedFqn = params.requestedFqn?.trim();
   if (!requestedFqn) {
     throw new Error('genericRequest.provisioning.error.invalidRequest');
   }

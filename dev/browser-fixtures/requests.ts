@@ -208,6 +208,18 @@ window.__PROFILE_FIXTURE_INVOKE__ = async (command, args) => {
         },
       ];
     case 'get_identity_details':
+      // The offered VerusID exists, so its name is fixed (as on mobile).
+      if (args?.identity_address === provision.requestedFqn) {
+        return {
+          identityAddress: 'iAlexFixture111111111111111111111',
+          name: 'alex',
+          fullyQualifiedName: provision.requestedFqn,
+          parent: provision.parent,
+          primaryAddresses: [],
+          ownedByPrimaryAddress: false,
+          minimumSignatures: 1,
+        };
+      }
       // Only the requester sits under the parent that the new VerusID scenario requires.
       return {
         identityAddress: String(args?.identity_address ?? REQUESTER),

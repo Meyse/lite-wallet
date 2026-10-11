@@ -127,14 +127,16 @@ response address, plus a close button. Close declines the request.
   - The step lists what the website learns and the requirements.
   - The picker always offers Link VerusID. It also offers New VerusID when the
     request offers one, next to the linked VerusIDs, as on mobile.
-- **New VerusID:** shows the offered name, the issuer, and the network. When the
-  request offers no name, the user types one under the request's parent. The
-  wallet checks the name and accepts only a free one. After Approval the wallet
-  signs the provisioning request with its address key (a bare recoverable
-  signature over the challenge hash, as `signVerusIdProvisioningRequest` makes
-  it), sends it to the request's provisioning address, and saves the job. The
-  challenge ID is the request's own ID, else the sign-in detail's ID. The sign
-  in finishes after the user links the new VerusID.
+- **New VerusID:** shows the name, the issuer, and the network. An offered
+  VerusID or name that exists on chain fixes the name to that VerusID's name.
+  Otherwise the user types a name under the request's parent; the wallet checks
+  it and accepts only a free one. This is mobile's rule
+  (`ProvisionIdentityForm.js`). After Approval the wallet signs the provisioning
+  request with its address key (a bare recoverable signature over the challenge
+  hash, as `signVerusIdProvisioningRequest` makes it), sends it to the request's
+  provisioning address, and saves the job. The challenge ID is the request's own
+  ID, else the sign-in detail's ID. The sign in finishes after the user links
+  the new VerusID.
 - **Update identity:** two steps.
   1. **Changes.** Content and profile changes. High-risk changes (primary
      addresses, revocation, recovery, status, clearing content) come with an
