@@ -8,6 +8,7 @@ use zcash_client_backend::{
     proto::compact_formats::CompactBlock,
     scanning::{scan_block, Nullifiers, ScanningKeys},
 };
+use zcash_primitives::block::BlockHash;
 use zcash_protocol::consensus::BlockHeight;
 use zip32::Scope;
 
@@ -52,14 +53,12 @@ impl Checkpoint {
             return Err(WalletError::OperationFailed);
         }
         let tree = decode_tree(&self.tree).ok_or(WalletError::OperationFailed)?;
-        let block = CompactBlock {
-            height: self.height,
-            hash: bytes,
-            ..Default::default()
-        };
+        // CompactBlock::height() panics above u32::MAX. A stored checkpoint
+        // must fail as a damaged cache instead.
+        let height = u32::try_from(self.height).map_err(|_| WalletError::OperationFailed)?;
         Ok(Some(BlockMetadata::from_parts(
-            block.height(),
-            block.hash(),
+            BlockHeight::from_u32(height),
+            BlockHash::from_slice(&bytes),
             Some(u32::try_from(tree.size()).map_err(|_| WalletError::OperationFailed)?),
         )))
     }
@@ -756,6 +755,20 @@ mod tests {
             Err(WalletError::WalletLocked)
         ));
         assert_eq!(cancelled.chain.height, state.chain.height);
+    }
+    #[test]
+    fn checkpoint_height_above_u32_is_an_error_not_a_panic() {
+        let mut state = WalletState::new(WalletNetwork::Testnet);
+        state.chain.height = u64::from(u32::MAX) + 1;
+        state.chain.block_hash_hex = Some("00".repeat(32));
+        assert!(matches!(
+            state.chain.metadata(),
+            Err(WalletError::OperationFailed)
+        ));
+        assert!(matches!(
+            state.validate(),
+            Err(WalletError::OperationFailed)
+        ));
     }
     #[test]
     fn spendable_notes_keep_oldest_first_order_after_reload() {

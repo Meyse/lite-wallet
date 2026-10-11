@@ -681,7 +681,9 @@ fn validate_birthday(
     let tree = tree_state
         .sapling_tree()
         .map_err(|_| WalletError::NetworkError)?;
+    // The birthday is persisted and later read as a u32 BlockHeight.
     if tree_state.height != block.height
+        || block.height > u64::from(u32::MAX)
         || hash.len() != 32
         || hash != block.hash
         || block.chain_metadata.as_ref().is_some_and(|meta| {
@@ -1329,6 +1331,18 @@ mod tests {
             }
         )
         .is_err());
+        let mut too_high = compact.clone();
+        too_high.height = u64::from(u32::MAX) + 1;
+        assert!(matches!(
+            validate_birthday(
+                &too_high,
+                service::TreeState {
+                    height: too_high.height,
+                    ..tree.clone()
+                }
+            ),
+            Err(WalletError::NetworkError)
+        ));
         compact
             .chain_metadata
             .as_mut()
