@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::core::channels::{dlight_private, PreflightStore};
 use crate::core::coins::CoinRegistry;
+use crate::core::generic_request::store::GenericRequestStore;
 
 use super::{GuardSessionManager, ProvisioningSignatureStore, SessionManager};
 
@@ -19,12 +20,17 @@ async fn clear_wallet_session_state(
     guard_session_manager: &Arc<Mutex<GuardSessionManager>>,
     preflight_store: &PreflightStore,
     provisioning_signature_store: &ProvisioningSignatureStore,
+    request_store: &GenericRequestStore,
     coin_registry: &Arc<CoinRegistry>,
 ) {
     session.lock();
     dlight_private::stop_all_runtimes().await;
     preflight_store.clear();
     provisioning_signature_store.clear();
+    // The open request can hold a gift card's key. After unlock, the frontend
+    // opens a request again, and Rust verifies it again. The paid list stays:
+    // it holds no secret and never matches a later session.
+    request_store.close();
     coin_registry.set_active_account(None);
     guard_session_manager.lock().await.clear();
 }
@@ -40,6 +46,7 @@ pub async fn clear_wallet_session_if_current(
     guard_session_manager: &Arc<Mutex<GuardSessionManager>>,
     preflight_store: &PreflightStore,
     provisioning_signature_store: &ProvisioningSignatureStore,
+    request_store: &GenericRequestStore,
     coin_registry: &Arc<CoinRegistry>,
 ) -> bool {
     let mut session = session_manager.lock().await;
@@ -52,6 +59,7 @@ pub async fn clear_wallet_session_if_current(
         guard_session_manager,
         preflight_store,
         provisioning_signature_store,
+        request_store,
         coin_registry,
     )
     .await;
@@ -70,6 +78,7 @@ pub(crate) async fn clear_expired_wallet_session_if_current<F>(
     guard_session_manager: &Arc<Mutex<GuardSessionManager>>,
     preflight_store: &PreflightStore,
     provisioning_signature_store: &ProvisioningSignatureStore,
+    request_store: &GenericRequestStore,
     coin_registry: &Arc<CoinRegistry>,
     notify_expired: F,
 ) -> ExpiredSessionCleanupResult
@@ -89,6 +98,7 @@ where
         guard_session_manager,
         preflight_store,
         provisioning_signature_store,
+        request_store,
         coin_registry,
     )
     .await;
@@ -101,6 +111,8 @@ mod tests {
     use super::*;
     use crate::core::channels::PreflightRecord;
     use crate::core::crypto::{derive_keys_v1, derive_public_profile_from_material, Network};
+    use crate::core::generic_request::request::parse_request_hex;
+    use crate::core::generic_request::store::{GiftCardClaim, OpenRequest};
     use crate::core::StrongholdStore;
     use crate::types::wallet::{WalletNetwork, WalletSecretKind};
     use crate::types::WalletError;
@@ -149,11 +161,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_drops_the_open_request_with_its_gift_card_key() {
+        let session = test_session();
+        let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
+        let preflights = PreflightStore::new();
+        let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
+        let coins = Arc::new(CoinRegistry::new());
+        let session_id = unlock(&session).await;
+
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../src/lib/genericRequest/fixtures/request-vectors.json"
+        ))
+        .expect("request vectors");
+        let request_hex = vectors["cases"]
+            .as_array()
+            .expect("cases")
+            .iter()
+            .find(|case| case["name"] == "auth")
+            .expect("auth vector")["hex"]
+            .as_str()
+            .expect("hex")
+            .to_string();
+        requests.open(OpenRequest {
+            session_id: session_id.clone(),
+            parsed: parse_request_hex(&request_hex).expect("vector parses"),
+            request_hex: request_hex.clone(),
+            kinds: Vec::new(),
+            broadcast_txid: None,
+            reviewed_credentials: None,
+            legacy_login: None,
+            claim: Some(GiftCardClaim {
+                address: "RCardAddress".to_string(),
+                private_key: Zeroizing::new([7; 32]),
+                signed: vec!["00".to_string()],
+                broadcast: Vec::new(),
+            }),
+        });
+        assert!(requests.get(&session_id, &request_hex).is_ok());
+
+        assert!(
+            clear_wallet_session_if_current(
+                Some(&session_id),
+                &session,
+                &guard,
+                &preflights,
+                &provisioning,
+                &requests,
+                &coins,
+            )
+            .await
+        );
+        assert!(requests.get(&session_id, &request_hex).is_err());
+    }
+
+    #[tokio::test]
     async fn expiry_cleanup_clears_preflights_and_guard_before_same_account_reunlock() {
         let session = test_session();
         let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
         let preflights = PreflightStore::new();
         let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
         let coins = Arc::new(CoinRegistry::new());
         let first_id = unlock(&session).await;
         preflights.activate_wallet_session(&first_id);
@@ -174,6 +242,7 @@ mod tests {
                 &guard,
                 &preflights,
                 &provisioning,
+                &requests,
                 &coins,
             )
             .await
@@ -193,6 +262,7 @@ mod tests {
         let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
         let preflights = PreflightStore::new();
         let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
         let coins = Arc::new(CoinRegistry::new());
         let first_id = unlock(&session).await;
         let second_id = unlock(&session).await;
@@ -206,6 +276,7 @@ mod tests {
                 &guard,
                 &preflights,
                 &provisioning,
+                &requests,
                 &coins,
             )
             .await
@@ -220,6 +291,7 @@ mod tests {
         let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
         let preflights = PreflightStore::new();
         let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
         let coins = Arc::new(CoinRegistry::new());
         let first_id = unlock(&session).await;
         preflights.activate_wallet_session(&first_id);
@@ -245,6 +317,7 @@ mod tests {
             let guard = Arc::clone(&guard);
             let preflights = preflights.clone();
             let provisioning = provisioning.clone();
+            let requests = requests.clone();
             let coins = Arc::clone(&coins);
             async move {
                 clear_wallet_session_if_current(
@@ -253,6 +326,7 @@ mod tests {
                     &guard,
                     &preflights,
                     &provisioning,
+                    &requests,
                     &coins,
                 )
                 .await
@@ -297,6 +371,7 @@ mod tests {
                 &guard,
                 &preflights,
                 &provisioning,
+                &requests,
                 &coins,
             )
             .await
@@ -311,6 +386,7 @@ mod tests {
         let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
         let preflights = PreflightStore::new();
         let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
         let coins = Arc::new(CoinRegistry::new());
         let session_id = unlock(&session).await;
         preflights.activate_wallet_session(&session_id);
@@ -328,6 +404,7 @@ mod tests {
             &guard,
             &preflights,
             &provisioning,
+            &requests,
             &coins,
             || {
                 notifications.fetch_add(1, Ordering::SeqCst);
@@ -347,6 +424,7 @@ mod tests {
         let guard = Arc::new(Mutex::new(GuardSessionManager::new()));
         let preflights = PreflightStore::new();
         let provisioning = ProvisioningSignatureStore::new();
+        let requests = GenericRequestStore::new();
         let coins = Arc::new(CoinRegistry::new());
         let session_id = unlock(&session).await;
         let submission_cancellation = session
@@ -367,6 +445,7 @@ mod tests {
             let guard = Arc::clone(&guard);
             let preflights = preflights.clone();
             let provisioning = provisioning.clone();
+            let requests = requests.clone();
             let coins = Arc::clone(&coins);
             let replacement_acquired = Arc::clone(&replacement_acquired);
             let notification_count = Arc::clone(&notification_count);
@@ -377,6 +456,7 @@ mod tests {
                     &guard,
                     &preflights,
                     &provisioning,
+                    &requests,
                     &coins,
                     move || {
                         assert!(!replacement_acquired.load(Ordering::SeqCst));

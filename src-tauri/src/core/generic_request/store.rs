@@ -3,7 +3,7 @@
 //! Later commands act only on the request this store holds, so they never act
 //! on bytes that skipped verification.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::types::WalletError;
 
@@ -54,12 +54,13 @@ impl std::fmt::Debug for GiftCardClaim {
     }
 }
 
-#[derive(Default)]
+/// Clones share one store, so the session expiry task can clear it on lock.
+#[derive(Clone, Default)]
 pub struct GenericRequestStore {
-    open: Mutex<Option<OpenRequest>>,
+    open: Arc<Mutex<Option<OpenRequest>>>,
     /// Invoices paid in a wallet session, by session and request hash. The
     /// wallet refuses to pay the same request twice in one session.
-    paid: Mutex<Vec<(String, [u8; 32])>>,
+    paid: Arc<Mutex<Vec<(String, [u8; 32])>>>,
 }
 
 impl GenericRequestStore {

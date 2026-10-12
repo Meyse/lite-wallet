@@ -6,6 +6,7 @@ use tokio::time::Instant;
 
 use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
+use crate::core::generic_request::store::GenericRequestStore;
 
 use super::lifecycle::{clear_expired_wallet_session_if_current, ExpiredSessionCleanupResult};
 use super::{
@@ -28,6 +29,7 @@ pub(crate) fn spawn_session_expiry_monitor(
     guard_session_manager: Arc<Mutex<GuardSessionManager>>,
     preflight_store: PreflightStore,
     provisioning_signature_store: ProvisioningSignatureStore,
+    request_store: GenericRequestStore,
     coin_registry: Arc<CoinRegistry>,
 ) {
     let notifier: ExpiryNotifier = Arc::new(move |_| {
@@ -42,6 +44,7 @@ pub(crate) fn spawn_session_expiry_monitor(
         guard_session_manager,
         preflight_store,
         provisioning_signature_store,
+        request_store,
         coin_registry,
         notifier,
     )));
@@ -53,6 +56,7 @@ async fn run_session_expiry_monitor(
     guard_session_manager: Arc<Mutex<GuardSessionManager>>,
     preflight_store: PreflightStore,
     provisioning_signature_store: ProvisioningSignatureStore,
+    request_store: GenericRequestStore,
     coin_registry: Arc<CoinRegistry>,
     notifier: ExpiryNotifier,
 ) {
@@ -78,6 +82,7 @@ async fn run_session_expiry_monitor(
                 &guard_session_manager,
                 &preflight_store,
                 &provisioning_signature_store,
+                &request_store,
                 &coin_registry,
                 move || expiry_notifier(&expired_session_id),
             )
@@ -123,6 +128,7 @@ mod tests {
         guard: Arc<Mutex<GuardSessionManager>>,
         preflights: PreflightStore,
         provisioning: ProvisioningSignatureStore,
+        requests: GenericRequestStore,
         coins: Arc<CoinRegistry>,
     }
 
@@ -139,6 +145,7 @@ mod tests {
                 guard: Arc::new(Mutex::new(GuardSessionManager::new())),
                 preflights: PreflightStore::new(),
                 provisioning: ProvisioningSignatureStore::new(),
+                requests: GenericRequestStore::new(),
                 coins: Arc::new(CoinRegistry::new()),
             }
         }
@@ -191,6 +198,7 @@ mod tests {
                 Arc::clone(&self.guard),
                 self.preflights.clone(),
                 self.provisioning.clone(),
+                self.requests.clone(),
                 Arc::clone(&self.coins),
                 notifier,
             ))
@@ -379,6 +387,7 @@ mod tests {
                 &state.guard,
                 &state.preflights,
                 &state.provisioning,
+                &state.requests,
                 &state.coins,
             )
             .await
@@ -418,6 +427,7 @@ mod tests {
                 &state.guard,
                 &state.preflights,
                 &state.provisioning,
+                &state.requests,
                 &state.coins,
             )
             .await

@@ -33,6 +33,7 @@ use crate::core::crypto::wif_encoding::{decode_wif_unchecked_network, encode_btc
 use crate::core::crypto::{
     derive_keys_from_material, derive_public_profile_from_material, Network,
 };
+use crate::core::generic_request::store::GenericRequestStore;
 use crate::core::identity_display::format_identity_display_name_or_fallback;
 use crate::core::updates::UpdateEngineStartConfig;
 use crate::core::wallet::{AccountStateStore, WalletManager};
@@ -1024,6 +1025,7 @@ pub async fn unlock_wallet(
     guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
     preflight_store: State<'_, PreflightStore>,
     provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
+    request_store: State<'_, GenericRequestStore>,
     update_engine: State<'_, Arc<UpdateEngine>>,
     app_handle: AppHandle,
 ) -> Result<(), WalletError> {
@@ -1102,6 +1104,7 @@ pub async fn unlock_wallet(
         guard_session_manager.inner(),
         preflight_store.inner(),
         provisioning_signature_store.inner(),
+        request_store.inner(),
         coin_registry.inner(),
     )
     .await;
@@ -1125,6 +1128,7 @@ pub async fn unlock_wallet(
         guard_session_manager.inner().clone(),
         preflight_store.inner().clone(),
         provisioning_signature_store.inner().clone(),
+        request_store.inner().clone(),
         coin_registry.inner().clone(),
     );
     // Start the Overview's first storage reads now, not after the route loads.
@@ -1197,6 +1201,7 @@ pub async fn lock_wallet(
     guard_session_manager: State<'_, Arc<Mutex<GuardSessionManager>>>,
     preflight_store: State<'_, PreflightStore>,
     provisioning_signature_store: State<'_, ProvisioningSignatureStore>,
+    request_store: State<'_, GenericRequestStore>,
     update_engine: State<'_, Arc<UpdateEngine>>,
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<(), WalletError> {
@@ -1209,6 +1214,7 @@ pub async fn lock_wallet(
         guard_session_manager.inner(),
         preflight_store.inner(),
         provisioning_signature_store.inner(),
+        request_store.inner(),
         coin_registry.inner(),
     )
     .await;
