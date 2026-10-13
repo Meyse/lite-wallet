@@ -15,12 +15,15 @@ case "$wallet" in
 esac
 [ "$(uname -s)" = Darwin ] || { echo 'This helper requires macOS.' >&2; exit 2; }
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-build_dir="$repo_dir/src-tauri/target/test-wallet-keychain"
 source_file="$repo_dir/scripts/test-wallet-keychain/main.swift"
+# One build per helper version, shared by every checkout. Keychain trusts the helper by
+# its path, so a stable path avoids a new Keychain prompt in each worktree.
+source_hash=$(/usr/bin/shasum -a 256 "$source_file" | cut -c1-16)
+build_dir="$HOME/Library/Caches/com.maxtheyse.verus-express.test-wallet-keychain/$source_hash"
 binary_file="$build_dir/test-wallet-keychain"
 umask 077
 mkdir -p "$build_dir"
-if [ ! -x "$binary_file" ] || [ "$source_file" -nt "$binary_file" ]; then
+if [ ! -x "$binary_file" ]; then
   build_file=$(mktemp "$build_dir/build.XXXXXX")
   trap 'rm -f "$build_file"' EXIT HUP INT TERM
   /usr/bin/xcrun swiftc -module-cache-path "$build_dir/module-cache" "$source_file" -o "$build_file"

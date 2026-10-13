@@ -17,7 +17,44 @@ func keychainCheck(_ status: OSStatus) throws {
     try require(status == errSecSuccess, "Keychain operation failed (OSStatus \(status)). No credential was printed.")
 }
 struct Metadata: Decodable { let id: String; let network: String; let last_unlocked_at: UInt64? }
-struct Binding: Codable, Equatable { let accountID: String; let executable: String }
+struct Binding: Codable, Equatable {
+    let accountID: String
+    let executable: String
+    // The git directory that every checkout of this repository shares. Items saved before
+    // this field existed name only their checkout's executable.
+    var repository: String? = nil
+}
+struct StoredCredential { let binding: Binding; let bindingData: Data }
+let executableSuffix = "/src-tauri/target/debug/verus_express"
+func gitCommonDir(_ checkout: URL) -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = ["-C", checkout.path, "rev-parse", "--path-format=absolute", "--git-common-dir"]
+    let output = Pipe()
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return nil }
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0,
+          let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          path.hasPrefix("/") else { return nil }
+    return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+}
+func storedRepository(_ binding: Binding) -> String? {
+    if let repository = binding.repository { return repository }
+    guard binding.executable.hasSuffix(executableSuffix) else { return nil }
+    return gitCommonDir(URL(fileURLWithPath: String(binding.executable.dropLast(executableSuffix.count))))
+}
+/// A saved credential serves its wallet account from any checkout or branch of the same
+/// repository. Each unlock still targets only the running build of the current checkout.
+func credentialMatches(_ stored: Binding, _ current: Binding, storedRepository repository: String?) -> Bool {
+    guard let currentRepository = current.repository else { return false }
+    return stored.accountID == current.accountID && repository == currentRepository
+}
+func credentialMatches(_ stored: Binding, _ current: Binding) -> Bool {
+    credentialMatches(stored, current, storedRepository: storedRepository(stored))
+}
 func bindingData(_ binding: Binding) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
@@ -26,6 +63,7 @@ func bindingData(_ binding: Binding) throws -> Data {
 struct Fixture {
     let repo: URL
     let spec: FixtureSpec
+    let repository: String?
     var executable: URL { repo.appendingPathComponent("src-tauri/target/debug/verus_express").resolvingSymlinksInPath() }
     var metadataURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
@@ -39,7 +77,10 @@ struct Fixture {
         try validateMetadata(result, spec)
         return result
     }
-    func binding() throws -> Binding { Binding(accountID: try metadata().id, executable: executable.path) }
+    func binding() throws -> Binding {
+        guard let repository else { throw Failure(message: "This checkout is not part of a git repository.") }
+        return Binding(accountID: try metadata().id, executable: executable.path, repository: repository)
+    }
 }
 func validateMetadata(_ metadata: Metadata, _ spec: FixtureSpec) throws {
     try require(testNetworks.contains(spec.network) && metadata.network == spec.network,
@@ -58,7 +99,7 @@ func itemQuery(_ keychain: SecKeychain, _ spec: FixtureSpec) -> [String: Any] {
      kSecAttrService as String: service, kSecAttrAccount as String: spec.name,
      kSecMatchSearchList as String: [keychain]]
 }
-func storedBinding(_ keychain: SecKeychain, _ spec: FixtureSpec) throws -> Binding? {
+func storedCredential(_ keychain: SecKeychain, _ spec: FixtureSpec) throws -> StoredCredential? {
     var query = itemQuery(keychain, spec)
     query[kSecReturnAttributes as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -70,7 +111,7 @@ func storedBinding(_ keychain: SecKeychain, _ spec: FixtureSpec) throws -> Bindi
           let binding = try? JSONDecoder().decode(Binding.self, from: data) else {
         throw Failure(message: "The dedicated credential has an invalid binding; remove it before setup.")
     }
-    return binding
+    return StoredCredential(binding: binding, bindingData: data)
 }
 func passwordPrompt(_ spec: FixtureSpec) throws -> Data {
     let app = NSApplication.shared
@@ -92,8 +133,9 @@ func passwordPrompt(_ spec: FixtureSpec) throws -> Data {
 }
 func save(_ keychain: SecKeychain, _ fixture: Fixture) throws {
     let binding = try fixture.binding()
-    if let old = try storedBinding(keychain, fixture.spec) {
-        try require(old == binding, "Credential belongs to a different account or checkout. Remove it explicitly before setup.")
+    if let old = try storedCredential(keychain, fixture.spec) {
+        try require(credentialMatches(old.binding, binding),
+                    "Credential belongs to a different wallet account or repository. Remove it explicitly before setup.")
     }
     var secret = try passwordPrompt(fixture.spec)
     defer { secret.resetBytes(in: 0..<secret.count) }
@@ -101,10 +143,10 @@ func save(_ keychain: SecKeychain, _ fixture: Fixture) throws {
     let attrs: [String: Any] = [kSecValueData as String: secret,
         kSecAttrGeneric as String: try bindingData(binding),
         kSecAttrLabel as String: "Verus Express — \(fixture.spec.name) — disposable \(fixture.spec.network) automation"]
-    if let currentBinding = try storedBinding(keychain, fixture.spec) {
-        try require(currentBinding == binding, "Credential binding changed during entry; nothing saved.")
+    if let current = try storedCredential(keychain, fixture.spec) {
+        try require(credentialMatches(current.binding, binding), "Credential binding changed during entry; nothing saved.")
         var updateQuery = itemQuery(keychain, fixture.spec)
-        updateQuery[kSecAttrGeneric as String] = try bindingData(binding)
+        updateQuery[kSecAttrGeneric as String] = current.bindingData
         try keychainCheck(SecItemUpdate(updateQuery as CFDictionary, attrs as CFDictionary))
     } else {
         // A single trusted application, never an all-applications ACL.
@@ -125,9 +167,11 @@ func save(_ keychain: SecKeychain, _ fixture: Fixture) throws {
     print("Saved the dedicated \(fixture.spec.network) credential in login Keychain. Password correctness is not yet verified.")
 }
 func readSecret(_ keychain: SecKeychain, _ spec: FixtureSpec, _ binding: Binding) throws -> Data {
-    try require(try storedBinding(keychain, spec) == binding, "No matching credential. Run setup first.")
+    guard let stored = try storedCredential(keychain, spec), credentialMatches(stored.binding, binding) else {
+        throw Failure(message: "No matching credential. Run setup first.")
+    }
     var query = itemQuery(keychain, spec)
-    query[kSecAttrGeneric as String] = try bindingData(binding)
+    query[kSecAttrGeneric as String] = stored.bindingData
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var value: CFTypeRef?
@@ -378,6 +422,20 @@ func selfTest() throws {
                 "Another wallet selector must be rejected.")
     try require(!isFixtureWalletSelectorLabel("Switch wallet, current wallet: \(privateTestnet.name)", testnet.name),
                 "The other test wallet's selector must be rejected.")
+    // One saved credential serves its account from any checkout of the same repository.
+    let repoA = "/test-only/repo/.git"
+    let here = Binding(accountID: id, executable: "/test-only/repo/src-tauri/target/debug/verus_express", repository: repoA)
+    let worktree = Binding(accountID: id, executable: "/test-only/repo/.claude/worktrees/x/src-tauri/target/debug/verus_express", repository: repoA)
+    try require(credentialMatches(here, worktree, storedRepository: repoA), "Another checkout of the same repository must match.")
+    try require(!credentialMatches(here, Binding(accountID: id, executable: worktree.executable, repository: "/test-only/other/.git"), storedRepository: repoA),
+                "Another repository must be rejected.")
+    try require(!credentialMatches(here, Binding(accountID: "22222222-2222-4222-8222-222222222222", executable: worktree.executable, repository: repoA), storedRepository: repoA),
+                "Another wallet account must be rejected.")
+    try require(!credentialMatches(here, Binding(accountID: id, executable: worktree.executable), storedRepository: repoA),
+                "A checkout without a repository must be rejected.")
+    try require(!credentialMatches(here, worktree, storedRepository: nil), "An unresolvable saved repository must be rejected.")
+    let legacy = try JSONDecoder().decode(Binding.self, from: Data(#"{"accountID":"\#(id)","executable":"/test-only/verus_express"}"#.utf8))
+    try require(legacy.repository == nil, "Items saved before repository binding must still decode.")
     let dummy = "test-only 🔑 é漢字 quotes'\"$`"
     try require(String(data: Data(dummy.utf8), encoding: .utf8) == dummy, "UTF-8 round-trip failed.")
     try require(dummy.unicodeScalars.map(String.init).joined() == dummy, "Unicode event chunks must preserve the full password.")
@@ -387,7 +445,7 @@ func selfTest() throws {
     try require(isUnlockLabel("Unlock") && isUnlockLabel("Ontgrendel"), "Configured unlock labels must match.")
     try require(!isUnlockLabel("Unlocking…") && !isUnlockLabel("Ontgrendelen…") && !isUnlockLabel("Ontgrendelen"), "Loading and incorrect labels must not match.")
     try require(nextSubmitDelay(previous: 100, now: 100.5) > 0.5 && nextSubmitDelay(previous: 100, now: 101) == 0 && nextSubmitDelay(previous: nil, now: 100) == 0, "Rapid re-unlock timing guard failed.")
-    print("Passed metadata guards for \(fixtureSpecs.count) test wallets, 9 unsafe screen cases, bindings, Unicode, locale labels, and rapid re-unlock timing. No Keychain or UI access used.")
+    print("Passed metadata guards for \(fixtureSpecs.count) test wallets, 9 unsafe screen cases, repository bindings, Unicode, locale labels, and rapid re-unlock timing. No Keychain or UI access used.")
 }
 let args = Array(CommandLine.arguments.dropFirst())
 do {
@@ -396,16 +454,18 @@ do {
     guard let spec = fixtureSpecs.first(where: { $0.key == args[2] }) else {
         throw Failure(message: "Unknown test wallet. Use mijn-app or private-testnet.")
     }
-    let fixture = Fixture(repo: URL(fileURLWithPath: args[1]).resolvingSymlinksInPath(), spec: spec)
+    let repo = URL(fileURLWithPath: args[1]).resolvingSymlinksInPath()
+    let fixture = Fixture(repo: repo, spec: spec, repository: gitCommonDir(repo))
     switch command {
     case "self-test": try selfTest()
     case "preflight": _ = try fixture.binding(); _ = try target(fixture); print("Ready: named \(spec.network) wallet, exact development executable, and guarded secure field verified. No Keychain access.")
     case "setup": try save(loginKeychain(), fixture)
     case "status":
         let binding = try fixture.binding()
-        if let stored = try storedBinding(loginKeychain(), spec) {
-            try require(stored == binding, "Stored credential does not match this account and checkout.")
-            print("Dedicated credential is present and matches this \(spec.network) account and checkout. Password was not retrieved.")
+        if let stored = try storedCredential(loginKeychain(), spec) {
+            try require(credentialMatches(stored.binding, binding),
+                        "Stored credential belongs to a different wallet account or repository.")
+            print("Dedicated credential is present and matches this \(spec.network) account in this repository. Password was not retrieved.")
         } else { print("No dedicated credential saved. Run setup.") }
     case "fill", "unlock": try fill(loginKeychain(), fixture, submit: command == "unlock")
     case "remove":

@@ -37,10 +37,13 @@ The password must be unique to this disposable wallet.
 
 The helper uses the local login Keychain, service
 `com.maxtheyse.verus-express.test-automation`, with the wallet name as the
-account. The item is bound to the wallet's actual account ID and this checkout's
-development executable path. Recreating the wallet or moving to another checkout requires
-explicit removal and setup again. Setup can replace the password for an unchanged
-binding.
+account. The item is bound to the wallet's account ID and to this repository:
+the git directory that all its checkouts share. So the password works from any
+branch or worktree of this repository without a new setup. Each unlock still
+targets only the running development build of the checkout that runs the
+helper. Recreating the wallet requires explicit removal and setup again. Setup
+can replace the password for the same account and repository. Items saved
+before repository binding still work while their original checkout exists.
 
 ## Repeat testing
 
@@ -103,10 +106,11 @@ metadata was deleted or changed.
 
 ## Implementation and limits
 
-The wrapper builds a dependency-free Swift helper under the ignored
-`src-tauri/target/test-wallet-keychain/` directory. Xcode command-line tools are
-required. Keep that executable at its stable path. Rebuilding it may cause
-Keychain to ask for authorization again. The item trusts the helper's own code
+The wrapper builds a dependency-free Swift helper once per source version under
+`~/Library/Caches/com.maxtheyse.verus-express.test-wallet-keychain/<source hash>/`,
+shared by every checkout. Xcode command-line tools are required. Keep that
+executable at its path. A new helper version may cause Keychain to ask for
+authorization once. The item trusts the helper's own code
 identity; it is not configured with an all-applications ACL.
 
 The password passes from a native secure text field to Keychain, then from
