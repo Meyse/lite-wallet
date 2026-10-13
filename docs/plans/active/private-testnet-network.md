@@ -5,9 +5,10 @@ last_reviewed: 2026-10-13
 
 # Plan: Private testnet network
 
-- Status: active. Steps 1 to 3, 4.3, 5.2, and 6 are done and merged to `main` on
-  2026-10-13. A tester can create or import a private-testnet wallet. No funded
-  transaction ran on the private chain.
+- Status: active on branch `private-testnet`. The owner decided on 2026-10-13 to
+  keep this work off `main`. Steps 1 to 3, 4.3, 5.2, and 6 are done. A tester
+  can create or import a private-testnet wallet. No funded transaction ran from
+  the wallet yet; the live tests are next.
 - Owner: lite-wallet-team
 - Last updated: 2026-10-13
 

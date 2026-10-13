@@ -47,6 +47,8 @@ Plans are first-class artifacts for multi-step work.
 - Sepolia testnet alignment (local implementation complete; native render and
   live settlement deferred):
   [`./active/sepolia-testnet-alignment.md`](./active/sepolia-testnet-alignment.md)
+- Private testnet network (active on branch `private-testnet`; live tests next):
+  [`./active/private-testnet-network.md`](./active/private-testnet-network.md)
 
 ## Recent completed plans
 
