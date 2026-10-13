@@ -5,7 +5,7 @@ use ethers::contract::abigen;
 use ethers::providers::Middleware;
 use ethers::types::Address;
 
-use crate::core::channels::eth::config::{metadata_for_chain_id, metadata_for_network};
+use crate::core::channels::eth::config::metadata_for_network;
 use crate::core::channels::eth::provider::EthNetworkProvider;
 use crate::types::wallet::WalletNetwork;
 use crate::types::WalletError;
@@ -95,18 +95,23 @@ pub fn delegator_contract_for_network(network: WalletNetwork) -> Result<Address,
         .map_err(|_| WalletError::OperationFailed)
 }
 
-pub fn delegator_contract_for_chain_id(chain_id: u64) -> Result<Address, WalletError> {
-    metadata_for_chain_id(chain_id)?
-        .bridge_delegator
-        .parse::<Address>()
-        .map_err(|_| WalletError::OperationFailed)
+/// Testnet and private testnet share Sepolia but use different delegators, so the wallet
+/// network selects the contract. A provider on a chain the network does not use fails.
+pub fn delegator_contract_for(
+    network: WalletNetwork,
+    provider_chain_id: u64,
+) -> Result<Address, WalletError> {
+    if metadata_for_network(network).chain_id != provider_chain_id {
+        return Err(WalletError::EthNetworkMismatch);
+    }
+    delegator_contract_for_network(network)
 }
 
 pub async fn validate_delegator_contract(
     provider: &EthNetworkProvider,
 ) -> Result<(Address, bool), WalletError> {
     provider.validate_rpc_identity().await?;
-    let address = delegator_contract_for_chain_id(provider.chain_id)?;
+    let address = delegator_contract_for(provider.wallet_network, provider.chain_id)?;
     let code = provider
         .rpc_provider
         .get_code(address, None)
@@ -130,7 +135,7 @@ pub async fn validate_delegator_contract(
 
 #[cfg(test)]
 mod tests {
-    use super::{delegator_contract_for_chain_id, delegator_contract_for_network};
+    use super::{delegator_contract_for, delegator_contract_for_network};
     use crate::types::wallet::WalletNetwork;
     use ethers::types::Address;
 
@@ -147,15 +152,32 @@ mod tests {
     }
 
     #[test]
-    fn chain_id_resolves_expected_network_contracts() {
-        let mainnet = delegator_contract_for_chain_id(1).expect("mainnet");
-        let testnet = delegator_contract_for_chain_id(11155111).expect("testnet");
-        assert_ne!(mainnet, testnet);
+    fn wallet_network_selects_the_delegator_on_its_own_chain() {
+        // Each delegator is the vETH `nativecurrencyid` of its Verus chain (2026-10-13).
+        let sepolia_testnet: Address = "0xcaa98a4ec79dac8a06cb3bfdcf5351b6576d939f"
+            .parse()
+            .unwrap();
+        let sepolia_private_testnet: Address = "0x98f58684b05e7d40719e61955015af91ef7e77d3"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            delegator_contract_for(WalletNetwork::Testnet, 11155111).unwrap(),
+            sepolia_testnet
+        );
+        assert_eq!(
+            delegator_contract_for(WalletNetwork::PrivateTestnet, 11155111).unwrap(),
+            sepolia_private_testnet
+        );
+        assert_ne!(
+            delegator_contract_for(WalletNetwork::Mainnet, 1).unwrap(),
+            sepolia_testnet
+        );
     }
 
     #[test]
-    fn goerli_and_unknown_chain_ids_are_rejected() {
-        assert!(delegator_contract_for_chain_id(5).is_err());
-        assert!(delegator_contract_for_chain_id(31337).is_err());
+    fn a_provider_on_another_chain_is_rejected() {
+        assert!(delegator_contract_for(WalletNetwork::Testnet, 5).is_err());
+        assert!(delegator_contract_for(WalletNetwork::PrivateTestnet, 31337).is_err());
+        assert!(delegator_contract_for(WalletNetwork::Mainnet, 11155111).is_err());
     }
 }

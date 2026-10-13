@@ -69,8 +69,30 @@ struct AccountStateSnapshot {
     mainnet: AccountStateNetwork,
     #[serde(default)]
     testnet: AccountStateNetwork,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "AccountStateNetwork::is_empty"
+    )]
+    private_testnet: AccountStateNetwork,
     #[serde(flatten)]
     extra: Map<String, Value>,
+}
+
+impl AccountStateNetwork {
+    /// True when the section holds no data. Mainnet and testnet wallets then write no
+    /// private-testnet section, so older builds read their files unchanged.
+    fn is_empty(&self) -> bool {
+        self.watched_vrpc_addresses.is_empty()
+            && self.watchlist_entries.is_empty()
+            && !self.active_assets.initialized
+            && self.active_assets.profile_version == 0
+            && self.active_assets.coin_ids.is_empty()
+            && self.hidden_asset_keys.is_empty()
+            && self.provisioning_jobs.is_empty()
+            && self.pending_identity_profiles.is_empty()
+            && self.extra.is_empty()
+    }
 }
 
 impl Default for AccountStateSnapshot {
@@ -83,6 +105,10 @@ impl Default for AccountStateSnapshot {
                 ..AccountStateNetwork::default()
             },
             testnet: AccountStateNetwork {
+                active_assets_schema_version: ACTIVE_ASSETS_SCHEMA_VERSION,
+                ..AccountStateNetwork::default()
+            },
+            private_testnet: AccountStateNetwork {
                 active_assets_schema_version: ACTIVE_ASSETS_SCHEMA_VERSION,
                 ..AccountStateNetwork::default()
             },
@@ -419,6 +445,7 @@ impl AccountStateStore {
         match network {
             WalletNetwork::Mainnet => &snapshot.mainnet,
             WalletNetwork::Testnet => &snapshot.testnet,
+            WalletNetwork::PrivateTestnet => &snapshot.private_testnet,
         }
     }
 
@@ -430,6 +457,7 @@ impl AccountStateStore {
         match network {
             WalletNetwork::Mainnet => &mut snapshot.mainnet,
             WalletNetwork::Testnet => &mut snapshot.testnet,
+            WalletNetwork::PrivateTestnet => &mut snapshot.private_testnet,
         }
     }
 }
@@ -453,6 +481,79 @@ mod tests {
         AccountStateStore::new(
             std::env::temp_dir().join(format!("lite_wallet_account_state_store_{}", unique)),
         )
+    }
+
+    #[test]
+    fn private_testnet_state_is_separate_and_absent_from_other_wallet_files() {
+        let store = temp_store();
+        let path = store.account_state_path("account");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A file written before private testnet existed.
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "schemaVersion": 1,
+                "testnet": {
+                    "activeAssets": {
+                        "initialized": true,
+                        "profileVersion": 1,
+                        "coinIds": ["VRSCTEST"]
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            store
+                .load_active_assets("account", WalletNetwork::Testnet)
+                .expect("load testnet"),
+            (true, vec!["VRSCTEST".to_string()], 1)
+        );
+        assert_eq!(
+            store
+                .load_active_assets("account", WalletNetwork::PrivateTestnet)
+                .expect("load private testnet"),
+            (false, vec![], 0)
+        );
+
+        store
+            .store_active_assets(
+                "account",
+                WalletNetwork::Testnet,
+                true,
+                1,
+                &["VRSCTEST".to_string(), "GETH".to_string()],
+            )
+            .expect("store testnet");
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(written.get("privatetestnet").is_none());
+
+        store
+            .store_active_assets(
+                "account",
+                WalletNetwork::PrivateTestnet,
+                true,
+                1,
+                &["GETH".to_string()],
+            )
+            .expect("store private testnet");
+        assert_eq!(
+            store
+                .load_active_assets("account", WalletNetwork::Testnet)
+                .expect("reload testnet")
+                .1,
+            vec!["VRSCTEST".to_string(), "GETH".to_string()]
+        );
+        assert_eq!(
+            store
+                .load_active_assets("account", WalletNetwork::PrivateTestnet)
+                .expect("reload private testnet")
+                .1,
+            vec!["GETH".to_string()]
+        );
     }
 
     #[test]

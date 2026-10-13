@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { contactChainId } from '$lib/contacts/identity';
 import { isWalletSupportedAsset } from './supportedAssets';
 
 describe('Ethereum asset network support', () => {
@@ -13,5 +14,26 @@ describe('Ethereum asset network support', () => {
 
     expect(isWalletSupportedAsset(sepoliaToken, 'testnet')).toBe(true);
     expect(isWalletSupportedAsset(sepoliaToken, 'mainnet')).toBe(false);
+  });
+});
+
+describe('Private testnet asset support', () => {
+  it('uses VRSCTEST coins and never mainnet coins', () => {
+    const vrsctest = {
+      id: 'VRSCTEST',
+      currencyId: 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq',
+      proto: 'vrsc' as const,
+      isTestnet: true,
+    };
+    const vrsc = {
+      id: 'VRSC',
+      currencyId: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV',
+      proto: 'vrsc' as const,
+      isTestnet: false,
+    };
+
+    expect(isWalletSupportedAsset(vrsctest, 'privatetestnet')).toBe(true);
+    expect(isWalletSupportedAsset(vrsc, 'privatetestnet')).toBe(false);
+    expect(contactChainId('privatetestnet')).toBe('iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq');
   });
 });

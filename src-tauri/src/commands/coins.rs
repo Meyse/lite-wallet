@@ -184,7 +184,7 @@ fn build_pbaas_coin_definition(
         electrum_endpoints: None,
         seconds_per_block: 60,
         mapped_to: None,
-        is_testnet: matches!(network, WalletNetwork::Testnet),
+        is_testnet: network.is_test_chain(),
     }
 }
 
@@ -257,12 +257,12 @@ fn build_erc20_coin_definition(
                 Some(
                     match network {
                         WalletNetwork::Mainnet => "ETH",
-                        WalletNetwork::Testnet => "GETH",
+                        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => "GETH",
                     }
                     .to_string(),
                 )
             }),
-        is_testnet: matches!(network, WalletNetwork::Testnet),
+        is_testnet: network.is_test_chain(),
     })
 }
 

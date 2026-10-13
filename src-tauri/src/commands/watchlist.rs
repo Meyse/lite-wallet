@@ -55,7 +55,7 @@ fn root_system(network: WalletNetwork) -> ConfiguredVrpcSystem {
             system_ticker: "VRSC".to_string(),
             system_display_name: "Verus".to_string(),
         },
-        WalletNetwork::Testnet => ConfiguredVrpcSystem {
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => ConfiguredVrpcSystem {
             system_id: VRSCTEST_SYSTEM_ID.to_string(),
             system_ticker: "VRSCTEST".to_string(),
             system_display_name: "Verus Testnet".to_string(),
@@ -122,7 +122,7 @@ fn registered_coin(
     network: WalletNetwork,
     currency_id: &str,
 ) -> Option<CoinDefinition> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     registry.get_all().into_iter().find(|coin| {
         coin.is_testnet == is_testnet
             && coin.compatible_channels.contains(&Channel::Vrpc)

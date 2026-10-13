@@ -1,4 +1,5 @@
 import type { SendResult, WalletNetwork } from '$lib/types/wallet.js';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 const VERUS_MAINNET_SYSTEM_ID = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
 const CHIPS_MAINNET_SYSTEM_ID = 'iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP';
@@ -78,12 +79,12 @@ export function transactionExplorerUrl(
   const sourcePrefix = snapshot.sourceChannelId.trim().split('.')[0]?.toLowerCase() ?? '';
 
   if (sourcePrefix === 'btc') {
-    return snapshot.walletNetwork === 'testnet'
+    return isTestChain(snapshot.walletNetwork)
       ? `https://mempool.space/testnet/tx/${encodedTxid}`
       : `https://mempool.space/tx/${encodedTxid}`;
   }
   if (sourcePrefix === 'eth' || sourcePrefix === 'erc20') {
-    return snapshot.walletNetwork === 'testnet'
+    return isTestChain(snapshot.walletNetwork)
       ? `https://sepolia.etherscan.io/tx/${encodedTxid}`
       : `https://etherscan.io/tx/${encodedTxid}`;
   }

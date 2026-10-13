@@ -1,3 +1,4 @@
+import type { WalletNetwork } from '$lib/types/wallet';
 export type ImportMethod = 'seed24' | 'text';
 
 export type WalletData = {
@@ -5,7 +6,7 @@ export type WalletData = {
   emoji: string;
   color: string;
   password: string;
-  network: 'mainnet' | 'testnet';
+  network: WalletNetwork;
 };
 
 export type WalletUpdate = Partial<WalletData>;

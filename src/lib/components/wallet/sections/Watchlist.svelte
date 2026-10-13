@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onMount, tick, untrack } from 'svelte';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -545,7 +546,7 @@
   // backend reuses rates younger than five minutes, so a quick revisit sends no
   // request. Testnet has no fiat rates.
   $effect(() => {
-    if (walletNetwork === 'testnet') return;
+    if (isTestChain(walletNetwork)) return;
     const requests = watchedRateRequests(
       records,
       rates,

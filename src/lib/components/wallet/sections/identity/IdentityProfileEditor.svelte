@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ImageIcon from '@lucide/svelte/icons/image';
   import CameraIcon from '@lucide/svelte/icons/camera';
@@ -113,7 +114,7 @@
   );
   const editable = $derived(
     details.profileEditable &&
-      session?.network === 'testnet' &&
+      isTestChain(session?.network) &&
       $contactSession === session &&
       profile !== null &&
       profile.state !== 'unavailable' &&

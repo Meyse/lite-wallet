@@ -1,9 +1,10 @@
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
   import type { Snippet } from 'svelte';
-  import { i18nStore } from '$lib/i18n';
+  import { i18nStore, networkLocaleKey } from '$lib/i18n';
   import type { WalletNetwork } from '$lib/types/wallet.js';
   import { cn } from '$lib/utils.js';
+  import { WALLET_NETWORKS } from '$lib/utils/walletNetwork';
 
   type StepperLayoutProps = {
     currentStep: number;
@@ -104,26 +105,19 @@
               {#if networkLabel}
                 <span class="sr-only">{networkLabel}</span>
               {/if}
-              <button
-                type="button"
-                onclick={() => onNetworkChange('mainnet')}
-                disabled={networkToggleDisabled}
-                class="h-5 w-[70px] rounded border px-2 text-[10px] font-medium transition-colors {network === 'mainnet'
-                  ? 'border-border bg-muted/70 text-foreground'
-                  : 'border-transparent bg-transparent text-muted-foreground hover:border-border/60 hover:bg-muted/40'}"
-              >
-                {i18n.t('common.network.mainnet')}
-              </button>
-              <button
-                type="button"
-                onclick={() => onNetworkChange('testnet')}
-                disabled={networkToggleDisabled}
-                class="h-5 w-[70px] rounded border px-2 text-[10px] font-medium transition-colors {network === 'testnet'
-                  ? 'border-border bg-muted/70 text-foreground'
-                  : 'border-transparent bg-transparent text-muted-foreground hover:border-border/60 hover:bg-muted/40'}"
-              >
-                {i18n.t('common.network.testnet')}
-              </button>
+              {#each WALLET_NETWORKS as option (option)}
+                <button
+                  type="button"
+                  onclick={() => onNetworkChange(option)}
+                  disabled={networkToggleDisabled}
+                  aria-pressed={network === option}
+                  class="h-5 min-w-[70px] rounded border px-2 text-[10px] font-medium whitespace-nowrap transition-colors {network === option
+                    ? 'border-border bg-muted/70 text-foreground'
+                    : 'border-transparent bg-transparent text-muted-foreground hover:border-border/60 hover:bg-muted/40'}"
+                >
+                  {i18n.t(networkLocaleKey(option))}
+                </button>
+              {/each}
               </div>
             </div>
           </div>

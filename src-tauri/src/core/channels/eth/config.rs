@@ -14,6 +14,10 @@ pub const VERUS_BRIDGE_DELEGATOR_MAINNET_CONTRACT: &str =
     "0x71518580f36FeCEFfE0721F06bA4703218cD7F63";
 pub const VERUS_BRIDGE_DELEGATOR_SEPOLIA_CONTRACT: &str =
     "0xCaA98A4eC79dAC8A06Cb3BfDcF5351b6576d939f";
+/// The private testnet bridges to Sepolia through its own delegator: the vETH
+/// `nativecurrencyid` on https://ptestapi.verustest.net (observed 2026-10-13).
+pub const VERUS_BRIDGE_DELEGATOR_PRIVATE_TESTNET_CONTRACT: &str =
+    "0x98f58684b05E7d40719E61955015aF91eF7e77d3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EthNetworkMetadata {
@@ -40,14 +44,13 @@ pub fn metadata_for_network(network: WalletNetwork) -> EthNetworkMetadata {
             native_asset_name: "Sepolia ETH",
             bridge_delegator: VERUS_BRIDGE_DELEGATOR_SEPOLIA_CONTRACT,
         },
-    }
-}
-
-pub fn metadata_for_chain_id(chain_id: u64) -> Result<EthNetworkMetadata, WalletError> {
-    match chain_id {
-        ETHEREUM_MAINNET_CHAIN_ID => Ok(metadata_for_network(WalletNetwork::Mainnet)),
-        ETHEREUM_SEPOLIA_CHAIN_ID => Ok(metadata_for_network(WalletNetwork::Testnet)),
-        _ => Err(WalletError::UnsupportedNetwork),
+        WalletNetwork::PrivateTestnet => EthNetworkMetadata {
+            wallet_network: network,
+            chain_id: ETHEREUM_SEPOLIA_CHAIN_ID,
+            network_name: "Sepolia",
+            native_asset_name: "Sepolia ETH",
+            bridge_delegator: VERUS_BRIDGE_DELEGATOR_PRIVATE_TESTNET_CONTRACT,
+        },
     }
 }
 

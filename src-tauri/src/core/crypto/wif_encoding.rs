@@ -4,6 +4,7 @@
 // Last Updated: Added generate_p2pkh_address_with_version for Bitcoin P2PKH (version 0x00)
 
 use crate::types::errors::WalletError;
+use crate::types::wallet::WalletNetwork;
 use bs58;
 use ripemd::Ripemd160;
 use secp256k1::PublicKey;
@@ -35,6 +36,17 @@ impl Network {
             Network::Mainnet => 0x3C, // 60
             // Verus testnet uses R-addresses (same prefix byte as mainnet).
             Network::Testnet => 0x3C, // 60
+        }
+    }
+}
+
+impl From<WalletNetwork> for Network {
+    /// Testnet and private testnet both use the VRSCTEST key and address encoding.
+    fn from(network: WalletNetwork) -> Self {
+        if network.is_test_chain() {
+            Network::Testnet
+        } else {
+            Network::Mainnet
         }
     }
 }

@@ -42,7 +42,7 @@ fn validate_server_chain_info(
 ) -> Result<(), String> {
     let names: &[&str] = match network {
         WalletNetwork::Mainnet => &["vrsc", "main"],
-        WalletNetwork::Testnet => &["vrsctest", "test"],
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => &["vrsctest", "test"],
     };
     if !names.contains(&info.chain_name.trim().to_ascii_lowercase().as_str())
         || info.sapling_activation_height != consensus::activation_height(network)
@@ -51,6 +51,40 @@ fn validate_server_chain_info(
         return Err("private wallet endpoint has incompatible chain metadata".into());
     }
     Ok(())
+}
+
+/// Hash of the block at height 1, in RPC (display) byte order. Testnet and private testnet
+/// servers report the same chain name, Sapling height, and branch, and both chains share
+/// a genesis block, so a server proves which chain it serves by its block at height 1.
+/// Mainnet servers report their own chain name, so the metadata check is enough there.
+fn expected_height_one_hash(network: WalletNetwork) -> Option<&'static str> {
+    match network {
+        WalletNetwork::Mainnet => None,
+        WalletNetwork::Testnet => {
+            Some("000004c52f3047ccc50d71a6b2a9a035fafd2605cc5b49c2c1d07a202a7d3b33")
+        }
+        // Observed on https://ptestapi.verustest.net on 2026-10-13. A chain reset changes it.
+        WalletNetwork::PrivateTestnet => {
+            Some("00000dc353e8346d3e7e58d49add6acf62be63f0438f2d9976216fb3596a7068")
+        }
+    }
+}
+
+fn validate_server_chain_identity(
+    network: WalletNetwork,
+    height_one: &CompactBlock,
+) -> Result<(), String> {
+    let Some(expected) = expected_height_one_hash(network) else {
+        return Ok(());
+    };
+    // Compact blocks carry the hash in internal byte order, the reverse of RPC order.
+    let mut hash = height_one.hash.clone();
+    hash.reverse();
+    if height_one.height == 1 && hex::encode(hash) == expected {
+        Ok(())
+    } else {
+        Err("private wallet endpoint serves a different chain".into())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +326,26 @@ async fn refresh_tip_info(
             );
             last_metadata_error = Some(error);
             continue;
+        }
+
+        if expected_height_one_hash(network).is_some() {
+            let identity = tokio::time::timeout(
+                Duration::from_secs(DIAL_RPC_TIMEOUT_SECS),
+                fetch_block(&mut client, 1),
+            )
+            .await;
+            let identity = match identity {
+                Ok(Ok(block)) => validate_server_chain_identity(network, &block),
+                Ok(Err(_)) | Err(_) => Err("private wallet endpoint chain check failed".into()),
+            };
+            if let Err(error) = identity {
+                eprintln!(
+                    "[dlight_private] tip probe chain identity check failed for {}: {}",
+                    candidate, error
+                );
+                last_metadata_error = Some(error);
+                continue;
+            }
         }
 
         let chain_tip_height = lightd_info.block_height;
@@ -1087,6 +1141,25 @@ pub async fn stop_runtime(key: &str) {
 mod tests {
     use super::super::state::testing::{self, block, funded_state, pending};
     use super::*;
+
+    #[test]
+    fn public_testnet_dlight_server_is_rejected_for_private_testnet() {
+        // Block 1 as lightwalletd.verustest.net:8125 returned it on 2026-10-13
+        // (base64 `Mzt9KiB60MHCSVvMBSb9+jWgqbKmcQ3FzEcwL8UEAAA=`). It is public testnet's
+        // block 1, `000004c5…3b33` on https://api.verustest.net.
+        let public_block_one = CompactBlock {
+            height: 1,
+            hash: hex::decode("333b7d2a207ad0c1c2495bcc0526fdfa35a0a9b2a6710dc5cc47302fc5040000")
+                .unwrap(),
+            ..Default::default()
+        };
+
+        assert!(validate_server_chain_identity(WalletNetwork::Testnet, &public_block_one).is_ok());
+        assert!(
+            validate_server_chain_identity(WalletNetwork::PrivateTestnet, &public_block_one)
+                .is_err()
+        );
+    }
 
     fn fixture() -> (Arc<RuntimeHandle>, String, std::path::PathBuf, String) {
         let root =

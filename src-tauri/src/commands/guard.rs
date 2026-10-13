@@ -16,7 +16,7 @@ use crate::core::channels::PreflightStore;
 use crate::core::coins::CoinRegistry;
 use crate::core::crypto::wif_encoding::decode_wif_unchecked_network;
 use crate::core::crypto::{derive_keys_from_material, Network};
-use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+use crate::types::wallet::WalletSecretKind;
 use crate::types::{
     BeginGuardSessionRequest, BeginGuardSessionResult, EndGuardSessionRequest,
     EndGuardSessionResult, GuardIdentityLookupRequest, GuardIdentityLookupResult,
@@ -88,13 +88,6 @@ fn classify_import_text_by_mode(
     }
 }
 
-fn to_derivation_network(network: WalletNetwork) -> Network {
-    match network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    }
-}
-
 fn map_identity_lookup_error(err: WalletError) -> WalletError {
     match err {
         WalletError::IdentityRpcUnsupported => WalletError::IdentityRpcUnsupported,
@@ -129,7 +122,7 @@ pub async fn begin_guard_session(
     let keys = derive_keys_from_material(
         &normalized_secret,
         secret_kind,
-        to_derivation_network(request.network),
+        Network::from(request.network),
     )?;
 
     let mut guard = guard_session_manager.lock().await;
@@ -207,7 +200,7 @@ pub async fn preflight_guard_identity_update(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(guard_session.network, WalletNetwork::Testnet);
+    let is_testnet = guard_session.network.is_test_chain();
     if coin_registry
         .find_by_system_id(&resolved.system_id, is_testnet)
         .is_none()

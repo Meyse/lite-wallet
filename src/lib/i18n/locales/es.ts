@@ -14,6 +14,7 @@ export const es: Record<string, string> = {
   'common.unknownError': 'Error desconocido',
   'common.network.mainnet': 'Mainnet',
   'common.network.testnet': 'Testnet',
+  'common.network.privatetestnet': 'Testnet privada',
 
   'welcome.titleLine1': 'Tu acceso al',
   'welcome.titleLine2': 'nuevo internet',

@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import * as Sidebar from '$lib/components/ui/sidebar';
   import WalletIcon from '@lucide/svelte/icons/wallet';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
@@ -37,7 +38,7 @@
     name: string;
     emoji: string;
     color: string;
-    network?: 'mainnet' | 'testnet';
+    network?: WalletNetwork;
   }
 
   interface MenuItem {

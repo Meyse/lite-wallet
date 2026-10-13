@@ -632,7 +632,7 @@ pub async fn preflight_identity_update(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     if coin_registry
         .find_by_system_id(&resolved.system_id, is_testnet)
         .is_none()
@@ -914,7 +914,7 @@ pub async fn get_identity_details(
     let registered_system_name = registered_system_display_name(
         coin_registry.inner().as_ref(),
         system_id.as_deref(),
-        matches!(context.network, WalletNetwork::Testnet),
+        context.network.is_test_chain(),
     );
     let system_lookup_id = if registered_system_name.is_none() {
         system_id.as_deref()
@@ -977,10 +977,7 @@ pub async fn get_identity_profile(
     {
         return Err(WalletError::InvalidAddress);
     }
-    let signature_network = match context.network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    };
+    let signature_network = Network::from(context.network);
     let profile = vrpc_identity::profile::load(
         vrpc_provider_pool.for_network(context.network),
         &requested_identity_address,
@@ -1091,7 +1088,7 @@ pub async fn preflight_identity_profile_update(
     {
         return Err(WalletError::WalletLocked);
     }
-    if !matches!(context.network, WalletNetwork::Testnet) {
+    if !context.network.is_test_chain() {
         return Err(WalletError::IdentityProfileWriteUnsupported);
     }
     let resolved =
@@ -1132,7 +1129,7 @@ pub async fn get_identity_profile_publication(
     if access.session_id != expected_session_id {
         return Err(WalletError::WalletLocked);
     }
-    if access.wallet_network != WalletNetwork::Testnet {
+    if !access.wallet_network.is_test_chain() {
         return Ok(None);
     }
     let result = vrpc_identity::profile::publication::reconcile(
@@ -1159,7 +1156,7 @@ pub async fn confirm_identity_profile_update(
     if access.session_id != expected_session_id {
         return Err(WalletError::WalletLocked);
     }
-    if access.wallet_network != WalletNetwork::Testnet {
+    if !access.wallet_network.is_test_chain() {
         return Err(WalletError::IdentityProfileWriteUnsupported);
     }
     let result = vrpc_identity::profile::publication::confirm_profile_revision(
@@ -1188,7 +1185,7 @@ pub async fn review_identity_profile_publication(
     if access.session_id != expected_session_id {
         return Err(WalletError::WalletLocked);
     }
-    if access.wallet_network != WalletNetwork::Testnet {
+    if !access.wallet_network.is_test_chain() {
         return Err(WalletError::IdentityProfileWriteUnsupported);
     }
     let provider = vrpc_provider_pool.for_network(access.wallet_network);

@@ -7,7 +7,8 @@ type AssetVisibilityProto = Protocol | 'fiat';
 
 const EMPTY_VISIBILITY: VisibilitySnapshot = {
   mainnet: [],
-  testnet: []
+  testnet: [],
+  privatetestnet: []
 };
 
 function normalizeAssetKey(key: string): string {
@@ -32,8 +33,11 @@ function readSnapshot(): VisibilitySnapshot {
     const testnet = Array.isArray(parsed?.testnet)
       ? parsed.testnet.map((value) => normalizeAssetKey(String(value)))
       : [];
+    const privatetestnet = Array.isArray(parsed?.privatetestnet)
+      ? parsed.privatetestnet.map((value) => normalizeAssetKey(String(value)))
+      : [];
 
-    return { mainnet, testnet };
+    return { mainnet, testnet, privatetestnet };
   } catch {
     return EMPTY_VISIBILITY;
   }

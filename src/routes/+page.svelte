@@ -4,6 +4,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
@@ -15,7 +16,7 @@
   type WalletListItem = {
     account_id: string;
     wallet_name: string;
-    network?: 'mainnet' | 'testnet';
+    network?: WalletNetwork;
     emoji?: string;
     color?: string;
   };

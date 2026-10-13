@@ -1,4 +1,5 @@
 import type { WalletNetwork } from '$lib/types/wallet.js';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 const VRSC_SYSTEM_ID = 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
 const VRSCTEST_SYSTEM_ID = 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq';
@@ -72,10 +73,10 @@ export function resolveTransferNetworkName(options: {
 }): string {
   const prefix = options.channelPrefix.trim().toLowerCase();
   if (prefix === 'eth' || prefix === 'erc20') {
-    return options.walletNetwork === 'testnet' ? 'Sepolia' : 'Ethereum';
+    return isTestChain(options.walletNetwork) ? 'Sepolia' : 'Ethereum';
   }
   if (prefix === 'btc') {
-    return options.walletNetwork === 'testnet' ? 'Bitcoin Testnet' : 'Bitcoin';
+    return isTestChain(options.walletNetwork) ? 'Bitcoin Testnet' : 'Bitcoin';
   }
 
   const systemId = options.systemId?.trim() ?? '';

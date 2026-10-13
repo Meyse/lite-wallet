@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { tick, untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
@@ -58,13 +59,14 @@
     ScopeKind,
     WalletEntryKind,
     WalletEntrySelection,
+    WalletNetwork,
   } from '$lib/types/wallet';
 
   interface WalletData {
     name: string;
     emoji: string;
     color: string;
-    network?: 'mainnet' | 'testnet';
+    network?: WalletNetwork;
   }
 
   let {
@@ -131,10 +133,10 @@
     syncLabel?: string | null;
   };
 
-  const privateBaseCoinId = $derived(walletNetwork === 'testnet' ? 'VRSCTEST' : 'VRSC');
+  const privateBaseCoinId = $derived(isTestChain(walletNetwork) ? 'VRSCTEST' : 'VRSC');
   const privateBaseCoin = $derived(coins.find((coin) => coin.id === privateBaseCoinId) ?? null);
   const privateLabel = $derived(
-    walletNetwork === 'testnet'
+    isTestChain(walletNetwork)
       ? i18n.t('wallet.private.label.testnet')
       : i18n.t('wallet.private.label.mainnet')
   );

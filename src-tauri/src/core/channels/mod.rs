@@ -244,7 +244,7 @@ pub trait WalletChannel: Send + Sync {
 }
 
 fn network_root_system_id(network: WalletNetwork) -> &'static str {
-    if matches!(network, WalletNetwork::Testnet) {
+    if network.is_test_chain() {
         VRSC_TESTNET_SYSTEM_ID
     } else {
         VRSC_MAINNET_SYSTEM_ID
@@ -261,6 +261,22 @@ fn coin_supports_dlight(coin: &CoinDefinition) -> bool {
     coin.compatible_channels
         .iter()
         .any(|ch| matches!(ch, Channel::DlightPrivate))
+}
+
+/// Shielded endpoints follow the wallet network. Testnet and private testnet share the
+/// VRSCTEST coin definition, whose endpoints serve public testnet only.
+pub(crate) fn dlight_endpoints_for_network(
+    coin: &CoinDefinition,
+    network: WalletNetwork,
+) -> Vec<String> {
+    match network {
+        WalletNetwork::Mainnet | WalletNetwork::Testnet => {
+            coin.dlight_endpoints.clone().unwrap_or_default()
+        }
+        WalletNetwork::PrivateTestnet => {
+            crate::core::runtime_config::default_dlight_endpoints_for_network(network)
+        }
+    }
 }
 
 fn is_shielded_z_destination(address: &str) -> bool {
@@ -290,7 +306,7 @@ fn is_allowed_vrpc_scope_system(
         return true;
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     coin_registry.get_all().into_iter().any(|coin| {
         coin.is_testnet == is_testnet
             && coin.system_id.eq_ignore_ascii_case(system_id)
@@ -304,7 +320,7 @@ pub(crate) fn resolve_vrpc_coin_context(
     coin_id_hint: Option<&str>,
     network: WalletNetwork,
 ) -> Result<vrpc::VrpcCoinContext, WalletError> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let coin = if let Some(coin_id) = coin_id_hint {
         let hinted = coin_registry
             .find_by_id(coin_id, is_testnet)
@@ -339,7 +355,7 @@ fn resolve_coin_by_channel(
     coin_id: &str,
     network: WalletNetwork,
 ) -> Result<CoinDefinition, WalletError> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     coin_registry
         .find_by_id(coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)
@@ -351,7 +367,7 @@ fn resolve_dlight_coin_context(
     coin_id_hint: Option<&str>,
     network: WalletNetwork,
 ) -> Result<CoinDefinition, WalletError> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let root_system_id = network_root_system_id(network);
 
     let coin = if let Some(coin_id) = coin_id_hint {
@@ -378,12 +394,7 @@ fn resolve_dlight_coin_context(
         root
     };
 
-    if coin
-        .dlight_endpoints
-        .as_ref()
-        .map(|endpoints| endpoints.is_empty())
-        .unwrap_or(true)
-    {
+    if dlight_endpoints_for_network(&coin, network).is_empty() {
         return Err(WalletError::UnsupportedChannel);
     }
 
@@ -414,21 +425,15 @@ async fn build_dlight_runtime_request(
 
     let coin =
         resolve_dlight_coin_context(coin_registry, &resolved.system_id, coin_id_hint, network)?;
-    let endpoint = coin
-        .dlight_endpoints
-        .as_ref()
-        .and_then(|endpoints| endpoints.first())
-        .cloned()
+    let endpoint = dlight_endpoints_for_network(&coin, network)
+        .into_iter()
+        .next()
         .ok_or(WalletError::UnsupportedChannel)?;
 
     let account_hash = hash_account_id(&account_id);
     let runtime_key = format!(
         "dlight:{}:{}:{}:{}",
-        if matches!(network, WalletNetwork::Testnet) {
-            "testnet"
-        } else {
-            "mainnet"
-        },
+        network.storage_key(),
         account_hash,
         coin.id.to_ascii_uppercase(),
         context.session_id
@@ -1397,9 +1402,9 @@ pub async fn route_get_dlight_runtime_status(
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_history_limit, decode_history_cursor, encode_history_cursor,
-        is_shielded_z_destination, requires_vrpc_sendcurrency, resolve_direct_send_fee_mode,
-        resolve_vrpc_coin_context, TransactionHistoryCursor,
+        clamp_history_limit, decode_history_cursor, dlight_endpoints_for_network,
+        encode_history_cursor, is_shielded_z_destination, requires_vrpc_sendcurrency,
+        resolve_direct_send_fee_mode, resolve_vrpc_coin_context, TransactionHistoryCursor,
     };
     use crate::core::coins::{Channel, CoinDefinition, CoinRegistry, Protocol};
     use crate::core::runtime_config;
@@ -1407,6 +1412,18 @@ mod tests {
     use crate::types::{DirectSendFeeMode, WalletError};
 
     const VRSC_SYSTEM_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
+
+    #[test]
+    fn private_testnet_never_uses_the_public_testnet_dlight_server() {
+        let registry = CoinRegistry::new();
+        let vrsctest = registry.find_by_id("VRSCTEST", true).expect("VRSCTEST");
+        let public = dlight_endpoints_for_network(&vrsctest, WalletNetwork::Testnet);
+        let private = dlight_endpoints_for_network(&vrsctest, WalletNetwork::PrivateTestnet);
+
+        assert!(!public.is_empty());
+        assert!(private.iter().all(|endpoint| !public.contains(endpoint)));
+        assert_eq!(private, runtime_config::dlight_private_testnet_endpoints());
+    }
     const CHIPS_SYSTEM_ID: &str = "iJ3WZocnjG9ufv7GKUA4LijQno5gTMb7tP";
     const VUSDC_ON_VERUS_ID: &str = "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd";
 

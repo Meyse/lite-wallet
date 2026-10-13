@@ -11,6 +11,30 @@ use zeroize::ZeroizeOnDrop;
 pub enum WalletNetwork {
     Mainnet,
     Testnet,
+    /// A private VRSCTEST instance with its own API and Sepolia bridge. It shares the
+    /// public testnet's chain ID, currency IDs, and address encoding, so it keeps its own
+    /// storage and endpoints. See docs/plans/active/private-testnet-network.md.
+    PrivateTestnet,
+}
+
+impl WalletNetwork {
+    /// True for networks that follow VRSCTEST chain rules. Use it only for chain rules:
+    /// endpoints, bridge contracts, storage, and labels depend on the network itself.
+    pub fn is_test_chain(self) -> bool {
+        match self {
+            WalletNetwork::Mainnet => false,
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => true,
+        }
+    }
+
+    /// Stable name for per-network files, folders, and cache keys. It equals the serde value.
+    pub fn storage_key(self) -> &'static str {
+        match self {
+            WalletNetwork::Mainnet => "mainnet",
+            WalletNetwork::Testnet => "testnet",
+            WalletNetwork::PrivateTestnet => "privatetestnet",
+        }
+    }
 }
 
 impl Default for WalletNetwork {
@@ -220,6 +244,8 @@ pub struct AssetPreferencesState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DlightSeedStatusResult {
+    /// False when the wallet network has no dlight server, as on private testnet today.
+    pub available: bool,
     pub configured: bool,
     pub shielded_address: Option<String>,
 }
@@ -392,4 +418,42 @@ fn validate_wallet_name(wallet_name: &str) -> Result<(), crate::types::errors::W
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WalletNetwork;
+    use crate::core::crypto::Network;
+
+    #[test]
+    fn private_testnet_is_stored_as_privatetestnet_and_uses_testnet_key_encoding() {
+        // Wallet metadata, storage sections, and the frontend all use this exact value.
+        assert_eq!(
+            serde_json::to_string(&WalletNetwork::PrivateTestnet).unwrap(),
+            "\"privatetestnet\""
+        );
+        assert_eq!(
+            serde_json::from_str::<WalletNetwork>("\"privatetestnet\"").unwrap(),
+            WalletNetwork::PrivateTestnet
+        );
+        for network in [
+            WalletNetwork::Mainnet,
+            WalletNetwork::Testnet,
+            WalletNetwork::PrivateTestnet,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&network).unwrap(),
+                format!("\"{}\"", network.storage_key())
+            );
+        }
+        // Bitcoin addresses and dlight keys of a private-testnet wallet use testnet encoding.
+        assert!(matches!(
+            Network::from(WalletNetwork::PrivateTestnet),
+            Network::Testnet
+        ));
+        assert!(matches!(
+            Network::from(WalletNetwork::Mainnet),
+            Network::Mainnet
+        ));
+    }
 }

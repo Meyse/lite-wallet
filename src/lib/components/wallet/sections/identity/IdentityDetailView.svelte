@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { untrack } from 'svelte';
   import MoreHorizontalIcon from '@lucide/svelte/icons/ellipsis';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -103,7 +104,7 @@
     const controller = new ProfilePublicationController(address, {
       current: () => $contactSession === session && details.identityAddress === address,
       read: () =>
-        session?.network === 'testnet'
+        isTestChain(session?.network)
           ? identityLinkService.getIdentityProfilePublication(address)
           : Promise.resolve(null),
       confirm: (txid) => identityLinkService.confirmIdentityProfileUpdate(address, txid),

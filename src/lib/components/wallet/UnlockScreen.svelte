@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CirclePlusIcon from '@lucide/svelte/icons/circle-plus';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -33,7 +34,7 @@
   export type WalletListItem = {
     account_id: string;
     wallet_name: string;
-    network?: 'mainnet' | 'testnet';
+    network?: WalletNetwork;
     emoji?: string;
     color?: string;
   };
@@ -75,7 +76,7 @@
     }
   });
 
-  function networkLabel(network?: 'mainnet' | 'testnet'): string {
+  function networkLabel(network?: WalletNetwork): string {
     return i18n.t(networkLocaleKey(network));
   }
 
@@ -323,10 +324,7 @@
   </div>
 </main>
 
-<VerusIdGuardDock
-  context="unlock"
-  defaultNetwork={selectedWallet?.network === 'testnet' ? 'testnet' : 'mainnet'}
-/>
+<VerusIdGuardDock context="unlock" defaultNetwork={selectedWallet?.network ?? 'mainnet'} />
 
 <StandardRightSheet bind:isOpen={showWalletSwitcherDrawer} title={i18n.t('unlock.switcher.title')}>
   <div class="-m-1 flex-1 space-y-2 overflow-y-auto p-1">

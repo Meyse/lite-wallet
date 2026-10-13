@@ -307,7 +307,7 @@ pub async fn estimate_bridge_export_fee(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let source_coin = coin_registry
         .find_by_id(&request.coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -400,7 +400,7 @@ async fn get_bridge_conversion_paths_vrpc(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let source_coin = coin_registry
         .find_by_id(&request.coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -445,7 +445,7 @@ async fn estimate_bridge_conversion_vrpc(
         return Err(WalletError::InvalidAddress);
     }
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let source_coin = coin_registry
         .find_by_id(&request.coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -491,7 +491,7 @@ async fn get_bridge_conversion_paths_evm(
         _ => return Err(WalletError::UnsupportedChannel),
     };
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let source_coin = coin_registry
         .find_by_id(&request.coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -528,7 +528,7 @@ async fn estimate_bridge_conversion_evm(
         _ => return Err(WalletError::UnsupportedChannel),
     };
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let source_coin = coin_registry
         .find_by_id(&request.coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -727,7 +727,7 @@ async fn preflight_bridge_eth(
 
     let coin_id =
         crate::core::channels::eth::parse_coin_channel_id(&params.channel_id, expected_prefix)?;
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let coin = coin_registry
         .find_by_id(&coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;

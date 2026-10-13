@@ -22,8 +22,8 @@ use crate::core::auth::{
     load_primary_private_scalar_for_context, SessionManager, SessionSubmissionGuard,
 };
 use crate::core::channels::eth::bridge::delegator::{
-    delegator_contract_for_chain_id, validate_delegator_contract, CcurrencyValueMap,
-    CreserveTransfer, CtransferDestination, VerusBridgeDelegatorContract,
+    delegator_contract_for, validate_delegator_contract, CcurrencyValueMap, CreserveTransfer,
+    CtransferDestination, VerusBridgeDelegatorContract,
 };
 use crate::core::channels::eth::preflight::EthPreflightPayload;
 use crate::core::channels::eth::provider::EthProviderPool;
@@ -466,7 +466,8 @@ async fn validate_payload_execution_policy(
         let recorded_contract: Address = bridge_contract
             .parse()
             .map_err(|_| WalletError::InvalidPreflight)?;
-        let configured_contract = delegator_contract_for_chain_id(network_provider.chain_id)?;
+        let configured_contract =
+            delegator_contract_for(network_provider.wallet_network, network_provider.chain_id)?;
         if recorded_contract != configured_contract {
             return Err(WalletError::BridgeDeploymentUnavailable);
         }
@@ -1462,10 +1463,7 @@ mod tests {
         let profile = derive_public_profile_from_material(
             material,
             WalletSecretKind::SeedText,
-            match wallet_network {
-                WalletNetwork::Mainnet => Network::Mainnet,
-                WalletNetwork::Testnet => Network::Testnet,
-            },
+            Network::from(wallet_network),
         )
         .expect("public profile");
         session.lock().await.unlock_with_profile(

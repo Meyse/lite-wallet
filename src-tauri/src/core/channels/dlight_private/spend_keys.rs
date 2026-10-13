@@ -112,7 +112,9 @@ impl DlightSpendKeyMaterial {
 fn sapling_extsk_hrp(network: WalletNetwork) -> &'static str {
     match network {
         WalletNetwork::Mainnet => mainnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
-        WalletNetwork::Testnet => testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => {
+            testnet::HRP_SAPLING_EXTENDED_SPENDING_KEY
+        }
     }
 }
 

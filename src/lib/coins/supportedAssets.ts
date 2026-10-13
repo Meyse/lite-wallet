@@ -1,4 +1,5 @@
 import type { Protocol, WalletNetwork } from '$lib/types/wallet.js';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 type SupportedAssetProto = Protocol | 'fiat';
 
@@ -17,7 +18,7 @@ export function isWalletSupportedAsset(
   asset: SupportedAssetInput,
   network: WalletNetwork
 ): boolean {
-  const isTestnet = network === 'testnet';
+  const isTestnet = isTestChain(network);
   if (asset.isTestnet !== isTestnet) {
     return false;
   }

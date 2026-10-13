@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { Button } from '$lib/components/ui/button';
@@ -23,7 +24,7 @@
     emoji: string;
     color: string;
     password: string;
-    network: 'mainnet' | 'testnet';
+    network: WalletNetwork;
   };
 
   type WalletUpdate = Partial<WalletData>;

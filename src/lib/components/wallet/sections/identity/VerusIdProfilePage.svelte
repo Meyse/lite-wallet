@@ -27,6 +27,13 @@
   import { getIdentityDetails } from '$lib/services/identityLinkService';
   import { addressBookStore } from '$lib/stores/addressBook';
   import type { ResolvedContactIdentity } from '$lib/types/addressBook';
+  import type { WalletNetwork } from '$lib/types/wallet';
+
+  const IDENTITY_NETWORK_LABEL_KEYS = {
+    mainnet: 'wallet.identity.lookup.network.mainnet',
+    testnet: 'wallet.identity.lookup.network.testnet',
+    privatetestnet: 'wallet.identity.lookup.network.privatetestnet',
+  } as const satisfies Record<WalletNetwork, string>;
   import type {
     IdentityDetails,
     IdentityProfileLoadResult,
@@ -125,13 +132,7 @@
     (details?.status || identity.status)?.trim().toLowerCase() ?? ''
   );
   const sendBlocked = $derived(normalizedStatus.length > 0 && normalizedStatus !== 'active');
-  const networkLabel = $derived(
-    i18n.t(
-      identity.network === 'testnet'
-        ? 'wallet.identity.lookup.network.testnet'
-        : 'wallet.identity.lookup.network.mainnet'
-    )
-  );
+  const networkLabel = $derived(i18n.t(IDENTITY_NETWORK_LABEL_KEYS[identity.network]));
   const statusLabel = $derived(
     ['active', 'revoked', 'inactive'].includes(normalizedStatus)
       ? i18n.t(`wallet.identity.publicProfile.status.${normalizedStatus}`)

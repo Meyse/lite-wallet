@@ -103,13 +103,6 @@ pub struct StoreGenericProvisioningJobRequest {
     pub status: Option<String>,
 }
 
-pub(crate) fn wallet_network_to_crypto_network(network: WalletNetwork) -> Network {
-    match network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    }
-}
-
 fn now_unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -721,7 +714,7 @@ fn resolve_signer_cmm_key_labels_from_identity(
 
     let verus_chain_id = match network {
         WalletNetwork::Mainnet => MAINNET_VERUS_CHAIN_ID,
-        WalletNetwork::Testnet => TESTNET_VERUS_CHAIN_ID,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => TESTNET_VERUS_CHAIN_ID,
     };
 
     let raw_entries = if let Some(entries) = defined_key_entries.as_array() {
@@ -1237,7 +1230,7 @@ pub async fn open_generic_request(
 ) -> Result<OpenedGenericRequest, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let network = context.wallet_network;
-    let wallet_is_testnet = matches!(network, WalletNetwork::Testnet);
+    let wallet_is_testnet = network.is_test_chain();
 
     if legacy::is_legacy_link(&request_hex) {
         return open_legacy_request(
@@ -1267,7 +1260,7 @@ pub async fn open_generic_request(
             .run(verify_generic_request_signature_with_provider(
                 provider,
                 &envelope,
-                wallet_network_to_crypto_network(network),
+                Network::from(network),
             ))
             .await
             .map_err(map_generic_session_change)?;
@@ -1356,11 +1349,11 @@ async fn open_legacy_request(
     request_store: &GenericRequestStore,
 ) -> Result<OpenedGenericRequest, WalletError> {
     let network = context.wallet_network;
-    let wallet_is_testnet = matches!(network, WalletNetwork::Testnet);
+    let wallet_is_testnet = network.is_test_chain();
     let guard = context.session_submission_guard();
     let root_provider =
         vrpc_provider_pool.for_system(network, names::root_system_id(wallet_is_testnet));
-    let crypto_network = wallet_network_to_crypto_network(network);
+    let crypto_network = Network::from(network);
 
     let (parsed, kinds, legacy_login, signer, signature_block_height) =
         match legacy::parse_legacy_link(link)? {
@@ -1599,7 +1592,7 @@ async fn build_and_sign_generic_response_for_session(
         let signed_response_hex = sign_legacy_login_response(
             login,
             signer,
-            wallet_network_to_crypto_network(network),
+            Network::from(network),
             &active_wallet_primary_address,
             &allowed_primary_addresses,
             signed_block_height,
@@ -1638,7 +1631,7 @@ async fn build_and_sign_generic_response_for_session(
     let signed_response_hex = match submission_guard.poll_admitted(|| {
         std::task::Poll::Ready(sign_unsigned_response(
             &unsigned,
-            wallet_network_to_crypto_network(network),
+            Network::from(network),
             &active_wallet_primary_address,
             &allowed_primary_addresses,
             signed_block_height,
@@ -1977,12 +1970,12 @@ pub async fn prepare_provisioning_signature(
             legacy_provisioning_terms(&request_store.get(&context.session_id, &request_hex)?)?
         } else {
             let parsed_request = parse_generic_envelope_hex(request_hex.trim())?;
-            if parsed_request.is_testnet != matches!(network, WalletNetwork::Testnet) {
+            if parsed_request.is_testnet != network.is_test_chain() {
                 return Err(WalletError::UnsupportedNetwork);
             }
             acceptance::check_request(
                 &parse_request_hex(request_hex.trim())?,
-                matches!(network, WalletNetwork::Testnet),
+                network.is_test_chain(),
             )?;
 
             let request_provider = vrpc_provider_pool
@@ -1990,7 +1983,7 @@ pub async fn prepare_provisioning_signature(
             if !verify_generic_request_signature_with_provider(
                 request_provider,
                 &parsed_request,
-                wallet_network_to_crypto_network(network),
+                Network::from(network),
             )
             .await?
             {
@@ -2024,10 +2017,8 @@ pub async fn prepare_provisioning_signature(
             )
         };
     let challenge = parse_provisioning_challenge_hex(&challenge_hex)?;
-    let root_provider = vrpc_provider_pool.for_system(
-        network,
-        names::root_system_id(matches!(network, WalletNetwork::Testnet)),
-    );
+    let root_provider =
+        vrpc_provider_pool.for_system(network, names::root_system_id(network.is_test_chain()));
     let offered_name =
         offered_identity_name(root_provider, provisioning.identity_id.as_deref()).await?;
     if !challenge.challenge_id.eq_ignore_ascii_case(&request_id)
@@ -2182,7 +2173,7 @@ pub async fn verify_identity_signature_hash(
         hash_bytes,
         &parsed_signature,
         &allowed_addresses,
-        wallet_network_to_crypto_network(network),
+        Network::from(network),
     ))
 }
 
@@ -3597,9 +3588,8 @@ mod tests {
         parse_provisioning_challenge_hex, post_generic_response_callback_for_session,
         post_generic_response_callback_request, provisioning_signature,
         resolve_signer_cmm_key_labels_from_identity, sign_unsigned_response,
-        validate_generic_request_funding_source, wallet_network_to_crypto_network, CallbackBody,
-        WalletNetwork, DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID,
-        MAINNET_VERUS_CHAIN_ID,
+        validate_generic_request_funding_source, CallbackBody, WalletNetwork,
+        DATA_TYPE_DEFINEDKEY_VDXF_ID, GENERIC_RESPONSE_DEEPLINK_VDXF_ID, MAINNET_VERUS_CHAIN_ID,
     };
     use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
     use crate::core::crypto::verus_id_signature::{
@@ -3986,7 +3976,7 @@ mod tests {
             legacy::LegacyLink::Login(bytes) => legacy::parse_login_consent(&bytes).unwrap(),
             other => panic!("expected a login link, got {other:?}"),
         };
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let network = Network::from(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
         let responder = "i8KEYF3QeR1xPVVCL5BSpDXkA1CAfFDvmk";
         let signer = crate::types::GenericResponseSignerInput {
@@ -4068,7 +4058,7 @@ mod tests {
 
     #[test]
     fn a_signed_response_verifies_against_the_responder() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let network = Network::from(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
         let unsigned = unsigned_vector_response(
             "auth",
@@ -4107,7 +4097,7 @@ mod tests {
 
     #[test]
     fn each_data_item_signature_verifies_for_the_responder() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let network = Network::from(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
         let open = open_vector_request(
             &GenericRequestStore::new(),
@@ -4227,7 +4217,7 @@ mod tests {
 
     #[test]
     fn a_responder_this_wallet_does_not_control_is_rejected() {
-        let network = wallet_network_to_crypto_network(WalletNetwork::Testnet);
+        let network = Network::from(WalletNetwork::Testnet);
         let (private_key, address) = test_signing_context(network, 7);
         let (_, foreign_address) = test_signing_context(network, 8);
         let unsigned = unsigned_vector_response(

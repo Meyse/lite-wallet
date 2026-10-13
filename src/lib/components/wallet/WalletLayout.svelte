@@ -62,7 +62,7 @@
     TransferNavigationState,
     TransferRecipientIntent,
   } from './sections/transfer-wizard/types';
-  import type { WalletEntrySelection } from '$lib/types/wallet';
+  import type { WalletEntrySelection, WalletNetwork } from '$lib/types/wallet';
   import { extractWalletErrorMessage, extractWalletErrorType } from '$lib/utils/walletErrors.js';
   import type { GenericRequestFlowSession } from '$lib/genericRequest/session';
   import { transferWalletSessionKey } from './sections/transfer-wizard/preflightRequest';
@@ -72,7 +72,7 @@
     name: string;
     emoji: string;
     color: string;
-    network?: 'mainnet' | 'testnet';
+    network?: WalletNetwork;
     sessionId: string;
   }
 

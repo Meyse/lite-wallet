@@ -24,7 +24,7 @@ const MAX_ENDPOINT_LABEL_LEN: usize = 32;
 fn expected_btc_network(network: WalletNetwork) -> BtcNetwork {
     match network {
         WalletNetwork::Mainnet => BtcNetwork::Bitcoin,
-        WalletNetwork::Testnet => BtcNetwork::Testnet,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => BtcNetwork::Testnet,
     }
 }
 

@@ -4,6 +4,7 @@ use crate::types::wallet::WalletNetwork;
 
 pub const ENV_VRPC_MAINNET_URL: &str = "VRPC_MAINNET_URL";
 pub const ENV_VRPC_TESTNET_URL: &str = "VRPC_TESTNET_URL";
+pub const ENV_VRPC_PRIVATE_TESTNET_URL: &str = "VRPC_PRIVATE_TESTNET_URL";
 pub const ENV_VRPC_VARRR_MAINNET_URL: &str = "VRPC_VARRR_MAINNET_URL";
 pub const ENV_VRPC_VDEX_MAINNET_URL: &str = "VRPC_VDEX_MAINNET_URL";
 pub const ENV_VRPC_CHIPS_MAINNET_URL: &str = "VRPC_CHIPS_MAINNET_URL";
@@ -13,11 +14,13 @@ pub const ENV_BTC_TESTNET_API_URL: &str = "BTC_TESTNET_API_URL";
 
 pub const ENV_DLIGHT_MAINNET_ENDPOINTS: &str = "DLIGHT_MAINNET_ENDPOINTS";
 pub const ENV_DLIGHT_TESTNET_ENDPOINTS: &str = "DLIGHT_TESTNET_ENDPOINTS";
+pub const ENV_DLIGHT_PRIVATE_TESTNET_ENDPOINTS: &str = "DLIGHT_PRIVATE_TESTNET_ENDPOINTS";
 pub const ENV_ELECTRUM_MAINNET_ENDPOINTS: &str = "ELECTRUM_MAINNET_ENDPOINTS";
 pub const ENV_ELECTRUM_TESTNET_ENDPOINTS: &str = "ELECTRUM_TESTNET_ENDPOINTS";
 
 const DEFAULT_VRPC_MAINNET_URL: &str = "https://vrpc-mainnet.invalid/";
 const DEFAULT_VRPC_TESTNET_URL: &str = "https://vrpc-testnet.invalid/";
+const DEFAULT_VRPC_PRIVATE_TESTNET_URL: &str = "https://vrpc-private-testnet.invalid/";
 const DEFAULT_VRPC_VARRR_MAINNET_URL: &str = "https://vrpc-varrr-mainnet.invalid/";
 const DEFAULT_VRPC_VDEX_MAINNET_URL: &str = "https://vrpc-vdex-mainnet.invalid/";
 const DEFAULT_VRPC_CHIPS_MAINNET_URL: &str = "https://vrpc-chips-mainnet.invalid/";
@@ -70,6 +73,13 @@ pub fn vrpc_testnet_url() -> String {
     read_env_or_default(ENV_VRPC_TESTNET_URL, DEFAULT_VRPC_TESTNET_URL)
 }
 
+pub fn vrpc_private_testnet_url() -> String {
+    read_env_or_default(
+        ENV_VRPC_PRIVATE_TESTNET_URL,
+        DEFAULT_VRPC_PRIVATE_TESTNET_URL,
+    )
+}
+
 pub fn vrpc_varrr_mainnet_url() -> String {
     read_env_or_default(ENV_VRPC_VARRR_MAINNET_URL, DEFAULT_VRPC_VARRR_MAINNET_URL)
 }
@@ -104,6 +114,12 @@ pub fn dlight_testnet_endpoints() -> Vec<String> {
     )
 }
 
+/// The private testnet has no dlight server, so it has no default. Without this variable,
+/// shielded features stay unavailable on private testnet.
+pub fn dlight_private_testnet_endpoints() -> Vec<String> {
+    read_list_env(ENV_DLIGHT_PRIVATE_TESTNET_ENDPOINTS).unwrap_or_default()
+}
+
 pub fn electrum_mainnet_endpoints() -> Vec<String> {
     read_list_env_or_default(
         ENV_ELECTRUM_MAINNET_ENDPOINTS,
@@ -122,6 +138,7 @@ pub fn default_vrpc_endpoint_for_network(network: WalletNetwork) -> String {
     match network {
         WalletNetwork::Mainnet => vrpc_mainnet_url(),
         WalletNetwork::Testnet => vrpc_testnet_url(),
+        WalletNetwork::PrivateTestnet => vrpc_private_testnet_url(),
     }
 }
 
@@ -129,12 +146,13 @@ pub fn default_dlight_endpoints_for_network(network: WalletNetwork) -> Vec<Strin
     match network {
         WalletNetwork::Mainnet => dlight_mainnet_endpoints(),
         WalletNetwork::Testnet => dlight_testnet_endpoints(),
+        WalletNetwork::PrivateTestnet => dlight_private_testnet_endpoints(),
     }
 }
 
 pub fn default_electrum_endpoints_for_network(network: WalletNetwork) -> Vec<String> {
     match network {
         WalletNetwork::Mainnet => electrum_mainnet_endpoints(),
-        WalletNetwork::Testnet => electrum_testnet_endpoints(),
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => electrum_testnet_endpoints(),
     }
 }

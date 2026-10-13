@@ -34,7 +34,9 @@ export interface TransactionHistoryPage {
   warning?: string | null;
 }
 
-export type WalletNetwork = 'mainnet' | 'testnet';
+// `privatetestnet` is a private VRSCTEST instance with its own API and Sepolia
+// bridge. Use the helpers in `utils/walletNetwork.ts` instead of comparing values.
+export type WalletNetwork = 'mainnet' | 'testnet' | 'privatetestnet';
 
 export interface ActiveAssetsState {
   network: WalletNetwork;
@@ -212,7 +214,7 @@ export interface EthPendingSubmissionReview {
   requiresResume: boolean;
   canAcknowledge: boolean;
   context: {
-    walletNetwork: 'mainnet' | 'testnet';
+    walletNetwork: WalletNetwork;
     chainId: number;
     coinId: string;
     channelId: string;
@@ -827,6 +829,8 @@ export interface ChainInfo {
 }
 
 export interface DlightSeedStatusResult {
+  // False when the wallet network has no Private Verus server.
+  available: boolean;
   configured: boolean;
   shieldedAddress?: string | null;
 }

@@ -11,7 +11,7 @@ impl Parameters for VerusConsensusParams {
     fn network_type(&self) -> NetworkType {
         match self.network {
             WalletNetwork::Mainnet => NetworkType::Main,
-            WalletNetwork::Testnet => NetworkType::Test,
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => NetworkType::Test,
         }
     }
     fn activation_height(&self, upgrade: NetworkUpgrade) -> Option<BlockHeight> {
@@ -32,7 +32,7 @@ pub(super) fn parameters(network: WalletNetwork) -> VerusConsensusParams {
 pub(super) fn activation_height(network: WalletNetwork) -> u64 {
     match network {
         WalletNetwork::Mainnet => 227_520,
-        WalletNetwork::Testnet => 1,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => 1,
     }
 }
 pub(super) fn birthday_floor(network: WalletNetwork) -> u64 {

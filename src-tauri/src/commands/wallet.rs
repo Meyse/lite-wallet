@@ -23,6 +23,7 @@ use crate::core::auth::{
     spawn_session_expiry_monitor, stronghold_store::ACTIVE_ASSETS_PROFILE_VERSION, SessionManager,
 };
 use crate::core::channels::btc::BtcProviderPool;
+use crate::core::channels::dlight_endpoints_for_network;
 use crate::core::channels::dlight_private;
 use crate::core::channels::eth::config::metadata_for_network as eth_metadata_for_network;
 use crate::core::channels::eth::EthProviderPool;
@@ -135,6 +136,8 @@ const VETH_SYSTEM_ID: &str = "i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X";
 const MAINNET_DEFAULT_ACTIVE_COIN_IDS: &[&str] =
     &["VRSC", "ETH", "BTC", "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd"];
 const TESTNET_DEFAULT_ACTIVE_COIN_IDS: &[&str] = &["VRSCTEST", "GETH", "BTCTEST"];
+// The private testnet exists for Verus DeFi and the Sepolia bridge, so Bitcoin testnet is not a default.
+const PRIVATE_TESTNET_DEFAULT_ACTIVE_COIN_IDS: &[&str] = &["VRSCTEST", "GETH"];
 
 async fn resolve_current_password_hash(
     account: &AccountRecord,
@@ -274,7 +277,7 @@ fn coin_supports_channel(coin: &CoinDefinition, channel: Channel) -> bool {
 }
 
 fn network_root_system_id(network: WalletNetwork) -> &'static str {
-    if matches!(network, WalletNetwork::Testnet) {
+    if network.is_test_chain() {
         VRSC_TESTNET_SYSTEM_ID
     } else {
         VRSC_MAINNET_SYSTEM_ID
@@ -419,7 +422,7 @@ fn canonical_coin_id_lookup(
     coin_registry: &CoinRegistry,
     network: WalletNetwork,
 ) -> HashMap<String, String> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let mut lookup = HashMap::<String, String>::new();
 
     for coin in coin_registry
@@ -494,16 +497,15 @@ fn needs_default_active_assets(initialized: bool, profile_version: u8) -> bool {
 }
 
 fn default_active_coin_ids(network: WalletNetwork) -> Vec<String> {
-    match network {
-        WalletNetwork::Mainnet => MAINNET_DEFAULT_ACTIVE_COIN_IDS
-            .iter()
-            .map(|coin_id| (*coin_id).to_string())
-            .collect(),
-        WalletNetwork::Testnet => TESTNET_DEFAULT_ACTIVE_COIN_IDS
-            .iter()
-            .map(|coin_id| (*coin_id).to_string())
-            .collect(),
-    }
+    let coin_ids = match network {
+        WalletNetwork::Mainnet => MAINNET_DEFAULT_ACTIVE_COIN_IDS,
+        WalletNetwork::Testnet => TESTNET_DEFAULT_ACTIVE_COIN_IDS,
+        WalletNetwork::PrivateTestnet => PRIVATE_TESTNET_DEFAULT_ACTIVE_COIN_IDS,
+    };
+    coin_ids
+        .iter()
+        .map(|coin_id| (*coin_id).to_string())
+        .collect()
 }
 
 fn canonical_network_label_for_system(system_id: &str) -> Option<(String, String)> {
@@ -527,7 +529,7 @@ fn collect_vrpc_system_descriptors(
     configured_systems: &[ConfiguredVrpcSystem],
 ) -> Vec<VrpcSystemDescriptor> {
     let root_system_id = network_root_system_id(network);
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let mut allowed_systems = HashMap::<String, VrpcSystemDescriptor>::new();
     let mut insert_system = |system_id: &str, ticker: &str, display_name: &str| {
         let trimmed = system_id.trim();
@@ -724,7 +726,7 @@ fn registry_coin_for_currency(
     network: WalletNetwork,
     currency_id: &str,
 ) -> Option<CoinDefinition> {
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     coin_registry.get_all().into_iter().find(|coin| {
         coin.is_testnet == is_testnet
             && coin_supports_channel(coin, Channel::Vrpc)
@@ -752,7 +754,7 @@ fn canonical_non_vrpc_network_metadata(
     if coin_supports_channel(coin, Channel::Btc) {
         return match network {
             WalletNetwork::Mainnet => ("BTC".to_string(), "BTC".to_string(), "Bitcoin".to_string()),
-            WalletNetwork::Testnet => (
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => (
                 "BTCTEST".to_string(),
                 "BTCTEST".to_string(),
                 "Bitcoin Testnet".to_string(),
@@ -764,7 +766,7 @@ fn canonical_non_vrpc_network_metadata(
             WalletNetwork::Mainnet => {
                 ("ETH".to_string(), "ETH".to_string(), "Ethereum".to_string())
             }
-            WalletNetwork::Testnet => (
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => (
                 "GETH".to_string(),
                 "ETH".to_string(),
                 eth_metadata_for_network(network)
@@ -898,13 +900,6 @@ async fn is_valid_24_word_mnemonic(
 fn is_probable_dlight_spending_key(seed: &str) -> bool {
     let normalized = seed.trim();
     normalized.starts_with("secret-extended-key-")
-}
-
-fn crypto_network_for_wallet(network: WalletNetwork) -> Network {
-    match network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    }
 }
 
 fn recovery_secret_kind_from_wallet_secret_kind(
@@ -1082,7 +1077,7 @@ pub async fn unlock_wallet(
 
     let public_profile_started_at = Instant::now();
     let secret_kind = wallet.secret_kind;
-    let crypto_network = crypto_network_for_wallet(wallet.network);
+    let crypto_network = Network::from(wallet.network);
     let public_profile = tokio::task::spawn_blocking(move || {
         derive_public_profile_from_material(seed.as_str(), secret_kind, crypto_network)
             .map_err(|_| WalletError::OperationFailed)
@@ -1578,13 +1573,13 @@ pub async fn discover_vrpc_assets(
             .map(|scope| scope.address)
             .collect::<Vec<_>>();
 
-    let root_coin_id = if matches!(network, WalletNetwork::Testnet) {
+    let root_coin_id = if network.is_test_chain() {
         "VRSCTEST"
     } else {
         "VRSC"
     };
     let root_coin = coin_registry
-        .find_by_id(root_coin_id, matches!(network, WalletNetwork::Testnet))
+        .find_by_id(root_coin_id, network.is_test_chain())
         .ok_or(WalletError::UnsupportedChannel)?;
     let configured_systems = vrpc_provider_pool.configured_systems(network);
     let mut systems = collect_vrpc_system_descriptors(
@@ -1696,15 +1691,30 @@ pub async fn discover_vrpc_assets(
     })
 }
 
+/// The first dlight server for the wallet network's root Verus coin, if the network has one.
+fn root_dlight_endpoint(coin_registry: &CoinRegistry, network: WalletNetwork) -> Option<String> {
+    let coin_id = if network.is_test_chain() {
+        "VRSCTEST"
+    } else {
+        "VRSC"
+    };
+    coin_registry
+        .find_by_id(coin_id, network.is_test_chain())
+        .map(|coin| dlight_endpoints_for_network(&coin, network))
+        .and_then(|endpoints| endpoints.into_iter().next())
+}
+
 /// Returns whether a dlight seed is configured for the active account/network.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_dlight_seed_status(
     session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<DlightSeedStatusResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let metadata = context.load_dlight_public_metadata_cached().await?;
 
     Ok(DlightSeedStatusResult {
+        available: root_dlight_endpoint(&coin_registry, context.wallet_network).is_some(),
         configured: metadata.configured,
         shielded_address: metadata.shielded_address,
     })
@@ -1719,6 +1729,8 @@ pub async fn setup_dlight_seed(
     coin_registry: State<'_, Arc<CoinRegistry>>,
 ) -> Result<SetupDlightSeedResult, WalletError> {
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
+    let endpoint = root_dlight_endpoint(&coin_registry, context.wallet_network)
+        .ok_or(WalletError::UnsupportedChannel)?;
     let reuse_primary_seed = if matches!(request.mode, DlightSeedSetupMode::ReusePrimary) {
         Some(load_primary_secret_material_for_context(&context).await?)
     } else {
@@ -1758,23 +1770,13 @@ pub async fn setup_dlight_seed(
     let canonical = dlight_private::runtime_spending_key(&seed_to_store, context.wallet_network)?;
     dlight_private::derive_scope_address(&canonical, context.wallet_network)?;
     let birthday = if fresh {
-        let testnet = matches!(context.wallet_network, WalletNetwork::Testnet);
-        let coin_id = if testnet { "VRSCTEST" } else { "VRSC" };
-        if let Some(endpoint) = coin_registry
-            .find_by_id(coin_id, testnet)
-            .and_then(|coin| coin.dlight_endpoints)
-            .and_then(|endpoints| endpoints.into_iter().next())
-        {
-            tokio::time::timeout(
-                std::time::Duration::from_secs(15),
-                dlight_private::creation_birthday(&endpoint, context.wallet_network),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
-        } else {
-            None
-        }
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            dlight_private::creation_birthday(&endpoint, context.wallet_network),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
     } else {
         None
     };
@@ -1838,16 +1840,13 @@ pub async fn get_wallet_recovery_secrets(
         .load_seed(&account_id, password_hash.as_ref())
         .await?;
     let primary_secret_kind = recovery_secret_kind_from_wallet_secret_kind(account.secret_kind);
-    let keys = derive_keys_from_material(
-        &primary_secret,
-        account.secret_kind,
-        crypto_network_for_wallet(network),
-    )
-    .map_err(|_| WalletError::OperationFailed)?;
+    let keys =
+        derive_keys_from_material(&primary_secret, account.secret_kind, Network::from(network))
+            .map_err(|_| WalletError::OperationFailed)?;
 
     let private_bytes =
         decode_wif_unchecked_network(&keys.wif).map_err(|_| WalletError::OperationFailed)?;
-    let btc_wif = encode_btc_wif(&private_bytes, crypto_network_for_wallet(network))?;
+    let btc_wif = encode_btc_wif(&private_bytes, Network::from(network))?;
     let dlight_secret = stronghold_store
         .load_dlight_seed(&account_id, password_hash.as_slice(), network)
         .await?;
@@ -1978,7 +1977,7 @@ pub async fn get_coin_scopes(
     );
     let primary_vrpc_address = context.vrsc_address.clone();
 
-    let is_testnet = matches!(network, WalletNetwork::Testnet);
+    let is_testnet = network.is_test_chain();
     let coin = coin_registry
         .find_by_id(&coin_id, is_testnet)
         .ok_or(WalletError::UnsupportedChannel)?;
@@ -2121,11 +2120,11 @@ mod tests {
     use super::{
         canonical_non_vrpc_network_metadata, channel_id_for_non_vrpc_coin,
         collect_vrpc_scope_addresses, collect_vrpc_system_descriptors, dedupe_preserve_order,
-        dlight_recovery_secret_kind_from_seed, ensure_expected_session_id,
+        default_active_coin_ids, dlight_recovery_secret_kind_from_seed, ensure_expected_session_id,
         format_discovered_amount, load_active_assets_state, load_asset_preferences_state,
         load_watched_scope_addresses, merge_discovered_vrpc_amounts, persist_new_account,
         reconcile_watched_entries, recovery_secret_kind_from_wallet_secret_kind,
-        sanitize_active_coin_ids, vrpc_balance_entries, DiscoveredVrpcAmount,
+        root_dlight_endpoint, sanitize_active_coin_ids, vrpc_balance_entries, DiscoveredVrpcAmount,
         NewAccountPersistenceRequest,
     };
     use crate::core::auth::kdf::CURRENT_KEY_DERIVATION_VERSION;
@@ -2639,6 +2638,30 @@ mod tests {
     }
 
     #[test]
+    fn shielded_features_need_a_dlight_server_on_the_wallet_network() {
+        let registry = CoinRegistry::new();
+        assert!(root_dlight_endpoint(&registry, WalletNetwork::Mainnet).is_some());
+        assert!(root_dlight_endpoint(&registry, WalletNetwork::Testnet).is_some());
+        // The private testnet has no dlight server unless DLIGHT_PRIVATE_TESTNET_ENDPOINTS is set.
+        assert_eq!(
+            root_dlight_endpoint(&registry, WalletNetwork::PrivateTestnet),
+            runtime_config::dlight_private_testnet_endpoints()
+                .into_iter()
+                .next()
+        );
+    }
+
+    #[test]
+    fn private_testnet_starts_with_verus_test_coin_and_sepolia_eth() {
+        let registry = CoinRegistry::new();
+        let defaults = default_active_coin_ids(WalletNetwork::PrivateTestnet);
+        assert_eq!(
+            sanitize_active_coin_ids(&registry, WalletNetwork::PrivateTestnet, &defaults),
+            vec!["VRSCTEST".to_string(), "GETH".to_string()]
+        );
+    }
+
+    #[test]
     fn sanitize_active_coin_ids_dedupes_and_drops_unknown() {
         let registry = CoinRegistry::new();
         let sanitized = sanitize_active_coin_ids(
@@ -2853,11 +2876,7 @@ mod tests {
                 &testnet_defaults[..],
             ),
         ] {
-            let crypto_network = if matches!(network, WalletNetwork::Testnet) {
-                Network::Testnet
-            } else {
-                Network::Mainnet
-            };
+            let crypto_network = Network::from(network);
             let wif = derive_keys_v1(wallet_name, crypto_network)
                 .expect("derive test WIF")
                 .wif

@@ -95,6 +95,19 @@ describe('mounted Private Verus settings', () => {
     await unmount(component);
   });
 
+  it('offers no setup when the wallet network has no Private Verus server', async () => {
+    walletService.getDlightSeedStatus.mockResolvedValue({ available: false, configured: false });
+    const { component } = mountPrivate();
+    await settle();
+
+    expect(document.body.textContent).toContain('Not available on this network');
+    expect(findButton('Reuse primary Secret Recovery Phrase')).toBeUndefined();
+    expect(findButton('Create new privacy recovery secret')).toBeUndefined();
+    expect(walletService.setupDlightSeed).not.toHaveBeenCalled();
+
+    await unmount(component);
+  });
+
   it('shows configured network and address state and opens recovery in context', async () => {
     walletService.getDlightSeedStatus.mockResolvedValue({
       configured: true,

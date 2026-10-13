@@ -65,10 +65,7 @@ pub async fn send_with_signing_material(
     wallet_network: WalletNetwork,
     provider_pool: &VrpcProviderPool,
 ) -> Result<IdentitySendResult, WalletError> {
-    let wif_network = match wallet_network {
-        WalletNetwork::Mainnet => Network::Mainnet,
-        WalletNetwork::Testnet => Network::Testnet,
-    };
+    let wif_network = Network::from(wallet_network);
     let private_key = decode_wif(wif, wif_network)?;
 
     send_with_private_key_material(

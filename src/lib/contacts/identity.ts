@@ -4,9 +4,10 @@ import type {
   ContactIdentity,
 } from '$lib/types/addressBook';
 import type { WalletNetwork } from '$lib/types/wallet';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 export function contactChainId(network: WalletNetwork): string {
-  return network === 'testnet'
+  return isTestChain(network)
     ? 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq'
     : 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
 }

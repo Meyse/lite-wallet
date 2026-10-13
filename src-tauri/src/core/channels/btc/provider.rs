@@ -295,7 +295,7 @@ impl BtcProviderPool {
     pub fn for_network(&self, network: WalletNetwork) -> &BtcProvider {
         match network {
             WalletNetwork::Mainnet => &self.mainnet,
-            WalletNetwork::Testnet => &self.testnet,
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => &self.testnet,
         }
     }
 }

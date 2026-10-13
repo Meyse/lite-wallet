@@ -234,7 +234,7 @@ impl UpdateEngine {
         coin_registry: &CoinRegistry,
         vrpc_provider_pool: &Arc<VrpcProviderPool>,
     ) -> Vec<WatchedCurrencyRate> {
-        if matches!(network, WalletNetwork::Testnet) {
+        if network.is_test_chain() {
             return Vec::new();
         }
         let now_unix_secs = unix_timestamp_secs();
@@ -1736,7 +1736,7 @@ async fn run_rate_schedule(
         }
     };
     let active_network = access_context.wallet_network;
-    let is_testnet = matches!(active_network, WalletNetwork::Testnet);
+    let is_testnet = active_network.is_test_chain();
     let all_rate_coins = fiat_rate_candidates(coin_registry.as_ref(), is_testnet);
     let rate_coins = prioritized_rate_coins(&all_rate_coins, &[], &priority_coin_ids);
     if rate_coins.is_empty() {
@@ -2051,7 +2051,7 @@ async fn run_balance_schedule(
     };
     let session_vrpc_address = access_context.vrsc_address.clone();
     let active_network = access_context.wallet_network;
-    let is_testnet = matches!(active_network, WalletNetwork::Testnet);
+    let is_testnet = active_network.is_test_chain();
     let mut channels = dedupe_channel_pairs(&active_channels(
         &coin_registry,
         is_testnet,

@@ -74,6 +74,7 @@
   let lastResetSignal = $state(0);
   let privateStatusLoading = $state(true);
   let privateConfigured = $state(false);
+  let privateAvailable = $state(true);
   let privateStatusUnavailable = $state(false);
   let appVersion = $state<string | null>(null);
   let appVersionPending = $state(true);
@@ -90,6 +91,7 @@
   const privateSummary = $derived.by(() => {
     if (privateStatusLoading) return '—';
     if (privateStatusUnavailable) return i18n.t('wallet.settings.home.summary.privateUnavailable');
+    if (!privateAvailable) return i18n.t('wallet.settings.home.summary.privateNotAvailable');
     if (privateConfigured) return i18n.t('wallet.settings.home.summary.privateConfigured');
     return i18n.t('wallet.settings.home.summary.privateNotConfigured');
   });
@@ -104,6 +106,7 @@
     privateStatusUnavailable = false;
     try {
       const status = await withRequestTimeout(walletService.getDlightSeedStatus());
+      privateAvailable = status.available !== false;
       privateConfigured = status.configured;
     } catch {
       privateStatusUnavailable = true;

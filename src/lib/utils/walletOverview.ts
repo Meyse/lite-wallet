@@ -9,6 +9,7 @@ import {
   getRateForCurrency,
   normalizeDisplayCurrency,
 } from '$lib/utils/fiatDisplay.js';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 export const OVERVIEW_UNAVAILABLE_DISPLAY = '—';
 
@@ -241,7 +242,7 @@ function resolvePrimaryCoin(
   const primaryCoinIdFromChannel =
     matchingPrimaryCoinIds.length === 1 ? matchingPrimaryCoinIds[0] : null;
 
-  const defaultPrimaryId = network === 'testnet' ? 'VRSCTEST' : 'VRSC';
+  const defaultPrimaryId = isTestChain(network) ? 'VRSCTEST' : 'VRSC';
 
   return (
     (primaryCoinIdFromChannel
@@ -310,7 +311,7 @@ export function buildWalletOverviewViewModel({
   const activeDisplayCurrency = normalizeDisplayCurrency(displayCurrency);
   const primaryCoin = resolvePrimaryCoin(coins, walletChannels, network);
   const primaryPresentation = primaryCoin ? resolveCoinPresentation(primaryCoin) : null;
-  const fallbackPrimaryTicker = network === 'testnet' ? 'VRSCTEST' : 'VRSC';
+  const fallbackPrimaryTicker = isTestChain(network) ? 'VRSCTEST' : 'VRSC';
   const primaryTicker = primaryPresentation?.displayTicker ?? fallbackPrimaryTicker;
   const primaryBalanceSnapshot = primaryCoin
     ? resolveCoinBalanceSnapshot(primaryCoin, walletChannels, balances, scopeChannelIdsByCoinId)

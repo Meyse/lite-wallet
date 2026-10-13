@@ -1162,12 +1162,16 @@ impl Default for VrpcProvider {
     }
 }
 
-/// Shared mainnet/testnet VRPC providers; select by active wallet network.
+/// Shared VRPC providers for each wallet network; select by active wallet network.
+/// Testnet and private testnet serve the same VRSCTEST system ID from different APIs,
+/// so every lookup is keyed by network first.
 pub struct VrpcProviderPool {
     mainnet: VrpcProvider,
     testnet: VrpcProvider,
+    private_testnet: VrpcProvider,
     mainnet_by_system: HashMap<String, VrpcProvider>,
     testnet_by_system: HashMap<String, VrpcProvider>,
+    private_testnet_by_system: HashMap<String, VrpcProvider>,
 }
 
 impl VrpcProviderPool {
@@ -1179,12 +1183,14 @@ impl VrpcProviderPool {
         match network {
             WalletNetwork::Mainnet => &self.mainnet_by_system,
             WalletNetwork::Testnet => &self.testnet_by_system,
+            WalletNetwork::PrivateTestnet => &self.private_testnet_by_system,
         }
     }
 
     pub fn new() -> Self {
         let vrpc_mainnet = runtime_config::vrpc_mainnet_url();
         let vrpc_testnet = runtime_config::vrpc_testnet_url();
+        let vrpc_private_testnet = runtime_config::vrpc_private_testnet_url();
         let vrpc_varrr_mainnet = runtime_config::vrpc_varrr_mainnet_url();
         let vrpc_vdex_mainnet = runtime_config::vrpc_vdex_mainnet_url();
         let vrpc_chips_mainnet = runtime_config::vrpc_chips_mainnet_url();
@@ -1213,11 +1219,19 @@ impl VrpcProviderPool {
             VrpcProvider::new_with_base_url(&vrpc_testnet),
         );
 
+        let mut private_testnet_by_system = HashMap::<String, VrpcProvider>::new();
+        private_testnet_by_system.insert(
+            Self::normalize_system_id(VRSCTEST_SYSTEM_ID),
+            VrpcProvider::new_with_base_url(&vrpc_private_testnet),
+        );
+
         Self {
             mainnet: VrpcProvider::new_with_base_url(&vrpc_mainnet),
             testnet: VrpcProvider::new_with_base_url(&vrpc_testnet),
+            private_testnet: VrpcProvider::new_with_base_url(&vrpc_private_testnet),
             mainnet_by_system,
             testnet_by_system,
+            private_testnet_by_system,
         }
     }
 
@@ -1226,8 +1240,10 @@ impl VrpcProviderPool {
         Self {
             mainnet: VrpcProvider::new_with_base_url(base_url),
             testnet: VrpcProvider::new_with_base_url(base_url),
+            private_testnet: VrpcProvider::new_with_base_url(base_url),
             mainnet_by_system: HashMap::new(),
             testnet_by_system: HashMap::new(),
+            private_testnet_by_system: HashMap::new(),
         }
     }
 
@@ -1235,29 +1251,19 @@ impl VrpcProviderPool {
         match network {
             WalletNetwork::Mainnet => &self.mainnet,
             WalletNetwork::Testnet => &self.testnet,
+            WalletNetwork::PrivateTestnet => &self.private_testnet,
         }
     }
 
     pub fn for_system(&self, network: WalletNetwork, system_id: &str) -> &VrpcProvider {
-        let normalized = Self::normalize_system_id(system_id);
-        match network {
-            WalletNetwork::Mainnet => self
-                .mainnet_by_system
-                .get(&normalized)
-                .unwrap_or(&self.mainnet),
-            WalletNetwork::Testnet => self
-                .testnet_by_system
-                .get(&normalized)
-                .unwrap_or(&self.testnet),
-        }
+        self.providers_by_system(network)
+            .get(&Self::normalize_system_id(system_id))
+            .unwrap_or_else(|| self.for_network(network))
     }
 
     pub fn has_system_provider(&self, network: WalletNetwork, system_id: &str) -> bool {
-        let normalized = Self::normalize_system_id(system_id);
-        match network {
-            WalletNetwork::Mainnet => self.mainnet_by_system.contains_key(&normalized),
-            WalletNetwork::Testnet => self.testnet_by_system.contains_key(&normalized),
-        }
+        self.providers_by_system(network)
+            .contains_key(&Self::normalize_system_id(system_id))
     }
 
     pub fn configured_systems(&self, network: WalletNetwork) -> Vec<ConfiguredVrpcSystem> {
@@ -1268,7 +1274,7 @@ impl VrpcProviderPool {
                 (VDEX_SYSTEM_ID, "vDEX", "vDEX"),
                 (CHIPS_SYSTEM_ID, "CHIPS", "CHIPS"),
             ],
-            WalletNetwork::Testnet => {
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => {
                 vec![(VRSCTEST_SYSTEM_ID, "VRSCTEST", "Verus Testnet")]
             }
         };
@@ -1326,6 +1332,33 @@ impl Default for VrpcProviderPool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn private_testnet_reads_never_use_the_public_testnet_api() {
+        use super::{VrpcProviderPool, VRSCTEST_SYSTEM_ID};
+        use crate::core::runtime_config;
+        use crate::types::wallet::WalletNetwork;
+
+        let pool = VrpcProviderPool::new();
+        let private_url = runtime_config::vrpc_private_testnet_url();
+        let public_url = runtime_config::vrpc_testnet_url();
+        assert_ne!(private_url, public_url);
+
+        assert_eq!(
+            pool.for_network(WalletNetwork::PrivateTestnet).base_url,
+            private_url
+        );
+        assert_eq!(
+            pool.for_system(WalletNetwork::PrivateTestnet, VRSCTEST_SYSTEM_ID)
+                .base_url,
+            private_url
+        );
+        assert_eq!(
+            pool.for_system(WalletNetwork::Testnet, VRSCTEST_SYSTEM_ID)
+                .base_url,
+            public_url
+        );
+    }
+
     #[test]
     fn funding_skips_outputs_that_an_unconfirmed_transaction_spends() {
         let utxos = serde_json::json!([

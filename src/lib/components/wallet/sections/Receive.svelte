@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onMount } from 'svelte';
   import * as Card from '$lib/components/ui/card';
   import IdentifierText from '$lib/components/common/IdentifierText.svelte';
@@ -30,23 +31,23 @@
   const copied = $derived(copiedState.current);
   const i18n = $derived($i18nStore);
   const vrscLabel = $derived(
-    network === 'testnet'
+    isTestChain(network)
       ? i18n.t('wallet.receive.vrscAddressTestnet')
       : i18n.t('wallet.receive.vrscAddress')
   );
   const btcLabel = $derived(
-    network === 'testnet'
+    isTestChain(network)
       ? i18n.t('wallet.receive.btcAddressTestnet')
       : i18n.t('wallet.receive.btcAddress')
   );
-  const vrscCoinId = $derived(network === 'testnet' ? 'VRSCTEST' : 'VRSC');
-  const btcCoinId = $derived(network === 'testnet' ? 'BTCTEST' : 'BTC');
+  const vrscCoinId = $derived(isTestChain(network) ? 'VRSCTEST' : 'VRSC');
+  const btcCoinId = $derived(isTestChain(network) ? 'BTCTEST' : 'BTC');
   const ethLabel = $derived(
-    network === 'testnet'
+    isTestChain(network)
       ? i18n.t('wallet.receive.ethAddressTestnet')
       : i18n.t('wallet.receive.ethAddress')
   );
-  const ethCoinId = $derived(network === 'testnet' ? 'GETH' : 'ETH');
+  const ethCoinId = $derived(isTestChain(network) ? 'GETH' : 'ETH');
 
   onMount(async () => {
     try {

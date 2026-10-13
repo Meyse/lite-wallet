@@ -3,6 +3,7 @@ import { en } from './locales/en';
 import { de } from './locales/de';
 import { nl } from './locales/nl';
 import { es } from './locales/es';
+import type { WalletNetwork } from '$lib/types/wallet';
 
 export type Locale = 'en' | 'nl' | 'de' | 'es';
 export const SUPPORTED_LOCALES: Locale[] = ['en', 'nl', 'de', 'es'];
@@ -124,6 +125,12 @@ export function initI18n(): void {
   localeStore.set(stored ?? detectLocaleFromNavigator());
 }
 
-export function networkLocaleKey(network?: 'mainnet' | 'testnet'): 'common.network.mainnet' | 'common.network.testnet' {
-  return network === 'testnet' ? 'common.network.testnet' : 'common.network.mainnet';
+const NETWORK_LOCALE_KEYS = {
+  mainnet: 'common.network.mainnet',
+  testnet: 'common.network.testnet',
+  privatetestnet: 'common.network.privatetestnet',
+} as const satisfies Record<WalletNetwork, string>;
+
+export function networkLocaleKey(network?: WalletNetwork): (typeof NETWORK_LOCALE_KEYS)[WalletNetwork] {
+  return NETWORK_LOCALE_KEYS[network ?? 'mainnet'];
 }

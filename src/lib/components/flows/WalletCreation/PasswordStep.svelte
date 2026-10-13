@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
   import { i18nStore } from '$lib/i18n';
@@ -16,7 +17,7 @@
     emoji: string;
     color: string;
     password: string;
-    network: 'mainnet' | 'testnet';
+    network: WalletNetwork;
   };
 
   type PasswordStepProps = {

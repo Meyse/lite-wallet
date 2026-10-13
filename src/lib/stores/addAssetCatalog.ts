@@ -2,6 +2,7 @@ import verusCoinCatalog from '$lib/coins/verusCoinCatalog.generated.json';
 import { resolveCoinPresentation, resolveCoinPresentationById } from '$lib/coins/presentation.js';
 import { isWalletSupportedAsset } from '$lib/coins/supportedAssets.js';
 import type { CoinDefinition, WalletNetwork } from '$lib/types/wallet.js';
+import { isTestChain } from '$lib/utils/walletNetwork';
 
 export type AddAssetProto = CoinDefinition['proto'] | 'fiat';
 export type AddAssetStatus = 'added' | 'available';
@@ -181,7 +182,7 @@ export function buildAddAssetCatalogView({
   query,
   activeCoinIds,
 }: BuildAddAssetCatalogInput): AddAssetCatalogView {
-  const isTestnet = network === 'testnet';
+  const isTestnet = isTestChain(network);
   const activeSet = new Set(
     activeCoinIds.map((coinId) => coinId.trim().toLowerCase()).filter((coinId) => coinId.length > 0)
   );
@@ -267,7 +268,7 @@ export function catalogEntryToCoinDefinition(
   entry: AddAssetEntry,
   network: WalletNetwork
 ): CoinDefinition | null {
-  const isTestnet = network === 'testnet';
+  const isTestnet = isTestChain(network);
 
   if (entry.proto === 'vrsc') {
     return {

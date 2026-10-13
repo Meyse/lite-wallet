@@ -81,6 +81,12 @@ struct WatchedVrpcAddressesSnapshot {
     schema_version: u8,
     mainnet: Vec<String>,
     testnet: Vec<String>,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    private_testnet: Vec<String>,
 }
 
 impl Default for WatchedVrpcAddressesSnapshot {
@@ -89,6 +95,7 @@ impl Default for WatchedVrpcAddressesSnapshot {
             schema_version: WATCHED_VRPC_ADDRESSES_SCHEMA_VERSION,
             mainnet: vec![],
             testnet: vec![],
+            private_testnet: vec![],
         }
     }
 }
@@ -101,6 +108,12 @@ struct WatchlistSnapshot {
     migration_complete: bool,
     mainnet: Vec<WatchlistEntry>,
     testnet: Vec<WatchlistEntry>,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    private_testnet: Vec<WatchlistEntry>,
 }
 
 impl WatchlistSnapshot {
@@ -164,6 +177,8 @@ impl WatchlistSnapshot {
             migration_complete: true,
             mainnet: merge(sources.mainnet, old.mainnet)?,
             testnet: merge(sources.testnet, old.testnet)?,
+            // Legacy sources predate private testnet, so only the encrypted list can hold entries.
+            private_testnet: merge(LegacyWatchlistNetwork::default(), old.private_testnet)?,
         })
     }
 
@@ -171,6 +186,7 @@ impl WatchlistSnapshot {
         match network {
             WalletNetwork::Mainnet => &mut self.mainnet,
             WalletNetwork::Testnet => &mut self.testnet,
+            WalletNetwork::PrivateTestnet => &mut self.private_testnet,
         }
     }
 }
@@ -183,6 +199,12 @@ struct ActiveAssetsNetworkSnapshot {
     profile_version: u8,
     #[serde(default)]
     coin_ids: Vec<String>,
+}
+
+impl ActiveAssetsNetworkSnapshot {
+    fn is_unset(&self) -> bool {
+        !self.initialized && self.profile_version == 0 && self.coin_ids.is_empty()
+    }
 }
 
 impl Default for ActiveAssetsNetworkSnapshot {
@@ -202,6 +224,12 @@ struct ActiveAssetsSnapshot {
     mainnet: ActiveAssetsNetworkSnapshot,
     #[serde(default)]
     testnet: ActiveAssetsNetworkSnapshot,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "ActiveAssetsNetworkSnapshot::is_unset"
+    )]
+    private_testnet: ActiveAssetsNetworkSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +239,12 @@ struct LinkedIdentitiesSnapshot {
     mainnet: Vec<LinkedIdentity>,
     #[serde(default)]
     testnet: Vec<LinkedIdentity>,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    private_testnet: Vec<LinkedIdentity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +254,12 @@ struct ProvisioningJobsSnapshot {
     mainnet: Vec<ProvisioningJobRecord>,
     #[serde(default)]
     testnet: Vec<ProvisioningJobRecord>,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    private_testnet: Vec<ProvisioningJobRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,10 +269,22 @@ struct DlightSeedSnapshot {
     mainnet_metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
     #[serde(default)]
     testnet_metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
+    #[serde(
+        default,
+        rename = "privatetestnet_metadata",
+        skip_serializing_if = "dlight_metadata_is_empty"
+    )]
+    private_testnet_metadata: crate::core::channels::dlight_private::DlightSeedMetadata,
     #[serde(default)]
     mainnet: Option<String>,
     #[serde(default)]
     testnet: Option<String>,
+    #[serde(
+        default,
+        rename = "privatetestnet",
+        skip_serializing_if = "Option::is_none"
+    )]
+    private_testnet: Option<String>,
 }
 
 impl Default for LinkedIdentitiesSnapshot {
@@ -241,6 +293,7 @@ impl Default for LinkedIdentitiesSnapshot {
             schema_version: LINKED_IDENTITIES_SCHEMA_VERSION,
             mainnet: vec![],
             testnet: vec![],
+            private_testnet: vec![],
         }
     }
 }
@@ -251,6 +304,7 @@ impl Default for ProvisioningJobsSnapshot {
             schema_version: PROVISIONING_JOBS_SCHEMA_VERSION,
             mainnet: vec![],
             testnet: vec![],
+            private_testnet: vec![],
         }
     }
 }
@@ -261,8 +315,10 @@ impl Default for DlightSeedSnapshot {
             schema_version: DLIGHT_SEED_SCHEMA_VERSION,
             mainnet_metadata: Default::default(),
             testnet_metadata: Default::default(),
+            private_testnet_metadata: Default::default(),
             mainnet: None,
             testnet: None,
+            private_testnet: None,
         }
     }
 }
@@ -273,6 +329,7 @@ impl Default for ActiveAssetsSnapshot {
             schema_version: ACTIVE_ASSETS_SCHEMA_VERSION,
             mainnet: ActiveAssetsNetworkSnapshot::default(),
             testnet: ActiveAssetsNetworkSnapshot::default(),
+            private_testnet: ActiveAssetsNetworkSnapshot::default(),
         }
     }
 }
@@ -287,17 +344,30 @@ struct LegacyMigrationBundle {
     provisioning_jobs: ProvisioningJobsSnapshot,
 }
 
-fn network_mut<'a, T>(mainnet: &'a mut T, testnet: &'a mut T, network: WalletNetwork) -> &'a mut T {
+fn dlight_metadata_is_empty(
+    metadata: &crate::core::channels::dlight_private::DlightSeedMetadata,
+) -> bool {
+    metadata.birthday.is_none()
+}
+
+fn network_mut<'a, T>(
+    mainnet: &'a mut T,
+    testnet: &'a mut T,
+    private_testnet: &'a mut T,
+    network: WalletNetwork,
+) -> &'a mut T {
     match network {
         WalletNetwork::Mainnet => mainnet,
         WalletNetwork::Testnet => testnet,
+        WalletNetwork::PrivateTestnet => private_testnet,
     }
 }
 
-fn network_value<T>(mainnet: T, testnet: T, network: WalletNetwork) -> T {
+fn network_value<T>(mainnet: T, testnet: T, private_testnet: T, network: WalletNetwork) -> T {
     match network {
         WalletNetwork::Mainnet => mainnet,
         WalletNetwork::Testnet => testnet,
+        WalletNetwork::PrivateTestnet => private_testnet,
     }
 }
 
@@ -402,6 +472,9 @@ impl StrongholdStore {
         let file_name = match network {
             WalletNetwork::Mainnet => "eth_pending_submission.mainnet.snapshot.stronghold",
             WalletNetwork::Testnet => "eth_pending_submission.testnet.snapshot.stronghold",
+            WalletNetwork::PrivateTestnet => {
+                "eth_pending_submission.privatetestnet.snapshot.stronghold"
+            }
         };
         self.isolated_snapshot_path(account_id, file_name)
     }
@@ -894,6 +967,8 @@ impl StrongholdStore {
             schema_version: LINKED_IDENTITIES_SCHEMA_VERSION,
             mainnet,
             testnet,
+            // Legacy snapshots predate private testnet.
+            private_testnet: vec![],
         })
     }
 
@@ -989,6 +1064,8 @@ impl StrongholdStore {
                         coin_ids,
                     }
                 },
+                // Legacy snapshots predate private testnet.
+                private_testnet: ActiveAssetsNetworkSnapshot::default(),
             },
             provisioning_jobs: ProvisioningJobsSnapshot {
                 schema_version: PROVISIONING_JOBS_SCHEMA_VERSION,
@@ -1000,6 +1077,7 @@ impl StrongholdStore {
                     .load_provisioning_jobs(account_id, legacy_hash, WalletNetwork::Testnet)
                     .await
                     .unwrap_or_default(),
+                private_testnet: vec![],
             },
         })
     }
@@ -1825,7 +1903,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_watched_vrpc_addresses_snapshot(account_id, password_hash)
             .await?;
-        Ok(network_value(snapshot.mainnet, snapshot.testnet, network))
+        Ok(network_value(
+            snapshot.mainnet,
+            snapshot.testnet,
+            snapshot.private_testnet,
+            network,
+        ))
     }
 
     #[cfg(test)]
@@ -1840,7 +1923,12 @@ impl StrongholdStore {
         let mut snapshot = self
             .load_watched_vrpc_addresses_snapshot(account_id, password_hash)
             .await?;
-        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = addresses.to_vec();
+        *network_mut(
+            &mut snapshot.mainnet,
+            &mut snapshot.testnet,
+            &mut snapshot.private_testnet,
+            network,
+        ) = addresses.to_vec();
         self.store_json_snapshot_to_path(
             account_id,
             password_hash,
@@ -1860,7 +1948,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_active_assets_snapshot(account_id, password_hash)
             .await?;
-        let network_snapshot = network_value(snapshot.mainnet, snapshot.testnet, network);
+        let network_snapshot = network_value(
+            snapshot.mainnet,
+            snapshot.testnet,
+            snapshot.private_testnet,
+            network,
+        );
         Ok((
             network_snapshot.initialized,
             network_snapshot.coin_ids,
@@ -1882,7 +1975,12 @@ impl StrongholdStore {
             .load_active_assets_snapshot(account_id, password_hash)
             .await?;
         snapshot.schema_version = ACTIVE_ASSETS_SCHEMA_VERSION;
-        let network_snapshot = network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network);
+        let network_snapshot = network_mut(
+            &mut snapshot.mainnet,
+            &mut snapshot.testnet,
+            &mut snapshot.private_testnet,
+            network,
+        );
         network_snapshot.initialized = initialized;
         network_snapshot.profile_version = profile_version;
         network_snapshot.coin_ids = coin_ids.to_vec();
@@ -1905,7 +2003,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_linked_identities_snapshot(account_id, password_hash)
             .await?;
-        let records = network_value(snapshot.mainnet, snapshot.testnet, network);
+        let records = network_value(
+            snapshot.mainnet,
+            snapshot.testnet,
+            snapshot.private_testnet,
+            network,
+        );
         Ok(Self::sanitize_linked_identities(&records))
     }
 
@@ -1958,7 +2061,12 @@ impl StrongholdStore {
             };
 
             snapshot.schema_version = LINKED_IDENTITIES_SCHEMA_VERSION;
-            *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = sanitized;
+            *network_mut(
+                &mut snapshot.mainnet,
+                &mut snapshot.testnet,
+                &mut snapshot.private_testnet,
+                network,
+            ) = sanitized;
             let payload = serde_json::to_vec(&snapshot).map_err(|error| {
                 println!(
                     "[AUTH] Serialize linked identities snapshot failed: {}",
@@ -1997,7 +2105,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_dlight_seed_snapshot(account_id, password_hash)
             .await?;
-        let seed = network_value(snapshot.mainnet, snapshot.testnet, network);
+        let seed = network_value(
+            snapshot.mainnet,
+            snapshot.testnet,
+            snapshot.private_testnet,
+            network,
+        );
 
         Ok(seed
             .map(|value| value.trim().to_string())
@@ -2022,6 +2135,9 @@ impl StrongholdStore {
         let (seed, metadata) = match network {
             WalletNetwork::Mainnet => (snapshot.mainnet, snapshot.mainnet_metadata),
             WalletNetwork::Testnet => (snapshot.testnet, snapshot.testnet_metadata),
+            WalletNetwork::PrivateTestnet => {
+                (snapshot.private_testnet, snapshot.private_testnet_metadata)
+            }
         };
         seed.filter(|seed| !seed.trim().is_empty())
             .map(|seed| {
@@ -2067,10 +2183,16 @@ impl StrongholdStore {
         let normalized_seed = seed
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = normalized_seed;
+        *network_mut(
+            &mut snapshot.mainnet,
+            &mut snapshot.testnet,
+            &mut snapshot.private_testnet,
+            network,
+        ) = normalized_seed;
         *network_mut(
             &mut snapshot.mainnet_metadata,
             &mut snapshot.testnet_metadata,
+            &mut snapshot.private_testnet_metadata,
             network,
         ) = metadata;
         self.store_json_snapshot_to_path(
@@ -2092,7 +2214,12 @@ impl StrongholdStore {
         let snapshot = self
             .load_provisioning_jobs_snapshot(account_id, password_hash)
             .await?;
-        Ok(network_value(snapshot.mainnet, snapshot.testnet, network))
+        Ok(network_value(
+            snapshot.mainnet,
+            snapshot.testnet,
+            snapshot.private_testnet,
+            network,
+        ))
     }
 
     pub async fn store_provisioning_jobs(
@@ -2107,7 +2234,12 @@ impl StrongholdStore {
             .load_provisioning_jobs_snapshot(account_id, password_hash)
             .await?;
         snapshot.schema_version = PROVISIONING_JOBS_SCHEMA_VERSION;
-        *network_mut(&mut snapshot.mainnet, &mut snapshot.testnet, network) = jobs.to_vec();
+        *network_mut(
+            &mut snapshot.mainnet,
+            &mut snapshot.testnet,
+            &mut snapshot.private_testnet,
+            network,
+        ) = jobs.to_vec();
         self.store_json_snapshot_to_path(
             account_id,
             password_hash,
@@ -2121,7 +2253,7 @@ impl StrongholdStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{StrongholdStore, ACTIVE_ASSETS_PROFILE_VERSION};
+    use super::{StrongholdStore, WatchlistSnapshot, ACTIVE_ASSETS_PROFILE_VERSION};
     use crate::core::auth::kdf::{CURRENT_KEY_DERIVATION_VERSION, LEGACY_KEY_DERIVATION_VERSION};
     use crate::core::wallet::{AccountStateStore, WalletManager};
     use crate::types::generic_request::ProvisioningJobRecord;
@@ -2129,6 +2261,32 @@ mod tests {
     use crate::types::wallet::{AccountRecord, WalletNetwork, WalletSecretKind};
     use crate::types::{WalletError, WatchlistEntry, WatchlistTargetKind};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn watchlist_snapshot_of_a_testnet_wallet_keeps_the_format_older_builds_read() {
+        // Older builds reject unknown fields in this record.
+        let old_format = serde_json::json!({
+            "schema_version": 1,
+            "revision": 3,
+            "migration_complete": true,
+            "mainnet": [],
+            "testnet": [{
+                "id": "entry",
+                "targetKind": "address",
+                "displayName": "Test",
+                "address": "RTestAddress",
+                "systemId": null,
+                "createdAt": 1,
+                "updatedAt": 1
+            }]
+        });
+        let mut snapshot: WatchlistSnapshot =
+            serde_json::from_value(old_format.clone()).expect("older format loads");
+        assert!(snapshot
+            .entries_mut(WalletNetwork::PrivateTestnet)
+            .is_empty());
+        assert_eq!(serde_json::to_value(&snapshot).unwrap(), old_format);
+    }
 
     #[tokio::test]
     async fn contacts_atomic_updates_preserve_concurrent_records_and_fail_closed() {

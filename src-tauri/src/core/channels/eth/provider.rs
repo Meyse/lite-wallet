@@ -14,6 +14,9 @@ use crate::types::WalletError;
 
 #[derive(Debug, Clone)]
 pub struct EthNetworkProvider {
+    /// Testnet and private testnet share Sepolia but use different bridge delegators,
+    /// so each provider records the wallet network it serves.
+    pub wallet_network: WalletNetwork,
     pub chain_id: u64,
     pub rpc_provider: Provider<Http>,
     pub history_provider: EtherscanHistoryClient,
@@ -40,6 +43,7 @@ impl EthNetworkProvider {
 pub struct EthProviderPool {
     mainnet: Option<EthNetworkProvider>,
     testnet: Option<EthNetworkProvider>,
+    private_testnet: Option<EthNetworkProvider>,
     disabled_reason: Option<String>,
 }
 
@@ -51,6 +55,7 @@ impl EthProviderPool {
                 return Self {
                     mainnet: None,
                     testnet: None,
+                    private_testnet: None,
                     disabled_reason: Some(
                         "Missing INFURA_PROJECT_ID or ETHERSCAN_API_KEY environment variables"
                             .to_string(),
@@ -65,6 +70,7 @@ impl EthProviderPool {
                 return Self {
                     mainnet: None,
                     testnet: None,
+                    private_testnet: None,
                     disabled_reason: Some(format!("Invalid ETH mainnet RPC URL: {}", err)),
                 }
             }
@@ -76,6 +82,7 @@ impl EthProviderPool {
                 return Self {
                     mainnet: None,
                     testnet: None,
+                    private_testnet: None,
                     disabled_reason: Some(format!("Invalid ETH testnet RPC URL: {}", err)),
                 }
             }
@@ -87,17 +94,24 @@ impl EthProviderPool {
             cfg.etherscan_testnet_url,
         );
 
+        let testnet = EthNetworkProvider {
+            wallet_network: WalletNetwork::Testnet,
+            chain_id: ETHEREUM_SEPOLIA_CHAIN_ID,
+            rpc_provider: testnet_rpc,
+            history_provider: history_client.clone(),
+        };
         Self {
             mainnet: Some(EthNetworkProvider {
+                wallet_network: WalletNetwork::Mainnet,
                 chain_id: ETHEREUM_MAINNET_CHAIN_ID,
                 rpc_provider: mainnet_rpc,
-                history_provider: history_client.clone(),
-            }),
-            testnet: Some(EthNetworkProvider {
-                chain_id: ETHEREUM_SEPOLIA_CHAIN_ID,
-                rpc_provider: testnet_rpc,
                 history_provider: history_client,
             }),
+            private_testnet: Some(EthNetworkProvider {
+                wallet_network: WalletNetwork::PrivateTestnet,
+                ..testnet.clone()
+            }),
+            testnet: Some(testnet),
             disabled_reason: None,
         }
     }
@@ -108,9 +122,10 @@ impl EthProviderPool {
             .expect("valid test Ethereum RPC URL")
             .interval(Duration::from_millis(1));
         let network_provider = EthNetworkProvider {
+            wallet_network: network,
             chain_id: match network {
                 WalletNetwork::Mainnet => ETHEREUM_MAINNET_CHAIN_ID,
-                WalletNetwork::Testnet => ETHEREUM_SEPOLIA_CHAIN_ID,
+                WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => ETHEREUM_SEPOLIA_CHAIN_ID,
             },
             rpc_provider: provider,
             history_provider: EtherscanHistoryClient::new(
@@ -119,18 +134,18 @@ impl EthProviderPool {
                 String::new(),
             ),
         };
+        let mut pool = Self {
+            mainnet: None,
+            testnet: None,
+            private_testnet: None,
+            disabled_reason: None,
+        };
         match network {
-            WalletNetwork::Mainnet => Self {
-                mainnet: Some(network_provider),
-                testnet: None,
-                disabled_reason: None,
-            },
-            WalletNetwork::Testnet => Self {
-                mainnet: None,
-                testnet: Some(network_provider),
-                disabled_reason: None,
-            },
+            WalletNetwork::Mainnet => pool.mainnet = Some(network_provider),
+            WalletNetwork::Testnet => pool.testnet = Some(network_provider),
+            WalletNetwork::PrivateTestnet => pool.private_testnet = Some(network_provider),
         }
+        pool
     }
 
     #[cfg(test)]
@@ -138,13 +153,16 @@ impl EthProviderPool {
         Self {
             mainnet: None,
             testnet: None,
+            private_testnet: None,
             disabled_reason: Some("disabled for test".to_string()),
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         #[cfg(test)]
-        if self.disabled_reason.is_none() && (self.mainnet.is_some() || self.testnet.is_some()) {
+        if self.disabled_reason.is_none()
+            && (self.mainnet.is_some() || self.testnet.is_some() || self.private_testnet.is_some())
+        {
             return true;
         }
         self.mainnet.is_some() && self.testnet.is_some()
@@ -162,6 +180,10 @@ impl EthProviderPool {
         match network {
             WalletNetwork::Mainnet => self.mainnet.as_ref().ok_or(WalletError::EthNotConfigured),
             WalletNetwork::Testnet => self.testnet.as_ref().ok_or(WalletError::EthNotConfigured),
+            WalletNetwork::PrivateTestnet => self
+                .private_testnet
+                .as_ref()
+                .ok_or(WalletError::EthNotConfigured),
         }
     }
 }
@@ -286,7 +308,7 @@ impl EtherscanHistoryClient {
     ) -> Result<Vec<EtherscanTxRecord>, WalletError> {
         let url = match network {
             WalletNetwork::Mainnet => &self.mainnet_url,
-            WalletNetwork::Testnet => &self.testnet_url,
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => &self.testnet_url,
         };
 
         let query = self.build_history_query(network, action, address, contract_address);
@@ -321,7 +343,7 @@ impl EtherscanHistoryClient {
     ) -> Result<Vec<EtherscanTxRecord>, WalletError> {
         let url = match network {
             WalletNetwork::Mainnet => &self.mainnet_url,
-            WalletNetwork::Testnet => &self.testnet_url,
+            WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => &self.testnet_url,
         };
 
         let query =

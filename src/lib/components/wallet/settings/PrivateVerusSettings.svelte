@@ -16,10 +16,11 @@
   import { Button } from '$lib/components/ui/button';
   import { Label } from '$lib/components/ui/label';
   import { Textarea } from '$lib/components/ui/textarea';
-  import { i18nStore } from '$lib/i18n';
+  import { i18nStore, networkLocaleKey } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService';
   import type {
     DlightSeedSetupMode,
+    DlightSeedStatusResult,
     SetupDlightSeedResult,
     WalletNetwork,
   } from '$lib/types/wallet';
@@ -43,13 +44,13 @@
     $props();
 
   const i18n = $derived($i18nStore);
-  const networkLabel = $derived(
-    i18n.t(walletNetwork === 'testnet' ? 'common.network.testnet' : 'common.network.mainnet')
-  );
+  const networkLabel = $derived(i18n.t(networkLocaleKey(walletNetwork)));
   const addressCopyFeedback = new TimedValueState<'copied' | 'failed'>();
   const backupCopyFeedback = new TimedValueState<'copied' | 'failed'>();
 
-  let statusState = $state<'loading' | 'configured' | 'unconfigured' | 'error'>('loading');
+  let statusState = $state<'loading' | 'unavailable' | 'configured' | 'unconfigured' | 'error'>(
+    'loading'
+  );
   let shieldedAddress = $state('');
   let setupError = $state('');
   let activationMessage = $state('');
@@ -79,6 +80,13 @@
     backupCopyFeedback.clear();
   }
 
+  function statusStateFor(
+    status: DlightSeedStatusResult
+  ): 'unavailable' | 'configured' | 'unconfigured' {
+    if (status.available === false) return 'unavailable';
+    return status.configured ? 'configured' : 'unconfigured';
+  }
+
   async function loadStatus(): Promise<void> {
     const generation = ++statusGeneration;
     statusState = 'loading';
@@ -86,7 +94,7 @@
     try {
       const status = await walletService.getDlightSeedStatus();
       if (disposed || generation !== statusGeneration) return;
-      statusState = status.configured ? 'configured' : 'unconfigured';
+      statusState = statusStateFor(status);
       shieldedAddress = status.shieldedAddress ?? '';
     } catch {
       if (disposed || generation !== statusGeneration) return;
@@ -111,7 +119,7 @@
     try {
       const status = await walletService.getDlightSeedStatus();
       if (disposed || generation !== statusGeneration) return;
-      statusState = status.configured ? 'configured' : 'unconfigured';
+      statusState = statusStateFor(status);
       shieldedAddress = status.shieldedAddress ?? '';
     } catch {
       if (disposed || generation !== statusGeneration) return;
@@ -308,6 +316,15 @@
       <div class="mt-5 rounded-lg bg-settings-surface p-4">
         <p class="text-[13px] leading-5 text-settings-muted-foreground">
           {i18n.t('common.loading')}
+        </p>
+      </div>
+    {:else if statusState === 'unavailable'}
+      <div class="mt-5 rounded-lg bg-settings-surface p-4">
+        <p class="text-sm leading-5 font-medium">
+          {i18n.t('wallet.settings.privateVerus.notAvailableTitle')}
+        </p>
+        <p class="mt-1 text-[13px] leading-5 text-settings-muted-foreground">
+          {i18n.t('wallet.settings.privateVerus.notAvailableBody')}
         </p>
       </div>
     {:else if statusState === 'error'}

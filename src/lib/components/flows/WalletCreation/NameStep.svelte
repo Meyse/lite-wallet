@@ -6,6 +6,7 @@
 -->
 
 <script lang="ts">
+  import type { WalletNetwork } from '$lib/types/wallet';
   import { i18nStore } from '$lib/i18n';
   import { Input } from '$lib/components/ui/input';
   import { getWalletColor, WALLET_COLOR_OPTIONS } from '$lib/constants/walletColors';
@@ -16,7 +17,7 @@
     emoji: string;
     color: string;
     password: string;
-    network: 'mainnet' | 'testnet';
+    network: WalletNetwork;
   };
 
   // Props

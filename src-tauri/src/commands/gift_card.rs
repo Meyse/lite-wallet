@@ -16,7 +16,7 @@ use tauri::State;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::commands::generic_request::{private_account_key, wallet_network_to_crypto_network};
+use crate::commands::generic_request::private_account_key;
 use crate::commands::identity::{parse_discovery_candidates, parse_getidentity_payload};
 use crate::core::auth::{capture_active_wallet_access_context, SessionManager};
 use crate::core::channels::vrpc::claim::{
@@ -28,7 +28,7 @@ use crate::core::channels::vrpc::identity::preflight::{IdentityPreflightPayload,
 use crate::core::channels::vrpc::{sat_to_decimal_string, VrpcProvider, VrpcProviderPool};
 use crate::core::channels::PreflightRecord;
 use crate::core::crypto::{
-    derive_private_scalar_from_material, derive_public_profile_from_private_bytes,
+    derive_private_scalar_from_material, derive_public_profile_from_private_bytes, Network,
 };
 use crate::core::generic_request::acceptance::Rejection;
 use crate::core::generic_request::details::DetailKind;
@@ -36,7 +36,7 @@ use crate::core::generic_request::gift_card::parse_spendable_key;
 use crate::core::generic_request::names;
 use crate::core::generic_request::store::{GenericRequestStore, GiftCardClaim, OpenRequest};
 use crate::core::PreflightStore;
-use crate::types::wallet::{WalletNetwork, WalletSecretKind};
+use crate::types::wallet::WalletSecretKind;
 use crate::types::{
     GiftCardClaimPreflight, GiftCardClaimResult, GiftCardCurrency, GiftCardIdentity,
     GiftCardReview, WalletError,
@@ -153,10 +153,10 @@ pub async fn review_gift_card(
     let card = open_spendable_key(&open)?;
     let mnemonic = card.mnemonic(password.as_deref())?;
     let private_key = derive_private_scalar_from_material(&mnemonic, WalletSecretKind::SeedText)?;
-    let network = wallet_network_to_crypto_network(context.wallet_network);
+    let network = Network::from(context.wallet_network);
     let claim_address = derive_public_profile_from_private_bytes(&private_key, network)?.address;
 
-    let system_id = names::root_system_id(matches!(context.wallet_network, WalletNetwork::Testnet));
+    let system_id = names::root_system_id(context.wallet_network.is_test_chain());
     let provider = vrpc_provider_pool.for_system(context.wallet_network, system_id);
     let outputs = scan_outputs(provider, &claim_address, system_id).await?;
     let identities = scan_identities(provider, &claim_address).await?;
@@ -209,7 +209,7 @@ pub async fn preflight_gift_card_claim(
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let open = request_store.get(&context.session_id, &request_hex)?;
     let claim = open.claim.clone().ok_or(WalletError::InvalidPreflight)?;
-    let system_id = names::root_system_id(matches!(context.wallet_network, WalletNetwork::Testnet));
+    let system_id = names::root_system_id(context.wallet_network.is_test_chain());
     let provider = vrpc_provider_pool.for_system(context.wallet_network, system_id);
 
     let identities = scan_identities(provider, &claim.address).await?;
@@ -329,7 +329,7 @@ pub async fn send_gift_card_claim(
     let context = capture_active_wallet_access_context(session_manager.inner()).await?;
     let open = request_store.get(&context.session_id, &request_hex)?;
     let mut claim = open.claim.clone().ok_or(WalletError::InvalidPreflight)?;
-    let system_id = names::root_system_id(matches!(context.wallet_network, WalletNetwork::Testnet));
+    let system_id = names::root_system_id(context.wallet_network.is_test_chain());
     let provider = vrpc_provider_pool.for_system(context.wallet_network, system_id);
 
     if claim.signed.is_empty() {

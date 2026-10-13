@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onDestroy } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -115,11 +116,11 @@
   });
 
   function systemIdForNetwork(selectedNetwork: WalletNetwork): string {
-    return selectedNetwork === 'testnet' ? TESTNET_SYSTEM_ID : MAINNET_SYSTEM_ID;
+    return isTestChain(selectedNetwork) ? TESTNET_SYSTEM_ID : MAINNET_SYSTEM_ID;
   }
 
   function coinIdForNetwork(selectedNetwork: WalletNetwork): string {
-    return selectedNetwork === 'testnet' ? 'VRSCTEST' : 'VRSC';
+    return isTestChain(selectedNetwork) ? 'VRSCTEST' : 'VRSC';
   }
 
   function buildChannelId(selectedNetwork: WalletNetwork, fromAddress: string): string {

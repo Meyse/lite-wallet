@@ -21,10 +21,7 @@ pub fn resolve_paths(
     account_hash: &str,
     coin_id: &str,
 ) -> PathBuf {
-    let network_key = match network {
-        WalletNetwork::Mainnet => "mainnet",
-        WalletNetwork::Testnet => "testnet",
-    };
+    let network_key = network.storage_key();
 
     app_data_dir
         .join("dlight")

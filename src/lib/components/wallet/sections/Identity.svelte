@@ -4,6 +4,8 @@
 -->
 
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
+  import type { WalletNetwork } from '$lib/types/wallet';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import StarIcon from '@lucide/svelte/icons/star';
@@ -70,7 +72,7 @@
     onReturnToWatchlist,
     onSend = noopIdentity,
   }: {
-    walletNetwork?: 'mainnet' | 'testnet';
+    walletNetwork?: WalletNetwork;
     sessionState?: IdentitySectionSessionState;
     onSessionStateChange?: (nextState: IdentitySectionSessionState) => void;
     navigationDisabled?: boolean;
@@ -1202,5 +1204,5 @@
 <LinkIdentitySheet
   bind:isOpen={linkSheetOpen}
   onLinkedChange={applyLinkedIdentities}
-  allowManualLinkEntry={walletNetwork === 'testnet'}
+  allowManualLinkEntry={isTestChain(walletNetwork)}
 />

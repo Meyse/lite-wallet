@@ -86,7 +86,7 @@ pub struct BtcInputRef {
 fn expected_btc_network(network: WalletNetwork) -> BtcNetwork {
     match network {
         WalletNetwork::Mainnet => BtcNetwork::Bitcoin,
-        WalletNetwork::Testnet => BtcNetwork::Testnet,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => BtcNetwork::Testnet,
     }
 }
 
@@ -103,7 +103,7 @@ fn validate_btc_source_address(
     }
     let expected_version = match network {
         WalletNetwork::Mainnet => 0x00u8,
-        WalletNetwork::Testnet => 0x6Fu8,
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => 0x6Fu8,
     };
     let decoded = bs58::decode(trimmed)
         .with_check(None)

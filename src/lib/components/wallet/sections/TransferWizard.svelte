@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onMount, tick, untrack } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
@@ -1785,7 +1786,7 @@
     const intent = recipientIntent;
     if (!intent) return;
 
-    const expectedChainId = walletNetwork === 'testnet' ? VRSCTEST_SYSTEM_ID : VRSC_SYSTEM_ID;
+    const expectedChainId = isTestChain(walletNetwork) ? VRSCTEST_SYSTEM_ID : VRSC_SYSTEM_ID;
     const ready =
       entryIntent === 'send' &&
       !recipientIntentCancelled &&

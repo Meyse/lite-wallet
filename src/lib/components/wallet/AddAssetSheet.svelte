@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTestChain } from '$lib/utils/walletNetwork';
   import { onDestroy, onMount, tick } from 'svelte';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -225,22 +226,22 @@
   } {
     if (entry.proto === 'eth' || entry.proto === 'erc20') {
       return {
-        systemId: network === 'testnet' ? 'GETH' : 'ETH',
-        systemTicker: network === 'testnet' ? 'Sepolia' : 'ETH',
-        systemDisplayName: network === 'testnet' ? 'Sepolia' : 'Ethereum',
+        systemId: isTestChain(network) ? 'GETH' : 'ETH',
+        systemTicker: isTestChain(network) ? 'Sepolia' : 'ETH',
+        systemDisplayName: isTestChain(network) ? 'Sepolia' : 'Ethereum',
       };
     }
     if (entry.proto === 'btc') {
       return {
-        systemId: network === 'testnet' ? 'BTCTEST' : 'BTC',
-        systemTicker: network === 'testnet' ? 'Bitcoin Testnet' : 'BTC',
-        systemDisplayName: network === 'testnet' ? 'Bitcoin Testnet' : 'Bitcoin',
+        systemId: isTestChain(network) ? 'BTCTEST' : 'BTC',
+        systemTicker: isTestChain(network) ? 'Bitcoin Testnet' : 'BTC',
+        systemDisplayName: isTestChain(network) ? 'Bitcoin Testnet' : 'Bitcoin',
       };
     }
     return {
       systemId: entry.systemId,
-      systemTicker: network === 'testnet' ? 'VRSCTEST' : 'VRSC',
-      systemDisplayName: network === 'testnet' ? 'Verus Testnet' : 'Verus',
+      systemTicker: isTestChain(network) ? 'VRSCTEST' : 'VRSC',
+      systemDisplayName: isTestChain(network) ? 'Verus Testnet' : 'Verus',
     };
   }
 

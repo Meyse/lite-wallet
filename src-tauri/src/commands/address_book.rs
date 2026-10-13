@@ -21,7 +21,9 @@ use crate::types::{
 pub(crate) fn contact_chain_id(network: WalletNetwork) -> &'static str {
     match network {
         WalletNetwork::Mainnet => "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV",
-        WalletNetwork::Testnet => "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq",
+        WalletNetwork::Testnet | WalletNetwork::PrivateTestnet => {
+            "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq"
+        }
     }
 }
 

@@ -17,7 +17,7 @@
   import { Button } from '$lib/components/ui/button';
   import { CopyButton } from '$lib/components/ui/copy-button';
   import * as ScrollArea from '$lib/components/ui/scroll-area';
-  import { i18nStore } from '$lib/i18n';
+  import { i18nStore, networkLocaleKey } from '$lib/i18n';
   import * as walletService from '$lib/services/walletService';
   import type {
     DlightRecoverySecretKind,
@@ -67,9 +67,7 @@
 
   const copyFeedback = new TimedRecordState<'copied' | 'failed'>();
   const copyStatusById = $derived(copyFeedback.values);
-  const networkLabel = $derived(
-    i18n.t(walletNetwork === 'testnet' ? 'common.network.testnet' : 'common.network.mainnet')
-  );
+  const networkLabel = $derived(i18n.t(networkLocaleKey(walletNetwork)));
 
   const primaryEntries = $derived<RecoveryEntry[]>(
     secrets
