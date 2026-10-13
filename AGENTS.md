@@ -38,7 +38,8 @@ Use this file as a table of contents, not as an encyclopedia.
 
 ## Disposable testnet automation
 
-- For the user-designated disposable `mijn app` wallet, use the
+- For the user-designated disposable `mijn app` (testnet) and, on this branch,
+  `Private testnet` (private testnet) wallets, use the
   [Keychain helper runbook](docs/references/test-wallet-keychain.md).
 - Never request or print its password in chat, arguments, environment variables,
   logs, or screenshots. Use the native setup dialog and guarded helper commands.

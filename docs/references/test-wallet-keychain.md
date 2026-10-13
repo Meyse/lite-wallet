@@ -5,9 +5,21 @@ last_reviewed: 2026-09-08
 
 # Test wallet Keychain helper
 
-macOS-only developer tooling for the explicitly disposable **mijn app** testnet
-wallet. It uses the app's normal password unlock flow; it does not alter wallet
-security or expose recovery material.
+macOS-only developer tooling for two explicitly disposable test wallets. It uses
+the app's normal password unlock flow; it does not alter wallet security or
+expose recovery material.
+
+| Wallet key        | Wallet name     | Network          |
+| ----------------- | --------------- | ---------------- |
+| `mijn-app`        | mijn app        | `testnet`        |
+| `private-testnet` | Private testnet | `privatetestnet` |
+
+Every command takes an optional wallet key as its second argument. Without it,
+the helper uses `mijn-app`. Each wallet has its own Keychain item and binding,
+and is refused unless its metadata names exactly its own network. Mainnet is
+never supported. The `private-testnet` wallet exists only on branch
+`private-testnet`; run that branch's own build, because the binding names this
+checkout's executable.
 
 ## Setup
 
@@ -15,6 +27,7 @@ From this checkout, run:
 
 ```sh
 ./scripts/test-wallet-keychain.sh setup
+./scripts/test-wallet-keychain.sh setup private-testnet
 ```
 
 Enter the **existing wallet password in the native masked dialog**, then save.
@@ -23,16 +36,17 @@ or the clipboard. Setup stores the password; it does not prove it is correct.
 The password must be unique to this disposable wallet.
 
 The helper uses the local login Keychain, service
-`com.maxtheyse.verus-express.test-automation`, account `mijn app`. The item is
-bound to the wallet's actual testnet account ID and this checkout's development
-executable path. Recreating the wallet or moving to another checkout requires
+`com.maxtheyse.verus-express.test-automation`, with the wallet name as the
+account. The item is bound to the wallet's actual account ID and this checkout's
+development executable path. Recreating the wallet or moving to another checkout requires
 explicit removal and setup again. Setup can replace the password for an unchanged
 binding.
 
 ## Repeat testing
 
 Start the wallet normally with the repository-pinned `pnpm tauri dev`. Select
-**mijn app**, close drawers/dialogs, and leave the password hidden.
+the test wallet, close drawers/dialogs, and leave the password hidden. Add the
+wallet key to each command for `private-testnet`.
 
 ```sh
 ./scripts/test-wallet-keychain.sh status

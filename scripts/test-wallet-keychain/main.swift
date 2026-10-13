@@ -2,8 +2,14 @@ import AppKit
 import ApplicationServices
 import Security
 
-// Developer-only automation for one explicitly disposable wallet. Never log input values.
-let fixtureName = "mijn app"
+// Developer-only automation for explicitly disposable test wallets. Never log input values.
+// Only the wallets below are supported, each on one test network. Mainnet is never listed.
+struct FixtureSpec: Equatable { let key: String; let name: String; let network: String }
+let fixtureSpecs = [
+    FixtureSpec(key: "mijn-app", name: "mijn app", network: "testnet"),
+    FixtureSpec(key: "private-testnet", name: "Private testnet", network: "privatetestnet"),
+]
+let testNetworks: Set<String> = ["testnet", "privatetestnet"]
 let service = "com.maxtheyse.verus-express.test-automation"
 struct Failure: Error { let message: String }
 func require(_ ok: Bool, _ message: String) throws { if !ok { throw Failure(message: message) } }
@@ -19,23 +25,25 @@ func bindingData(_ binding: Binding) throws -> Data {
 }
 struct Fixture {
     let repo: URL
+    let spec: FixtureSpec
     var executable: URL { repo.appendingPathComponent("src-tauri/target/debug/verus_express").resolvingSymlinksInPath() }
     var metadataURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
-            "Library/Application Support/com.maxtheyse.verus-express/wallet_data/\(fixtureName)_metadata.json")
+            "Library/Application Support/com.maxtheyse.verus-express/wallet_data/\(spec.name)_metadata.json")
     }
     func metadata() throws -> Metadata {
         let data: Data
         do { data = try Data(contentsOf: metadataURL) } catch { throw Failure(message: "The named wallet metadata is unavailable.") }
         let result: Metadata
         do { result = try JSONDecoder().decode(Metadata.self, from: data) } catch { throw Failure(message: "Wallet metadata is invalid or has no explicit network.") }
-        try validateMetadata(result)
+        try validateMetadata(result, spec)
         return result
     }
     func binding() throws -> Binding { Binding(accountID: try metadata().id, executable: executable.path) }
 }
-func validateMetadata(_ metadata: Metadata) throws {
-    try require(metadata.network == "testnet", "Refusing a wallet that is not explicitly testnet.")
+func validateMetadata(_ metadata: Metadata, _ spec: FixtureSpec) throws {
+    try require(testNetworks.contains(spec.network) && metadata.network == spec.network,
+                "Refusing a wallet that is not explicitly on \(spec.network).")
     try require(UUID(uuidString: metadata.id) != nil, "Wallet account ID is invalid.")
 }
 func loginKeychain() throws -> SecKeychain {
@@ -45,13 +53,13 @@ func loginKeychain() throws -> SecKeychain {
     guard let result = keychain else { throw Failure(message: "Login Keychain is unavailable.") }
     return result
 }
-func itemQuery(_ keychain: SecKeychain) -> [String: Any] {
+func itemQuery(_ keychain: SecKeychain, _ spec: FixtureSpec) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
-     kSecAttrService as String: service, kSecAttrAccount as String: fixtureName,
+     kSecAttrService as String: service, kSecAttrAccount as String: spec.name,
      kSecMatchSearchList as String: [keychain]]
 }
-func storedBinding(_ keychain: SecKeychain) throws -> Binding? {
-    var query = itemQuery(keychain)
+func storedBinding(_ keychain: SecKeychain, _ spec: FixtureSpec) throws -> Binding? {
+    var query = itemQuery(keychain, spec)
     query[kSecReturnAttributes as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
@@ -64,12 +72,12 @@ func storedBinding(_ keychain: SecKeychain) throws -> Binding? {
     }
     return binding
 }
-func passwordPrompt() throws -> Data {
+func passwordPrompt(_ spec: FixtureSpec) throws -> Data {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let alert = NSAlert()
     alert.messageText = "Save test wallet password"
-    alert.informativeText = "Enter the existing password for ‘mijn app’ (disposable testnet wallet). It will be stored in your login Keychain for local testing."
+    alert.informativeText = "Enter the existing password for ‘\(spec.name)’ (disposable \(spec.network) wallet). It will be stored in your login Keychain for local testing."
     alert.addButton(withTitle: "Save in Keychain")
     alert.addButton(withTitle: "Cancel")
     let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 26))
@@ -84,18 +92,18 @@ func passwordPrompt() throws -> Data {
 }
 func save(_ keychain: SecKeychain, _ fixture: Fixture) throws {
     let binding = try fixture.binding()
-    if let old = try storedBinding(keychain) {
+    if let old = try storedBinding(keychain, fixture.spec) {
         try require(old == binding, "Credential belongs to a different account or checkout. Remove it explicitly before setup.")
     }
-    var secret = try passwordPrompt()
+    var secret = try passwordPrompt(fixture.spec)
     defer { secret.resetBytes(in: 0..<secret.count) }
     try require(try fixture.binding() == binding, "Wallet changed during entry; nothing saved.")
     let attrs: [String: Any] = [kSecValueData as String: secret,
         kSecAttrGeneric as String: try bindingData(binding),
-        kSecAttrLabel as String: "Verus Express — mijn app — disposable testnet automation"]
-    if let currentBinding = try storedBinding(keychain) {
+        kSecAttrLabel as String: "Verus Express — \(fixture.spec.name) — disposable \(fixture.spec.network) automation"]
+    if let currentBinding = try storedBinding(keychain, fixture.spec) {
         try require(currentBinding == binding, "Credential binding changed during entry; nothing saved.")
-        var updateQuery = itemQuery(keychain)
+        var updateQuery = itemQuery(keychain, fixture.spec)
         updateQuery[kSecAttrGeneric as String] = try bindingData(binding)
         try keychainCheck(SecItemUpdate(updateQuery as CFDictionary, attrs as CFDictionary))
     } else {
@@ -109,16 +117,16 @@ func save(_ keychain: SecKeychain, _ fixture: Fixture) throws {
         var query = attrs
         query[kSecClass as String] = kSecClassGenericPassword
         query[kSecAttrService as String] = service
-        query[kSecAttrAccount as String] = fixtureName
+        query[kSecAttrAccount as String] = fixture.spec.name
         query[kSecUseKeychain as String] = keychain
         query[kSecAttrAccess as String] = access
         try keychainCheck(SecItemAdd(query as CFDictionary, nil))
     }
-    print("Saved the dedicated testnet credential in login Keychain. Password correctness is not yet verified.")
+    print("Saved the dedicated \(fixture.spec.network) credential in login Keychain. Password correctness is not yet verified.")
 }
-func readSecret(_ keychain: SecKeychain, _ binding: Binding) throws -> Data {
-    try require(try storedBinding(keychain) == binding, "No matching credential. Run setup first.")
-    var query = itemQuery(keychain)
+func readSecret(_ keychain: SecKeychain, _ spec: FixtureSpec, _ binding: Binding) throws -> Data {
+    try require(try storedBinding(keychain, spec) == binding, "No matching credential. Run setup first.")
+    var query = itemQuery(keychain, spec)
     query[kSecAttrGeneric as String] = try bindingData(binding)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -137,21 +145,21 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
     guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success else { return [] }
     return value as? [AXUIElement] ?? []
 }
-func isFixtureWalletSelectorLabel(_ label: String) -> Bool {
+func isFixtureWalletSelectorLabel(_ label: String, _ name: String) -> Bool {
     return [
-        "Switch wallet, current wallet: \(fixtureName)",
-        "Wallet wisselen, huidige wallet: \(fixtureName)",
+        "Switch wallet, current wallet: \(name)",
+        "Wallet wisselen, huidige wallet: \(name)",
     ].contains(label)
 }
 struct ScreenFacts {
     var names = 0; var secureFields = 0; var inputs = 0; var webAreas = 0; var windows = 0
     var modal = false; var truncated = false; var fieldSettable = false
 }
-func validateScreen(_ facts: ScreenFacts) throws {
+func validateScreen(_ facts: ScreenFacts, _ spec: FixtureSpec) throws {
     try require(!facts.truncated && !facts.modal && facts.windows == 1 && facts.webAreas == 1,
                 "Refusing an ambiguous wallet window or an open dialog (windows: \(facts.windows), web areas: \(facts.webAreas), modal: \(facts.modal), truncated: \(facts.truncated)).")
     try require(facts.names == 1 && facts.secureFields == 1 && facts.inputs == 1 && facts.fieldSettable,
-                "Select ‘mijn app’ on the normal unlock screen with the password hidden, then retry.")
+                "Select ‘\(spec.name)’ on the normal unlock screen with the password hidden, then retry.")
 }
 struct Target {
     let app: NSRunningApplication; let field: AXUIElement; let root: AXUIElement
@@ -172,14 +180,15 @@ func target(_ fixture: Fixture) throws -> Target {
         if role == "AXWindow" { facts.windows += 1 }
         if role == "AXWebArea" { facts.webAreas += 1 }
         if role == "AXSheet" || role == "AXDialog" || stringAttribute(element, kAXSubroleAttribute) == "AXDialog" { facts.modal = true }
-        if role == "AXStaticText", stringAttribute(element, kAXValueAttribute) == fixtureName {
+        if role == "AXStaticText", stringAttribute(element, kAXValueAttribute) == fixture.spec.name {
             facts.names += 1
         } else if role == "AXPopUpButton" {
             // WebKit may expose the button's visible contents as one accessible label.
             // Match only the exact localized label for the designated fixture wallet.
             let title = stringAttribute(element, kAXTitleAttribute)
             let description = stringAttribute(element, kAXDescriptionAttribute)
-            if isFixtureWalletSelectorLabel(title) || isFixtureWalletSelectorLabel(description) {
+            if isFixtureWalletSelectorLabel(title, fixture.spec.name)
+                || isFixtureWalletSelectorLabel(description, fixture.spec.name) {
                 facts.names += 1
             }
         }
@@ -196,7 +205,7 @@ func target(_ fixture: Fixture) throws -> Target {
         for child in children(element) { visit(child, depth: depth + 1) }
     }
     visit(root, depth: 0)
-    try validateScreen(facts)
+    try validateScreen(facts, fixture.spec)
     guard let field else { throw Failure(message: "Secure unlock field is unavailable.") }
     return Target(app: app, field: field, root: root)
 }
@@ -277,7 +286,7 @@ func unlockButton(_ root: AXUIElement) throws -> AXUIElement {
 func fill(_ keychain: SecKeychain, _ fixture: Fixture, submit: Bool) throws {
     let binding = try fixture.binding()
     let initial = try target(fixture)
-    var secret = try readSecret(keychain, binding)
+    var secret = try readSecret(keychain, fixture.spec, binding)
     defer { secret.resetBytes(in: 0..<secret.count) }
     // Keychain permission dialogs may have appeared. Revalidate after retrieval.
     try require(try fixture.binding() == binding, "Wallet changed during credential retrieval.")
@@ -314,7 +323,7 @@ func fill(_ keychain: SecKeychain, _ fixture: Fixture, submit: Bool) throws {
             let current = try fixture.metadata()
             try require(current.id == binding.accountID, "Wallet account changed while unlocking.")
             if let stamp = current.last_unlocked_at, stamp != previous {
-                print("Unlock confirmed by the testnet wallet's updated success timestamp.")
+                print("Unlock confirmed by the \(fixture.spec.network) wallet's updated success timestamp.")
                 return
             }
         }
@@ -331,27 +340,44 @@ func fill(_ keychain: SecKeychain, _ fixture: Fixture, submit: Bool) throws {
 }
 func selfTest() throws {
     let id = "11111111-1111-4111-8111-111111111111"
-    try validateMetadata(Metadata(id: id, network: "testnet", last_unlocked_at: nil))
+    let testnet = fixtureSpecs[0], privateTestnet = fixtureSpecs[1]
+    try validateMetadata(Metadata(id: id, network: "testnet", last_unlocked_at: nil), testnet)
+    try validateMetadata(Metadata(id: id, network: "privatetestnet", last_unlocked_at: nil), privateTestnet)
     var rejected = 0
-    for metadata in [Metadata(id: id, network: "mainnet", last_unlocked_at: nil), Metadata(id: "", network: "testnet", last_unlocked_at: nil)] {
-        do { try validateMetadata(metadata) } catch { rejected += 1 }
+    for (metadata, spec) in [
+        (Metadata(id: id, network: "mainnet", last_unlocked_at: nil), testnet),
+        (Metadata(id: "", network: "testnet", last_unlocked_at: nil), testnet),
+        // Each wallet stays on its own test network.
+        (Metadata(id: id, network: "privatetestnet", last_unlocked_at: nil), testnet),
+        (Metadata(id: id, network: "testnet", last_unlocked_at: nil), privateTestnet),
+        (Metadata(id: id, network: "mainnet", last_unlocked_at: nil), privateTestnet),
+        // A wallet listed on a network outside the test networks is refused.
+        (Metadata(id: id, network: "mainnet", last_unlocked_at: nil),
+         FixtureSpec(key: "mainnet", name: "mainnet", network: "mainnet")),
+    ] {
+        do { try validateMetadata(metadata, spec) } catch { rejected += 1 }
     }
+    try require(fixtureSpecs.allSatisfy { testNetworks.contains($0.network) }, "Only test networks may be listed.")
     let valid = ScreenFacts(names: 1, secureFields: 1, inputs: 1, webAreas: 1, windows: 1, modal: false, truncated: false, fieldSettable: true)
-    try validateScreen(valid)
+    try validateScreen(valid, testnet)
     for variant in 0..<9 {
         var facts = valid
         switch variant { case 0: facts.names = 0; case 1: facts.names = 2; case 2: facts.secureFields = 0
         case 3: facts.inputs = 2; case 4: facts.modal = true; case 5: facts.truncated = true
         case 6: facts.fieldSettable = false; case 7: facts.windows = 2; default: facts.webAreas = 2 }
-        do { try validateScreen(facts) } catch { rejected += 1 }
+        do { try validateScreen(facts, testnet) } catch { rejected += 1 }
     }
-    try require(rejected == 11, "Guard regression test failed.")
-    try require(isFixtureWalletSelectorLabel("Switch wallet, current wallet: \(fixtureName)"),
-                "English wallet selector label must be accepted.")
-    try require(isFixtureWalletSelectorLabel("Wallet wisselen, huidige wallet: \(fixtureName)"),
-                "Dutch wallet selector label must be accepted.")
-    try require(!isFixtureWalletSelectorLabel("Switch wallet, current wallet: other"),
+    try require(rejected == 15, "Guard regression test failed.")
+    for spec in fixtureSpecs {
+        try require(isFixtureWalletSelectorLabel("Switch wallet, current wallet: \(spec.name)", spec.name),
+                    "English wallet selector label must be accepted.")
+        try require(isFixtureWalletSelectorLabel("Wallet wisselen, huidige wallet: \(spec.name)", spec.name),
+                    "Dutch wallet selector label must be accepted.")
+    }
+    try require(!isFixtureWalletSelectorLabel("Switch wallet, current wallet: other", testnet.name),
                 "Another wallet selector must be rejected.")
+    try require(!isFixtureWalletSelectorLabel("Switch wallet, current wallet: \(privateTestnet.name)", testnet.name),
+                "The other test wallet's selector must be rejected.")
     let dummy = "test-only 🔑 é漢字 quotes'\"$`"
     try require(String(data: Data(dummy.utf8), encoding: .utf8) == dummy, "UTF-8 round-trip failed.")
     try require(dummy.unicodeScalars.map(String.init).joined() == dummy, "Unicode event chunks must preserve the full password.")
@@ -361,28 +387,31 @@ func selfTest() throws {
     try require(isUnlockLabel("Unlock") && isUnlockLabel("Ontgrendel"), "Configured unlock labels must match.")
     try require(!isUnlockLabel("Unlocking…") && !isUnlockLabel("Ontgrendelen…") && !isUnlockLabel("Ontgrendelen"), "Loading and incorrect labels must not match.")
     try require(nextSubmitDelay(previous: 100, now: 100.5) > 0.5 && nextSubmitDelay(previous: 100, now: 101) == 0 && nextSubmitDelay(previous: nil, now: 100) == 0, "Rapid re-unlock timing guard failed.")
-    print("Passed metadata guards, 9 unsafe screen cases, bindings, Unicode, locale labels, and rapid re-unlock timing. No Keychain or UI access used.")
+    print("Passed metadata guards for \(fixtureSpecs.count) test wallets, 9 unsafe screen cases, bindings, Unicode, locale labels, and rapid re-unlock timing. No Keychain or UI access used.")
 }
 let args = Array(CommandLine.arguments.dropFirst())
 do {
-    try require(args.count == 2, "Usage: scripts/test-wallet-keychain.sh setup|status|preflight|fill|unlock|remove|self-test")
+    try require(args.count == 3, "Usage: scripts/test-wallet-keychain.sh setup|status|preflight|fill|unlock|remove|self-test [mijn-app|private-testnet]")
     let command = args[0]
-    let fixture = Fixture(repo: URL(fileURLWithPath: args[1]).resolvingSymlinksInPath())
+    guard let spec = fixtureSpecs.first(where: { $0.key == args[2] }) else {
+        throw Failure(message: "Unknown test wallet. Use mijn-app or private-testnet.")
+    }
+    let fixture = Fixture(repo: URL(fileURLWithPath: args[1]).resolvingSymlinksInPath(), spec: spec)
     switch command {
     case "self-test": try selfTest()
-    case "preflight": _ = try fixture.binding(); _ = try target(fixture); print("Ready: named testnet wallet, exact development executable, and guarded secure field verified. No Keychain access.")
+    case "preflight": _ = try fixture.binding(); _ = try target(fixture); print("Ready: named \(spec.network) wallet, exact development executable, and guarded secure field verified. No Keychain access.")
     case "setup": try save(loginKeychain(), fixture)
     case "status":
         let binding = try fixture.binding()
-        if let stored = try storedBinding(loginKeychain()) {
+        if let stored = try storedBinding(loginKeychain(), spec) {
             try require(stored == binding, "Stored credential does not match this account and checkout.")
-            print("Dedicated credential is present and matches this testnet account and checkout. Password was not retrieved.")
+            print("Dedicated credential is present and matches this \(spec.network) account and checkout. Password was not retrieved.")
         } else { print("No dedicated credential saved. Run setup.") }
     case "fill", "unlock": try fill(loginKeychain(), fixture, submit: command == "unlock")
     case "remove":
-        let status = SecItemDelete(itemQuery(try loginKeychain()) as CFDictionary)
+        let status = SecItemDelete(itemQuery(try loginKeychain(), spec) as CFDictionary)
         if status != errSecItemNotFound { try keychainCheck(status) }
-        print("Dedicated ‘mijn app’ testing credential removed (or already absent). Wallet unchanged.")
+        print("Dedicated ‘\(spec.name)’ testing credential removed (or already absent). Wallet unchanged.")
     default: throw Failure(message: "Unknown command. Use setup, status, preflight, fill, unlock, remove, or self-test.")
     }
 } catch let error as Failure {
